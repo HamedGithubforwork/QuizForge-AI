@@ -21,6 +21,7 @@ export type HistoryPracticeFocus = {
   pages: number[]
   questionType: HistoryQuestionType
   avoidQuestions: string[]
+  baselinePercent: number
 }
 
 type QuizHistoryProps = {
@@ -68,6 +69,7 @@ type DocumentWeakness = {
   pages: number[]
   avoidQuestions: string[]
   missedQuestions: number
+  baselinePercent: number
 }
 
 type CurrentDocumentSummary = {
@@ -606,6 +608,26 @@ function QuizHistory({
           short_answer: 0,
         }
 
+      const typeTotals:
+        Record<
+          HistoryQuestionType,
+          number
+        > = {
+          multiple_choice: 0,
+          true_false: 0,
+          short_answer: 0,
+        }
+
+      const typeCorrect:
+        Record<
+          HistoryQuestionType,
+          number
+        > = {
+          multiple_choice: 0,
+          true_false: 0,
+          short_answer: 0,
+        }
+
       const pageMisses =
         new Map<number, number>()
 
@@ -645,12 +667,20 @@ function QuizHistory({
                   )
                 ]
 
+              typeTotals[
+                question.question_type
+              ] += 1
+
               if (
                 isQuestionCorrect(
                   question,
                   answer,
                 )
               ) {
+                typeCorrect[
+                  question.question_type
+                ] += 1
+
                 return
               }
 
@@ -701,6 +731,20 @@ function QuizHistory({
           (a, b) =>
             b[1] - a[1],
         )[0]
+
+      const baselinePercent =
+        typeTotals[questionType] > 0
+          ? Math.round(
+              (
+                typeCorrect[
+                  questionType
+                ] /
+                typeTotals[
+                  questionType
+                ]
+              ) * 100,
+            )
+          : 0
 
       const rankedPageMisses =
         Array.from(
@@ -759,6 +803,7 @@ function QuizHistory({
               avoidQuestions,
             ).slice(0, 20),
           missedQuestions,
+          baselinePercent,
         },
       }
     }, [history, currentFilename])
@@ -806,6 +851,8 @@ function QuizHistory({
           weakness.questionType,
         avoidQuestions:
           weakness.avoidQuestions,
+        baselinePercent:
+          weakness.baselinePercent,
       })
     } finally {
       setIsHistoryPracticeGenerating(

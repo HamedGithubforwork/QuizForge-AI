@@ -11,7 +11,7 @@ import QuizHistory, {
 } from './QuizHistory.tsx'
 import {
   saveQuizHistory,
-} from './lib/quizHistory.ts'
+} from './lib/quizHistory'
 
 type PageResult = {
   page_number: number
@@ -62,6 +62,15 @@ type GeneratedSettings = {
 }
 
 type PracticeFocus = {
+  pages: number[]
+  questionType: QuestionType
+}
+
+type MasteryContext = {
+  baselinePercent: number
+  source:
+    | 'current_quiz'
+    | 'history'
   pages: number[]
   questionType: QuestionType
 }
@@ -177,6 +186,14 @@ function App() {
     setPracticeFocus,
   ] =
     useState<PracticeFocus | null>(
+      null,
+    )
+
+  const [
+    masteryContext,
+    setMasteryContext,
+  ] =
+    useState<MasteryContext | null>(
       null,
     )
 
@@ -430,6 +447,7 @@ function App() {
   function resetPracticeMode() {
     setPracticeMode(false)
     setPracticeFocus(null)
+    setMasteryContext(null)
   }
 
   function handleQuestionTypeChange(
@@ -1029,6 +1047,28 @@ function App() {
             .question,
       )
 
+    const baselineScore =
+      quiz.questions.filter(
+        (
+          question,
+          index,
+        ) =>
+          isQuestionCorrect(
+            question,
+            selectedAnswers[index],
+          ),
+      ).length
+
+    const baselinePercent =
+      quiz.questions.length > 0
+        ? Math.round(
+            (
+              baselineScore /
+              quiz.questions.length
+            ) * 100,
+          )
+        : 0
+
     const practiceDifficulty =
       generatedSettings
         ?.difficulty ??
@@ -1136,6 +1176,15 @@ function App() {
       setPracticeMode(true)
 
       setPracticeFocus({
+        pages: weakPages,
+        questionType:
+          weakQuestionType,
+      })
+
+      setMasteryContext({
+        baselinePercent,
+        source:
+          'current_quiz',
         pages: weakPages,
         questionType:
           weakQuestionType,
@@ -1291,6 +1340,15 @@ function App() {
       setPracticeMode(true)
 
       setPracticeFocus({
+        pages: focus.pages,
+        questionType:
+          focus.questionType,
+      })
+
+      setMasteryContext({
+        baselinePercent:
+          focus.baselinePercent,
+        source: 'history',
         pages: focus.pages,
         questionType:
           focus.questionType,
@@ -1510,6 +1568,30 @@ function App() {
           ) * 100,
         )
       : 0
+
+  const masteryDelta =
+    masteryContext
+      ? percentage -
+        masteryContext.baselinePercent
+      : 0
+
+  function getMasteryMessage(
+    delta: number,
+  ) {
+    if (delta >= 20) {
+      return 'Strong improvement — your targeted practice is paying off.'
+    }
+
+    if (delta > 0) {
+      return 'You improved on your weak-area baseline.'
+    }
+
+    if (delta === 0) {
+      return 'You matched your baseline. Another focused round can help.'
+    }
+
+    return 'This area still needs practice. Review the explanations and try again.'
+  }
 
   const multipleChoiceScore =
     getTypeScore(
@@ -2646,6 +2728,102 @@ function App() {
                         </div>
                       )}
                     </div>
+
+                    {practiceMode &&
+                      masteryContext && (
+                        <div className="mastery-progress-card">
+                          <div className="mastery-progress-heading">
+                            <div>
+                              <span className="eyebrow">
+                                Mastery progress
+                              </span>
+
+                              <h3>
+                                Weak-area improvement
+                              </h3>
+                            </div>
+
+                            <strong
+                              className={
+                                `mastery-delta ${
+                                  masteryDelta > 0
+                                    ? 'mastery-delta-positive'
+                                    : masteryDelta < 0
+                                      ? 'mastery-delta-negative'
+                                      : ''
+                                }`
+                              }
+                            >
+                              {masteryDelta > 0
+                                ? '+'
+                                : ''}
+                              {masteryDelta}{' '}
+                              pts
+                            </strong>
+                          </div>
+
+                          <div className="mastery-score-grid">
+                            <div>
+                              <span>
+                                Baseline
+                              </span>
+
+                              <strong>
+                                {
+                                  masteryContext.baselinePercent
+                                }
+                                %
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span>
+                                Practice score
+                              </span>
+
+                              <strong>
+                                {percentage}%
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span>
+                                Focus
+                              </span>
+
+                              <strong className="mastery-focus-value">
+                                {getQuestionTypeLabel(
+                                  masteryContext.questionType,
+                                )}
+                              </strong>
+                            </div>
+                          </div>
+
+                          <p className="mastery-progress-message">
+                            {getMasteryMessage(
+                              masteryDelta,
+                            )}
+                          </p>
+
+                          <span className="mastery-progress-source">
+                            Compared with{' '}
+                            {masteryContext.source ===
+                            'history'
+                              ? 'your saved-history performance for this question type'
+                              : 'the quiz that started this practice session'}
+                            {masteryContext.pages.length >
+                              0 && (
+                              <>
+                                {' '}
+                                • Focus pages:{' '}
+                                {masteryContext.pages.join(
+                                  ', ',
+                                )}
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      )}
 
                     <div className="result-actions">
 
