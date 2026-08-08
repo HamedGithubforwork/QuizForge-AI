@@ -92,6 +92,30 @@ function tokenize(value: string) {
     : []
 }
 
+function removeSimplePlural(
+  value: string,
+) {
+  const words = value.split(' ')
+
+  if (words.length === 0) {
+    return value
+  }
+
+  const lastIndex = words.length - 1
+  const lastWord = words[lastIndex]
+
+  if (
+    lastWord.length > 3 &&
+    lastWord.endsWith('s') &&
+    !lastWord.endsWith('ss')
+  ) {
+    words[lastIndex] =
+      lastWord.slice(0, -1)
+  }
+
+  return words.join(' ')
+}
+
 function levenshteinDistance(
   first: string,
   second: string,
@@ -221,12 +245,9 @@ function aliasMatches(
   userAnswer: string,
   alias: string,
 ) {
-  const userTokens = tokenize(userAnswer)
-  const aliasTokens = tokenize(alias)
-
   return sequenceMatches(
-    userTokens,
-    aliasTokens,
+    tokenize(userAnswer),
+    tokenize(alias),
   )
 }
 
@@ -243,6 +264,39 @@ function hasUnexpectedNegation(
     (token) =>
       NEGATION_WORDS.has(token) &&
       !expectedTokens.has(token),
+  )
+}
+
+function legacyAnswerMatches(
+  userAnswer: string,
+  acceptedAnswer: string,
+) {
+  if (userAnswer === acceptedAnswer) {
+    return true
+  }
+
+  if (
+    removeSimplePlural(userAnswer) ===
+    removeSimplePlural(acceptedAnswer)
+  ) {
+    return true
+  }
+
+  const acceptedTokens =
+    acceptedAnswer.split(' ')
+
+  if (acceptedTokens.length !== 1) {
+    return false
+  }
+
+  const token = acceptedTokens[0]
+  const usefulToken =
+    token.length >= 4 ||
+    /^\d+$/.test(token)
+
+  return (
+    usefulToken &&
+    userAnswer.split(' ').includes(token)
   )
 }
 
@@ -266,7 +320,10 @@ function gradeLegacyAnswer(
 
   const correct = acceptedAnswers.some(
     (acceptedAnswer) =>
-      normalizedUser === acceptedAnswer,
+      legacyAnswerMatches(
+        normalizedUser,
+        acceptedAnswer,
+      ),
   )
 
   return {
@@ -295,6 +352,13 @@ function gradeConceptAnswer(
     )
     .filter((group) => group.length > 0)
 
+  if (groups.length === 0) {
+    return gradeLegacyAnswer(
+      question,
+      answer,
+    )
+  }
+
   const requiredGroups = Math.min(
     Math.max(
       1,
@@ -320,14 +384,9 @@ function gradeConceptAnswer(
     matchedGroups >= requiredGroups &&
     !borderline
 
-  let feedback = correct
-    ? `Matched ${matchedGroups} of ${requiredGroups} required concepts.`
+  const feedback = borderline
+    ? 'The answer contains negation, so its meaning is ambiguous for automatic grading.'
     : `Matched ${matchedGroups} of ${requiredGroups} required concepts.`
-
-  if (borderline) {
-    feedback =
-      'The answer contains negation, so it could not be graded confidently as correct.'
-  }
 
   return {
     correct,
@@ -443,13 +502,6 @@ export function gradeShortAnswer(
 
   if (grading.grading_mode === 'exact') {
     return gradeExactAnswer(
-      question,
-      answer,
-    )
-  }
-
-  if (grading.answer_groups.length === 0) {
-    return gradeLegacyAnswer(
       question,
       answer,
     )
