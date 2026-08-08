@@ -1,0 +1,343 @@
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 30px 18px;
+
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(98, 89, 255, 0.16),
+      transparent 34rem
+    ),
+    #f5f7fb;
+}
+
+.auth-card {
+  width: min(460px, 100%);
+  padding: 34px;
+
+  border: 1px solid #e2e5ed;
+  border-radius: 22px;
+
+  background: white;
+
+  box-shadow:
+    0 22px 60px
+    rgba(35, 43, 74, 0.1);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+
+  gap: 15px;
+
+  margin-bottom: 28px;
+}
+
+.auth-logo {
+  display: grid;
+
+  width: 54px;
+  height: 54px;
+
+  flex-shrink: 0;
+
+  place-items: center;
+
+  border-radius: 15px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #695cff,
+      #8d63ff
+    );
+
+  color: white;
+
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.auth-brand h1 {
+  margin: 0 0 4px;
+
+  color: #171c2f;
+}
+
+.auth-brand p {
+  margin: 0;
+
+  color: #737a8e;
+
+  font-size: 13px;
+}
+
+.auth-tabs {
+  display: grid;
+
+  grid-template-columns:
+    1fr 1fr;
+
+  gap: 5px;
+
+  margin-bottom: 25px;
+  padding: 5px;
+
+  border-radius: 12px;
+
+  background: #f1f2f7;
+}
+
+.auth-tab {
+  padding: 10px;
+
+  border: 0;
+  border-radius: 9px;
+
+  background: transparent;
+
+  color: #777e91;
+
+  cursor: pointer;
+
+  font-weight: 700;
+}
+
+.auth-tab.active {
+  background: white;
+
+  color: #5549d5;
+
+  box-shadow:
+    0 3px 10px
+    rgba(38, 45, 70, 0.09);
+}
+
+.auth-heading {
+  margin-bottom: 22px;
+}
+
+.auth-heading h2 {
+  margin: 0 0 6px;
+
+  color: #1e2435;
+}
+
+.auth-heading p {
+  margin: 0;
+
+  color: #777e91;
+
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 17px;
+}
+
+.auth-form label {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 7px;
+}
+
+.auth-form label span {
+  color: #555d70;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-form input {
+  width: 100%;
+
+  padding: 13px 14px;
+
+  border: 1px solid #d8dce7;
+  border-radius: 11px;
+
+  outline: none;
+
+  background: #fbfcfe;
+}
+
+.auth-form input:focus {
+  border-color: #7166eb;
+
+  background: white;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(113, 102, 235, 0.12);
+}
+
+.auth-submit {
+  min-height: 46px;
+
+  border: 0;
+  border-radius: 11px;
+
+  background: #6257e7;
+
+  color: white;
+
+  cursor: pointer;
+
+  font-weight: 800;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: #5549dc;
+}
+
+.auth-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.auth-error,
+.auth-message {
+  padding: 12px 13px;
+
+  border-radius: 10px;
+
+  font-size: 13px;
+}
+
+.auth-error {
+  border: 1px solid #efc5c5;
+
+  background: #fff2f2;
+
+  color: #a83b3b;
+}
+
+.auth-message {
+  border: 1px solid #bfe1cc;
+
+  background: #effaf3;
+
+  color: #247847;
+}
+
+.auth-switch {
+  margin: 22px 0 0;
+
+  color: #777e91;
+
+  text-align: center;
+
+  font-size: 13px;
+}
+
+.auth-switch button {
+  border: 0;
+
+  background: transparent;
+
+  color: #5a4fd5;
+
+  cursor: pointer;
+
+  font-weight: 800;
+}
+
+.loading-card {
+  display: flex;
+
+  align-items: center;
+  flex-direction: column;
+
+  gap: 18px;
+}
+
+.auth-spinner {
+  width: 28px;
+  height: 28px;
+
+  border: 4px solid
+    rgba(98, 87, 231, 0.18);
+
+  border-top-color: #6257e7;
+
+  border-radius: 50%;
+
+  animation:
+    auth-spin 0.8s linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.account-bar {
+  padding:
+    14px
+    20px
+    0;
+}
+
+.account-bar-inner {
+  display: flex;
+
+  width: min(960px, 100%);
+
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 14px;
+
+  margin: 0 auto;
+}
+
+.account-info {
+  display: flex;
+
+  align-items: center;
+
+  gap: 7px;
+
+  color: #737a8e;
+
+  font-size: 12px;
+}
+
+.account-info strong {
+  color: #444b5d;
+}
+
+.account-dot {
+  width: 8px;
+  height: 8px;
+
+  border-radius: 50%;
+
+  background: #37a763;
+}
+
+.sign-out-button {
+  padding: 7px 11px;
+
+  border: 1px solid #dbdee8;
+  border-radius: 8px;
+
+  background: white;
+
+  color: #5c6375;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 700;
+}
