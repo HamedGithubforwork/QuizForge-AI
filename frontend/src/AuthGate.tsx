@@ -136,6 +136,20 @@ function AuthGate() {
 
         setPassword('')
 
+        const identities =
+          data.user?.identities ?? []
+
+        if (
+          data.user &&
+          !data.session &&
+          identities.length === 0
+        ) {
+          setMessage(
+            'An account may already exist with this email. Try logging in instead.',
+          )
+          return
+        }
+
         if (data.session) {
           setMessage(
             'Account created successfully.',
