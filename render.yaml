@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: quizforge-ai-api
+    runtime: python
+    plan: free
+    region: ohio
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: QUIZ_RATE_LIMIT
+        value: "10"
+      - key: QUIZ_RATE_WINDOW_SECONDS
+        value: "600"
