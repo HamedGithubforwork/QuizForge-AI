@@ -10,7 +10,10 @@ import App from './App'
 import './AuthGate.css'
 import { supabase } from './lib/supabase'
 
-type AuthMode = 'login' | 'signup'
+type AuthMode =
+  | 'login'
+  | 'signup'
+  | 'forgot'
 
 function AuthGate() {
   const [session, setSession] =
@@ -27,6 +30,15 @@ function AuthGate() {
 
   const [password, setPassword] =
     useState('')
+
+  const [newPassword, setNewPassword] =
+    useState('')
+
+  const [confirmPassword, setConfirmPassword] =
+    useState('')
+
+  const [resettingPassword, setResettingPassword] =
+    useState(false)
 
   const [submitting, setSubmitting] =
     useState(false)
@@ -58,8 +70,16 @@ function AuthGate() {
       data: { subscription },
     } =
       supabase.auth.onAuthStateChange(
-        (_event, nextSession) => {
+        (event, nextSession) => {
           setSession(nextSession)
+
+          if (event === 'PASSWORD_RECOVERY') {
+            setResettingPassword(true)
+            setMode('login')
+            setError('')
+            setMessage('')
+          }
+
           setLoading(false)
         },
       )
@@ -93,6 +113,40 @@ function AuthGate() {
       setError(
         'Enter your email address.',
       )
+      return
+    }
+
+    if (mode === 'forgot') {
+      setSubmitting(true)
+
+      try {
+        const { error } =
+          await supabase.auth
+            .resetPasswordForEmail(
+              cleanEmail,
+              {
+                redirectTo:
+                  window.location.origin,
+              },
+            )
+
+        if (error) {
+          throw error
+        }
+
+        setMessage(
+          'If an account exists for this email, a password reset link has been sent.',
+        )
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to send the password reset email.',
+        )
+      } finally {
+        setSubmitting(false)
+      }
+
       return
     }
 
@@ -172,6 +226,61 @@ function AuthGate() {
     }
   }
 
+  async function handlePasswordReset(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault()
+
+    setError('')
+    setMessage('')
+
+    if (newPassword.length < 8) {
+      setError(
+        'Password must contain at least 8 characters.',
+      )
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError(
+        'The passwords do not match.',
+      )
+      return
+    }
+
+    setSubmitting(true)
+
+    try {
+      const { error } =
+        await supabase.auth.updateUser({
+          password: newPassword,
+        })
+
+      if (error) {
+        throw error
+      }
+
+      setNewPassword('')
+      setConfirmPassword('')
+      setResettingPassword(false)
+      setMode('login')
+
+      await supabase.auth.signOut()
+
+      setMessage(
+        'Password updated successfully. Log in with your new password.',
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update your password.',
+      )
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function handleSignOut() {
     setError('')
     setMessage('')
@@ -202,7 +311,7 @@ function AuthGate() {
     )
   }
 
-  if (!session) {
+  if (resettingPassword) {
     return (
       <main className="auth-page">
         <section className="auth-card">
@@ -224,47 +333,147 @@ function AuthGate() {
             </div>
           </div>
 
-          <div className="auth-tabs">
-            <button
-              type="button"
-              className={
-                mode === 'login'
-                  ? 'auth-tab active'
-                  : 'auth-tab'
-              }
-              onClick={() =>
-                changeMode('login')
-              }
-            >
-              Log In
-            </button>
+          <div className="auth-heading">
+            <h2>
+              Set a new password
+            </h2>
+
+            <p>
+              Choose a new password for your account.
+            </p>
+          </div>
+
+          <form
+            className="auth-form"
+            onSubmit={handlePasswordReset}
+          >
+            <label>
+              <span>New password</span>
+
+              <input
+                type="password"
+                value={newPassword}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                disabled={submitting}
+                onChange={(event) =>
+                  setNewPassword(
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>Confirm new password</span>
+
+              <input
+                type="password"
+                value={confirmPassword}
+                autoComplete="new-password"
+                placeholder="Enter it again"
+                disabled={submitting}
+                onChange={(event) =>
+                  setConfirmPassword(
+                    event.target.value,
+                  )
+                }
+              />
+            </label>
+
+            {error && (
+              <div className="auth-error">
+                {error}
+              </div>
+            )}
 
             <button
-              type="button"
-              className={
-                mode === 'signup'
-                  ? 'auth-tab active'
-                  : 'auth-tab'
-              }
-              onClick={() =>
-                changeMode('signup')
-              }
+              className="auth-submit"
+              type="submit"
+              disabled={submitting}
             >
-              Create Account
+              {submitting
+                ? 'Updating password...'
+                : 'Update Password'}
             </button>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
+  if (!session) {
+    const isForgotMode =
+      mode === 'forgot'
+
+    return (
+      <main className="auth-page">
+        <section className="auth-card">
+          <div className="auth-brand">
+            <div className="auth-logo">
+              QF
+            </div>
+
+            <div>
+              <h1>
+                QuizForge AI
+              </h1>
+
+              <p>
+                AI-generated practice
+                quizzes from your study
+                material.
+              </p>
+            </div>
           </div>
+
+          {!isForgotMode && (
+            <div className="auth-tabs">
+              <button
+                type="button"
+                className={
+                  mode === 'login'
+                    ? 'auth-tab active'
+                    : 'auth-tab'
+                }
+                onClick={() =>
+                  changeMode('login')
+                }
+              >
+                Log In
+              </button>
+
+              <button
+                type="button"
+                className={
+                  mode === 'signup'
+                    ? 'auth-tab active'
+                    : 'auth-tab'
+                }
+                onClick={() =>
+                  changeMode('signup')
+                }
+              >
+                Create Account
+              </button>
+            </div>
+          )}
 
           <div className="auth-heading">
             <h2>
               {mode === 'login'
                 ? 'Welcome back'
-                : 'Create your account'}
+                : mode === 'signup'
+                  ? 'Create your account'
+                  : 'Reset your password'}
             </h2>
 
             <p>
               {mode === 'login'
                 ? 'Log in to continue to QuizForge.'
-                : 'Create an account to start using QuizForge.'}
+                : mode === 'signup'
+                  ? 'Create an account to start using QuizForge.'
+                  : 'Enter your email and we will send you a password reset link.'}
             </p>
           </div>
 
@@ -289,30 +498,45 @@ function AuthGate() {
               />
             </label>
 
-            <label>
-              <span>Password</span>
+            {!isForgotMode && (
+              <label>
+                <span>Password</span>
 
-              <input
-                type="password"
-                value={password}
-                autoComplete={
-                  mode === 'signup'
-                    ? 'new-password'
-                    : 'current-password'
-                }
-                placeholder={
-                  mode === 'signup'
-                    ? 'At least 8 characters'
-                    : 'Enter your password'
-                }
-                disabled={submitting}
-                onChange={(event) =>
-                  setPassword(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
+                <input
+                  type="password"
+                  value={password}
+                  autoComplete={
+                    mode === 'signup'
+                      ? 'new-password'
+                      : 'current-password'
+                  }
+                  placeholder={
+                    mode === 'signup'
+                      ? 'At least 8 characters'
+                      : 'Enter your password'
+                  }
+                  disabled={submitting}
+                  onChange={(event) =>
+                    setPassword(
+                      event.target.value,
+                    )
+                  }
+                />
+              </label>
+            )}
+
+            {mode === 'login' && (
+              <div className="auth-forgot">
+                <button
+                  type="button"
+                  onClick={() =>
+                    changeMode('forgot')
+                  }
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
 
             {error && (
               <div className="auth-error">
@@ -334,35 +558,56 @@ function AuthGate() {
               {submitting
                 ? mode === 'login'
                   ? 'Logging in...'
-                  : 'Creating account...'
+                  : mode === 'signup'
+                    ? 'Creating account...'
+                    : 'Sending reset link...'
                 : mode === 'login'
                   ? 'Log In'
-                  : 'Create Account'}
+                  : mode === 'signup'
+                    ? 'Create Account'
+                    : 'Send Reset Link'}
             </button>
           </form>
 
-          <p className="auth-switch">
-            {mode === 'login'
-              ? "Don't have an account?"
-              : 'Already have an account?'}
+          {isForgotMode ? (
+            <p className="auth-switch">
+              Remember your password?
 
-            {' '}
+              {' '}
 
-            <button
-              type="button"
-              onClick={() =>
-                changeMode(
-                  mode === 'login'
-                    ? 'signup'
-                    : 'login',
-                )
-              }
-            >
+              <button
+                type="button"
+                onClick={() =>
+                  changeMode('login')
+                }
+              >
+                Back to log in
+              </button>
+            </p>
+          ) : (
+            <p className="auth-switch">
               {mode === 'login'
-                ? 'Create one'
-                : 'Log in'}
-            </button>
-          </p>
+                ? "Don't have an account?"
+                : 'Already have an account?'}
+
+              {' '}
+
+              <button
+                type="button"
+                onClick={() =>
+                  changeMode(
+                    mode === 'login'
+                      ? 'signup'
+                      : 'login',
+                  )
+                }
+              >
+                {mode === 'login'
+                  ? 'Create one'
+                  : 'Log in'}
+              </button>
+            </p>
+          )}
         </section>
       </main>
     )
