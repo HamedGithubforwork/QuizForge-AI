@@ -3,6 +3,9 @@ backend/.venv/
 backend/.env
 __pycache__/
 *.pyc
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Node
 frontend/node_modules/
@@ -11,6 +14,9 @@ frontend/dist/
 # Secrets
 .env
 .env.*
+
+# Safe environment templates
+!**/.env.example
 
 # VS Code
 .vscode/

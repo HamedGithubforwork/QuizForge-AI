@@ -12,6 +12,9 @@ import QuizHistory, {
 import {
   saveQuizHistory,
 } from './lib/quizHistory'
+import {
+  apiFetch,
+} from './lib/api'
 
 type PageResult = {
   page_number: number
@@ -574,8 +577,8 @@ function App() {
       )
 
       const response =
-        await fetch(
-          'http://127.0.0.1:8000/api/documents/upload',
+        await apiFetch(
+          '/api/documents/upload',
           {
             method: 'POST',
             body: formData,
@@ -702,8 +705,8 @@ function App() {
       )
 
       const response =
-        await fetch(
-          'http://127.0.0.1:8000/api/quizzes/generate',
+        await apiFetch(
+          '/api/quizzes/generate',
           {
             method: 'POST',
             body: formData,
@@ -1123,8 +1126,8 @@ function App() {
       )
 
       const response =
-        await fetch(
-          'http://127.0.0.1:8000/api/quizzes/generate',
+        await apiFetch(
+          '/api/quizzes/generate',
           {
             method: 'POST',
             body: formData,
@@ -1290,8 +1293,8 @@ function App() {
       )
 
       const response =
-        await fetch(
-          'http://127.0.0.1:8000/api/quizzes/generate',
+        await apiFetch(
+          '/api/quizzes/generate',
           {
             method: 'POST',
             body: formData,

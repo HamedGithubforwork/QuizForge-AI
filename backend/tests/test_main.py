@@ -6,8 +6,10 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from main import (
+    AuthenticatedUser,
     analyze_extracted_text,
     app,
+    get_current_user,
     parse_avoid_questions,
     parse_focus_pages,
     parse_focus_question_types,
@@ -15,6 +17,21 @@ from main import (
 
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def authenticated_client():
+    app.dependency_overrides[
+        get_current_user
+    ] = lambda: AuthenticatedUser(
+        id="test-user",
+        email="test@example.com",
+    )
+
+    try:
+        yield client
+    finally:
+        app.dependency_overrides.clear()
 
 
 def make_pdf_bytes(
@@ -57,8 +74,28 @@ def test_health_endpoint():
     }
 
 
-def test_upload_rejects_non_pdf():
+def test_upload_requires_authentication():
     response = client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "notes.pdf",
+                b"not important",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == (
+        "Authentication is required."
+    )
+
+
+def test_upload_rejects_non_pdf(
+    authenticated_client,
+):
+    response = authenticated_client.post(
         "/api/documents/upload",
         files={
             "file": (
@@ -75,10 +112,12 @@ def test_upload_rejects_non_pdf():
     )
 
 
-def test_upload_extracts_text_from_pdf():
+def test_upload_extracts_text_from_pdf(
+    authenticated_client,
+):
     pdf_bytes = make_pdf_bytes()
 
-    response = client.post(
+    response = authenticated_client.post(
         "/api/documents/upload",
         files={
             "file": (
@@ -228,10 +267,12 @@ def test_parse_avoid_questions_rejects_invalid_values(
     assert error.value.status_code == 400
 
 
-def test_generate_rejects_invalid_question_count_without_calling_ai():
+def test_generate_rejects_invalid_question_count_without_calling_ai(
+    authenticated_client,
+):
     pdf_bytes = make_pdf_bytes()
 
-    response = client.post(
+    response = authenticated_client.post(
         "/api/quizzes/generate",
         files={
             "file": (
@@ -255,10 +296,12 @@ def test_generate_rejects_invalid_question_count_without_calling_ai():
     )
 
 
-def test_generate_rejects_invalid_difficulty_without_calling_ai():
+def test_generate_rejects_invalid_difficulty_without_calling_ai(
+    authenticated_client,
+):
     pdf_bytes = make_pdf_bytes()
 
-    response = client.post(
+    response = authenticated_client.post(
         "/api/quizzes/generate",
         files={
             "file": (
@@ -282,10 +325,12 @@ def test_generate_rejects_invalid_difficulty_without_calling_ai():
     )
 
 
-def test_generate_rejects_invalid_question_type_without_calling_ai():
+def test_generate_rejects_invalid_question_type_without_calling_ai(
+    authenticated_client,
+):
     pdf_bytes = make_pdf_bytes()
 
-    response = client.post(
+    response = authenticated_client.post(
         "/api/quizzes/generate",
         files={
             "file": (
@@ -308,10 +353,12 @@ def test_generate_rejects_invalid_question_type_without_calling_ai():
     )
 
 
-def test_generate_rejects_invalid_focus_page_without_calling_ai():
+def test_generate_rejects_invalid_focus_page_without_calling_ai(
+    authenticated_client,
+):
     pdf_bytes = make_pdf_bytes()
 
-    response = client.post(
+    response = authenticated_client.post(
         "/api/quizzes/generate",
         files={
             "file": (

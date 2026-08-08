@@ -1,11 +1,22 @@
 import json
 import os
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
+import httpx
 import pymupdf
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
@@ -19,21 +30,86 @@ load_dotenv(
 )
 
 
+DEFAULT_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+
+def get_allowed_origins():
+    configured_origins = os.getenv(
+        "ALLOWED_ORIGINS",
+        "",
+    )
+
+    if not configured_origins.strip():
+        return DEFAULT_ALLOWED_ORIGINS
+
+    return [
+        origin.strip().rstrip("/")
+        for origin in configured_origins.split(",")
+        if origin.strip()
+    ]
+
+
+def get_positive_int_env(
+    name: str,
+    default: int,
+):
+    raw_value = os.getenv(name)
+
+    if not raw_value:
+        return default
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+
+    return max(1, value)
+
+
+SUPABASE_URL = os.getenv(
+    "SUPABASE_URL",
+    "",
+).rstrip("/")
+
+SUPABASE_PUBLISHABLE_KEY = os.getenv(
+    "SUPABASE_PUBLISHABLE_KEY",
+    "",
+)
+
+QUIZ_RATE_LIMIT = get_positive_int_env(
+    "QUIZ_RATE_LIMIT",
+    10,
+)
+
+QUIZ_RATE_WINDOW_SECONDS = (
+    get_positive_int_env(
+        "QUIZ_RATE_WINDOW_SECONDS",
+        600,
+    )
+)
+
+
 app = FastAPI(
     title="QuizForge AI API",
-    version="0.5.0",
+    version="0.6.0",
 )
 
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+    allow_origins=get_allowed_origins(),
+    allow_credentials=False,
+    allow_methods=[
+        "GET",
+        "POST",
     ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+    ],
 )
 
 
@@ -41,6 +117,214 @@ MAX_FILE_SIZE = 15 * 1024 * 1024
 MAX_AI_CHARACTERS = 100_000
 MIN_EXTRACTABLE_CHARACTERS = 100
 SCAN_CHARACTERS_PER_PAGE = 50
+
+
+class AuthenticatedUser(BaseModel):
+    id: str
+    email: str | None = None
+
+
+_generation_requests: dict[
+    str,
+    deque[float],
+] = defaultdict(deque)
+
+
+async def get_current_user(
+    authorization: str | None = Header(
+        default=None,
+    ),
+):
+    if (
+        not authorization
+        or not authorization.startswith(
+            "Bearer "
+        )
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Authentication is required."
+            ),
+        )
+
+    if (
+        not SUPABASE_URL
+        or not SUPABASE_PUBLISHABLE_KEY
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Supabase authentication is "
+                "not configured on the backend."
+            ),
+        )
+
+    access_token = authorization[
+        len("Bearer "):
+    ].strip()
+
+    if not access_token:
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Authentication is required."
+            ),
+        )
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=8.0,
+        ) as client:
+            response = await client.get(
+                (
+                    f"{SUPABASE_URL}"
+                    "/auth/v1/user"
+                ),
+                headers={
+                    "apikey":
+                        SUPABASE_PUBLISHABLE_KEY,
+                    "Authorization":
+                        f"Bearer {access_token}",
+                },
+            )
+
+    except httpx.RequestError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Authentication service is "
+                "temporarily unavailable."
+            ),
+        ) from error
+
+    if response.status_code != 200:
+        if response.status_code >= 500:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Authentication service is "
+                    "temporarily unavailable."
+                ),
+            )
+
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Your session is invalid or "
+                "has expired."
+            ),
+        )
+
+    try:
+        user_data = response.json()
+    except ValueError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Authentication service returned "
+                "an invalid response."
+            ),
+        ) from error
+
+    user_id = user_data.get("id")
+
+    if not isinstance(user_id, str):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Your session is invalid or "
+                "has expired."
+            ),
+        )
+
+    email = user_data.get("email")
+
+    return AuthenticatedUser(
+        id=user_id,
+        email=(
+            email
+            if isinstance(email, str)
+            else None
+        ),
+    )
+
+
+def enforce_quiz_rate_limit(
+    user_id: str,
+):
+    now = time.monotonic()
+
+    request_times = (
+        _generation_requests[user_id]
+    )
+
+    cutoff = (
+        now
+        - QUIZ_RATE_WINDOW_SECONDS
+    )
+
+    while (
+        request_times
+        and request_times[0] <= cutoff
+    ):
+        request_times.popleft()
+
+    if (
+        len(request_times)
+        >= QUIZ_RATE_LIMIT
+    ):
+        wait_seconds = max(
+            1,
+            int(
+                QUIZ_RATE_WINDOW_SECONDS
+                - (
+                    now
+                    - request_times[0]
+                )
+            )
+            + 1,
+        )
+
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Too many quiz generation "
+                "requests. Please wait before "
+                "trying again."
+            ),
+            headers={
+                "Retry-After":
+                    str(wait_seconds),
+            },
+        )
+
+    request_times.append(now)
+
+
+@app.middleware("http")
+async def add_security_headers(
+    request,
+    call_next,
+):
+    response = await call_next(request)
+
+    response.headers[
+        "X-Content-Type-Options"
+    ] = "nosniff"
+
+    response.headers[
+        "Referrer-Policy"
+    ] = "no-referrer"
+
+    response.headers[
+        "Permissions-Policy"
+    ] = (
+        "camera=(), microphone=(), "
+        "geolocation=()"
+    )
+
+    return response
 
 
 class QuizQuestion(BaseModel):
@@ -298,6 +582,9 @@ def health_check():
 @app.post("/api/documents/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
+    _current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
 ):
     if file.content_type != "application/pdf":
         raise HTTPException(
@@ -363,7 +650,14 @@ async def generate_quiz(
     focus_pages: str = Form(""),
     focus_question_types: str = Form(""),
     avoid_questions: str = Form("[]"),
+    current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
 ):
+    enforce_quiz_rate_limit(
+        current_user.id,
+    )
+
     if file.content_type != "application/pdf":
         raise HTTPException(
             status_code=400,
