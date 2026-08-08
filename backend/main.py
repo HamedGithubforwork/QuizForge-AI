@@ -94,7 +94,7 @@ QUIZ_RATE_WINDOW_SECONDS = (
 
 app = FastAPI(
     title="QuizForge AI API",
-    version="0.6.0",
+    version="0.7.0",
 )
 
 
@@ -327,6 +327,25 @@ async def add_security_headers(
     return response
 
 
+class ShortAnswerGradingSpec(BaseModel):
+    grading_version: Literal[2]
+    grading_mode: Literal[
+        "none",
+        "concepts",
+        "exact",
+        "numeric",
+    ]
+    answer_groups: list[list[str]]
+    required_group_count: int = Field(
+        ge=0,
+    )
+    numeric_value: float
+    numeric_tolerance: float = Field(
+        ge=0,
+    )
+    numeric_unit: str
+
+
 class QuizQuestion(BaseModel):
     question_type: Literal[
         "multiple_choice",
@@ -346,6 +365,8 @@ class QuizQuestion(BaseModel):
     correct_answer: str
 
     accepted_answers: list[str]
+
+    grading: ShortAnswerGradingSpec
 
     explanation: str
 
@@ -899,6 +920,11 @@ For a multiple-choice question:
 - correct_index must contain the zero-based index of the correct choice.
 - correct_answer must exactly equal the correct choice text.
 - accepted_answers should contain the correct answer.
+- grading must use grading_version 2 and grading_mode "none".
+- grading.answer_groups must be an empty list.
+- grading.required_group_count must be 0.
+- grading.numeric_value and grading.numeric_tolerance must be 0.
+- grading.numeric_unit must be an empty string.
 - Incorrect answers should be plausible but clearly wrong.
 
 TRUE / FALSE RULES:
@@ -911,6 +937,11 @@ For a True / False question:
 - correct_index must be 1 if the answer is False.
 - correct_answer must be exactly "True" or "False".
 - accepted_answers should contain the correct answer.
+- grading must use grading_version 2 and grading_mode "none".
+- grading.answer_groups must be an empty list.
+- grading.required_group_count must be 0.
+- grading.numeric_value and grading.numeric_tolerance must be 0.
+- grading.numeric_unit must be an empty string.
 - Avoid ambiguous statements.
 
 SHORT ANSWER RULES:
@@ -934,6 +965,26 @@ For a short-answer question:
 - Keep expected answers short enough to grade automatically.
 - Prefer objectively gradable factual answers.
 - Do not ask broad essay questions.
+
+SHORT ANSWER GRADING RUBRIC:
+
+- grading_version must be 2.
+- Choose grading_mode from "concepts", "exact", or "numeric".
+- Prefer "concepts" for ordinary factual short answers.
+- For "concepts", create one answer_group for every distinct acceptable concept the student may provide.
+- Each answer_group contains aliases that mean the SAME concept, such as a full term, a standard abbreviation, spelling variants, or an equivalent wording clearly supported by the PDF.
+- Never place two different required concepts in the same answer_group.
+- Set required_group_count to the number of distinct concepts the question requires for full credit.
+- If the question asks for all listed items, required_group_count should equal the number of required groups.
+- If the question asks for any N items from a larger valid set, include groups for the valid options and set required_group_count to N.
+- Order must not matter for concept answers.
+- A student may mix abbreviations and expanded terms across different concepts.
+- Use "exact" only when the whole answer truly needs to match one accepted wording or code-like value. For exact mode, answer_groups must be empty and required_group_count must be 0.
+- Use "numeric" when the answer is fundamentally a number. Set numeric_value to the expected value, numeric_tolerance to an appropriate non-negative tolerance supported by the question, and numeric_unit to the unit or an empty string.
+- For non-numeric modes, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
+- For concept mode, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
+- For numeric mode, answer_groups must be empty and required_group_count must be 0.
+- Keep accepted_answers for backward compatibility and include complete fully-correct answer variants there; do not put partially correct fragments in accepted_answers.
 
 REQUESTED MODE:
 
@@ -1030,6 +1081,77 @@ If requested mode is "mixed":
         types_found.add(
             question.question_type
         )
+
+        grading = question.grading
+
+        if question.question_type != "short_answer":
+            if (
+                grading.grading_mode != "none"
+                or grading.answer_groups
+                or grading.required_group_count != 0
+            ):
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "A non-short-answer question "
+                        "returned invalid grading data."
+                    ),
+                )
+
+        else:
+            if grading.grading_mode == "none":
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "A short-answer question "
+                        "returned no grading mode."
+                    ),
+                )
+
+            if grading.grading_mode == "concepts":
+                clean_groups = [
+                    [
+                        alias.strip()
+                        for alias in group
+                        if alias.strip()
+                    ]
+                    for group in grading.answer_groups
+                ]
+                clean_groups = [
+                    group
+                    for group in clean_groups
+                    if group
+                ]
+
+                if (
+                    not clean_groups
+                    or grading.required_group_count < 1
+                    or grading.required_group_count
+                    > len(clean_groups)
+                ):
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "A concept-graded short answer "
+                            "returned an invalid rubric."
+                        ),
+                    )
+
+            elif grading.grading_mode in {
+                "exact",
+                "numeric",
+            }:
+                if (
+                    grading.answer_groups
+                    or grading.required_group_count != 0
+                ):
+                    raise HTTPException(
+                        status_code=502,
+                        detail=(
+                            "A short-answer question "
+                            "returned inconsistent grading data."
+                        ),
+                    )
 
         if not set(
             question.source_pages

@@ -15,6 +15,10 @@ import {
 import {
   apiFetch,
 } from './lib/api'
+import {
+  gradeShortAnswer,
+  type ShortAnswerGradingSpec,
+} from './lib/shortAnswerGrader'
 
 type PageResult = {
   page_number: number
@@ -49,6 +53,7 @@ type QuizQuestion = {
   correct_index: number
   correct_answer: string
   accepted_answers: string[]
+  grading?: ShortAnswerGradingSpec
   explanation: string
   source_pages: number[]
 }
@@ -228,153 +233,14 @@ function App() {
     return 'Mixed'
   }
 
-  function normalizeAnswer(
-    answer: string,
-  ) {
-    return answer
-      .normalize('NFKD')
-      .replace(
-        /[\u0300-\u036f]/g,
-        '',
-      )
-      .trim()
-      .toLowerCase()
-      .replace(/[-–—]/g, ' ')
-      .replace(
-        /[.,!?;:'"()[\]{}]/g,
-        '',
-      )
-      .replace(/\s+/g, ' ')
-  }
-
-  function removeSimplePlural(
-    answer: string,
-  ) {
-    const words =
-      answer.split(' ')
-
-    if (words.length === 0) {
-      return answer
-    }
-
-    const lastIndex =
-      words.length - 1
-
-    const lastWord =
-      words[lastIndex]
-
-    if (
-      lastWord.length > 3 &&
-      lastWord.endsWith('s') &&
-      !lastWord.endsWith('ss')
-    ) {
-      words[lastIndex] =
-        lastWord.slice(0, -1)
-    }
-
-    return words.join(' ')
-  }
-
-  function escapeRegExp(
-    value: string,
-  ) {
-    return value.replace(
-      /[.*+?^${}()|[\]\\]/g,
-      '\\$&',
-    )
-  }
-
-  function acceptedAnswerMatches(
-    userAnswer: string,
-    acceptedAnswer: string,
-  ) {
-    if (
-      userAnswer === acceptedAnswer
-    ) {
-      return true
-    }
-
-    const userSingular =
-      removeSimplePlural(
-        userAnswer,
-      )
-
-    const acceptedSingular =
-      removeSimplePlural(
-        acceptedAnswer,
-      )
-
-    if (
-      userSingular ===
-      acceptedSingular
-    ) {
-      return true
-    }
-
-    const isSingleToken =
-      acceptedAnswer.split(' ')
-        .length === 1
-
-    const isUsefulToken =
-      acceptedAnswer.length >= 4 ||
-      /^\d+$/.test(
-        acceptedAnswer,
-      )
-
-    if (
-      isSingleToken &&
-      isUsefulToken
-    ) {
-      const escaped =
-        escapeRegExp(
-          acceptedAnswer,
-        )
-
-      const pattern =
-        new RegExp(
-          `(^|\\s)${escaped}($|\\s)`,
-        )
-
-      if (
-        pattern.test(userAnswer)
-      ) {
-        return true
-      }
-    }
-
-    return false
-  }
-
   function isShortAnswerCorrect(
     question: QuizQuestion,
     answer: string,
   ) {
-    const userAnswer =
-      normalizeAnswer(answer)
-
-    const acceptedAnswers = [
-      question.correct_answer,
-      ...question.accepted_answers,
-    ]
-      .map(normalizeAnswer)
-      .filter(
-        (
-          value,
-          index,
-          array,
-        ) =>
-          value.length > 0 &&
-          array.indexOf(value) ===
-            index,
-      )
-
-    return acceptedAnswers.some(
-      (acceptedAnswer) =>
-        acceptedAnswerMatches(
-          userAnswer,
-          acceptedAnswer,
-        ),
-    )
+    return gradeShortAnswer(
+      question,
+      answer,
+    ).correct
   }
 
   function isQuestionCorrect(
@@ -2271,6 +2137,17 @@ function App() {
                           selectedAnswer,
                         )
 
+                      const shortAnswerGrade =
+                        question.question_type ===
+                          'short_answer' &&
+                        typeof selectedAnswer ===
+                          'string'
+                          ? gradeShortAnswer(
+                              question,
+                              selectedAnswer,
+                            )
+                          : null
+
                       const needsAttention =
                         attentionQuestionIndex ===
                         questionIndex
@@ -2499,6 +2376,42 @@ function App() {
                                     : ''}
                                 </p>
                               )}
+
+                              {question.question_type ===
+                                'short_answer' &&
+                                shortAnswerGrade &&
+                                !shortAnswerGrade.correct &&
+                                shortAnswerGrade.totalGroups >
+                                  1 && (
+                                  <p>
+                                    <strong>
+                                      Concepts
+                                      matched:
+                                    </strong>{' '}
+                                    {
+                                      shortAnswerGrade
+                                        .matchedGroups
+                                    }{' '}
+                                    /{' '}
+                                    {
+                                      shortAnswerGrade
+                                        .requiredGroups
+                                    }{' '}
+                                    required
+                                  </p>
+                                )}
+
+                              {question.question_type ===
+                                'short_answer' &&
+                                shortAnswerGrade
+                                  ?.borderline && (
+                                  <p>
+                                    The wording includes
+                                    negation, so the answer
+                                    could not be graded
+                                    confidently as correct.
+                                  </p>
+                                )}
 
                               {!isCorrect && (
                                 <p>
