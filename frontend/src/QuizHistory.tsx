@@ -403,7 +403,6 @@ function QuizHistory({
   refreshKey,
   currentFilename = null,
   canPracticeCurrentDocument = false,
-  isPracticeGenerating = false,
   onPracticeWeakAreas,
 }: QuizHistoryProps) {
   const [history, setHistory] =
@@ -417,6 +416,11 @@ function QuizHistory({
 
   const [expanded, setExpanded] =
     useState(false)
+
+  const [
+    isHistoryPracticeGenerating,
+    setIsHistoryPracticeGenerating,
+  ] = useState(false)
 
   async function loadHistory() {
     setLoading(true)
@@ -698,16 +702,44 @@ function QuizHistory({
             b[1] - a[1],
         )[0]
 
-      const pages =
+      const rankedPageMisses =
         Array.from(
           pageMisses.entries(),
+        ).sort(
+          (a, b) =>
+            b[1] - a[1] ||
+            a[0] - b[0],
         )
-          .sort(
-            (a, b) =>
-              b[1] - a[1] ||
-              a[0] - b[0],
-          )
-          .slice(0, 5)
+
+      const highestPageMissCount =
+        rankedPageMisses[0]?.[1] ?? 0
+
+      const meaningfulPageMisses =
+        rankedPageMisses.filter(
+          ([, missCount]) =>
+            missCount >=
+            Math.max(
+              1,
+              Math.ceil(
+                highestPageMissCount *
+                  0.5,
+              ),
+            ),
+        )
+
+      const selectedPageMisses =
+        meaningfulPageMisses.length >=
+          2 ||
+        rankedPageMisses.length < 2
+          ? meaningfulPageMisses
+          : rankedPageMisses.slice(
+              0,
+              2,
+            )
+
+      const pages =
+        selectedPageMisses
+          .slice(0, 3)
           .map(
             ([pageNumber]) =>
               pageNumber,
@@ -749,25 +781,37 @@ function QuizHistory({
     )
   }
 
-  function handleHistoryPractice() {
+  async function handleHistoryPractice() {
     const weakness =
       currentDocumentSummary
         ?.weakness
 
     if (
       !weakness ||
-      !onPracticeWeakAreas
+      !onPracticeWeakAreas ||
+      !canPracticeCurrentDocument ||
+      isHistoryPracticeGenerating
     ) {
       return
     }
 
-    void onPracticeWeakAreas({
-      pages: weakness.pages,
-      questionType:
-        weakness.questionType,
-      avoidQuestions:
-        weakness.avoidQuestions,
-    })
+    setIsHistoryPracticeGenerating(
+      true,
+    )
+
+    try {
+      await onPracticeWeakAreas({
+        pages: weakness.pages,
+        questionType:
+          weakness.questionType,
+        avoidQuestions:
+          weakness.avoidQuestions,
+      })
+    } finally {
+      setIsHistoryPracticeGenerating(
+        false,
+      )
+    }
   }
 
   return (
@@ -1126,8 +1170,8 @@ function QuizHistory({
                           <p className="history-weakness-description">
                             QuizForge combines mistakes from every saved
                             attempt for this PDF, finds the question type
-                            and pages you miss most often, and generates
-                            new questions focused on those areas.
+                            you miss most often, and targets up to three
+                            of your strongest weak pages.
                           </p>
 
                           <button
@@ -1138,11 +1182,11 @@ function QuizHistory({
                             }
                             disabled={
                               !canPracticeCurrentDocument ||
-                              isPracticeGenerating ||
+                              isHistoryPracticeGenerating ||
                               !onPracticeWeakAreas
                             }
                           >
-                            {isPracticeGenerating
+                            {isHistoryPracticeGenerating
                               ? 'Building Practice Quiz...'
                               : 'Practice My Weak Areas'}
                           </button>
