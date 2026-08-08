@@ -180,6 +180,30 @@
     rgba(113, 102, 235, 0.12);
 }
 
+.auth-forgot {
+  margin-top: -8px;
+  text-align: right;
+}
+
+.auth-forgot button {
+  padding: 0;
+
+  border: 0;
+
+  background: transparent;
+
+  color: #5a4fd5;
+
+  cursor: pointer;
+
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.auth-forgot button:hover {
+  text-decoration: underline;
+}
+
 .auth-submit {
   min-height: 46px;
 
