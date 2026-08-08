@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 from typing import Literal
@@ -20,7 +21,7 @@ load_dotenv(
 
 app = FastAPI(
     title="QuizForge AI API",
-    version="0.4.0",
+    version="0.5.0",
 )
 
 
@@ -158,6 +159,128 @@ def analyze_extracted_text(pages):
     }
 
 
+def parse_focus_pages(
+    focus_pages: str,
+    page_count: int,
+):
+    if not focus_pages.strip():
+        return []
+
+    try:
+        page_numbers = sorted(
+            {
+                int(value.strip())
+                for value in focus_pages.split(",")
+                if value.strip()
+            }
+        )
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Focus pages must be "
+                "comma-separated page numbers."
+            ),
+        ) from error
+
+    invalid_pages = [
+        page_number
+        for page_number in page_numbers
+        if page_number < 1
+        or page_number > page_count
+    ]
+
+    if invalid_pages:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "One or more focus pages "
+                "do not exist in the PDF."
+            ),
+        )
+
+    return page_numbers
+
+
+def parse_focus_question_types(
+    focus_question_types: str,
+):
+    if not focus_question_types.strip():
+        return []
+
+    valid_focus_types = {
+        "multiple_choice",
+        "true_false",
+        "short_answer",
+    }
+
+    focus_types = [
+        value.strip()
+        for value in focus_question_types.split(",")
+        if value.strip()
+    ]
+
+    invalid_types = [
+        value
+        for value in focus_types
+        if value not in valid_focus_types
+    ]
+
+    if invalid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Invalid weak-area "
+                "question type."
+            ),
+        )
+
+    return focus_types
+
+
+def parse_avoid_questions(
+    avoid_questions: str,
+):
+    if not avoid_questions.strip():
+        return []
+
+    try:
+        parsed = json.loads(
+            avoid_questions
+        )
+
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not read the previous "
+                "question list."
+            ),
+        ) from error
+
+    if (
+        not isinstance(parsed, list)
+        or not all(
+            isinstance(value, str)
+            for value in parsed
+        )
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Previous questions must be "
+                "a list of text values."
+            ),
+        )
+
+    return [
+        value.strip()
+        for value in parsed
+        if value.strip()
+    ]
+
+
 @app.get("/")
 def root():
     return {
@@ -237,6 +360,9 @@ async def generate_quiz(
     question_type: str = Form(
         "multiple_choice"
     ),
+    focus_pages: str = Form(""),
+    focus_question_types: str = Form(""),
+    avoid_questions: str = Form("[]"),
 ):
     if file.content_type != "application/pdf":
         raise HTTPException(
@@ -335,6 +461,23 @@ async def generate_quiz(
             ),
         )
 
+    focus_page_numbers = parse_focus_pages(
+        focus_pages,
+        len(pages),
+    )
+
+    focus_types = (
+        parse_focus_question_types(
+            focus_question_types,
+        )
+    )
+
+    previous_questions = (
+        parse_avoid_questions(
+            avoid_questions,
+        )
+    )
+
     api_key = os.getenv(
         "OPENAI_API_KEY"
     )
@@ -357,6 +500,62 @@ async def generate_quiz(
         for page in pages
     )
 
+    focus_instructions = ""
+
+    if (
+        focus_page_numbers
+        or focus_types
+        or previous_questions
+    ):
+        page_description = (
+            ", ".join(
+                str(page_number)
+                for page_number
+                in focus_page_numbers
+            )
+            if focus_page_numbers
+            else "not specified"
+        )
+
+        type_description = (
+            ", ".join(focus_types)
+            if focus_types
+            else "not specified"
+        )
+
+        previous_question_text = (
+            "\n".join(
+                f"- {question}"
+                for question
+                in previous_questions
+            )
+            if previous_questions
+            else "- None supplied"
+        )
+
+        focus_instructions = f"""
+WEAK-AREA PRACTICE MODE:
+
+This is a targeted follow-up quiz for a student
+who struggled with parts of an earlier quiz.
+
+Priority source pages:
+{page_description}
+
+Priority question types:
+{type_description}
+
+Earlier missed questions:
+{previous_question_text}
+
+- Focus primarily on concepts supported by the priority pages.
+- When enough material exists, at least 70% of the questions should come from the priority pages.
+- The remaining questions may use closely related material elsewhere in the PDF.
+- Create NEW questions that test the same concepts in different ways.
+- Do not repeat or lightly reword any earlier missed question listed above.
+- Prefer questions that help test whether the student now understands the weak material.
+"""
+
     prompt = f"""
 Create a practice quiz using only the supplied study material.
 
@@ -365,6 +564,8 @@ Generate exactly {question_count} questions.
 Difficulty: {difficulty}
 
 Requested question mode: {question_type}
+
+{focus_instructions}
 
 GENERAL RULES:
 
@@ -658,35 +859,27 @@ If requested mode is "mixed":
                 raise HTTPException(
                     status_code=502,
                     detail=(
-                        "A short-answer "
-                        "question unexpectedly "
-                        "contained choices."
+                        "A short-answer question "
+                        "returned choices."
                     ),
                 )
 
-            if (
-                question.correct_index
-                != -1
-            ):
+            if question.correct_index != -1:
                 raise HTTPException(
                     status_code=502,
                     detail=(
-                        "A short-answer "
-                        "question returned an "
-                        "invalid correct_index."
+                        "A short-answer question "
+                        "returned an invalid "
+                        "correct_index."
                     ),
                 )
 
-            if not (
-                question.correct_answer
-                .strip()
-            ):
+            if not question.correct_answer.strip():
                 raise HTTPException(
                     status_code=502,
                     detail=(
-                        "A short-answer "
-                        "question did not "
-                        "contain a correct answer."
+                        "A short-answer question "
+                        "returned an empty answer."
                     ),
                 )
 
@@ -694,9 +887,9 @@ If requested mode is "mixed":
                 raise HTTPException(
                     status_code=502,
                     detail=(
-                        "A short-answer "
-                        "question did not include "
-                        "accepted answers."
+                        "A short-answer question "
+                        "returned no accepted "
+                        "answers."
                     ),
                 )
 
@@ -707,16 +900,15 @@ If requested mode is "mixed":
             "short_answer",
         }
 
-        if not (
-            required_types
-            .issubset(types_found)
+        if not required_types.issubset(
+            types_found
         ):
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "The AI did not include "
-                    "all required question types "
-                    "for the mixed quiz."
+                    "The mixed quiz did not "
+                    "contain all three "
+                    "question types."
                 ),
             )
 

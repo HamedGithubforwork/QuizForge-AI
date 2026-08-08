@@ -1443,3 +1443,82 @@ button {
     flex-direction: column;
   }
 }
+
+
+/* PRACTICE WEAK AREAS */
+
+.weak-practice-button {
+  border: 1px solid #b9b2f5;
+
+  background: #ebe8ff;
+
+  color: #5146c9;
+}
+
+.weak-practice-button:hover:not(:disabled) {
+  background: #dfdbff;
+
+  box-shadow:
+    0 6px 16px
+    rgba(81, 70, 201, 0.15);
+}
+
+.weak-practice-badge {
+  display: inline-flex;
+
+  align-items: center;
+
+  padding: 6px 10px;
+
+  border-radius: 999px;
+
+  background: #e9e6ff;
+
+  color: #5448ce;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.weak-practice-banner {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 14px;
+
+  margin-bottom: 18px;
+  padding: 13px 15px;
+
+  border: 1px solid #d9d5fa;
+  border-radius: 12px;
+
+  background:
+    linear-gradient(
+      135deg,
+      #f4f2ff,
+      #faf9ff
+    );
+
+  color: #5b526f;
+}
+
+.weak-practice-banner strong {
+  color: #5146c9;
+}
+
+.weak-practice-banner span {
+  color: #69617b;
+
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .weak-practice-banner {
+    align-items: flex-start;
+
+    flex-direction: column;
+  }
+}

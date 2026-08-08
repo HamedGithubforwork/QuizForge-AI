@@ -34,9 +34,7 @@ type QuestionType =
   | 'short_answer'
 
 type QuestionMode =
-  | 'multiple_choice'
-  | 'true_false'
-  | 'short_answer'
+  | QuestionType
   | 'mixed'
 
 type QuizQuestion = {
@@ -59,6 +57,11 @@ type GeneratedSettings = {
   questionCount: number
   difficulty: string
   questionType: QuestionMode
+}
+
+type PracticeFocus = {
+  pages: number[]
+  questionType: QuestionType
 }
 
 function App() {
@@ -137,10 +140,6 @@ function App() {
   const [error, setError] =
     useState('')
 
-  /*
-   * SUPABASE QUIZ HISTORY
-   */
-
   const [
     isSavingHistory,
     setIsSavingHistory,
@@ -158,6 +157,26 @@ function App() {
 
   const [saveMessage, setSaveMessage] =
     useState('')
+
+  const [
+    isWeakPracticeGenerating,
+    setIsWeakPracticeGenerating,
+  ] =
+    useState(false)
+
+  const [
+    practiceMode,
+    setPracticeMode,
+  ] =
+    useState(false)
+
+  const [
+    practiceFocus,
+    setPracticeFocus,
+  ] =
+    useState<PracticeFocus | null>(
+      null,
+    )
 
   function getDisplayFilename(
     name: string,
@@ -406,6 +425,11 @@ function App() {
     return 'Keep practicing — you are making progress.'
   }
 
+  function resetPracticeMode() {
+    setPracticeMode(false)
+    setPracticeFocus(null)
+  }
+
   function handleQuestionTypeChange(
     event:
       ChangeEvent<HTMLSelectElement>,
@@ -483,6 +507,8 @@ function App() {
     setResultSaved(false)
     setSaveMessage('')
 
+    resetPracticeMode()
+
     setGenerationStage('')
     setError('')
   }
@@ -515,6 +541,8 @@ function App() {
 
     setResultSaved(false)
     setSaveMessage('')
+
+    resetPracticeMode()
 
     try {
       const formData =
@@ -589,7 +617,6 @@ function App() {
       }
 
     setIsGenerating(true)
-
     setGenerationStage(
       'Analyzing document...',
     )
@@ -608,6 +635,8 @@ function App() {
 
     setResultSaved(false)
     setSaveMessage('')
+
+    resetPracticeMode()
 
     const stageTimers:
       number[] = []
@@ -916,6 +945,223 @@ function App() {
     }, 100)
   }
 
+  async function handlePracticeWeakAreas() {
+    if (
+      !quiz ||
+      !selectedFile ||
+      !showResults
+    ) {
+      return
+    }
+
+    const incorrectIndexes =
+      quiz.questions
+        .map(
+          (_, index) => index,
+        )
+        .filter(
+          (index) =>
+            !isQuestionCorrect(
+              quiz.questions[index],
+              selectedAnswers[index],
+            ),
+        )
+
+    if (
+      incorrectIndexes.length ===
+      0
+    ) {
+      setError(
+        'You did not miss any questions.',
+      )
+      return
+    }
+
+    const weakPages =
+      Array.from(
+        new Set(
+          incorrectIndexes.flatMap(
+            (index) =>
+              quiz.questions[index]
+                .source_pages,
+          ),
+        ),
+      ).sort(
+        (a, b) => a - b,
+      )
+
+    const typeCounts:
+      Record<QuestionType, number> = {
+        multiple_choice: 0,
+        true_false: 0,
+        short_answer: 0,
+      }
+
+    incorrectIndexes.forEach(
+      (index) => {
+        const type =
+          quiz.questions[index]
+            .question_type
+
+        typeCounts[type] += 1
+      },
+    )
+
+    const weakQuestionType =
+      (
+        Object.entries(
+          typeCounts,
+        ) as [
+          QuestionType,
+          number,
+        ][]
+      ).sort(
+        (a, b) =>
+          b[1] - a[1],
+      )[0][0]
+
+    const missedQuestionText =
+      incorrectIndexes.map(
+        (index) =>
+          quiz.questions[index]
+            .question,
+      )
+
+    const practiceDifficulty =
+      generatedSettings
+        ?.difficulty ??
+      difficulty
+
+    setIsWeakPracticeGenerating(
+      true,
+    )
+
+    setError('')
+    setSaveMessage('')
+
+    try {
+      const formData =
+        new FormData()
+
+      formData.append(
+        'file',
+        selectedFile,
+      )
+
+      formData.append(
+        'question_count',
+        '5',
+      )
+
+      formData.append(
+        'difficulty',
+        practiceDifficulty,
+      )
+
+      formData.append(
+        'question_type',
+        weakQuestionType,
+      )
+
+      formData.append(
+        'focus_pages',
+        weakPages.join(','),
+      )
+
+      formData.append(
+        'focus_question_types',
+        weakQuestionType,
+      )
+
+      formData.append(
+        'avoid_questions',
+        JSON.stringify(
+          missedQuestionText,
+        ),
+      )
+
+      const response =
+        await fetch(
+          'http://127.0.0.1:8000/api/quizzes/generate',
+          {
+            method: 'POST',
+            body: formData,
+          },
+        )
+
+      const data =
+        await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail ||
+            'Weak-area practice generation failed.',
+        )
+      }
+
+      setQuiz(data)
+
+      setGeneratedSettings({
+        questionCount:
+          data.questions.length,
+
+        difficulty:
+          practiceDifficulty,
+
+        questionType:
+          weakQuestionType,
+      })
+
+      setSelectedAnswers({})
+
+      setShowResults(false)
+
+      setRetryQuestionIndexes(
+        null,
+      )
+
+      setOpenSourceQuestionIndex(
+        null,
+      )
+
+      setAttentionQuestionIndex(
+        null,
+      )
+
+      setResultSaved(false)
+      setSaveMessage('')
+
+      setPracticeMode(true)
+
+      setPracticeFocus({
+        pages: weakPages,
+        questionType:
+          weakQuestionType,
+      })
+
+      window.setTimeout(() => {
+        document
+          .getElementById(
+            'quiz-start',
+          )
+          ?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          })
+      }, 150)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not generate weak-area practice.',
+      )
+    } finally {
+      setIsWeakPracticeGenerating(
+        false,
+      )
+    }
+  }
+
   async function handleGenerateNewQuiz() {
     setError('')
 
@@ -972,6 +1218,8 @@ function App() {
 
     setResultSaved(false)
     setSaveMessage('')
+
+    resetPracticeMode()
 
     setGenerationStage('')
     setError('')
@@ -1120,11 +1368,6 @@ function App() {
     getTypeScore(
       'short_answer',
     )
-
-  /*
-   * SAVE CURRENT RESULT
-   * TO SUPABASE
-   */
 
   async function handleSaveResult() {
     if (
@@ -1428,7 +1671,8 @@ function App() {
                       )
                     }}
                     disabled={
-                      isGenerating
+                      isGenerating ||
+                      isWeakPracticeGenerating
                     }
                   >
                     <option
@@ -1469,7 +1713,8 @@ function App() {
                       )
                     }}
                     disabled={
-                      isGenerating
+                      isGenerating ||
+                      isWeakPracticeGenerating
                     }
                   >
                     <option value="easy">
@@ -1499,7 +1744,8 @@ function App() {
                       handleQuestionTypeChange
                     }
                     disabled={
-                      isGenerating
+                      isGenerating ||
+                      isWeakPracticeGenerating
                     }
                   >
                     <option value="multiple_choice">
@@ -1531,6 +1777,7 @@ function App() {
                     }
                     disabled={
                       isGenerating ||
+                      isWeakPracticeGenerating ||
                       documentResult
                         .scanned_likely
                     }
@@ -1603,8 +1850,34 @@ function App() {
                         Retry Mode
                       </span>
                     )}
+
+                    {practiceMode && (
+                      <span className="weak-practice-badge">
+                        Weak Areas Practice
+                      </span>
+                    )}
                   </div>
                 </div>
+
+                {practiceMode &&
+                  practiceFocus && (
+                    <div className="weak-practice-banner">
+                      <strong>
+                        Targeted practice
+                      </strong>
+
+                      <span>
+                        Focus pages:{' '}
+                        {practiceFocus.pages.join(
+                          ', ',
+                        )}
+                        {' • '}
+                        {getQuestionTypeLabel(
+                          practiceFocus.questionType,
+                        )}
+                      </span>
+                    </div>
+                  )}
 
                 {retryQuestionIndexes && (
                   <div className="retry-message">
@@ -2246,8 +2519,31 @@ function App() {
                           onClick={
                             handleRetryIncorrect
                           }
+                          disabled={
+                            isWeakPracticeGenerating
+                          }
                         >
                           Retry Incorrect
+                        </button>
+                      )}
+
+                      {score <
+                        quiz.questions
+                          .length && (
+                        <button
+                          className="button weak-practice-button"
+                          type="button"
+                          onClick={
+                            handlePracticeWeakAreas
+                          }
+                          disabled={
+                            isWeakPracticeGenerating ||
+                            isGenerating
+                          }
+                        >
+                          {isWeakPracticeGenerating
+                            ? 'Building Practice Quiz...'
+                            : 'Practice Weak Areas'}
                         </button>
                       )}
 
@@ -2256,6 +2552,9 @@ function App() {
                         type="button"
                         onClick={
                           handleTryAgain
+                        }
+                        disabled={
+                          isWeakPracticeGenerating
                         }
                       >
                         Try Again
@@ -2268,7 +2567,8 @@ function App() {
                           handleGenerateNewQuiz
                         }
                         disabled={
-                          isGenerating
+                          isGenerating ||
+                          isWeakPracticeGenerating
                         }
                       >
                         {isGenerating
@@ -2281,6 +2581,9 @@ function App() {
                         type="button"
                         onClick={
                           handleUploadNewPdf
+                        }
+                        disabled={
+                          isWeakPracticeGenerating
                         }
                       >
                         Upload New PDF
