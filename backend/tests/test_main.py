@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 
 from main import (
     AuthenticatedUser,
+    QuizQuestion,
+    ShortAnswerGradingSpec,
     analyze_extracted_text,
     app,
     get_current_user,
@@ -381,3 +383,65 @@ def test_generate_rejects_invalid_focus_page_without_calling_ai(
         "One or more focus pages "
         "do not exist in the PDF."
     )
+
+
+def test_short_answer_grading_schema_accepts_concept_groups():
+    question = QuizQuestion(
+        question_type="short_answer",
+        question="Name the treatments.",
+        choices=[],
+        correct_index=-1,
+        correct_answer=(
+            "Cognitive behavioural therapy, interpersonal "
+            "therapy, and behavioural activation"
+        ),
+        accepted_answers=[
+            "CBT, IPT, and BA",
+        ],
+        grading=ShortAnswerGradingSpec(
+            grading_version=2,
+            grading_mode="concepts",
+            answer_groups=[
+                [
+                    "cognitive behavioural therapy",
+                    "CBT",
+                ],
+                [
+                    "interpersonal therapy",
+                    "IPT",
+                ],
+                [
+                    "behavioural activation",
+                    "behavioral activation",
+                    "BA",
+                ],
+            ],
+            required_group_count=3,
+            numeric_value=0,
+            numeric_tolerance=0,
+            numeric_unit="",
+        ),
+        explanation="Test explanation",
+        source_pages=[1],
+    )
+
+    assert question.grading.grading_version == 2
+    assert question.grading.required_group_count == 3
+    assert len(question.grading.answer_groups) == 3
+
+
+def test_short_answer_numeric_grading_schema_accepts_tolerance():
+    grading = ShortAnswerGradingSpec(
+        grading_version=2,
+        grading_mode="numeric",
+        answer_groups=[],
+        required_group_count=0,
+        numeric_value=84.2,
+        numeric_tolerance=0.1,
+        numeric_unit="%",
+    )
+
+    assert grading.numeric_value == 84.2
+    assert grading.numeric_tolerance == 0.1
+    assert grading.numeric_unit == "%"
+
