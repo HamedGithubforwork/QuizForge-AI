@@ -1,10 +1,20 @@
-import assert from 'node:assert/strict'
-
 import {
   gradeShortAnswer,
   type ShortAnswerGradingSpec,
   type ShortAnswerQuestion,
 } from './shortAnswerGrader.ts'
+
+
+function assertEqual(
+  actual: unknown,
+  expected: unknown,
+) {
+  if (actual !== expected) {
+    throw new Error(
+      `Expected ${String(expected)}, received ${String(actual)}.`,
+    )
+  }
+}
 
 
 function conceptQuestion(
@@ -50,7 +60,7 @@ function conceptQuestion(
 const treatmentQuestion =
   conceptQuestion()
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     treatmentQuestion,
     'CBT IPT behavioural activation',
@@ -58,7 +68,7 @@ assert.equal(
   true,
 )
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     treatmentQuestion,
     'behavioural activation, CBT and IPT',
@@ -66,7 +76,7 @@ assert.equal(
   true,
 )
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     treatmentQuestion,
     'cognitive behavioral therapy interpersonal therapy BA',
@@ -74,7 +84,7 @@ assert.equal(
   true,
 )
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     treatmentQuestion,
     'CBT interpesonal therapy behavioural activation',
@@ -88,15 +98,15 @@ const incompleteGrade =
     'CBT IPT',
   )
 
-assert.equal(
+assertEqual(
   incompleteGrade.correct,
   false,
 )
-assert.equal(
+assertEqual(
   incompleteGrade.matchedGroups,
   2,
 )
-assert.equal(
+assertEqual(
   incompleteGrade.requiredGroups,
   3,
 )
@@ -107,16 +117,16 @@ const negatedGrade =
     'CBT IPT and BA are not the treatments',
   )
 
-assert.equal(
+assertEqual(
   negatedGrade.correct,
   false,
 )
-assert.equal(
+assertEqual(
   negatedGrade.borderline,
   true,
 )
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     conceptQuestion(2),
     'IPT and BA',
@@ -141,7 +151,7 @@ const numericQuestion: ShortAnswerQuestion = {
   },
 }
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     numericQuestion,
     '84.3%',
@@ -149,7 +159,7 @@ assert.equal(
   true,
 )
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     numericQuestion,
     '85%',
@@ -173,7 +183,7 @@ const exactQuestion: ShortAnswerQuestion = {
   },
 }
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     exactQuestion,
     '404 not found',
@@ -188,7 +198,7 @@ const legacyQuestion: ShortAnswerQuestion = {
   ],
 }
 
-assert.equal(
+assertEqual(
   gradeShortAnswer(
     legacyQuestion,
     'I used Playwright',
