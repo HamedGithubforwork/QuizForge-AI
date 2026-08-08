@@ -6,10 +6,12 @@ import {
 
 import './App.css'
 
-import QuizHistory from './QuizHistory.tsx'
+import QuizHistory, {
+  type HistoryPracticeFocus,
+} from './QuizHistory.tsx'
 import {
   saveQuizHistory,
-} from './lib/quizHistory'
+} from './lib/quizHistory.ts'
 
 type PageResult = {
   page_number: number
@@ -1154,6 +1156,161 @@ function App() {
         err instanceof Error
           ? err.message
           : 'Could not generate weak-area practice.',
+      )
+    } finally {
+      setIsWeakPracticeGenerating(
+        false,
+      )
+    }
+  }
+
+  async function handleHistoryPracticeWeakAreas(
+    focus: HistoryPracticeFocus,
+  ) {
+    if (
+      !selectedFile ||
+      !documentResult
+    ) {
+      setError(
+        'Upload and process this PDF before generating history-based practice.',
+      )
+      return
+    }
+
+    if (
+      documentResult.scanned_likely
+    ) {
+      setError(
+        documentResult.warning ||
+          'This PDF does not contain enough selectable text.',
+      )
+      return
+    }
+
+    const practiceDifficulty =
+      generatedSettings
+        ?.difficulty ??
+      difficulty
+
+    setIsWeakPracticeGenerating(
+      true,
+    )
+
+    setError('')
+    setSaveMessage('')
+
+    try {
+      const formData =
+        new FormData()
+
+      formData.append(
+        'file',
+        selectedFile,
+      )
+
+      formData.append(
+        'question_count',
+        '5',
+      )
+
+      formData.append(
+        'difficulty',
+        practiceDifficulty,
+      )
+
+      formData.append(
+        'question_type',
+        focus.questionType,
+      )
+
+      formData.append(
+        'focus_pages',
+        focus.pages.join(','),
+      )
+
+      formData.append(
+        'focus_question_types',
+        focus.questionType,
+      )
+
+      formData.append(
+        'avoid_questions',
+        JSON.stringify(
+          focus.avoidQuestions,
+        ),
+      )
+
+      const response =
+        await fetch(
+          'http://127.0.0.1:8000/api/quizzes/generate',
+          {
+            method: 'POST',
+            body: formData,
+          },
+        )
+
+      const data =
+        await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail ||
+            'History-based weak-area practice generation failed.',
+        )
+      }
+
+      setQuiz(data)
+
+      setGeneratedSettings({
+        questionCount:
+          data.questions.length,
+        difficulty:
+          practiceDifficulty,
+        questionType:
+          focus.questionType,
+      })
+
+      setSelectedAnswers({})
+      setShowResults(false)
+
+      setRetryQuestionIndexes(
+        null,
+      )
+
+      setOpenSourceQuestionIndex(
+        null,
+      )
+
+      setAttentionQuestionIndex(
+        null,
+      )
+
+      setResultSaved(false)
+      setSaveMessage('')
+
+      setPracticeMode(true)
+
+      setPracticeFocus({
+        pages: focus.pages,
+        questionType:
+          focus.questionType,
+      })
+
+      window.setTimeout(() => {
+        document
+          .getElementById(
+            'quiz-start',
+          )
+          ?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          })
+      }, 150)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not generate history-based weak-area practice.',
       )
     } finally {
       setIsWeakPracticeGenerating(
@@ -2650,6 +2807,22 @@ function App() {
         <QuizHistory
           refreshKey={
             historyRefreshKey
+          }
+          currentFilename={
+            selectedFile?.name ?? null
+          }
+          canPracticeCurrentDocument={
+            Boolean(
+              selectedFile &&
+              documentResult &&
+              !documentResult.scanned_likely,
+            )
+          }
+          isPracticeGenerating={
+            isWeakPracticeGenerating
+          }
+          onPracticeWeakAreas={
+            handleHistoryPracticeWeakAreas
           }
         />
 

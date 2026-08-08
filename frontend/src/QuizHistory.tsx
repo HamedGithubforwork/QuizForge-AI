@@ -12,17 +12,29 @@ import {
 
 import './QuizHistory.css'
 
-type QuizHistoryProps = {
-  refreshKey: number
-}
-
-type StoredQuestionType =
+export type HistoryQuestionType =
   | 'multiple_choice'
   | 'true_false'
   | 'short_answer'
 
+export type HistoryPracticeFocus = {
+  pages: number[]
+  questionType: HistoryQuestionType
+  avoidQuestions: string[]
+}
+
+type QuizHistoryProps = {
+  refreshKey: number
+  currentFilename?: string | null
+  canPracticeCurrentDocument?: boolean
+  isPracticeGenerating?: boolean
+  onPracticeWeakAreas?: (
+    focus: HistoryPracticeFocus,
+  ) => void | Promise<void>
+}
+
 type StoredQuestion = {
-  question_type: StoredQuestionType
+  question_type: HistoryQuestionType
   question: string
   choices: string[]
   correct_index: number
@@ -51,6 +63,18 @@ type TypePerformance = {
   short_answer: TypeScore
 }
 
+type DocumentWeakness = {
+  questionType: HistoryQuestionType
+  pages: number[]
+  avoidQuestions: string[]
+  missedQuestions: number
+}
+
+type CurrentDocumentSummary = {
+  attemptCount: number
+  weakness: DocumentWeakness | null
+}
+
 function getDisplayFilename(
   name: string,
 ) {
@@ -59,6 +83,14 @@ function getDisplayFilename(
   } catch {
     return name
   }
+}
+
+function normalizeFilename(
+  name: string,
+) {
+  return getDisplayFilename(name)
+    .trim()
+    .toLowerCase()
 }
 
 function getQuestionTypeLabel(
@@ -105,18 +137,14 @@ function normalizeAnswer(
 function removeSimplePlural(
   answer: string,
 ) {
-  const words =
-    answer.split(' ')
+  const words = answer.split(' ')
 
   if (words.length === 0) {
     return answer
   }
 
-  const lastIndex =
-    words.length - 1
-
-  const lastWord =
-    words[lastIndex]
+  const lastIndex = words.length - 1
+  const lastWord = words[lastIndex]
 
   if (
     lastWord.length > 3 &&
@@ -150,9 +178,7 @@ function acceptedAnswerMatches(
   }
 
   const userSingular =
-    removeSimplePlural(
-      userAnswer,
-    )
+    removeSimplePlural(userAnswer)
 
   const acceptedSingular =
     removeSimplePlural(
@@ -167,8 +193,7 @@ function acceptedAnswerMatches(
   }
 
   const isSingleToken =
-    acceptedAnswer
-      .split(' ')
+    acceptedAnswer.split(' ')
       .length === 1
 
   const isUsefulToken =
@@ -263,6 +288,47 @@ function isQuestionCorrect(
   )
 }
 
+function isStoredQuestion(
+  value: unknown,
+): value is StoredQuestion {
+  if (
+    typeof value !== 'object' ||
+    value === null
+  ) {
+    return false
+  }
+
+  const question = value as Partial<StoredQuestion>
+
+  return (
+    (
+      question.question_type ===
+        'multiple_choice' ||
+      question.question_type ===
+        'true_false' ||
+      question.question_type ===
+        'short_answer'
+    ) &&
+    typeof question.question ===
+      'string' &&
+    Array.isArray(
+      question.choices,
+    ) &&
+    typeof question.correct_index ===
+      'number' &&
+    typeof question.correct_answer ===
+      'string' &&
+    Array.isArray(
+      question.accepted_answers,
+    ) &&
+    typeof question.explanation ===
+      'string' &&
+    Array.isArray(
+      question.source_pages,
+    )
+  )
+}
+
 function isStoredQuiz(
   value: unknown,
 ): value is StoredQuiz {
@@ -275,11 +341,19 @@ function isStoredQuiz(
 
   const possibleQuiz =
     value as {
+      title?: unknown
       questions?: unknown
     }
 
-  return Array.isArray(
-    possibleQuiz.questions,
+  return (
+    typeof possibleQuiz.title ===
+      'string' &&
+    Array.isArray(
+      possibleQuiz.questions,
+    ) &&
+    possibleQuiz.questions.every(
+      isStoredQuestion,
+    )
   )
 }
 
@@ -308,8 +382,29 @@ function formatDate(
   )
 }
 
+function createTypePerformance(): TypePerformance {
+  return {
+    multiple_choice: {
+      correct: 0,
+      total: 0,
+    },
+    true_false: {
+      correct: 0,
+      total: 0,
+    },
+    short_answer: {
+      correct: 0,
+      total: 0,
+    },
+  }
+}
+
 function QuizHistory({
   refreshKey,
+  currentFilename = null,
+  canPracticeCurrentDocument = false,
+  isPracticeGenerating = false,
+  onPracticeWeakAreas,
 }: QuizHistoryProps) {
   const [history, setHistory] =
     useState<QuizHistoryRow[]>([])
@@ -376,10 +471,7 @@ function QuizHistory({
 
       const totalQuestions =
         history.reduce(
-          (
-            total,
-            item,
-          ) =>
+          (total, item) =>
             total +
             item.question_count,
           0,
@@ -389,10 +481,7 @@ function QuizHistory({
         quizzesCompleted > 0
           ? Math.round(
               history.reduce(
-                (
-                  total,
-                  item,
-                ) =>
+                (total, item) =>
                   total +
                   item.percentage,
                 0,
@@ -416,23 +505,8 @@ function QuizHistory({
           ? history[0].percentage
           : 0
 
-      const typePerformance:
-        TypePerformance = {
-          multiple_choice: {
-            correct: 0,
-            total: 0,
-          },
-
-          true_false: {
-            correct: 0,
-            total: 0,
-          },
-
-          short_answer: {
-            correct: 0,
-            total: 0,
-          },
-        }
+      const typePerformance =
+        createTypePerformance()
 
       history.forEach(
         (item) => {
@@ -447,14 +521,6 @@ function QuizHistory({
             return
           }
 
-          /*
-           * Save the narrowed values
-           * into local variables.
-           *
-           * This keeps their types
-           * correctly narrowed inside
-           * the nested forEach callback.
-           */
           const quizData =
             item.quiz_data
 
@@ -505,15 +571,173 @@ function QuizHistory({
       }
     }, [history])
 
+  const currentDocumentSummary:
+    CurrentDocumentSummary | null =
+    useMemo(() => {
+      if (!currentFilename) {
+        return null
+      }
+
+      const normalizedCurrentFilename =
+        normalizeFilename(
+          currentFilename,
+        )
+
+      const matchingHistory =
+        history.filter(
+          (item) =>
+            normalizeFilename(
+              item.source_filename,
+            ) ===
+            normalizedCurrentFilename,
+        )
+
+      const typeMisses:
+        Record<
+          HistoryQuestionType,
+          number
+        > = {
+          multiple_choice: 0,
+          true_false: 0,
+          short_answer: 0,
+        }
+
+      const pageMisses =
+        new Map<number, number>()
+
+      const avoidQuestions =
+        new Set<string>()
+
+      let missedQuestions = 0
+
+      matchingHistory.forEach(
+        (item) => {
+          if (
+            !isStoredQuiz(
+              item.quiz_data,
+            ) ||
+            !isStoredAnswers(
+              item.selected_answers,
+            )
+          ) {
+            return
+          }
+
+          const quizData =
+            item.quiz_data
+
+          const selectedAnswers =
+            item.selected_answers
+
+          quizData.questions.forEach(
+            (
+              question,
+              questionIndex,
+            ) => {
+              const answer =
+                selectedAnswers[
+                  String(
+                    questionIndex,
+                  )
+                ]
+
+              if (
+                isQuestionCorrect(
+                  question,
+                  answer,
+                )
+              ) {
+                return
+              }
+
+              missedQuestions += 1
+
+              typeMisses[
+                question.question_type
+              ] += 1
+
+              avoidQuestions.add(
+                question.question,
+              )
+
+              question.source_pages.forEach(
+                (pageNumber) => {
+                  pageMisses.set(
+                    pageNumber,
+                    (
+                      pageMisses.get(
+                        pageNumber,
+                      ) ?? 0
+                    ) + 1,
+                  )
+                },
+              )
+            },
+          )
+        },
+      )
+
+      if (missedQuestions === 0) {
+        return {
+          attemptCount:
+            matchingHistory.length,
+          weakness: null,
+        }
+      }
+
+      const [questionType] =
+        (
+          Object.entries(
+            typeMisses,
+          ) as [
+            HistoryQuestionType,
+            number,
+          ][]
+        ).sort(
+          (a, b) =>
+            b[1] - a[1],
+        )[0]
+
+      const pages =
+        Array.from(
+          pageMisses.entries(),
+        )
+          .sort(
+            (a, b) =>
+              b[1] - a[1] ||
+              a[0] - b[0],
+          )
+          .slice(0, 5)
+          .map(
+            ([pageNumber]) =>
+              pageNumber,
+          )
+          .sort(
+            (a, b) => a - b,
+          )
+
+      return {
+        attemptCount:
+          matchingHistory.length,
+        weakness: {
+          questionType,
+          pages,
+          avoidQuestions:
+            Array.from(
+              avoidQuestions,
+            ).slice(0, 20),
+          missedQuestions,
+        },
+      }
+    }, [history, currentFilename])
+
   const recentHistory =
     history.slice(0, 5)
 
   function getTypePercentage(
     score: TypeScore,
   ) {
-    if (
-      score.total === 0
-    ) {
+    if (score.total === 0) {
       return 0
     }
 
@@ -523,6 +747,27 @@ function QuizHistory({
         score.total
       ) * 100,
     )
+  }
+
+  function handleHistoryPractice() {
+    const weakness =
+      currentDocumentSummary
+        ?.weakness
+
+    if (
+      !weakness ||
+      !onPracticeWeakAreas
+    ) {
+      return
+    }
+
+    void onPracticeWeakAreas({
+      pages: weakness.pages,
+      questionType:
+        weakness.questionType,
+      avoidQuestions:
+        weakness.avoidQuestions,
+    })
   }
 
   return (
@@ -559,7 +804,6 @@ function QuizHistory({
 
       {expanded && (
         <div className="history-content">
-
           {loading && (
             <p className="history-status">
               Loading history...
@@ -591,11 +835,9 @@ function QuizHistory({
 
           {!loading &&
             !error &&
-            history.length >
-              0 && (
+            history.length > 0 && (
               <>
                 <section className="analytics-section">
-
                   <div className="analytics-heading">
                     <div>
                       <span className="analytics-eyebrow">
@@ -609,27 +851,19 @@ function QuizHistory({
 
                     <span className="analytics-latest">
                       Latest score:{' '}
-
                       <strong>
-                        {
-                          analytics.latestScore
-                        }
-                        %
+                        {analytics.latestScore}%
                       </strong>
                     </span>
                   </div>
 
                   <div className="analytics-grid">
-
                     <article className="analytics-card">
                       <span>
                         Quizzes Completed
                       </span>
-
                       <strong>
-                        {
-                          analytics.quizzesCompleted
-                        }
+                        {analytics.quizzesCompleted}
                       </strong>
                     </article>
 
@@ -637,12 +871,8 @@ function QuizHistory({
                       <span>
                         Average Score
                       </span>
-
                       <strong>
-                        {
-                          analytics.averageScore
-                        }
-                        %
+                        {analytics.averageScore}%
                       </strong>
                     </article>
 
@@ -650,12 +880,8 @@ function QuizHistory({
                       <span>
                         Best Score
                       </span>
-
                       <strong>
-                        {
-                          analytics.bestScore
-                        }
-                        %
+                        {analytics.bestScore}%
                       </strong>
                     </article>
 
@@ -663,18 +889,13 @@ function QuizHistory({
                       <span>
                         Questions Answered
                       </span>
-
                       <strong>
-                        {
-                          analytics.totalQuestions
-                        }
+                        {analytics.totalQuestions}
                       </strong>
                     </article>
-
                   </div>
 
                   <div className="performance-panel">
-
                     <div className="performance-heading">
                       <h3>
                         Performance by
@@ -688,33 +909,19 @@ function QuizHistory({
                     </div>
 
                     <div className="performance-list">
-
                       {analytics
                         .typePerformance
                         .multiple_choice
-                        .total >
-                        0 && (
+                        .total > 0 && (
                         <div className="performance-row">
-
                           <div className="performance-label">
                             <span>
                               Multiple Choice
                             </span>
-
                             <strong>
-                              {
-                                analytics
-                                  .typePerformance
-                                  .multiple_choice
-                                  .correct
-                              }{' '}
+                              {analytics.typePerformance.multiple_choice.correct}{' '}
                               /{' '}
-                              {
-                                analytics
-                                  .typePerformance
-                                  .multiple_choice
-                                  .total
-                              }
+                              {analytics.typePerformance.multiple_choice.total}
                             </strong>
                           </div>
 
@@ -723,9 +930,7 @@ function QuizHistory({
                               className="analytics-progress-fill"
                               style={{
                                 width: `${getTypePercentage(
-                                  analytics
-                                    .typePerformance
-                                    .multiple_choice,
+                                  analytics.typePerformance.multiple_choice,
                                 )}%`,
                               }}
                             />
@@ -733,42 +938,25 @@ function QuizHistory({
 
                           <span className="performance-percent">
                             {getTypePercentage(
-                              analytics
-                                .typePerformance
-                                .multiple_choice,
-                            )}
-                            %
+                              analytics.typePerformance.multiple_choice,
+                            )}%
                           </span>
-
                         </div>
                       )}
 
                       {analytics
                         .typePerformance
                         .true_false
-                        .total >
-                        0 && (
+                        .total > 0 && (
                         <div className="performance-row">
-
                           <div className="performance-label">
                             <span>
                               True / False
                             </span>
-
                             <strong>
-                              {
-                                analytics
-                                  .typePerformance
-                                  .true_false
-                                  .correct
-                              }{' '}
+                              {analytics.typePerformance.true_false.correct}{' '}
                               /{' '}
-                              {
-                                analytics
-                                  .typePerformance
-                                  .true_false
-                                  .total
-                              }
+                              {analytics.typePerformance.true_false.total}
                             </strong>
                           </div>
 
@@ -777,9 +965,7 @@ function QuizHistory({
                               className="analytics-progress-fill"
                               style={{
                                 width: `${getTypePercentage(
-                                  analytics
-                                    .typePerformance
-                                    .true_false,
+                                  analytics.typePerformance.true_false,
                                 )}%`,
                               }}
                             />
@@ -787,42 +973,25 @@ function QuizHistory({
 
                           <span className="performance-percent">
                             {getTypePercentage(
-                              analytics
-                                .typePerformance
-                                .true_false,
-                            )}
-                            %
+                              analytics.typePerformance.true_false,
+                            )}%
                           </span>
-
                         </div>
                       )}
 
                       {analytics
                         .typePerformance
                         .short_answer
-                        .total >
-                        0 && (
+                        .total > 0 && (
                         <div className="performance-row">
-
                           <div className="performance-label">
                             <span>
                               Short Answer
                             </span>
-
                             <strong>
-                              {
-                                analytics
-                                  .typePerformance
-                                  .short_answer
-                                  .correct
-                              }{' '}
+                              {analytics.typePerformance.short_answer.correct}{' '}
                               /{' '}
-                              {
-                                analytics
-                                  .typePerformance
-                                  .short_answer
-                                  .total
-                              }
+                              {analytics.typePerformance.short_answer.total}
                             </strong>
                           </div>
 
@@ -831,9 +1000,7 @@ function QuizHistory({
                               className="analytics-progress-fill"
                               style={{
                                 width: `${getTypePercentage(
-                                  analytics
-                                    .typePerformance
-                                    .short_answer,
+                                  analytics.typePerformance.short_answer,
                                 )}%`,
                               }}
                             />
@@ -841,51 +1008,176 @@ function QuizHistory({
 
                           <span className="performance-percent">
                             {getTypePercentage(
-                              analytics
-                                .typePerformance
-                                .short_answer,
-                            )}
-                            %
+                              analytics.typePerformance.short_answer,
+                            )}%
                           </span>
-
                         </div>
                       )}
-
                     </div>
                   </div>
 
-                  <div className="recent-progress">
+                  <div className="history-weakness-panel">
+                    <div className="performance-heading">
+                      <h3>
+                        Long-term weak areas
+                      </h3>
 
+                      <span>
+                        Current PDF history
+                      </span>
+                    </div>
+
+                    {!currentFilename && (
+                      <div className="history-weakness-empty">
+                        Upload and process a PDF to turn
+                        your saved mistakes into a targeted
+                        practice quiz.
+                      </div>
+                    )}
+
+                    {currentFilename &&
+                      currentDocumentSummary?.attemptCount ===
+                        0 && (
+                        <div className="history-weakness-empty">
+                          <strong>
+                            No saved attempts for this PDF yet
+                          </strong>
+                          <span>
+                            Complete and save a quiz for{' '}
+                            {getDisplayFilename(
+                              currentFilename,
+                            )}{' '}
+                            to start building long-term weak-area data.
+                          </span>
+                        </div>
+                      )}
+
+                    {currentFilename &&
+                      currentDocumentSummary &&
+                      currentDocumentSummary.attemptCount > 0 &&
+                      !currentDocumentSummary.weakness && (
+                        <div className="history-weakness-empty history-weakness-success">
+                          <strong>
+                            No weak areas detected for this PDF
+                          </strong>
+                          <span>
+                            Your saved attempts do not contain any
+                            incorrect answers for this document.
+                          </span>
+                        </div>
+                      )}
+
+                    {currentFilename &&
+                      currentDocumentSummary?.weakness && (
+                        <>
+                          <div className="history-weakness-file">
+                            <span>
+                              Analyzing saved attempts for
+                            </span>
+                            <strong>
+                              {getDisplayFilename(
+                                currentFilename,
+                              )}
+                            </strong>
+                          </div>
+
+                          <div className="history-weakness-grid">
+                            <article>
+                              <span>
+                                Saved Attempts
+                              </span>
+                              <strong>
+                                {currentDocumentSummary.attemptCount}
+                              </strong>
+                            </article>
+
+                            <article>
+                              <span>
+                                Missed Questions
+                              </span>
+                              <strong>
+                                {currentDocumentSummary.weakness.missedQuestions}
+                              </strong>
+                            </article>
+
+                            <article>
+                              <span>
+                                Weakest Type
+                              </span>
+                              <strong className="history-weakness-text-value">
+                                {getQuestionTypeLabel(
+                                  currentDocumentSummary.weakness.questionType,
+                                )}
+                              </strong>
+                            </article>
+
+                            <article>
+                              <span>
+                                Focus Pages
+                              </span>
+                              <strong className="history-weakness-text-value">
+                                {currentDocumentSummary.weakness.pages.length > 0
+                                  ? currentDocumentSummary.weakness.pages.join(', ')
+                                  : 'Whole PDF'}
+                              </strong>
+                            </article>
+                          </div>
+
+                          <p className="history-weakness-description">
+                            QuizForge combines mistakes from every saved
+                            attempt for this PDF, finds the question type
+                            and pages you miss most often, and generates
+                            new questions focused on those areas.
+                          </p>
+
+                          <button
+                            className="history-practice-button"
+                            type="button"
+                            onClick={
+                              handleHistoryPractice
+                            }
+                            disabled={
+                              !canPracticeCurrentDocument ||
+                              isPracticeGenerating ||
+                              !onPracticeWeakAreas
+                            }
+                          >
+                            {isPracticeGenerating
+                              ? 'Building Practice Quiz...'
+                              : 'Practice My Weak Areas'}
+                          </button>
+
+                          {!canPracticeCurrentDocument && (
+                            <span className="history-practice-note">
+                              Process this PDF above to enable
+                              history-based practice.
+                            </span>
+                          )}
+                        </>
+                      )}
+                  </div>
+
+                  <div className="recent-progress">
                     <div className="performance-heading">
                       <h3>
                         Recent scores
                       </h3>
 
                       <span>
-                        Last{' '}
-                        {
-                          recentHistory.length
-                        }{' '}
+                        Last {recentHistory.length}{' '}
                         saved{' '}
-                        {recentHistory.length ===
-                        1
+                        {recentHistory.length === 1
                           ? 'quiz'
                           : 'quizzes'}
                       </span>
                     </div>
 
                     <div className="recent-score-list">
-
                       {recentHistory.map(
-                        (
-                          item,
-                          index,
-                        ) => (
+                        (item, index) => (
                           <div
                             className="recent-score-row"
-                            key={
-                              item.id
-                            }
+                            key={item.id}
                           >
                             <span className="recent-score-number">
                               {index + 1}
@@ -893,11 +1185,8 @@ function QuizHistory({
 
                             <div className="recent-score-info">
                               <strong>
-                                {
-                                  item.quiz_title
-                                }
+                                {item.quiz_title}
                               </strong>
-
                               <span>
                                 {formatDate(
                                   item.created_at,
@@ -906,18 +1195,13 @@ function QuizHistory({
                             </div>
 
                             <strong className="recent-score-value">
-                              {
-                                item.percentage
-                              }
-                              %
+                              {item.percentage}%
                             </strong>
                           </div>
                         ),
                       )}
-
                     </div>
                   </div>
-
                 </section>
 
                 <div className="history-divider">
@@ -927,7 +1211,6 @@ function QuizHistory({
                 </div>
 
                 <div className="history-list">
-
                   {history.map(
                     (item) => (
                       <article
@@ -935,9 +1218,7 @@ function QuizHistory({
                         key={item.id}
                       >
                         <div className="history-card-main">
-
                           <div className="history-card-details">
-
                             <span className="history-date">
                               {formatDate(
                                 item.created_at,
@@ -945,9 +1226,7 @@ function QuizHistory({
                             </span>
 
                             <h3>
-                              {
-                                item.quiz_title
-                              }
+                              {item.quiz_title}
                             </h3>
 
                             <p>
@@ -957,11 +1236,8 @@ function QuizHistory({
                             </p>
 
                             <div className="history-meta">
-
                               <span>
-                                {
-                                  item.difficulty
-                                }
+                                {item.difficulty}
                               </span>
 
                               <span>
@@ -971,33 +1247,21 @@ function QuizHistory({
                               </span>
 
                               <span>
-                                {
-                                  item.question_count
-                                }{' '}
+                                {item.question_count}{' '}
                                 questions
                               </span>
-
                             </div>
-
                           </div>
 
                           <div className="history-score">
                             <strong>
-                              {
-                                item.percentage
-                              }
-                              %
+                              {item.percentage}%
                             </strong>
-
                             <span>
-                              {item.score}{' '}
-                              /{' '}
-                              {
-                                item.question_count
-                              }
+                              {item.score} /{' '}
+                              {item.question_count}
                             </span>
                           </div>
-
                         </div>
 
                         <button
@@ -1011,15 +1275,12 @@ function QuizHistory({
                         >
                           Delete
                         </button>
-
                       </article>
                     ),
                   )}
-
                 </div>
               </>
             )}
-
         </div>
       )}
     </section>
