@@ -424,6 +424,47 @@ function QuizHistory({
     setIsHistoryPracticeGenerating,
   ] = useState(false)
 
+  const [
+    practiceReadyFilename,
+    setPracticeReadyFilename,
+  ] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (
+      canPracticeCurrentDocument &&
+      currentFilename
+    ) {
+      setPracticeReadyFilename(
+        currentFilename,
+      )
+      return
+    }
+
+    if (!currentFilename) {
+      setPracticeReadyFilename(null)
+      return
+    }
+
+    if (
+      practiceReadyFilename &&
+      practiceReadyFilename !==
+        currentFilename
+    ) {
+      setPracticeReadyFilename(null)
+    }
+  }, [
+    canPracticeCurrentDocument,
+    currentFilename,
+    practiceReadyFilename,
+  ])
+
+  const canPracticeHistory =
+    Boolean(
+      currentFilename &&
+      practiceReadyFilename ===
+        currentFilename,
+    )
+
   async function loadHistory() {
     setLoading(true)
     setError('')
@@ -834,7 +875,7 @@ function QuizHistory({
     if (
       !weakness ||
       !onPracticeWeakAreas ||
-      !canPracticeCurrentDocument ||
+      !canPracticeHistory ||
       isHistoryPracticeGenerating
     ) {
       return
@@ -1228,7 +1269,7 @@ function QuizHistory({
                               handleHistoryPractice
                             }
                             disabled={
-                              !canPracticeCurrentDocument ||
+                              !canPracticeHistory ||
                               isHistoryPracticeGenerating ||
                               !onPracticeWeakAreas
                             }
@@ -1238,7 +1279,7 @@ function QuizHistory({
                               : 'Practice My Weak Areas'}
                           </button>
 
-                          {!canPracticeCurrentDocument && (
+                          {!canPracticeHistory && (
                             <span className="history-practice-note">
                               Process this PDF above to enable
                               history-based practice.
