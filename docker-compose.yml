@@ -1,4 +1,21 @@
 services:
+  redis:
+    image: redis:7-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -10,14 +27,18 @@ services:
       - ./backend:/app
     environment:
       WATCHFILES_FORCE_POLLING: "true"
+      REDIS_URL: redis://redis:6379/0
     command:
       - uvicorn
-      - main:app
+      - main_redis:app
       - --host
       - 0.0.0.0
       - --port
       - "8000"
       - --reload
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         - CMD
