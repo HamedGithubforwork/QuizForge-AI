@@ -259,14 +259,19 @@ async def get_cached_quiz(
         return None
 
     if not cached_value:
+        print("Redis cache MISS")
         return None
 
     try:
-        return quiz_model.model_validate_json(
+        cached_quiz = quiz_model.model_validate_json(
             cached_value
         )
     except ValueError:
+        print("Redis cache MISS")
         return None
+
+    print("Redis cache HIT")
+    return cached_quiz
 
 
 async def cache_quiz(
