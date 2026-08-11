@@ -6,7 +6,7 @@ services:
     region: ohio
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn main_redis:app --host 0.0.0.0 --port $PORT
     autoDeployTrigger: checksPass
     envVars:
       - key: OPENAI_API_KEY
@@ -17,7 +17,13 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: REDIS_URL
+        sync: false
       - key: QUIZ_RATE_LIMIT
         value: "10"
       - key: QUIZ_RATE_WINDOW_SECONDS
         value: "600"
+      - key: QUIZ_CACHE_TTL_SECONDS
+        value: "3600"
+      - key: QUIZ_CACHE_VERSION
+        value: "v1"
