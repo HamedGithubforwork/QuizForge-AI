@@ -611,29 +611,16 @@ The cache was also successfully retrieved after the FastAPI service restarted, c
 
 ## Screenshots
 
-### Upload and configure a quiz
+Suggested screenshots:
 
-Upload a PDF, process the study material, and choose the number of questions, difficulty, and question type.
-
-![QuizForge upload and quiz settings](docs/screenshots/upload-and-settings.webp)
-
-### AI-generated practice quiz
-
-QuizForge generates questions from the uploaded material, grades answers, explains the correct answer, and links each question back to its source page.
-
-![QuizForge generated quiz](docs/screenshots/generated-quiz.webp)
-
-### Quiz results
-
-After completing a quiz, users receive their score, can review incorrect answers, save the attempt, retry missed questions, or generate targeted practice.
-
-![QuizForge quiz results](docs/screenshots/quiz-results.webp)
-
-### Study analytics and weak-area practice
-
-Saved quiz attempts are used to track scores, performance by question type, weak areas, and source pages that need more practice.
-
-![QuizForge study analytics](docs/screenshots/study-analytics.webp)
+1. Login / account creation
+2. PDF upload
+3. Quiz configuration
+4. Generated quiz
+5. Quiz results
+6. Quiz history
+7. Weak-area practice
+8. Mastery progress
 
 ---
 
