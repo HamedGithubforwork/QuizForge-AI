@@ -1,18 +1,26 @@
 from fastapi import Depends, File, Form, UploadFile
 
-from main import (
-    AuthenticatedUser,
-    Quiz,
-    app,
-    generate_quiz as generate_quiz_without_redis,
-    get_current_user,
-)
+import main as base_app
 from redis_integration import (
     build_quiz_cache_key,
     cache_quiz,
     enforce_quiz_rate_limit,
     get_cached_quiz,
 )
+
+
+AuthenticatedUser = base_app.AuthenticatedUser
+Quiz = base_app.Quiz
+app = base_app.app
+get_current_user = base_app.get_current_user
+generate_quiz_without_redis = base_app.generate_quiz
+
+
+# The Redis entrypoint owns quiz-generation rate limiting. Disable the
+# legacy process-local limiter in main.py for this process so a cache miss
+# is not rate-limited twice. Running `uvicorn main:app` directly is
+# unaffected and still uses the original in-memory limiter.
+base_app.enforce_quiz_rate_limit = lambda _user_id: None
 
 
 # Replace the original quiz-generation route with a Redis-aware wrapper.
