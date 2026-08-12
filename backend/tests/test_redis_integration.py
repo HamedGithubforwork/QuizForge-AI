@@ -1,5 +1,7 @@
 import asyncio
 
+import main as base_app
+import main_redis  # noqa: F401
 from redis_integration import (
     build_quiz_cache_key,
     enforce_quiz_rate_limit,
@@ -103,3 +105,14 @@ def test_rate_limit_uses_redis_key():
 
     assert key_count == 1
     assert key == "quizforge:rate:test-user"
+
+
+def test_redis_entrypoint_disables_legacy_rate_limiter():
+    base_app._generation_requests.clear()
+
+    for _ in range(base_app.QUIZ_RATE_LIMIT + 1):
+        base_app.enforce_quiz_rate_limit(
+            "test-user",
+        )
+
+    assert not base_app._generation_requests
