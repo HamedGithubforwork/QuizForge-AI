@@ -611,16 +611,21 @@ The cache was also successfully retrieved after the FastAPI service restarted, c
 
 ## Screenshots
 
-Suggested screenshots:
+### Upload study material and configure a quiz
 
-1. Login / account creation
-2. PDF upload
-3. Quiz configuration
-4. Generated quiz
-5. Quiz results
-6. Quiz history
-7. Weak-area practice
-8. Mastery progress
+![QuizForge PDF upload and quiz settings](docs/screenshots/upload-and-settings.webp)
+
+### AI-generated quiz with answer feedback
+
+![QuizForge generated quiz](docs/screenshots/generated-quiz.webp)
+
+### Quiz results
+
+![QuizForge quiz results](docs/screenshots/quiz-results.webp)
+
+### Study analytics
+
+![QuizForge study analytics](docs/screenshots/study-analytics.webp)
 
 ---
 
