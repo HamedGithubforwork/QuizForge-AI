@@ -611,16 +611,29 @@ The cache was also successfully retrieved after the FastAPI service restarted, c
 
 ## Screenshots
 
-Suggested screenshots:
+### Upload and quiz configuration
 
-1. Login / account creation
-2. PDF upload
-3. Quiz configuration
-4. Generated quiz
-5. Quiz results
-6. Quiz history
-7. Weak-area practice
-8. Mastery progress
+Upload a PDF, process the study material, and configure question count, difficulty, and question type before generation.
+
+![QuizForge PDF upload and quiz settings](docs/screenshots/upload-and-settings.png)
+
+### AI-generated quiz
+
+Answer generated questions with instant correctness feedback, explanations, and source-page references.
+
+![QuizForge generated quiz](docs/screenshots/generated-quiz.png)
+
+### Weak-area practice
+
+QuizForge analyzes saved attempts to identify weak question types and source pages for targeted practice.
+
+![QuizForge weak-area practice](docs/screenshots/weak-area-practice.png)
+
+### Quiz history
+
+Saved quiz attempts let users review scores, difficulty, question types, and previous study sessions.
+
+![QuizForge quiz history](docs/screenshots/quiz-history.png)
 
 ---
 
