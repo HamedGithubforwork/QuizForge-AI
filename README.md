@@ -611,13 +611,16 @@ The cache was also successfully retrieved after the FastAPI service restarted, c
 
 ## Screenshots
 
-### Weak-area practice
+Suggested screenshots:
 
-![Weak-area practice](docs/screenshots/weak-area-practice.jpg)
-
-### Quiz history
-
-![Quiz history](docs/screenshots/quiz-history.jpg)
+1. Login / account creation
+2. PDF upload
+3. Quiz configuration
+4. Generated quiz
+5. Quiz results
+6. Quiz history
+7. Weak-area practice
+8. Mastery progress
 
 ---
 
