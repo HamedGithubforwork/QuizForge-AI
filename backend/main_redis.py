@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from fastapi import (
@@ -10,6 +11,7 @@ from fastapi import (
 )
 
 import main as base_app
+from admin_metrics import get_metric_snapshot
 from observability import (
     elapsed_ms,
     log_event,
@@ -49,6 +51,43 @@ async def observability_middleware(
         call_next,
         redis_client,
     )
+
+
+def get_admin_user_ids():
+    return {
+        user_id.strip()
+        for user_id in os.getenv(
+            "ADMIN_USER_IDS",
+            "",
+        ).split(",")
+        if user_id.strip()
+    }
+
+
+async def require_admin(
+    current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
+):
+    if current_user.id not in get_admin_user_ids():
+        raise HTTPException(
+            status_code=403,
+            detail="Admin access is required.",
+        )
+
+    return current_user
+
+
+@app.get("/api/admin/metrics")
+async def admin_metrics(
+    _current_user: AuthenticatedUser = Depends(
+        require_admin
+    ),
+):
+    return await get_metric_snapshot(
+        redis_client,
+    )
+
 
 
 # Replace the original quiz-generation route with a Redis-aware wrapper.
