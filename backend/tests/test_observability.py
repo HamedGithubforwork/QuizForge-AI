@@ -9,19 +9,32 @@ from observability import (
 )
 
 
+class FakePipeline:
+    def __init__(self, client):
+        self.client = client
+
+    def incrby(self, key, amount):
+        self.client.calls.append(
+            (key, amount)
+        )
+        return self
+
+    async def execute(self):
+        return [1] * len(
+            self.client.calls
+        )
+
+
 class FakeRedis:
     def __init__(self):
         self.calls = []
 
-    async def incrby(
+    def pipeline(
         self,
-        key,
-        amount,
+        transaction=False,
     ):
-        self.calls.append(
-            (key, amount)
-        )
-        return amount
+        assert transaction is False
+        return FakePipeline(self)
 
 
 def test_log_event_returns_structured_payload():
