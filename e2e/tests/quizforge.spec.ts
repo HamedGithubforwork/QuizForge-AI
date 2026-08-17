@@ -443,8 +443,10 @@ test(
 
     await expect(
       page
-        .locator('.history-content')
-        .getByText(firstQuiz.title),
+        .locator('.history-card')
+        .getByRole('heading', {
+          name: firstQuiz.title,
+        }),
     ).toBeVisible()
 
     await page
