@@ -9,6 +9,16 @@ const TEST_PASSWORD = 'correct-password'
 const TEST_USER_ID = 'e2e-user-id'
 const ACCESS_TOKEN = 'e2e-access-token'
 
+const gradingNone = {
+  grading_version: 2,
+  grading_mode: 'none',
+  answer_groups: [],
+  required_group_count: 0,
+  numeric_value: 0,
+  numeric_tolerance: 0,
+  numeric_unit: '',
+}
+
 function buildUser() {
   const now = new Date().toISOString()
 
@@ -37,11 +47,76 @@ function buildSession() {
     token_type: 'bearer',
     expires_in: 3600,
     expires_at:
-      Math.floor(Date.now() / 1000) +
-      3600,
+      Math.floor(Date.now() / 1000) + 3600,
     refresh_token: 'e2e-refresh-token',
     user: buildUser(),
   }
+}
+
+function makeQuestion(
+  question: string,
+  choices: string[],
+  explanation: string,
+  sourcePage: number,
+) {
+  return {
+    question_type: 'multiple_choice',
+    question,
+    choices,
+    correct_index: 0,
+    correct_answer: choices[0],
+    accepted_answers: [choices[0]],
+    grading: gradingNone,
+    explanation,
+    source_pages: [sourcePage],
+  }
+}
+
+const firstQuiz = {
+  title: 'E2E Networking Basics',
+  questions: [
+    makeQuestion(
+      'Which protocol provides reliable ordered delivery?',
+      ['TCP', 'UDP', 'ARP', 'ICMP'],
+      'TCP provides reliable, ordered delivery.',
+      1,
+    ),
+    makeQuestion(
+      'Which protocol is connectionless?',
+      ['UDP', 'TCP', 'SSH', 'TLS'],
+      'UDP is a connectionless transport protocol.',
+      1,
+    ),
+    makeQuestion(
+      'Which protocol maps IPv4 addresses to MAC addresses?',
+      ['ARP', 'DNS', 'HTTP', 'FTP'],
+      'ARP resolves an IPv4 address to a link-layer address.',
+      2,
+    ),
+    makeQuestion(
+      'Which protocol resolves host names to IP addresses?',
+      ['DNS', 'ARP', 'ICMP', 'SSH'],
+      'DNS resolves names to network addresses.',
+      2,
+    ),
+    makeQuestion(
+      'Which protocol is commonly used for web requests?',
+      ['HTTP', 'ARP', 'ICMP', 'NTP'],
+      'HTTP is used for web requests and responses.',
+      2,
+    ),
+  ],
+}
+
+const practiceQuiz = {
+  title: 'Targeted TCP Practice',
+  questions: firstQuiz.questions.map(
+    (question, index) => ({
+      ...question,
+      question:
+        `Practice ${index + 1}: ${question.question}`,
+    }),
+  ),
 }
 
 async function mockSupabase(
@@ -50,10 +125,7 @@ async function mockSupabase(
     validLogin?: boolean
   } = {},
 ) {
-  const historyRows: Record<
-    string,
-    unknown
-  >[] = []
+  const historyRows: Record<string, unknown>[] = []
 
   await page.route(
     '**/supabase-mock/auth/v1/token**',
@@ -64,8 +136,7 @@ async function mockSupabase(
           contentType: 'application/json',
           body: JSON.stringify({
             code: 'invalid_credentials',
-            message:
-              'Invalid login credentials',
+            message: 'Invalid login credentials',
           }),
         })
         return
@@ -74,9 +145,7 @@ async function mockSupabase(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(
-          buildSession(),
-        ),
+        body: JSON.stringify(buildSession()),
       })
     },
   )
@@ -85,19 +154,13 @@ async function mockSupabase(
     '**/supabase-mock/auth/v1/user',
     async (route) => {
       expect(
-        route.request().headers()[
-          'authorization'
-        ],
-      ).toBe(
-        `Bearer ${ACCESS_TOKEN}`,
-      )
+        route.request().headers().authorization,
+      ).toBe(`Bearer ${ACCESS_TOKEN}`)
 
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(
-          buildUser(),
-        ),
+        body: JSON.stringify(buildUser()),
       })
     },
   )
@@ -111,9 +174,7 @@ async function mockSupabase(
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(
-            historyRows,
-          ),
+          body: JSON.stringify(historyRows),
         })
         return
       }
@@ -124,17 +185,14 @@ async function mockSupabase(
             | Record<string, unknown>
             | Record<string, unknown>[]
 
-        const payload = Array.isArray(
-          rawPayload,
-        )
+        const payload = Array.isArray(rawPayload)
           ? rawPayload[0]
           : rawPayload
 
         historyRows.unshift({
           ...payload,
           id: `history-${historyRows.length + 1}`,
-          created_at:
-            new Date().toISOString(),
+          created_at: new Date().toISOString(),
         })
 
         await route.fulfill({
@@ -158,177 +216,17 @@ async function mockSupabase(
       })
     },
   )
-
-  return historyRows
 }
 
-const firstQuiz = {
-  title: 'E2E Networking Basics',
-  questions: [
-    {
-      question_type:
-        'multiple_choice',
-      question:
-        'Which protocol provides reliable ordered delivery?',
-      choices: [
-        'TCP',
-        'UDP',
-        'ARP',
-        'ICMP',
-      ],
-      correct_index: 0,
-      correct_answer: 'TCP',
-      accepted_answers: ['TCP'],
-      grading: {
-        grading_version: 2,
-        grading_mode: 'none',
-        answer_groups: [],
-        required_group_count: 0,
-        numeric_value: 0,
-        numeric_tolerance: 0,
-        numeric_unit: '',
-      },
-      explanation:
-        'TCP provides reliable, ordered delivery.',
-      source_pages: [1],
-    },
-    {
-      question_type:
-        'multiple_choice',
-      question:
-        'Which protocol is connectionless?',
-      choices: [
-        'UDP',
-        'TCP',
-        'SSH',
-        'TLS',
-      ],
-      correct_index: 0,
-      correct_answer: 'UDP',
-      accepted_answers: ['UDP'],
-      grading: {
-        grading_version: 2,
-        grading_mode: 'none',
-        answer_groups: [],
-        required_group_count: 0,
-        numeric_value: 0,
-        numeric_tolerance: 0,
-        numeric_unit: '',
-      },
-      explanation:
-        'UDP is a connectionless transport protocol.',
-      source_pages: [1],
-    },
-    {
-      question_type:
-        'multiple_choice',
-      question:
-        'Which protocol maps IPv4 addresses to MAC addresses?',
-      choices: [
-        'ARP',
-        'DNS',
-        'HTTP',
-        'FTP',
-      ],
-      correct_index: 0,
-      correct_answer: 'ARP',
-      accepted_answers: ['ARP'],
-      grading: {
-        grading_version: 2,
-        grading_mode: 'none',
-        answer_groups: [],
-        required_group_count: 0,
-        numeric_value: 0,
-        numeric_tolerance: 0,
-        numeric_unit: '',
-      },
-      explanation:
-        'ARP resolves an IPv4 address to a link-layer address.',
-      source_pages: [2],
-    },
-    {
-      question_type:
-        'multiple_choice',
-      question:
-        'Which protocol resolves host names to IP addresses?',
-      choices: [
-        'DNS',
-        'ARP',
-        'ICMP',
-        'SSH',
-      ],
-      correct_index: 0,
-      correct_answer: 'DNS',
-      accepted_answers: ['DNS'],
-      grading: {
-        grading_version: 2,
-        grading_mode: 'none',
-        answer_groups: [],
-        required_group_count: 0,
-        numeric_value: 0,
-        numeric_tolerance: 0,
-        numeric_unit: '',
-      },
-      explanation:
-        'DNS resolves names to network addresses.',
-      source_pages: [2],
-    },
-    {
-      question_type:
-        'multiple_choice',
-      question:
-        'Which protocol is commonly used for web requests?',
-      choices: [
-        'HTTP',
-        'ARP',
-        'ICMP',
-        'NTP',
-      ],
-      correct_index: 0,
-      correct_answer: 'HTTP',
-      accepted_answers: ['HTTP'],
-      grading: {
-        grading_version: 2,
-        grading_mode: 'none',
-        answer_groups: [],
-        required_group_count: 0,
-        numeric_value: 0,
-        numeric_tolerance: 0,
-        numeric_unit: '',
-      },
-      explanation:
-        'HTTP is used for web requests and responses.',
-      source_pages: [2],
-    },
-  ],
-}
-
-const practiceQuiz = {
-  title: 'Targeted TCP Practice',
-  questions: firstQuiz.questions.map(
-    (question, index) => ({
-      ...question,
-      question:
-        `Practice ${index + 1}: ${question.question}`,
-    }),
-  ),
-}
-
-async function mockBackend(
-  page: Page,
-) {
+async function mockBackend(page: Page) {
   let generationCount = 0
 
   await page.route(
     '**/api-mock/api/documents/upload',
     async (route) => {
       expect(
-        route.request().headers()[
-          'authorization'
-        ],
-      ).toBe(
-        `Bearer ${ACCESS_TOKEN}`,
-      )
+        route.request().headers().authorization,
+      ).toBe(`Bearer ${ACCESS_TOKEN}`)
 
       await route.fulfill({
         status: 200,
@@ -367,12 +265,8 @@ async function mockBackend(
     '**/api-mock/api/quizzes/generate',
     async (route) => {
       expect(
-        route.request().headers()[
-          'authorization'
-        ],
-      ).toBe(
-        `Bearer ${ACCESS_TOKEN}`,
-      )
+        route.request().headers().authorization,
+      ).toBe(`Bearer ${ACCESS_TOKEN}`)
 
       generationCount += 1
 
@@ -391,22 +285,24 @@ async function mockBackend(
   return () => generationCount
 }
 
-async function logIn(page: Page) {
-  await page.goto('/')
+async function submitLogin(
+  page: Page,
+  password = TEST_PASSWORD,
+) {
+  await page.getByLabel('Email').fill(TEST_EMAIL)
+  await page.getByLabel('Password').fill(password)
 
   await page
-    .getByLabel('Email')
-    .fill(TEST_EMAIL)
-
-  await page
-    .getByLabel('Password')
-    .fill(TEST_PASSWORD)
-
-  await page
+    .locator('form')
     .getByRole('button', {
       name: 'Log In',
     })
     .click()
+}
+
+async function logIn(page: Page) {
+  await page.goto('/')
+  await submitLogin(page)
 
   await expect(
     page.getByText('Signed in as'),
@@ -443,9 +339,7 @@ test(
       .click()
 
     await expect(
-      page.getByText(
-        'PDF processed successfully',
-      ),
+      page.getByText('PDF processed successfully'),
     ).toBeVisible()
 
     await expect(
@@ -464,43 +358,27 @@ test(
       }),
     ).toBeVisible()
 
-    const cards =
-      page.locator('.question-card')
+    const cards = page.locator('.question-card')
+    const answers = [
+      'UDP',
+      'UDP',
+      'ARP',
+      'DNS',
+      'HTTP',
+    ]
 
-    await cards
-      .nth(0)
-      .getByText('UDP', {
-        exact: true,
-      })
-      .click()
-
-    await cards
-      .nth(1)
-      .getByText('UDP', {
-        exact: true,
-      })
-      .click()
-
-    await cards
-      .nth(2)
-      .getByText('ARP', {
-        exact: true,
-      })
-      .click()
-
-    await cards
-      .nth(3)
-      .getByText('DNS', {
-        exact: true,
-      })
-      .click()
-
-    await cards
-      .nth(4)
-      .getByText('HTTP', {
-        exact: true,
-      })
-      .click()
+    for (
+      let index = 0;
+      index < answers.length;
+      index += 1
+    ) {
+      await cards
+        .nth(index)
+        .getByText(answers[index], {
+          exact: true,
+        })
+        .click()
+    }
 
     await page
       .getByRole('button', {
@@ -564,7 +442,8 @@ test(
       .click()
 
     await expect(
-      page.locator('.history-content')
+      page
+        .locator('.history-content')
         .getByText(firstQuiz.title),
     ).toBeVisible()
 
@@ -575,15 +454,11 @@ test(
       .click()
 
     await expect(
-      page.getByText(
-        'Weak Areas Practice',
-      ),
+      page.getByText('Weak Areas Practice'),
     ).toBeVisible()
 
     await expect(
-      page.getByText(
-        'Targeted practice',
-      ),
+      page.getByText('Targeted practice'),
     ).toBeVisible()
 
     await expect(
@@ -592,37 +467,22 @@ test(
       }),
     ).toBeVisible()
 
-    expect(
-      getGenerationCount(),
-    ).toBe(2)
+    expect(getGenerationCount()).toBe(2)
   },
 )
 
 test(
   'shows an authentication error for invalid credentials',
   async ({ page }) => {
-    await mockSupabase(
-      page,
-      {
-        validLogin: false,
-      },
-    )
+    await mockSupabase(page, {
+      validLogin: false,
+    })
 
     await page.goto('/')
-
-    await page
-      .getByLabel('Email')
-      .fill(TEST_EMAIL)
-
-    await page
-      .getByLabel('Password')
-      .fill('wrong-password')
-
-    await page
-      .getByRole('button', {
-        name: 'Log In',
-      })
-      .click()
+    await submitLogin(
+      page,
+      'wrong-password',
+    )
 
     await expect(
       page.getByText(
