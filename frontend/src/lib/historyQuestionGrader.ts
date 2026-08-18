@@ -1,7 +1,7 @@
 import {
   gradeShortAnswer,
   type ShortAnswerGradingSpec,
-} from './shortAnswerGrader'
+} from './shortAnswerGrader.ts'
 
 export type HistoryQuestionType =
   | 'multiple_choice'
