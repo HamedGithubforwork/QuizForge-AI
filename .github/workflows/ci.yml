@@ -63,8 +63,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run short-answer grader tests
-        run: node --experimental-strip-types src/lib/shortAnswerGrader.test.ts
+      - name: Run frontend grader tests
+        run: |
+          node --experimental-strip-types src/lib/shortAnswerGrader.test.ts
+          node --experimental-strip-types src/lib/historyQuestionGrader.test.ts
 
       - name: Run frontend lint
         run: npm run lint

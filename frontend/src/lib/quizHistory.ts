@@ -1,5 +1,8 @@
 import { supabase } from './supabase'
 
+type StoredSelectedAnswers =
+  Record<string, number | string>
+
 export type QuizHistoryRow = {
   id: string
   user_id: string
@@ -11,7 +14,7 @@ export type QuizHistoryRow = {
   score: number
   percentage: number
   quiz_data: unknown
-  selected_answers: unknown
+  selected_answers: StoredSelectedAnswers
   created_at: string
 }
 
@@ -24,7 +27,7 @@ type SaveQuizHistoryInput = {
   score: number
   percentage: number
   quizData: unknown
-  selectedAnswers: unknown
+  selectedAnswers: StoredSelectedAnswers
 }
 
 export async function saveQuizHistory(
