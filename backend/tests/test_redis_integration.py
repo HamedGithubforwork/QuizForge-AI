@@ -198,7 +198,7 @@ def test_normal_generation_can_return_cached_quiz(
             focus_pages="",
             focus_question_types="",
             avoid_questions="[]",
-            fresh_quiz=False,
+            force_new_quiz=False,
             current_user=(
                 main_redis.AuthenticatedUser(
                     id="test-user"
@@ -211,7 +211,7 @@ def test_normal_generation_can_return_cached_quiz(
     assert metric_results == [("hit", False)]
 
 
-def test_fresh_generation_bypasses_cached_quiz(
+def test_forced_new_quiz_bypasses_cached_quiz(
     monkeypatch,
 ):
     generated_quiz = main_redis.Quiz(
@@ -234,7 +234,7 @@ def test_fresh_generation_bypasses_cached_quiz(
     ):
         calls["cache_reads"] += 1
         raise AssertionError(
-            "fresh generation must bypass the cached quiz lookup"
+            "forced new generation must bypass the cached quiz lookup"
         )
 
     async def fake_generation(**_kwargs):
@@ -294,7 +294,7 @@ def test_fresh_generation_bypasses_cached_quiz(
             focus_pages="",
             focus_question_types="",
             avoid_questions="[]",
-            fresh_quiz=True,
+            force_new_quiz=True,
             current_user=(
                 main_redis.AuthenticatedUser(
                     id="test-user"

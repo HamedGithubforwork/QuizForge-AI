@@ -11,18 +11,16 @@ export function prepareQuizGenerationRequest(
     return init
   }
 
-  const shouldRequestFreshQuiz =
+  const shouldForceNewQuiz =
     quizGenerationRequestCount > 0
 
   quizGenerationRequestCount += 1
 
-  if (!shouldRequestFreshQuiz) {
-    return init
-  }
-
   init.body.set(
-    'fresh_quiz',
-    'true',
+    'force_new_quiz',
+    shouldForceNewQuiz
+      ? 'true'
+      : 'false',
   )
 
   return init

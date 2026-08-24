@@ -113,7 +113,7 @@ async def generate_quiz(
     focus_pages: str = Form(""),
     focus_question_types: str = Form(""),
     avoid_questions: str = Form("[]"),
-    fresh_quiz: bool = Form(False),
+    force_new_quiz: bool = Form(False),
     current_user: AuthenticatedUser = Depends(
         get_current_user
     ),
@@ -144,11 +144,11 @@ async def generate_quiz(
 
     cache_result = (
         "bypass"
-        if fresh_quiz
+        if force_new_quiz
         else "miss"
     )
 
-    if not fresh_quiz:
+    if not force_new_quiz:
         cached_quiz = await get_cached_quiz(
             cache_key,
             Quiz,
@@ -243,7 +243,7 @@ async def generate_quiz(
         raise
 
     # Store the newly generated quiz under the normal request cache key.
-    # A forced fresh generation therefore replaces the older cached quiz.
+    # A forced new generation therefore replaces the older cached quiz.
     await cache_quiz(
         cache_key,
         quiz,
