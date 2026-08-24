@@ -1,7 +1,10 @@
 import asyncio
+from io import BytesIO
 
 import main as base_app
-import main_redis  # noqa: F401
+import main_redis
+from starlette.datastructures import Headers, UploadFile
+
 from redis_integration import (
     build_quiz_cache_key,
     enforce_quiz_rate_limit,
@@ -29,6 +32,19 @@ class FakeRedis:
         )
 
         return [1, window_seconds]
+
+
+def make_upload():
+    return UploadFile(
+        file=BytesIO(b"same pdf"),
+        filename="notes.pdf",
+        headers=Headers(
+            {
+                "content-type":
+                    "application/pdf",
+            }
+        ),
+    )
 
 
 def test_quiz_cache_key_is_stable():
@@ -116,3 +132,183 @@ def test_redis_entrypoint_disables_legacy_rate_limiter():
         )
 
     assert not base_app._generation_requests
+
+
+def test_normal_generation_can_return_cached_quiz(
+    monkeypatch,
+):
+    cached_quiz = main_redis.Quiz(
+        title="Cached quiz",
+        questions=[],
+    )
+    metric_results = []
+
+    async def fake_rate_limit(_user_id):
+        return None
+
+    async def fake_get_cached_quiz(
+        _cache_key,
+        _quiz_model,
+    ):
+        return cached_quiz
+
+    async def fail_generation(**_kwargs):
+        raise AssertionError(
+            "cached generation should not call the AI generator"
+        )
+
+    async def fake_metrics(
+        _client,
+        *,
+        cache_result,
+        duration_ms,
+        failed=False,
+    ):
+        metric_results.append(
+            (cache_result, failed)
+        )
+
+    monkeypatch.setattr(
+        main_redis,
+        "enforce_quiz_rate_limit",
+        fake_rate_limit,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "get_cached_quiz",
+        fake_get_cached_quiz,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "generate_quiz_without_redis",
+        fail_generation,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "record_quiz_metrics",
+        fake_metrics,
+    )
+
+    result = asyncio.run(
+        main_redis.generate_quiz(
+            file=make_upload(),
+            question_count=5,
+            difficulty="medium",
+            question_type="multiple_choice",
+            focus_pages="",
+            focus_question_types="",
+            avoid_questions="[]",
+            fresh_quiz=False,
+            current_user=(
+                main_redis.AuthenticatedUser(
+                    id="test-user"
+                )
+            ),
+        )
+    )
+
+    assert result.title == "Cached quiz"
+    assert metric_results == [("hit", False)]
+
+
+def test_fresh_generation_bypasses_cached_quiz(
+    monkeypatch,
+):
+    generated_quiz = main_redis.Quiz(
+        title="Fresh quiz",
+        questions=[],
+    )
+    calls = {
+        "cache_reads": 0,
+        "generation": 0,
+        "cache_writes": 0,
+    }
+    metric_results = []
+
+    async def fake_rate_limit(_user_id):
+        return None
+
+    async def fail_cache_read(
+        _cache_key,
+        _quiz_model,
+    ):
+        calls["cache_reads"] += 1
+        raise AssertionError(
+            "fresh generation must bypass the cached quiz lookup"
+        )
+
+    async def fake_generation(**_kwargs):
+        calls["generation"] += 1
+        return generated_quiz
+
+    async def fake_cache_quiz(
+        _cache_key,
+        quiz,
+    ):
+        calls["cache_writes"] += 1
+        assert quiz is generated_quiz
+
+    async def fake_metrics(
+        _client,
+        *,
+        cache_result,
+        duration_ms,
+        failed=False,
+    ):
+        metric_results.append(
+            (cache_result, failed)
+        )
+
+    monkeypatch.setattr(
+        main_redis,
+        "enforce_quiz_rate_limit",
+        fake_rate_limit,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "get_cached_quiz",
+        fail_cache_read,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "generate_quiz_without_redis",
+        fake_generation,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "cache_quiz",
+        fake_cache_quiz,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "record_quiz_metrics",
+        fake_metrics,
+    )
+
+    result = asyncio.run(
+        main_redis.generate_quiz(
+            file=make_upload(),
+            question_count=5,
+            difficulty="medium",
+            question_type="multiple_choice",
+            focus_pages="",
+            focus_question_types="",
+            avoid_questions="[]",
+            fresh_quiz=True,
+            current_user=(
+                main_redis.AuthenticatedUser(
+                    id="test-user"
+                )
+            ),
+        )
+    )
+
+    assert result.title == "Fresh quiz"
+    assert calls == {
+        "cache_reads": 0,
+        "generation": 1,
+        "cache_writes": 1,
+    }
+    assert metric_results == [
+        ("bypass", False)
+    ]
