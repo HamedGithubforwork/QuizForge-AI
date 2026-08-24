@@ -89,7 +89,6 @@ async def admin_metrics(
     )
 
 
-
 # Replace the original quiz-generation route with a Redis-aware wrapper.
 # The underlying generation function remains unchanged.
 app.router.routes = [
@@ -114,6 +113,7 @@ async def generate_quiz(
     focus_pages: str = Form(""),
     focus_question_types: str = Form(""),
     avoid_questions: str = Form("[]"),
+    fresh_quiz: bool = Form(False),
     current_user: AuthenticatedUser = Depends(
         get_current_user
     ),
@@ -142,30 +142,37 @@ async def generate_quiz(
         content_type=file.content_type,
     )
 
-    cached_quiz = await get_cached_quiz(
-        cache_key,
-        Quiz,
+    cache_result = (
+        "bypass"
+        if fresh_quiz
+        else "miss"
     )
 
-    if cached_quiz is not None:
-        duration = elapsed_ms(
-            started_at,
+    if not fresh_quiz:
+        cached_quiz = await get_cached_quiz(
+            cache_key,
+            Quiz,
         )
 
-        await record_quiz_metrics(
-            redis_client,
-            cache_result="hit",
-            duration_ms=duration,
-        )
+        if cached_quiz is not None:
+            duration = elapsed_ms(
+                started_at,
+            )
 
-        log_event(
-            "quiz_generation_completed",
-            cache_result="hit",
-            duration_ms=duration,
-            question_count=question_count,
-        )
+            await record_quiz_metrics(
+                redis_client,
+                cache_result="hit",
+                duration_ms=duration,
+            )
 
-        return cached_quiz
+            log_event(
+                "quiz_generation_completed",
+                cache_result="hit",
+                duration_ms=duration,
+                question_count=question_count,
+            )
+
+            return cached_quiz
 
     try:
         quiz = await generate_quiz_without_redis(
@@ -188,7 +195,7 @@ async def generate_quiz(
 
         await record_quiz_metrics(
             redis_client,
-            cache_result="miss",
+            cache_result=cache_result,
             duration_ms=duration,
             failed=failed,
         )
@@ -204,7 +211,7 @@ async def generate_quiz(
                 if failed
                 else logging.WARNING
             ),
-            cache_result="miss",
+            cache_result=cache_result,
             duration_ms=duration,
             question_count=question_count,
             status_code=error.status_code,
@@ -219,7 +226,7 @@ async def generate_quiz(
 
         await record_quiz_metrics(
             redis_client,
-            cache_result="miss",
+            cache_result=cache_result,
             duration_ms=duration,
             failed=True,
         )
@@ -227,7 +234,7 @@ async def generate_quiz(
         log_event(
             "quiz_generation_failed",
             level=logging.ERROR,
-            cache_result="miss",
+            cache_result=cache_result,
             duration_ms=duration,
             question_count=question_count,
             error_type=type(error).__name__,
@@ -235,6 +242,8 @@ async def generate_quiz(
 
         raise
 
+    # Store the newly generated quiz under the normal request cache key.
+    # A forced fresh generation therefore replaces the older cached quiz.
     await cache_quiz(
         cache_key,
         quiz,
@@ -246,13 +255,13 @@ async def generate_quiz(
 
     await record_quiz_metrics(
         redis_client,
-        cache_result="miss",
+        cache_result=cache_result,
         duration_ms=duration,
     )
 
     log_event(
         "quiz_generation_completed",
-        cache_result="miss",
+        cache_result=cache_result,
         duration_ms=duration,
         question_count=question_count,
     )
