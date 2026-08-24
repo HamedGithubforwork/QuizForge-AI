@@ -1,6 +1,9 @@
 import {
   supabase,
 } from './supabase'
+import {
+  prepareQuizGenerationRequest,
+} from './quizGenerationPolicy'
 
 const configuredApiUrl =
   import.meta.env.VITE_API_URL?.trim()
@@ -59,10 +62,16 @@ export async function apiFetch(
   const accessToken =
     await getAccessToken()
 
+  const preparedInit =
+    prepareQuizGenerationRequest(
+      path,
+      init,
+    )
+
   let response =
     await sendAuthenticatedRequest(
       path,
-      init,
+      preparedInit,
       accessToken,
     )
 
@@ -86,7 +95,7 @@ export async function apiFetch(
   response =
     await sendAuthenticatedRequest(
       path,
-      init,
+      preparedInit,
       data.session.access_token,
     )
 
