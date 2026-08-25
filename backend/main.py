@@ -21,6 +21,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
+from quiz_validation import get_quiz_validation_errors
 
 
 ENV_FILE = Path(__file__).resolve().parent / ".env"
@@ -1018,50 +1019,95 @@ If requested mode is "mixed":
         api_key=api_key,
     )
 
-    try:
-        response = await client.responses.parse(
-            model="gpt-5.6-luna",
-            input=[
-                {
-                    "role": "developer",
-                    "content": prompt,
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Generate a quiz from "
-                        "the following study "
-                        "material:\n\n"
-                        + study_material
-                    ),
-                },
-            ],
-            text_format=Quiz,
+    quiz = None
+    validation_errors: list[str] = []
+
+    for generation_attempt in range(2):
+        retry_instruction = ""
+
+        if generation_attempt > 0:
+            issue_list = "\n".join(
+                f"- {issue}"
+                for issue in validation_errors[:8]
+            )
+            retry_instruction = f"""
+
+VALIDATION RETRY:
+
+The previous generated quiz was rejected by the application's deterministic validator.
+Generate the entire quiz again and correct all of these structural or grading-rubric issues:
+{issue_list}
+
+Do not mention the retry or validation process in the quiz.
+"""
+
+        try:
+            response = await client.responses.parse(
+                model="gpt-5.6-luna",
+                input=[
+                    {
+                        "role": "developer",
+                        "content": prompt + retry_instruction,
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Generate a quiz from "
+                            "the following study "
+                            "material:\n\n"
+                            + study_material
+                        ),
+                    },
+                ],
+                text_format=Quiz,
+            )
+
+        except OpenAIError as error:
+            print(
+                "OpenAI API error:",
+                error,
+            )
+
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "The OpenAI quiz generation "
+                    "request failed. Check the "
+                    "backend terminal for details."
+                ),
+            ) from error
+
+        quiz = response.output_parsed
+
+        if quiz is None:
+            validation_errors = [
+                "The response could not be parsed into the quiz schema."
+            ]
+            continue
+
+        validation_errors = (
+            get_quiz_validation_errors(
+                quiz,
+                question_count=question_count,
+                requested_question_type=question_type,
+                page_count=len(pages),
+            )
         )
 
-    except OpenAIError as error:
+        if not validation_errors:
+            break
+
         print(
-            "OpenAI API error:",
-            error,
+            "Generated quiz validation failed:",
+            validation_errors,
         )
 
+    if quiz is None or validation_errors:
         raise HTTPException(
             status_code=502,
             detail=(
-                "The OpenAI quiz generation "
-                "request failed. Check the "
-                "backend terminal for details."
-            ),
-        ) from error
-
-    quiz = response.output_parsed
-
-    if quiz is None:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "The AI did not return "
-                "a valid quiz."
+                "The AI returned inconsistent quiz or grading data after validation. "
+                "Please try generating the quiz again."
             ),
         )
 
