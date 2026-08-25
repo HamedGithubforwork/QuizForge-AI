@@ -455,16 +455,14 @@ def _validate_grading(
                     normalized_alias
                 )
 
-                if previous_group is not None:
-                    if previous_group == group_index:
-                        errors.append(
-                            f"{prefix} repeats an alias inside one concept group."
-                        )
-                    else:
-                        errors.append(
-                            f"{prefix} reuses the same alias across different concept groups."
-                        )
-                else:
+                if (
+                    previous_group is not None
+                    and previous_group != group_index
+                ):
+                    errors.append(
+                        f"{prefix} reuses the same alias across different concept groups."
+                    )
+                elif previous_group is None:
                     seen_aliases[
                         normalized_alias
                     ] = group_index
