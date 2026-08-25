@@ -55,6 +55,24 @@ QUIZ_CACHE_VERSION = (
     or "v1"
 )
 
+DOCUMENT_CACHE_TTL_SECONDS = get_positive_int_env(
+    "DOCUMENT_CACHE_TTL_SECONDS",
+    86400,
+)
+
+DOCUMENT_CACHE_MAX_BYTES = get_positive_int_env(
+    "DOCUMENT_CACHE_MAX_BYTES",
+    1_500_000,
+)
+
+DOCUMENT_CACHE_VERSION = (
+    os.getenv(
+        "DOCUMENT_CACHE_VERSION",
+        "v1",
+    ).strip()
+    or "v1"
+)
+
 
 redis_client = (
     Redis.from_url(
@@ -191,6 +209,144 @@ async def enforce_quiz_rate_limit(
     )
 
 
+def compute_pdf_sha256(
+    contents: bytes,
+):
+    return hashlib.sha256(
+        contents
+    ).hexdigest()
+
+
+def build_document_cache_key(
+    user_id: str,
+    contents: bytes,
+):
+    request_data = {
+        "cache_version": DOCUMENT_CACHE_VERSION,
+        "user_id": user_id,
+        "pdf_sha256": compute_pdf_sha256(
+            contents
+        ),
+    }
+
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            request_data,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+    return (
+        "quizforge:document-cache:"
+        f"{fingerprint}"
+    )
+
+
+async def get_cached_document(
+    cache_key: str,
+    client: Any = None,
+):
+    selected_client = (
+        client
+        if client is not None
+        else redis_client
+    )
+
+    if selected_client is None:
+        return None
+
+    try:
+        cached_value = await selected_client.get(
+            cache_key
+        )
+    except RedisError as error:
+        print(
+            "Redis document cache-read error:",
+            error,
+        )
+        return None
+
+    if not cached_value:
+        print("Redis document cache MISS")
+        return None
+
+    try:
+        cached_document = json.loads(
+            cached_value
+        )
+    except (TypeError, json.JSONDecodeError):
+        print("Redis document cache MISS")
+        return None
+
+    if (
+        not isinstance(cached_document, dict)
+        or not isinstance(
+            cached_document.get("pdf_sha256"),
+            str,
+        )
+        or not isinstance(
+            cached_document.get("pages"),
+            list,
+        )
+    ):
+        print("Redis document cache MISS")
+        return None
+
+    print("Redis document cache HIT")
+    return cached_document
+
+
+async def cache_document(
+    cache_key: str,
+    document: dict,
+    client: Any = None,
+):
+    selected_client = (
+        client
+        if client is not None
+        else redis_client
+    )
+
+    if selected_client is None:
+        return False
+
+    serialized_document = json.dumps(
+        document,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+
+    if (
+        len(
+            serialized_document.encode(
+                "utf-8"
+            )
+        )
+        > DOCUMENT_CACHE_MAX_BYTES
+    ):
+        print(
+            "Redis document cache SKIP: "
+            "extracted text is too large"
+        )
+        return False
+
+    try:
+        await selected_client.set(
+            cache_key,
+            serialized_document,
+            ex=DOCUMENT_CACHE_TTL_SECONDS,
+        )
+    except RedisError as error:
+        print(
+            "Redis document cache-write error:",
+            error,
+        )
+        return False
+
+    return True
+
+
 def build_quiz_cache_key(
     user_id: str,
     contents: bytes,
@@ -205,9 +361,9 @@ def build_quiz_cache_key(
     request_data = {
         "cache_version": QUIZ_CACHE_VERSION,
         "user_id": user_id,
-        "pdf_sha256": hashlib.sha256(
+        "pdf_sha256": compute_pdf_sha256(
             contents
-        ).hexdigest(),
+        ),
         "content_type": content_type or "",
         "question_count": question_count,
         "difficulty": difficulty.strip().lower(),
