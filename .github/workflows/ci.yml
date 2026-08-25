@@ -77,12 +77,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Run frontend grader, identity, and request-policy tests
+      - name: Run frontend grader, identity, mastery, and request-policy tests
         run: |
           node --experimental-strip-types src/lib/shortAnswerGrader.test.ts
           node --experimental-strip-types src/lib/numericUnitGrading.test.ts
           node --experimental-strip-types src/lib/historyQuestionGrader.test.ts
           node --experimental-strip-types src/lib/documentIdentity.test.ts
+          node --experimental-strip-types src/lib/weakAreaAnalytics.test.ts
           node --experimental-strip-types src/lib/quizGenerationPolicy.test.ts
 
       - name: Run frontend lint
