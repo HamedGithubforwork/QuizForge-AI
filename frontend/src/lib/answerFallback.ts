@@ -33,6 +33,51 @@ export type AiAnswerReviewCase = {
   explanation: string
 }
 
+function meaningfulTokens(
+  value: string,
+) {
+  return new Set(
+    normalizeShortAnswer(value)
+      .split(' ')
+      .filter(
+        (token) => token.length >= 4,
+      ),
+  )
+}
+
+function hasRubricTokenOverlap(
+  question: AiAnswerReviewQuestion,
+  answer: string,
+) {
+  const grading = question.grading
+
+  if (!grading) {
+    return false
+  }
+
+  const answerTokens =
+    meaningfulTokens(answer)
+
+  if (answerTokens.size === 0) {
+    return false
+  }
+
+  const rubricTokens = meaningfulTokens(
+    [
+      question.correct_answer,
+      ...question.accepted_answers,
+      ...grading.answer_groups.flat(),
+    ].join(' '),
+  )
+
+  return Array.from(
+    answerTokens,
+  ).some(
+    (token) =>
+      rubricTokens.has(token),
+  )
+}
+
 export function buildAiAnswerReviewKey(
   question: AiAnswerReviewQuestion,
   answer: string,
@@ -90,13 +135,13 @@ export function shouldRequestAiAnswerReview(
     return false
   }
 
-  const tokenCount =
-    normalized.split(' ').filter(Boolean).length
-
   return (
     deterministicGrade.borderline ||
     deterministicGrade.matchedGroups > 0 ||
-    tokenCount >= 4
+    hasRubricTokenOverlap(
+      question,
+      answer,
+    )
   )
 }
 
