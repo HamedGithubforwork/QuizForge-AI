@@ -985,6 +985,11 @@ SHORT ANSWER GRADING RUBRIC:
 - A student may mix abbreviations and expanded terms across different concepts.
 - Use "exact" only when the whole answer truly needs to match one accepted wording or code-like value. For exact mode, answer_groups must be empty and required_group_count must be 0.
 - Use "numeric" when the answer is fundamentally a number. Set numeric_value to the expected value, numeric_tolerance to an appropriate non-negative tolerance supported by the question, and numeric_unit to the unit or an empty string.
+- For numeric answers with a measurement unit, numeric_unit should use a concise canonical unit such as "g", "mg", "kg", "m", "cm", "mm", "L", "mL", "s", "min", "h", "%", "°C", or "°F" when that unit is supported by the PDF.
+- Do not leave numeric_unit empty when the numeric answer requires a unit for correctness.
+- Use an empty numeric_unit only for genuinely unitless quantities.
+- The grader can convert common compatible mass, length, volume, time, percentage, and Celsius/Fahrenheit units before applying numeric_tolerance.
+- numeric_tolerance is expressed in the expected numeric_unit after conversion.
 - For non-numeric modes, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
 - For concept mode, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
 - For numeric mode, answer_groups must be empty and required_group_count must be 0.
