@@ -1,5 +1,6 @@
 import {
   gradeShortAnswer,
+  normalizeShortAnswer,
   type ShortAnswerGradingSpec,
 } from './shortAnswerGrader.ts'
 
@@ -14,6 +15,7 @@ export type HistoryGradingQuestion = {
   correct_answer: string
   accepted_answers: string[]
   grading?: ShortAnswerGradingSpec
+  ai_accepted_answers?: string[]
 }
 
 export function isHistoryQuestionCorrect(
@@ -29,6 +31,22 @@ export function isHistoryQuestionCorrect(
   ) {
     if (typeof answer !== 'string') {
       return false
+    }
+
+    const normalizedAnswer =
+      normalizeShortAnswer(answer)
+
+    const aiAccepted =
+      question.ai_accepted_answers
+        ?.some(
+          (acceptedAnswer) =>
+            normalizeShortAnswer(
+              acceptedAnswer,
+            ) === normalizedAnswer,
+        ) ?? false
+
+    if (aiAccepted) {
+      return true
     }
 
     return gradeShortAnswer(
