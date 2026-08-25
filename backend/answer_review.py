@@ -39,11 +39,16 @@ ANSWER_REVIEW_RATE_WINDOW_SECONDS = (
 )
 
 MIN_CORRECT_CONFIDENCE = 0.80
+RATE_LIMIT_CLEANUP_INTERVAL_SECONDS = min(
+    60,
+    ANSWER_REVIEW_RATE_WINDOW_SECONDS,
+)
 
 _review_requests: dict[
     str,
     deque[float],
 ] = defaultdict(deque)
+_last_review_cleanup_at = 0.0
 
 
 class AnswerReviewCase(BaseModel):
@@ -83,12 +88,53 @@ class AnswerReviewResponse(BaseModel):
     decisions: list[AnswerReviewDecision]
 
 
+def _cleanup_stale_review_users(
+    now: float,
+):
+    global _last_review_cleanup_at
+
+    if (
+        now - _last_review_cleanup_at
+        < RATE_LIMIT_CLEANUP_INTERVAL_SECONDS
+    ):
+        return
+
+    cutoff = (
+        now
+        - ANSWER_REVIEW_RATE_WINDOW_SECONDS
+    )
+
+    stale_user_ids = [
+        user_id
+        for user_id, request_times
+        in _review_requests.items()
+        if (
+            not request_times
+            or request_times[-1] <= cutoff
+        )
+    ]
+
+    for user_id in stale_user_ids:
+        _review_requests.pop(
+            user_id,
+            None,
+        )
+
+    _last_review_cleanup_at = now
+
+
 def enforce_answer_review_rate_limit(
     user_id: str,
 ):
     now = time.monotonic()
+
+    _cleanup_stale_review_users(now)
+
     request_times = _review_requests[user_id]
-    cutoff = now - ANSWER_REVIEW_RATE_WINDOW_SECONDS
+    cutoff = (
+        now
+        - ANSWER_REVIEW_RATE_WINDOW_SECONDS
+    )
 
     while (
         request_times
