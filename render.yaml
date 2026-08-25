@@ -27,3 +27,9 @@ services:
         value: "3600"
       - key: QUIZ_CACHE_VERSION
         value: "v1"
+      - key: DOCUMENT_CACHE_TTL_SECONDS
+        value: "86400"
+      - key: DOCUMENT_CACHE_MAX_BYTES
+        value: "1500000"
+      - key: DOCUMENT_CACHE_VERSION
+        value: "v1"
