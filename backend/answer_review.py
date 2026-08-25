@@ -9,24 +9,33 @@ from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
 
-ANSWER_REVIEW_RATE_LIMIT = max(
-    1,
-    int(
-        os.getenv(
-            "ANSWER_REVIEW_RATE_LIMIT",
-            "20",
-        )
-    ),
+def _positive_int_env(
+    name: str,
+    default: int,
+):
+    raw_value = os.getenv(name)
+
+    if not raw_value:
+        return default
+
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return default
+
+    return max(1, value)
+
+
+ANSWER_REVIEW_RATE_LIMIT = _positive_int_env(
+    "ANSWER_REVIEW_RATE_LIMIT",
+    20,
 )
 
-ANSWER_REVIEW_RATE_WINDOW_SECONDS = max(
-    1,
-    int(
-        os.getenv(
-            "ANSWER_REVIEW_RATE_WINDOW_SECONDS",
-            "600",
-        )
-    ),
+ANSWER_REVIEW_RATE_WINDOW_SECONDS = (
+    _positive_int_env(
+        "ANSWER_REVIEW_RATE_WINDOW_SECONDS",
+        600,
+    )
 )
 
 MIN_CORRECT_CONFIDENCE = 0.80
@@ -51,7 +60,7 @@ class AnswerReviewCase(BaseModel):
 class AnswerReviewRequest(BaseModel):
     cases: list[AnswerReviewCase] = Field(
         min_length=1,
-        max_length=10,
+        max_length=15,
     )
 
 
