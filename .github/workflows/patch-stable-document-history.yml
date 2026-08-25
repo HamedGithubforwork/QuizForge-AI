@@ -1,0 +1,65 @@
+name: Patch stable document history
+
+on:
+  push:
+    branches:
+      - stable-document-history
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: stable-document-history
+      - name: Patch QuizHistory
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('frontend/src/QuizHistory.tsx')
+          text = path.read_text()
+
+          old = """import {\n  deleteQuizHistory,\n  getQuizHistory,\n  type QuizHistoryRow,\n} from './lib/quizHistory'\n"""
+          new = old + """import {\n  getCurrentDocumentSha256,\n  matchesHistoryDocument,\n} from './lib/documentIdentity'\n"""
+          if old not in text:
+              raise SystemExit('quizHistory import anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """function normalizeFilename(name: string) {\n  return getDisplayFilename(name)\n    .trim()\n    .toLowerCase()\n}\n\n"""
+          if old not in text:
+              raise SystemExit('normalizeFilename anchor not found')
+          text = text.replace(old, '', 1)
+
+          old = """  const canPracticeHistory = Boolean(\n    currentFilename &&\n      practiceReadyFilename === currentFilename,\n  )\n\n"""
+          new = old + """  const currentDocumentSha256 =\n    canPracticeCurrentDocument\n      ? getCurrentDocumentSha256(\n          currentFilename,\n        )\n      : null\n\n"""
+          if old not in text:
+              raise SystemExit('canPracticeHistory anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """      const normalizedCurrentFilename =\n        normalizeFilename(currentFilename)\n      const matchingHistory = history.filter(\n        (item) =>\n          normalizeFilename(\n            item.source_filename,\n          ) === normalizedCurrentFilename,\n      )\n"""
+          new = """      const matchingHistory = history.filter(\n        (item) =>\n          matchesHistoryDocument(\n            item,\n            currentFilename,\n            currentDocumentSha256,\n          ),\n      )\n"""
+          if old not in text:
+              raise SystemExit('matching history anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """    }, [history, currentFilename])\n"""
+          new = """    }, [\n      history,\n      currentFilename,\n      currentDocumentSha256,\n    ])\n"""
+          if old not in text:
+              raise SystemExit('memo dependency anchor not found')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/QuizHistory.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Match quiz history by stable PDF identity"
+          git push origin HEAD:stable-document-history
