@@ -48,6 +48,32 @@ assert.equal(
   'history grading should reject incomplete concept answers',
 )
 
+const aiReviewedQuestion = {
+  ...conceptQuestion,
+  correct_answer:
+    'Cognitive behavioural therapy',
+  accepted_answers: ['CBT'],
+  grading: {
+    ...conceptQuestion.grading,
+    answer_groups: [
+      ['cognitive behavioural therapy', 'CBT'],
+    ],
+    required_group_count: 1,
+  },
+  ai_accepted_answers: [
+    'therapy that changes negative thought patterns',
+  ],
+}
+
+assert.equal(
+  isHistoryQuestionCorrect(
+    aiReviewedQuestion,
+    'Therapy that changes negative thought patterns',
+  ),
+  true,
+  'an answer approved by semantic review should stay correct in saved history',
+)
+
 const legacyQuestion = {
   question_type: 'short_answer',
   correct_index: -1,
