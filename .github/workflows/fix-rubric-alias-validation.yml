@@ -1,0 +1,41 @@
+name: Fix rubric alias validation
+
+on:
+  push:
+    branches:
+      - validate-generated-rubrics
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: validate-generated-rubrics
+
+      - name: Allow equivalent aliases within one concept group
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/quiz_validation.py')
+          text = path.read_text()
+          old = '''                if previous_group is not None:\n                    if previous_group == group_index:\n                        errors.append(\n                            f"{prefix} repeats an alias inside one concept group."\n                        )\n                    else:\n                        errors.append(\n                            f"{prefix} reuses the same alias across different concept groups."\n                        )\n                else:\n                    seen_aliases[\n                        normalized_alias\n                    ] = group_index\n'''
+          new = '''                if (\n                    previous_group is not None\n                    and previous_group != group_index\n                ):\n                    errors.append(\n                        f"{prefix} reuses the same alias across different concept groups."\n                    )\n                elif previous_group is None:\n                    seen_aliases[\n                        normalized_alias\n                    ] = group_index\n'''
+          if old not in text:
+              raise SystemExit('alias validation target not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/quiz_validation.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Allow equivalent aliases within concept groups"
+          git push origin HEAD:validate-generated-rubrics
