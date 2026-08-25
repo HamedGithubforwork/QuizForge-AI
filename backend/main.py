@@ -22,6 +22,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, Field
 from quiz_validation import get_quiz_validation_errors
+from answer_review import (
+    AnswerReviewRequest,
+    AnswerReviewResponse,
+    review_borderline_answers_with_ai,
+)
 
 
 ENV_FILE = Path(__file__).resolve().parent / ".env"
@@ -600,6 +605,22 @@ def health_check():
     return {
         "message": "Frontend connected to FastAPI!"
     }
+
+
+@app.post(
+    "/api/answers/review",
+    response_model=AnswerReviewResponse,
+)
+async def review_borderline_answers(
+    payload: AnswerReviewRequest,
+    current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
+):
+    return await review_borderline_answers_with_ai(
+        payload,
+        current_user.id,
+    )
 
 
 @app.post("/api/documents/upload")

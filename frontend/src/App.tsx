@@ -19,6 +19,13 @@ import {
   gradeShortAnswer,
   type ShortAnswerGradingSpec,
 } from './lib/shortAnswerGrader'
+import {
+  buildAiAnswerReviewCase,
+  buildAiAnswerReviewKey,
+  shouldRequestAiAnswerReview,
+  type AiAnswerReviewDecision,
+} from './lib/answerFallback'
+
 
 type PageResult = {
   page_number: number
@@ -54,6 +61,7 @@ type QuizQuestion = {
   correct_answer: string
   accepted_answers: string[]
   grading?: ShortAnswerGradingSpec
+  ai_accepted_answers?: string[]
   explanation: string
   source_pages: number[]
 }
@@ -179,6 +187,18 @@ function App() {
     useState('')
 
   const [
+    aiGradeReviews,
+    setAiGradeReviews,
+  ] = useState<
+    Record<string, AiAnswerReviewDecision>
+  >({})
+
+  const [
+    isReviewingAnswers,
+    setIsReviewingAnswers,
+  ] = useState(false)
+
+  const [
     isWeakPracticeGenerating,
     setIsWeakPracticeGenerating,
   ] =
@@ -261,9 +281,25 @@ function App() {
         return false
       }
 
-      return isShortAnswerCorrect(
-        question,
-        answer,
+      if (
+        isShortAnswerCorrect(
+          question,
+          answer,
+        )
+      ) {
+        return true
+      }
+
+      const review =
+        aiGradeReviews[
+          buildAiAnswerReviewKey(
+            question,
+            answer,
+          )
+        ]
+
+      return (
+        review?.verdict === 'correct'
       )
     }
 
@@ -659,8 +695,8 @@ function App() {
     setError('')
   }
 
-  function handleCheckAnswers() {
-    if (!quiz) {
+  async function handleCheckAnswers() {
+    if (!quiz || isReviewingAnswers) {
       return
     }
 
@@ -693,8 +729,7 @@ function App() {
 
       setError(
         `Question ${
-          firstUnansweredIndex +
-          1
+          firstUnansweredIndex + 1
         } still needs an answer.`,
       )
 
@@ -702,23 +737,164 @@ function App() {
         firstUnansweredIndex,
         true,
       )
-
       return
     }
 
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setOpenSourceQuestionIndex(
-      null,
-    )
-
+    setAttentionQuestionIndex(null)
+    setOpenSourceQuestionIndex(null)
     setError('')
-    setShowResults(true)
-
-    setResultSaved(false)
     setSaveMessage('')
+
+    const reviewCases =
+      indexesToCheck.flatMap(
+        (questionIndex) => {
+          const question =
+            quiz.questions[
+              questionIndex
+            ]
+          const answer =
+            selectedAnswers[
+              questionIndex
+            ]
+
+          if (
+            question.question_type !==
+              'short_answer' ||
+            typeof answer !== 'string'
+          ) {
+            return []
+          }
+
+          const deterministicGrade =
+            gradeShortAnswer(
+              question,
+              answer,
+            )
+
+          if (
+            !shouldRequestAiAnswerReview(
+              question,
+              answer,
+              deterministicGrade,
+            )
+          ) {
+            return []
+          }
+
+          const reviewCase =
+            buildAiAnswerReviewCase(
+              questionIndex,
+              question,
+              answer,
+            )
+
+          return reviewCase
+            ? [reviewCase]
+            : []
+        },
+      )
+
+    if (reviewCases.length > 0) {
+      setIsReviewingAnswers(true)
+
+      try {
+        const response = await apiFetch(
+          '/api/answers/review',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+            body: JSON.stringify({
+              cases: reviewCases,
+            }),
+          },
+        )
+
+        const data =
+          await response.json() as {
+            detail?: string
+            decisions?:
+              AiAnswerReviewDecision[]
+          }
+
+        if (!response.ok) {
+          throw new Error(
+            data.detail ||
+              'Semantic answer review failed.',
+          )
+        }
+
+        const decisions =
+          data.decisions ?? []
+
+        const casesByIndex =
+          new Map(
+            reviewCases.map(
+              (item) => [
+                item.question_index,
+                item,
+              ],
+            ),
+          )
+
+        setAiGradeReviews(
+          (previous) => {
+            const next = {
+              ...previous,
+            }
+
+            decisions.forEach(
+              (decision) => {
+                const reviewCase =
+                  casesByIndex.get(
+                    decision.question_index,
+                  )
+
+                const question =
+                  quiz.questions[
+                    decision.question_index
+                  ]
+
+                if (
+                  !reviewCase ||
+                  !question
+                ) {
+                  return
+                }
+
+                next[
+                  buildAiAnswerReviewKey(
+                    question,
+                    reviewCase.student_answer,
+                  )
+                ] = decision
+              },
+            )
+
+            return next
+          },
+        )
+
+        setSaveMessage(
+          `${decisions.length} borderline short ${
+            decisions.length === 1
+              ? 'answer received'
+              : 'answers received'
+          } a semantic second review.`,
+        )
+      } catch {
+        setSaveMessage(
+          'Semantic second review was unavailable; deterministic grading was used.',
+        )
+      } finally {
+        setIsReviewingAnswers(false)
+      }
+    }
+
+    setShowResults(true)
+    setResultSaved(false)
 
     setTimeout(() => {
       document
@@ -1511,6 +1687,60 @@ function App() {
     setIsSavingHistory(true)
     setSaveMessage('')
 
+    const quizDataForHistory = {
+      ...quiz,
+      questions:
+        quiz.questions.map(
+          (
+            question,
+            questionIndex,
+          ) => {
+            const answer =
+              selectedAnswers[
+                questionIndex
+              ]
+
+            if (
+              question.question_type !==
+                'short_answer' ||
+              typeof answer !== 'string'
+            ) {
+              return question
+            }
+
+            const review =
+              aiGradeReviews[
+                buildAiAnswerReviewKey(
+                  question,
+                  answer,
+                )
+              ]
+
+            if (
+              review?.verdict !==
+              'correct'
+            ) {
+              return question
+            }
+
+            return {
+              ...question,
+              ai_accepted_answers:
+                Array.from(
+                  new Set([
+                    ...(
+                      question
+                        .ai_accepted_answers ??
+                      []
+                    ),
+                    answer,
+                  ]),
+                ),
+            }
+          },
+        ),
+    }
+
     try {
       await saveQuizHistory({
         quizTitle:
@@ -1533,7 +1763,7 @@ function App() {
         percentage,
 
         quizData:
-          quiz,
+          quizDataForHistory,
 
         selectedAnswers,
       })
@@ -2401,7 +2631,7 @@ function App() {
                               {question.question_type ===
                                 'short_answer' &&
                                 shortAnswerGrade &&
-                                !shortAnswerGrade.correct &&
+                                !isCorrect &&
                                 shortAnswerGrade.totalGroups >
                                   1 && (
                                   <p>
@@ -2425,7 +2655,8 @@ function App() {
                               {question.question_type ===
                                 'short_answer' &&
                                 shortAnswerGrade
-                                  ?.borderline && (
+                                  ?.borderline &&
+                                !isCorrect && (
                                   <p>
                                     The wording includes
                                     negation, so the answer
@@ -2559,8 +2790,13 @@ function App() {
                     onClick={
                       handleCheckAnswers
                     }
+                    disabled={
+                      isReviewingAnswers
+                    }
                   >
-                    Check Answers
+                    {isReviewingAnswers
+                      ? 'Reviewing Answers...'
+                      : 'Check Answers'}
                   </button>
                 )}
 
