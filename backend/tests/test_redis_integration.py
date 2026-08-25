@@ -237,6 +237,22 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
             "new quiz generation must bypass the cached quiz lookup"
         )
 
+    async def fake_document_pages(
+        user_id,
+        contents,
+    ):
+        assert user_id == "test-user"
+        assert contents == b"same pdf"
+        return (
+            "test-document-hash",
+            [
+                {
+                    "page_number": 1,
+                    "text": "Test document text",
+                }
+            ],
+        )
+
     async def fake_generation(**_kwargs):
         calls["generation"] += 1
         return generated_quiz
@@ -268,6 +284,11 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
         main_redis,
         "get_cached_quiz",
         fail_cache_read,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "get_document_pages_with_cache",
+        fake_document_pages,
     )
     monkeypatch.setattr(
         main_redis,
