@@ -1,3 +1,5 @@
+import { compareNumericMeasurement } from './numericUnits.ts'
+
 export type ShortAnswerGradingMode =
   | 'none'
   | 'concepts'
@@ -398,41 +400,56 @@ function gradeConceptAnswer(
   }
 }
 
-function parseNumericAnswer(answer: string) {
-  const normalized = answer
-    .replace(/,/g, '')
-    .trim()
-
-  const match = normalized.match(
-    /[-+]?\d*\.?\d+(?:e[-+]?\d+)?/i,
-  )
-
-  if (!match) {
-    return null
-  }
-
-  const value = Number(match[0])
-
-  return Number.isFinite(value)
-    ? value
-    : null
-}
-
 function gradeNumericAnswer(
   answer: string,
   grading: ShortAnswerGradingSpec,
 ): ShortAnswerGrade {
-  const value = parseNumericAnswer(answer)
+  const measurement =
+    compareNumericMeasurement(
+      answer,
+      grading.numeric_unit,
+    )
   const tolerance = Math.max(
     0,
     grading.numeric_tolerance,
   )
 
+  const value =
+    measurement.valueInExpectedUnit
+
   const correct =
+    measurement.status === 'ok' &&
     value !== null &&
     Math.abs(
       value - grading.numeric_value,
     ) <= tolerance
+
+  let feedback: string
+
+  if (measurement.status === 'no_number') {
+    feedback =
+      'No numeric value was detected in the answer.'
+  } else if (
+    measurement.status === 'missing_unit'
+  ) {
+    feedback = `Include the expected unit (${measurement.expectedUnit}).`
+  } else if (
+    measurement.status === 'unexpected_unit'
+  ) {
+    feedback =
+      'This answer is expected to be unitless.'
+  } else if (
+    measurement.status === 'incompatible_unit'
+  ) {
+    feedback = `The supplied unit is not compatible with the expected unit (${measurement.expectedUnit}).`
+  } else if (correct) {
+    feedback = measurement.converted
+      ? 'Numeric answer is correct after unit conversion and within the accepted tolerance.'
+      : 'Numeric answer is within the accepted tolerance.'
+  } else {
+    feedback =
+      'Numeric answer is outside the accepted value or tolerance.'
+  }
 
   return {
     correct,
@@ -440,9 +457,7 @@ function gradeNumericAnswer(
     requiredGroups: 1,
     totalGroups: 1,
     borderline: false,
-    feedback: correct
-      ? 'Numeric answer is within the accepted tolerance.'
-      : 'Numeric answer is outside the accepted value or tolerance.',
+    feedback,
   }
 }
 
