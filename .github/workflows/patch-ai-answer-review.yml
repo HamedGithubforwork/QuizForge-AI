@@ -22,24 +22,25 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          def replace_once(text, old, new, label):
+          def require_replace(text, old, new, label):
               if new in text:
                   return text
               if old not in text:
                   raise SystemExit(f'{label} anchor not found')
               return text.replace(old, new, 1)
 
-          # backend/main.py
+          # Backend route.
           path = Path('backend/main.py')
           text = path.read_text()
-          old = "from quiz_validation import get_quiz_validation_errors\n"
-          new = old + """from answer_review import (
+          old = 'from quiz_validation import get_quiz_validation_errors\n'
+          new = old + '''from answer_review import (
               AnswerReviewRequest,
               AnswerReviewResponse,
               review_borderline_answers_with_ai,
           )
-          """.replace('          ', '')
-          text = replace_once(text, old, new, 'backend import')
+          '''
+          new = new.replace('          ', '')
+          text = require_replace(text, old, new, 'backend import')
 
           health = '''@app.get("/api/health")
           def health_check():
@@ -72,7 +73,7 @@ jobs:
               text = text.replace(health, health + route, 1)
           path.write_text(text)
 
-          # frontend/src/App.tsx
+          # App integration.
           path = Path('frontend/src/App.tsx')
           text = path.read_text()
 
@@ -81,24 +82,24 @@ jobs:
             type ShortAnswerGradingSpec,
           } from './lib/shortAnswerGrader'
           """.replace('          ', '')
-          addition = """import {
+          add = """import {
             buildAiAnswerReviewCase,
             buildAiAnswerReviewKey,
             shouldRequestAiAnswerReview,
             type AiAnswerReviewDecision,
           } from './lib/answerFallback'
           """.replace('          ', '')
-          if addition not in text:
-              text = replace_once(text, old, old + addition, 'frontend import')
+          if add not in text:
+              text = require_replace(text, old, old + add, 'app import')
 
-          old = "  grading?: ShortAnswerGradingSpec\n  explanation: string\n"
-          new = "  grading?: ShortAnswerGradingSpec\n  ai_accepted_answers?: string[]\n  explanation: string\n"
-          text = replace_once(text, old, new, 'quiz question type')
+          text = require_replace(
+              text,
+              '  grading?: ShortAnswerGradingSpec\n  explanation: string\n',
+              '  grading?: ShortAnswerGradingSpec\n  ai_accepted_answers?: string[]\n  explanation: string\n',
+              'question type',
+          )
 
-          old = """  const [saveMessage, setSaveMessage] =
-            useState('')
-
-          """.replace('          ', '')
+          old = "  const [saveMessage, setSaveMessage] =\n    useState('')\n\n"
           new = old + """  const [
             aiGradeReviews,
             setAiGradeReviews,
@@ -112,7 +113,7 @@ jobs:
             ] = useState(false)
 
           """.replace('          ', '')
-          text = replace_once(text, old, new, 'review state')
+          text = require_replace(text, old, new, 'review state')
 
           old = """      return isShortAnswerCorrect(
             question,
@@ -139,14 +140,11 @@ jobs:
 
               return review?.verdict === 'correct'
           """.replace('          ', '')
-          text = replace_once(text, old, new, 'question correctness')
+          text = require_replace(text, old, new, 'correctness')
 
-          start_marker = '  function handleCheckAnswers() {'
-          end_marker = '  function handleTryAgain() {'
-          if start_marker in text:
-              start = text.index(start_marker)
-              end = text.index(end_marker, start)
-              new_check = '''  async function handleCheckAnswers() {
+          start = text.index('  function handleCheckAnswers() {')
+          end = text.index('  function handleTryAgain() {', start)
+          new_check = '''  async function handleCheckAnswers() {
             if (!quiz || isReviewingAnswers) {
               return
             }
@@ -309,13 +307,9 @@ jobs:
           }
 
           '''.replace('          ', '')
-              text = text[:start] + new_check + text[end:]
+          text = text[:start] + new_check + text[end:]
 
-          old = """    setIsSavingHistory(true)
-            setSaveMessage('')
-
-            try {
-          """.replace('          ', '')
+          old = "    setIsSavingHistory(true)\n    setSaveMessage('')\n\n    try {\n"
           new = """    setIsSavingHistory(true)
             setSaveMessage('')
 
@@ -359,11 +353,13 @@ jobs:
 
             try {
           """.replace('          ', '')
-          text = replace_once(text, old, new, 'save history')
-
-          old = "        quizData:\n          quiz,\n"
-          new = "        quizData:\n          quizDataForHistory,\n"
-          text = replace_once(text, old, new, 'history quiz data')
+          text = require_replace(text, old, new, 'save history')
+          text = require_replace(
+              text,
+              '        quizData:\n          quiz,\n',
+              '        quizData:\n          quizDataForHistory,\n',
+              'quiz data',
+          )
 
           grade_anchor = """                      const shortAnswerGrade =
             question.question_type ===
@@ -377,7 +373,7 @@ jobs:
               : null
 
           """.replace('          ', '')
-          grade_addition = """                      const aiAnswerReview =
+          grade_add = """                      const aiAnswerReview =
             question.question_type ===
               'short_answer' &&
             typeof selectedAnswer ===
@@ -391,22 +387,18 @@ jobs:
               : null
 
           """.replace('          ', '')
-          if grade_addition not in text:
-              text = replace_once(text, grade_anchor, grade_anchor + grade_addition, 'render review')
+          if grade_add not in text:
+              text = require_replace(text, grade_anchor, grade_anchor + grade_add, 'render grade')
 
-          text = text.replace(
-              '!shortAnswerGrade.correct &&',
-              '!isCorrect &&',
-              1,
-          )
+          text = text.replace('!shortAnswerGrade.correct &&', '!isCorrect &&', 1)
           text = text.replace(
               "shortAnswerGrade\n                                  ?.borderline && (",
               "shortAnswerGrade\n                                  ?.borderline &&\n                                !isCorrect && (",
               1,
           )
 
-          semantic_anchor = "                              {!isCorrect && (\n"
-          semantic_block = '''                              {question.question_type ===
+          semantic_anchor = '                              {!isCorrect && (\n'
+          semantic = '''                              {question.question_type ===
             'short_answer' &&
             aiAnswerReview && (
             <p>
@@ -418,9 +410,9 @@ jobs:
           )}
 
           '''.replace('          ', '')
-          if semantic_block not in text:
-              idx = text.index(semantic_anchor, text.index('const aiAnswerReview'))
-              text = text[:idx] + semantic_block + text[idx:]
+          if semantic not in text:
+              pos = text.index(semantic_anchor, text.index('const aiAnswerReview'))
+              text = text[:pos] + semantic + text[pos:]
 
           old = '''                  <button
             className="button primary-button check-button"
@@ -447,7 +439,7 @@ jobs:
               : 'Check Answers'}
           </button>
           '''.replace('          ', '')
-          text = replace_once(text, old, new, 'check button')
+          text = require_replace(text, old, new, 'check button')
 
           text = text.replace(
               'disabled={\n                                          showResults\n                                        }',
