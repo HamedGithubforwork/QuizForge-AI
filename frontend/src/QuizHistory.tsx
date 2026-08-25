@@ -10,6 +10,10 @@ import {
   type QuizHistoryRow,
 } from './lib/quizHistory'
 import {
+  getCurrentDocumentSha256,
+  matchesHistoryDocument,
+} from './lib/documentIdentity'
+import {
   isHistoryQuestionCorrect,
 } from './lib/historyQuestionGrader'
 import type {
@@ -90,12 +94,6 @@ function getDisplayFilename(name: string) {
   } catch {
     return name
   }
-}
-
-function normalizeFilename(name: string) {
-  return getDisplayFilename(name)
-    .trim()
-    .toLowerCase()
 }
 
 function getQuestionTypeLabel(type: string) {
@@ -277,6 +275,13 @@ function QuizHistory({
       practiceReadyFilename === currentFilename,
   )
 
+  const currentDocumentSha256 =
+    canPracticeCurrentDocument
+      ? getCurrentDocumentSha256(
+          currentFilename,
+        )
+      : null
+
   async function loadHistory() {
     setLoading(true)
     setError('')
@@ -395,13 +400,13 @@ function QuizHistory({
         return null
       }
 
-      const normalizedCurrentFilename =
-        normalizeFilename(currentFilename)
       const matchingHistory = history.filter(
         (item) =>
-          normalizeFilename(
-            item.source_filename,
-          ) === normalizedCurrentFilename,
+          matchesHistoryDocument(
+            item,
+            currentFilename,
+            currentDocumentSha256,
+          ),
       )
       const typeMisses: Record<
         HistoryQuestionType,
@@ -548,7 +553,11 @@ function QuizHistory({
           baselinePercent,
         },
       }
-    }, [history, currentFilename])
+    }, [
+      history,
+      currentFilename,
+      currentDocumentSha256,
+    ])
 
   const recentHistory = history.slice(0, 5)
 
