@@ -17,6 +17,7 @@ from observability import (
     elapsed_ms,
     log_event,
     observe_http_request,
+    record_document_cache_metric,
     record_quiz_metrics,
 )
 from redis_integration import (
@@ -107,6 +108,11 @@ async def get_document_pages_with_cache(
     )
 
     if cached_document is not None:
+        await record_document_cache_metric(
+            redis_client,
+            "hit",
+        )
+
         log_event(
             "document_cache_lookup",
             cache_result="hit",
@@ -133,6 +139,11 @@ async def get_document_pages_with_cache(
             "pdf_sha256": pdf_sha256,
             "pages": pages,
         },
+    )
+
+    await record_document_cache_metric(
+        redis_client,
+        "miss",
     )
 
     log_event(
