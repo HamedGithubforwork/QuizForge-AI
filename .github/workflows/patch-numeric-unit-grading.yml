@@ -1,0 +1,57 @@
+name: Patch numeric unit grading
+
+on:
+  push:
+    branches:
+      - numeric-unit-grading
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: numeric-unit-grading
+
+      - name: Patch numeric grading
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          grader_path = Path('frontend/src/lib/shortAnswerGrader.ts')
+          text = grader_path.read_text()
+
+          import_line = "import { compareNumericMeasurement } from './numericUnits.ts'\n\n"
+          if not text.startswith(import_line):
+              text = import_line + text
+
+          start = text.index('function parseNumericAnswer(')
+          end = text.index('function gradeExactAnswer(')
+
+          replacement = '''function gradeNumericAnswer(\n  answer: string,\n  grading: ShortAnswerGradingSpec,\n): ShortAnswerGrade {\n  const measurement =\n    compareNumericMeasurement(\n      answer,\n      grading.numeric_unit,\n    )\n  const tolerance = Math.max(\n    0,\n    grading.numeric_tolerance,\n  )\n\n  const value =\n    measurement.valueInExpectedUnit\n\n  const correct =\n    measurement.status === 'ok' &&\n    value !== null &&\n    Math.abs(\n      value - grading.numeric_value,\n    ) <= tolerance\n\n  let feedback: string\n\n  if (measurement.status === 'no_number') {\n    feedback =\n      'No numeric value was detected in the answer.'\n  } else if (\n    measurement.status === 'missing_unit'\n  ) {\n    feedback = `Include the expected unit (${measurement.expectedUnit}).`\n  } else if (\n    measurement.status === 'unexpected_unit'\n  ) {\n    feedback =\n      'This answer is expected to be unitless.'\n  } else if (\n    measurement.status === 'incompatible_unit'\n  ) {\n    feedback = `The supplied unit is not compatible with the expected unit (${measurement.expectedUnit}).`\n  } else if (correct) {\n    feedback = measurement.converted\n      ? 'Numeric answer is correct after unit conversion and within the accepted tolerance.'\n      : 'Numeric answer is within the accepted tolerance.'\n  } else {\n    feedback =\n      'Numeric answer is outside the accepted value or tolerance.'\n  }\n\n  return {\n    correct,\n    matchedGroups: correct ? 1 : 0,\n    requiredGroups: 1,\n    totalGroups: 1,\n    borderline: false,\n    feedback,\n  }\n}\n\n'''
+
+          text = text[:start] + replacement + text[end:]
+          grader_path.write_text(text)
+
+          backend_path = Path('backend/main.py')
+          backend = backend_path.read_text()
+          anchor = '- Use "numeric" when the answer is fundamentally a number. Set numeric_value to the expected value, numeric_tolerance to an appropriate non-negative tolerance supported by the question, and numeric_unit to the unit or an empty string.\n'
+          addition = anchor + '''- For numeric answers with a measurement unit, numeric_unit should use a concise canonical unit such as "g", "mg", "kg", "m", "cm", "mm", "L", "mL", "s", "min", "h", "%", "°C", or "°F" when that unit is supported by the PDF.\n- Do not leave numeric_unit empty when the numeric answer requires a unit for correctness.\n- Use an empty numeric_unit only for genuinely unitless quantities.\n- The grader can convert common compatible mass, length, volume, time, percentage, and Celsius/Fahrenheit units before applying numeric_tolerance.\n- numeric_tolerance is expressed in the expected numeric_unit after conversion.\n'''
+          if anchor not in backend:
+              raise SystemExit('numeric prompt anchor not found')
+          backend = backend.replace(anchor, addition, 1)
+          backend_path.write_text(backend)
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/lib/shortAnswerGrader.ts backend/main.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Enforce and convert numeric answer units"
+          git push origin HEAD:numeric-unit-grading
