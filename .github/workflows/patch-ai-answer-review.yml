@@ -22,85 +22,443 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def replace_once(text, old, new, label):
+              if new in text:
+                  return text
+              if old not in text:
+                  raise SystemExit(f'{label} anchor not found')
+              return text.replace(old, new, 1)
+
           # backend/main.py
           path = Path('backend/main.py')
           text = path.read_text()
-          import_anchor = 'from quiz_validation import get_quiz_validation_errors\n'
-          import_block = '''from answer_review import (\n    AnswerReviewRequest,\n    AnswerReviewResponse,\n    review_borderline_answers_with_ai,\n)\n'''
-          if import_block not in text:
-              text = text.replace(import_anchor, import_anchor + import_block, 1)
+          old = "from quiz_validation import get_quiz_validation_errors\n"
+          new = old + """from answer_review import (
+              AnswerReviewRequest,
+              AnswerReviewResponse,
+              review_borderline_answers_with_ai,
+          )
+          """.replace('          ', '')
+          text = replace_once(text, old, new, 'backend import')
 
-          health_anchor = '''@app.get("/api/health")\ndef health_check():\n    return {\n        "message": "Frontend connected to FastAPI!"\n    }\n\n\n'''
-          route_block = '''@app.post(\n    "/api/answers/review",\n    response_model=AnswerReviewResponse,\n)\nasync def review_borderline_answers(\n    payload: AnswerReviewRequest,\n    current_user: AuthenticatedUser = Depends(\n        get_current_user\n    ),\n):\n    return await review_borderline_answers_with_ai(\n        payload,\n        current_user.id,\n    )\n\n\n'''
-          if route_block not in text:
-              if health_anchor not in text:
+          health = '''@app.get("/api/health")
+          def health_check():
+              return {
+                  "message": "Frontend connected to FastAPI!"
+              }
+
+
+          '''.replace('          ', '')
+          route = '''@app.post(
+              "/api/answers/review",
+              response_model=AnswerReviewResponse,
+          )
+          async def review_borderline_answers(
+              payload: AnswerReviewRequest,
+              current_user: AuthenticatedUser = Depends(
+                  get_current_user
+              ),
+          ):
+              return await review_borderline_answers_with_ai(
+                  payload,
+                  current_user.id,
+              )
+
+
+          '''.replace('          ', '')
+          if route not in text:
+              if health not in text:
                   raise SystemExit('health anchor not found')
-              text = text.replace(health_anchor, health_anchor + route_block, 1)
+              text = text.replace(health, health + route, 1)
           path.write_text(text)
 
           # frontend/src/App.tsx
           path = Path('frontend/src/App.tsx')
           text = path.read_text()
-          import_anchor = '''import {\n  gradeShortAnswer,\n  type ShortAnswerGradingSpec,\n} from './lib/shortAnswerGrader'\n'''
-          import_block = '''import {\n  buildAiAnswerReviewCase,\n  buildAiAnswerReviewKey,\n  shouldRequestAiAnswerReview,\n  type AiAnswerReviewDecision,\n} from './lib/answerFallback'\n'''
-          if import_block not in text:
-              text = text.replace(import_anchor, import_anchor + import_block, 1)
 
-          type_anchor = '''  grading?: ShortAnswerGradingSpec\n  explanation: string\n'''
-          if '  ai_accepted_answers?: string[]\n' not in text:
-              text = text.replace(type_anchor, '''  grading?: ShortAnswerGradingSpec\n  ai_accepted_answers?: string[]\n  explanation: string\n''', 1)
+          old = """import {
+            gradeShortAnswer,
+            type ShortAnswerGradingSpec,
+          } from './lib/shortAnswerGrader'
+          """.replace('          ', '')
+          addition = """import {
+            buildAiAnswerReviewCase,
+            buildAiAnswerReviewKey,
+            shouldRequestAiAnswerReview,
+            type AiAnswerReviewDecision,
+          } from './lib/answerFallback'
+          """.replace('          ', '')
+          if addition not in text:
+              text = replace_once(text, old, old + addition, 'frontend import')
 
-          state_anchor = '''  const [saveMessage, setSaveMessage] =\n    useState('')\n\n'''
-          state_block = '''  const [\n    aiGradeReviews,\n    setAiGradeReviews,\n  ] = useState<\n    Record<string, AiAnswerReviewDecision>\n  >({})\n\n  const [\n    isReviewingAnswers,\n    setIsReviewingAnswers,\n  ] = useState(false)\n\n'''
-          if state_block not in text:
-              text = text.replace(state_anchor, state_anchor + state_block, 1)
+          old = "  grading?: ShortAnswerGradingSpec\n  explanation: string\n"
+          new = "  grading?: ShortAnswerGradingSpec\n  ai_accepted_answers?: string[]\n  explanation: string\n"
+          text = replace_once(text, old, new, 'quiz question type')
 
-          old_correct = '''      return isShortAnswerCorrect(\n        question,\n        answer,\n      )\n'''
-          new_correct = '''      const deterministicCorrect =\n        isShortAnswerCorrect(\n          question,\n          answer,\n        )\n\n      if (deterministicCorrect) {\n        return true\n      }\n\n      const review =\n        aiGradeReviews[\n          buildAiAnswerReviewKey(\n            question,\n            answer,\n          )\n        ]\n\n      return review?.verdict === 'correct'\n'''
-          if new_correct not in text:
-              if old_correct not in text:
-                  raise SystemExit('isQuestionCorrect anchor not found')
-              text = text.replace(old_correct, new_correct, 1)
+          old = """  const [saveMessage, setSaveMessage] =
+            useState('')
 
-          start = text.index('  function handleCheckAnswers() {')
-          end = text.index('  function handleTryAgain() {', start)
-          new_check = '''  async function handleCheckAnswers() {\n    if (!quiz || isReviewingAnswers) {\n      return\n    }\n\n    const indexesToCheck =\n      retryQuestionIndexes ??\n      quiz.questions.map(\n        (_, index) => index,\n      )\n\n    const firstUnansweredIndex =\n      indexesToCheck.find(\n        (questionIndex) =>\n          !isQuestionAnswered(\n            quiz.questions[questionIndex],\n            selectedAnswers[questionIndex],\n          ),\n      )\n\n    if (firstUnansweredIndex !== undefined) {\n      setAttentionQuestionIndex(firstUnansweredIndex)\n      setError(\n        `Question ${firstUnansweredIndex + 1} still needs an answer.`,\n      )\n      scrollToQuestion(firstUnansweredIndex, true)\n      return\n    }\n\n    setAttentionQuestionIndex(null)\n    setOpenSourceQuestionIndex(null)\n    setError('')\n    setSaveMessage('')\n\n    const reviewCases = indexesToCheck.flatMap(\n      (questionIndex) => {\n        const question = quiz.questions[questionIndex]\n        const answer = selectedAnswers[questionIndex]\n\n        if (\n          question.question_type !== 'short_answer' ||\n          typeof answer !== 'string'\n        ) {\n          return []\n        }\n\n        const deterministicGrade =\n          gradeShortAnswer(question, answer)\n\n        if (\n          !shouldRequestAiAnswerReview(\n            question,\n            answer,\n            deterministicGrade,\n          )\n        ) {\n          return []\n        }\n\n        const reviewCase =\n          buildAiAnswerReviewCase(\n            questionIndex,\n            question,\n            answer,\n          )\n\n        return reviewCase ? [reviewCase] : []\n      },\n    )\n\n    if (reviewCases.length > 0) {\n      setIsReviewingAnswers(true)\n\n      try {\n        const response = await apiFetch(\n          '/api/answers/review',\n          {\n            method: 'POST',\n            headers: {\n              'Content-Type': 'application/json',\n            },\n            body: JSON.stringify({\n              cases: reviewCases,\n            }),\n          },\n        )\n\n        const data = await response.json() as {\n          detail?: string\n          decisions?: AiAnswerReviewDecision[]\n        }\n\n        if (!response.ok) {\n          throw new Error(\n            data.detail ||\n              'Semantic answer review failed.',\n          )\n        }\n\n        const decisions = data.decisions ?? []\n        const casesByIndex = new Map(\n          reviewCases.map((item) => [\n            item.question_index,\n            item,\n          ]),\n        )\n\n        setAiGradeReviews((previous) => {\n          const next = { ...previous }\n\n          decisions.forEach((decision) => {\n            const reviewCase =\n              casesByIndex.get(\n                decision.question_index,\n              )\n            const question =\n              quiz.questions[\n                decision.question_index\n              ]\n\n            if (!reviewCase || !question) {\n              return\n            }\n\n            next[\n              buildAiAnswerReviewKey(\n                question,\n                reviewCase.student_answer,\n              )\n            ] = decision\n          })\n\n          return next\n        })\n\n        setSaveMessage(\n          `${decisions.length} borderline short ${\n            decisions.length === 1\n              ? 'answer received'\n              : 'answers received'\n          } a semantic second review.`,\n        )\n      } catch {\n        setSaveMessage(\n          'Semantic second review was unavailable; deterministic grading was used.',\n        )\n      } finally {\n        setIsReviewingAnswers(false)\n      }\n    }\n\n    setShowResults(true)\n    setResultSaved(false)\n\n    setTimeout(() => {\n      document\n        .getElementById('quiz-results')\n        ?.scrollIntoView({\n          behavior: 'smooth',\n          block: 'center',\n        })\n    }, 100)\n  }\n\n'''
-          text = text[:start] + new_check + text[end:]
+          """.replace('          ', '')
+          new = old + """  const [
+            aiGradeReviews,
+            setAiGradeReviews,
+          ] = useState<
+            Record<string, AiAnswerReviewDecision>
+          >({})
 
-          save_anchor = '''    setIsSavingHistory(true)\n    setSaveMessage('')\n\n    try {\n'''
-          save_block = '''    setIsSavingHistory(true)\n    setSaveMessage('')\n\n    const quizDataForHistory = {\n      ...quiz,\n      questions: quiz.questions.map(\n        (question, questionIndex) => {\n          const answer =\n            selectedAnswers[questionIndex]\n\n          if (\n            question.question_type !== 'short_answer' ||\n            typeof answer !== 'string'\n          ) {\n            return question\n          }\n\n          const review =\n            aiGradeReviews[\n              buildAiAnswerReviewKey(\n                question,\n                answer,\n              )\n            ]\n\n          if (review?.verdict !== 'correct') {\n            return question\n          }\n\n          return {\n            ...question,\n            ai_accepted_answers: Array.from(\n              new Set([\n                ...(question.ai_accepted_answers ?? []),\n                answer,\n              ]),\n            ),\n          }\n        },\n      ),\n    }\n\n    try {\n'''
-          if save_block not in text:
-              if save_anchor not in text:
-                  raise SystemExit('save anchor not found')
-              text = text.replace(save_anchor, save_block, 1)
+            const [
+              isReviewingAnswers,
+              setIsReviewingAnswers,
+            ] = useState(false)
 
-          text = text.replace(\n              '        quizData:\n          quiz,\n',\n              '        quizData:\n          quizDataForHistory,\n',\n              1,\n          )
+          """.replace('          ', '')
+          text = replace_once(text, old, new, 'review state')
 
-          grade_anchor = '''                      const shortAnswerGrade =\n                        question.question_type ===\n                          'short_answer' &&\n                        typeof selectedAnswer ===\n                          'string'\n                          ? gradeShortAnswer(\n                              question,\n                              selectedAnswer,\n                            )\n                          : null\n\n'''
-          grade_block = grade_anchor + '''                      const aiAnswerReview =\n                        question.question_type ===\n                          'short_answer' &&\n                        typeof selectedAnswer ===\n                          'string'\n                          ? aiGradeReviews[\n                              buildAiAnswerReviewKey(\n                                question,\n                                selectedAnswer,\n                              )\n                            ] ?? null\n                          : null\n\n'''
-          if '                      const aiAnswerReview =\n' not in text:
-              if grade_anchor not in text:
-                  raise SystemExit('render grade anchor not found')
-              text = text.replace(grade_anchor, grade_block, 1)
+          old = """      return isShortAnswerCorrect(
+            question,
+            answer,
+          )
+          """.replace('          ', '')
+          new = """      const deterministicCorrect =
+            isShortAnswerCorrect(
+              question,
+              answer,
+            )
 
-          text = text.replace(\n              '''                                !shortAnswerGrade.correct &&\n''',\n              '''                                !isCorrect &&\n''',\n              1,\n          )
-          text = text.replace(\n              '''                                shortAnswerGrade\n                                  ?.borderline && (\n''',\n              '''                                shortAnswerGrade\n                                  ?.borderline &&\n                                !isCorrect && (\n''',\n              1,\n          )
+              if (deterministicCorrect) {
+                return true
+              }
 
-          semantic_anchor = '''                              {!isCorrect && (\n'''
-          semantic_block = '''                              {question.question_type ===\n                                'short_answer' &&\n                                aiAnswerReview && (\n                                <p>\n                                  <strong>\n                                    Semantic second review:\n                                  </strong>{' '}\n                                  {aiAnswerReview.reason}\n                                </p>\n                              )}\n\n'''
+              const review =
+                aiGradeReviews[
+                  buildAiAnswerReviewKey(
+                    question,
+                    answer,
+                  )
+                ]
+
+              return review?.verdict === 'correct'
+          """.replace('          ', '')
+          text = replace_once(text, old, new, 'question correctness')
+
+          start_marker = '  function handleCheckAnswers() {'
+          end_marker = '  function handleTryAgain() {'
+          if start_marker in text:
+              start = text.index(start_marker)
+              end = text.index(end_marker, start)
+              new_check = '''  async function handleCheckAnswers() {
+            if (!quiz || isReviewingAnswers) {
+              return
+            }
+
+            const indexesToCheck =
+              retryQuestionIndexes ??
+              quiz.questions.map(
+                (_, index) => index,
+              )
+
+            const firstUnansweredIndex =
+              indexesToCheck.find(
+                (questionIndex) =>
+                  !isQuestionAnswered(
+                    quiz.questions[questionIndex],
+                    selectedAnswers[questionIndex],
+                  ),
+              )
+
+            if (firstUnansweredIndex !== undefined) {
+              setAttentionQuestionIndex(firstUnansweredIndex)
+              setError(
+                `Question ${firstUnansweredIndex + 1} still needs an answer.`,
+              )
+              scrollToQuestion(firstUnansweredIndex, true)
+              return
+            }
+
+            setAttentionQuestionIndex(null)
+            setOpenSourceQuestionIndex(null)
+            setError('')
+            setSaveMessage('')
+
+            const reviewCases = indexesToCheck.flatMap(
+              (questionIndex) => {
+                const question = quiz.questions[questionIndex]
+                const answer = selectedAnswers[questionIndex]
+
+                if (
+                  question.question_type !== 'short_answer' ||
+                  typeof answer !== 'string'
+                ) {
+                  return []
+                }
+
+                const deterministicGrade =
+                  gradeShortAnswer(question, answer)
+
+                if (
+                  !shouldRequestAiAnswerReview(
+                    question,
+                    answer,
+                    deterministicGrade,
+                  )
+                ) {
+                  return []
+                }
+
+                const reviewCase =
+                  buildAiAnswerReviewCase(
+                    questionIndex,
+                    question,
+                    answer,
+                  )
+
+                return reviewCase ? [reviewCase] : []
+              },
+            )
+
+            if (reviewCases.length > 0) {
+              setIsReviewingAnswers(true)
+
+              try {
+                const response = await apiFetch(
+                  '/api/answers/review',
+                  {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      cases: reviewCases,
+                    }),
+                  },
+                )
+
+                const data = await response.json() as {
+                  detail?: string
+                  decisions?: AiAnswerReviewDecision[]
+                }
+
+                if (!response.ok) {
+                  throw new Error(
+                    data.detail ||
+                      'Semantic answer review failed.',
+                  )
+                }
+
+                const decisions = data.decisions ?? []
+                const casesByIndex = new Map(
+                  reviewCases.map((item) => [
+                    item.question_index,
+                    item,
+                  ]),
+                )
+
+                setAiGradeReviews((previous) => {
+                  const next = { ...previous }
+
+                  decisions.forEach((decision) => {
+                    const reviewCase = casesByIndex.get(
+                      decision.question_index,
+                    )
+                    const question = quiz.questions[
+                      decision.question_index
+                    ]
+
+                    if (!reviewCase || !question) {
+                      return
+                    }
+
+                    next[
+                      buildAiAnswerReviewKey(
+                        question,
+                        reviewCase.student_answer,
+                      )
+                    ] = decision
+                  })
+
+                  return next
+                })
+
+                setSaveMessage(
+                  `${decisions.length} borderline short ${
+                    decisions.length === 1
+                      ? 'answer received'
+                      : 'answers received'
+                  } a semantic second review.`,
+                )
+              } catch {
+                setSaveMessage(
+                  'Semantic second review was unavailable; deterministic grading was used.',
+                )
+              } finally {
+                setIsReviewingAnswers(false)
+              }
+            }
+
+            setShowResults(true)
+            setResultSaved(false)
+
+            setTimeout(() => {
+              document
+                .getElementById('quiz-results')
+                ?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'center',
+                })
+            }, 100)
+          }
+
+          '''.replace('          ', '')
+              text = text[:start] + new_check + text[end:]
+
+          old = """    setIsSavingHistory(true)
+            setSaveMessage('')
+
+            try {
+          """.replace('          ', '')
+          new = """    setIsSavingHistory(true)
+            setSaveMessage('')
+
+            const quizDataForHistory = {
+              ...quiz,
+              questions: quiz.questions.map(
+                (question, questionIndex) => {
+                  const answer = selectedAnswers[questionIndex]
+
+                  if (
+                    question.question_type !== 'short_answer' ||
+                    typeof answer !== 'string'
+                  ) {
+                    return question
+                  }
+
+                  const review =
+                    aiGradeReviews[
+                      buildAiAnswerReviewKey(
+                        question,
+                        answer,
+                      )
+                    ]
+
+                  if (review?.verdict !== 'correct') {
+                    return question
+                  }
+
+                  return {
+                    ...question,
+                    ai_accepted_answers: Array.from(
+                      new Set([
+                        ...(question.ai_accepted_answers ?? []),
+                        answer,
+                      ]),
+                    ),
+                  }
+                },
+              ),
+            }
+
+            try {
+          """.replace('          ', '')
+          text = replace_once(text, old, new, 'save history')
+
+          old = "        quizData:\n          quiz,\n"
+          new = "        quizData:\n          quizDataForHistory,\n"
+          text = replace_once(text, old, new, 'history quiz data')
+
+          grade_anchor = """                      const shortAnswerGrade =
+            question.question_type ===
+              'short_answer' &&
+            typeof selectedAnswer ===
+              'string'
+              ? gradeShortAnswer(
+                  question,
+                  selectedAnswer,
+                )
+              : null
+
+          """.replace('          ', '')
+          grade_addition = """                      const aiAnswerReview =
+            question.question_type ===
+              'short_answer' &&
+            typeof selectedAnswer ===
+              'string'
+              ? aiGradeReviews[
+                  buildAiAnswerReviewKey(
+                    question,
+                    selectedAnswer,
+                  )
+                ] ?? null
+              : null
+
+          """.replace('          ', '')
+          if grade_addition not in text:
+              text = replace_once(text, grade_anchor, grade_anchor + grade_addition, 'render review')
+
+          text = text.replace(
+              '!shortAnswerGrade.correct &&',
+              '!isCorrect &&',
+              1,
+          )
+          text = text.replace(
+              "shortAnswerGrade\n                                  ?.borderline && (",
+              "shortAnswerGrade\n                                  ?.borderline &&\n                                !isCorrect && (",
+              1,
+          )
+
+          semantic_anchor = "                              {!isCorrect && (\n"
+          semantic_block = '''                              {question.question_type ===
+            'short_answer' &&
+            aiAnswerReview && (
+            <p>
+              <strong>
+                Semantic second review:
+              </strong>{' '}
+              {aiAnswerReview.reason}
+            </p>
+          )}
+
+          '''.replace('          ', '')
           if semantic_block not in text:
               idx = text.index(semantic_anchor, text.index('const aiAnswerReview'))
               text = text[:idx] + semantic_block + text[idx:]
 
-          old_button = '''                  <button\n                    className="button primary-button check-button"\n                    type="button"\n                    onClick={\n                      handleCheckAnswers\n                    }\n                  >\n                    Check Answers\n                  </button>\n'''
-          new_button = '''                  <button\n                    className="button primary-button check-button"\n                    type="button"\n                    onClick={\n                      handleCheckAnswers\n                    }\n                    disabled={\n                      isReviewingAnswers\n                    }\n                  >\n                    {isReviewingAnswers\n                      ? 'Reviewing Answers...'\n                      : 'Check Answers'}\n                  </button>\n'''
-          if new_button not in text:
-              if old_button not in text:
-                  raise SystemExit('check button anchor not found')
-              text = text.replace(old_button, new_button, 1)
+          old = '''                  <button
+            className="button primary-button check-button"
+            type="button"
+            onClick={
+              handleCheckAnswers
+            }
+          >
+            Check Answers
+          </button>
+          '''.replace('          ', '')
+          new = '''                  <button
+            className="button primary-button check-button"
+            type="button"
+            onClick={
+              handleCheckAnswers
+            }
+            disabled={
+              isReviewingAnswers
+            }
+          >
+            {isReviewingAnswers
+              ? 'Reviewing Answers...'
+              : 'Check Answers'}
+          </button>
+          '''.replace('          ', '')
+          text = replace_once(text, old, new, 'check button')
 
-          text = text.replace(\n              '''                                        disabled={\n                                          showResults\n                                        }\n''',\n              '''                                        disabled={\n                                          showResults ||\n                                          isReviewingAnswers\n                                        }\n''',\n              1,\n          )
-          text = text.replace(\n              '''                                disabled={\n                                  showResults\n                                }\n''',\n              '''                                disabled={\n                                  showResults ||\n                                  isReviewingAnswers\n                                }\n''',\n              1,\n          )
+          text = text.replace(
+              'disabled={\n                                          showResults\n                                        }',
+              'disabled={\n                                          showResults ||\n                                          isReviewingAnswers\n                                        }',
+              1,
+          )
+          text = text.replace(
+              'disabled={\n                                  showResults\n                                }',
+              'disabled={\n                                  showResults ||\n                                  isReviewingAnswers\n                                }',
+              1,
+          )
 
           path.write_text(text)
           PY
