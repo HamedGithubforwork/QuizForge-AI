@@ -20,7 +20,9 @@ prepareQuizGenerationRequest(
 )
 
 assert.equal(
-  firstForm.get('force_new_quiz'),
+  firstForm.get(
+    'generate_new_quiz_instead_of_using_cache',
+  ),
   'false',
   'the first quiz generation request should explicitly allow the Redis quiz cache',
 )
@@ -37,9 +39,11 @@ prepareQuizGenerationRequest(
 )
 
 assert.equal(
-  secondForm.get('force_new_quiz'),
+  secondForm.get(
+    'generate_new_quiz_instead_of_using_cache',
+  ),
   'true',
-  'a follow-up generation request should explicitly force a new quiz',
+  'a follow-up generation request should explicitly generate a new quiz instead of using the cached quiz',
 )
 
 const uploadForm = new FormData()
@@ -53,7 +57,9 @@ prepareQuizGenerationRequest(
 )
 
 assert.equal(
-  uploadForm.get('force_new_quiz'),
+  uploadForm.get(
+    'generate_new_quiz_instead_of_using_cache',
+  ),
   null,
   'non-generation requests should not be modified',
 )
