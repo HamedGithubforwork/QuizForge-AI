@@ -19,6 +19,8 @@ METRIC_NAMES = (
     "quiz_duration_ms_total",
     "quiz_cache_hits_total",
     "quiz_cache_misses_total",
+    "document_cache_hits_total",
+    "document_cache_misses_total",
     "quiz_generation_errors_total",
 )
 
@@ -29,6 +31,16 @@ def build_metric_snapshot(values: dict[str, int], backend: str):
     cache_hits = values["quiz_cache_hits_total"]
     cache_misses = values["quiz_cache_misses_total"]
     cache_lookups = cache_hits + cache_misses
+    document_cache_hits = values[
+        "document_cache_hits_total"
+    ]
+    document_cache_misses = values[
+        "document_cache_misses_total"
+    ]
+    document_cache_lookups = (
+        document_cache_hits
+        + document_cache_misses
+    )
 
     average_http_latency = (
         values["http_duration_ms_total"] / http_requests
@@ -45,6 +57,13 @@ def build_metric_snapshot(values: dict[str, int], backend: str):
         if cache_lookups
         else 0.0
     )
+    document_cache_hit_rate = (
+        document_cache_hits
+        / document_cache_lookups
+        * 100
+        if document_cache_lookups
+        else 0.0
+    )
 
     return {
         "metrics_backend": backend,
@@ -57,6 +76,12 @@ def build_metric_snapshot(values: dict[str, int], backend: str):
         "cache_hits_total": cache_hits,
         "cache_misses_total": cache_misses,
         "cache_hit_rate_percent": round(cache_hit_rate, 2),
+        "document_cache_hits_total": document_cache_hits,
+        "document_cache_misses_total": document_cache_misses,
+        "document_cache_hit_rate_percent": round(
+            document_cache_hit_rate,
+            2,
+        ),
     }
 
 
