@@ -37,11 +37,32 @@ export function buildAiAnswerReviewKey(
   question: AiAnswerReviewQuestion,
   answer: string,
 ) {
+  const grading = question.grading
+
+  const rubricSignature = grading
+    ? JSON.stringify({
+        grading_version:
+          grading.grading_version,
+        grading_mode:
+          grading.grading_mode,
+        answer_groups:
+          grading.answer_groups.map(
+            (group) =>
+              group.map(
+                normalizeShortAnswer,
+              ),
+          ),
+        required_group_count:
+          grading.required_group_count,
+      })
+    : ''
+
   return [
     normalizeShortAnswer(question.question),
     normalizeShortAnswer(
       question.correct_answer,
     ),
+    rubricSignature,
     normalizeShortAnswer(answer),
   ].join('\u241f')
 }
