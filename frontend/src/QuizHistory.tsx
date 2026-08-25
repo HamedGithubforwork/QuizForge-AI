@@ -16,6 +16,10 @@ import {
 import {
   isHistoryQuestionCorrect,
 } from './lib/historyQuestionGrader'
+import {
+  analyzeWeakAreas,
+  type WeakAreaAttempt,
+} from './lib/weakAreaAnalytics'
 import type {
   ShortAnswerGradingSpec,
 } from './lib/shortAnswerGrader'
@@ -32,6 +36,7 @@ export type HistoryPracticeFocus = {
   questionType: HistoryQuestionType
   avoidQuestions: string[]
   baselinePercent: number
+  baselineQuestionCount: number
 }
 
 type QuizHistoryProps = {
@@ -81,6 +86,9 @@ type DocumentWeakness = {
   avoidQuestions: string[]
   missedQuestions: number
   baselinePercent: number
+  baselineQuestionCount: number
+  baselineAttemptCount: number
+  baselineReliable: boolean
 }
 
 type CurrentDocumentSummary = {
@@ -408,150 +416,66 @@ function QuizHistory({
             currentDocumentSha256,
           ),
       )
-      const typeMisses: Record<
-        HistoryQuestionType,
-        number
-      > = {
-        multiple_choice: 0,
-        true_false: 0,
-        short_answer: 0,
-      }
-      const typeTotals: Record<
-        HistoryQuestionType,
-        number
-      > = {
-        multiple_choice: 0,
-        true_false: 0,
-        short_answer: 0,
-      }
-      const typeCorrect: Record<
-        HistoryQuestionType,
-        number
-      > = {
-        multiple_choice: 0,
-        true_false: 0,
-        short_answer: 0,
-      }
-      const pageMisses =
-        new Map<number, number>()
-      const avoidQuestions =
-        new Set<string>()
-      let missedQuestions = 0
 
-      matchingHistory.forEach((item) => {
-        if (
-          !isStoredQuiz(item.quiz_data) ||
-          !isStoredAnswers(
-            item.selected_answers,
-          )
-        ) {
-          return
-        }
-
-        item.quiz_data.questions.forEach(
-          (question, questionIndex) => {
-            const answer =
-              item.selected_answers[
-                String(questionIndex)
-              ]
-            const type = question.question_type
-            typeTotals[type] += 1
-
-            if (
-              isHistoryQuestionCorrect(
-                question,
-                answer,
-              )
-            ) {
-              typeCorrect[type] += 1
-              return
-            }
-
-            missedQuestions += 1
-            typeMisses[type] += 1
-            avoidQuestions.add(
-              question.question,
+      const attempts: WeakAreaAttempt[] =
+        matchingHistory.flatMap((item) => {
+          if (
+            !isStoredQuiz(item.quiz_data) ||
+            !isStoredAnswers(
+              item.selected_answers,
             )
+          ) {
+            return []
+          }
 
-            question.source_pages.forEach(
-              (pageNumber) => {
-                pageMisses.set(
-                  pageNumber,
-                  (pageMisses.get(pageNumber) ??
-                    0) + 1,
-                )
-              },
-            )
-          },
-        )
-      })
+          return [
+            {
+              questions:
+                item.quiz_data.questions.map(
+                  (question, questionIndex) => ({
+                    questionType:
+                      question.question_type,
+                    question:
+                      question.question,
+                    sourcePages:
+                      question.source_pages,
+                    correct:
+                      isHistoryQuestionCorrect(
+                        question,
+                        item.selected_answers[
+                          String(questionIndex)
+                        ],
+                      ),
+                  }),
+                ),
+            },
+          ]
+        })
 
-      if (missedQuestions === 0) {
-        return {
-          attemptCount:
-            matchingHistory.length,
-          weakness: null,
-        }
-      }
-
-      const [questionType] = (
-        Object.entries(typeMisses) as [
-          HistoryQuestionType,
-          number,
-        ][]
-      ).sort(
-        (a, b) => b[1] - a[1],
-      )[0]
-
-      const baselinePercent =
-        typeTotals[questionType] > 0
-          ? Math.round(
-              (typeCorrect[questionType] /
-                typeTotals[questionType]) *
-                100,
-            )
-          : 0
-
-      const rankedPageMisses = Array.from(
-        pageMisses.entries(),
-      ).sort(
-        (a, b) =>
-          b[1] - a[1] || a[0] - b[0],
-      )
-      const highestPageMissCount =
-        rankedPageMisses[0]?.[1] ?? 0
-      const meaningfulPageMisses =
-        rankedPageMisses.filter(
-          ([, missCount]) =>
-            missCount >=
-            Math.max(
-              1,
-              Math.ceil(
-                highestPageMissCount * 0.5,
-              ),
-            ),
-        )
-      const selectedPageMisses =
-        meaningfulPageMisses.length >= 2 ||
-        rankedPageMisses.length < 2
-          ? meaningfulPageMisses
-          : rankedPageMisses.slice(0, 2)
-      const pages = selectedPageMisses
-        .slice(0, 3)
-        .map(([pageNumber]) => pageNumber)
-        .sort((a, b) => a - b)
+      const weakness =
+        analyzeWeakAreas(attempts)
 
       return {
         attemptCount: matchingHistory.length,
-        weakness: {
-          questionType,
-          pages,
-          avoidQuestions: Array.from(
-            avoidQuestions,
-          ).slice(0, 20),
-          missedQuestions,
-          baselinePercent,
-        },
+        weakness: weakness
+          ? {
+              questionType:
+                weakness.questionType,
+              pages: weakness.pages,
+              avoidQuestions:
+                weakness.avoidQuestions,
+              missedQuestions:
+                weakness.missedQuestions,
+              baselinePercent:
+                weakness.baselinePercent,
+              baselineQuestionCount:
+                weakness.baselineQuestionCount,
+              baselineAttemptCount:
+                weakness.baselineAttemptCount,
+              baselineReliable:
+                weakness.baselineReliable,
+            }
+          : null,
       }
     }, [
       history,
@@ -585,6 +509,8 @@ function QuizHistory({
           weakness.avoidQuestions,
         baselinePercent:
           weakness.baselinePercent,
+        baselineQuestionCount:
+          weakness.baselineQuestionCount,
       })
     } finally {
       setIsHistoryPracticeGenerating(false)
@@ -805,9 +731,9 @@ function QuizHistory({
                             this PDF
                           </strong>
                           <span>
-                            Your saved attempts do not
-                            contain any incorrect
-                            answers for this document.
+                            Your newest saved evidence for
+                            each tested question type has
+                            no unresolved misses.
                           </span>
                         </div>
                       )}
@@ -838,7 +764,7 @@ function QuizHistory({
                             </article>
                             <article>
                               <span>
-                                Missed Questions
+                                Recent Misses
                               </span>
                               <strong>
                                 {currentDocumentSummary.weakness.missedQuestions}
@@ -867,16 +793,47 @@ function QuizHistory({
                                   : 'Whole PDF'}
                               </strong>
                             </article>
+                            <article>
+                              <span>
+                                Recent Baseline
+                              </span>
+                              <strong>
+                                {currentDocumentSummary.weakness.baselinePercent}%
+                              </strong>
+                            </article>
+                            <article>
+                              <span>
+                                Baseline Sample
+                              </span>
+                              <strong>
+                                {currentDocumentSummary.weakness.baselineQuestionCount}{' '}
+                                {currentDocumentSummary.weakness.baselineQuestionCount === 1
+                                  ? 'question'
+                                  : 'questions'}
+                              </strong>
+                            </article>
                           </div>
 
                           <p className="history-weakness-description">
-                            QuizForge combines mistakes
-                            from every saved attempt for
-                            this PDF, finds the question
-                            type you miss most often, and
-                            targets up to three of your
-                            strongest weak pages.
+                            QuizForge uses your newest
+                            evidence for each question type
+                            so old mistakes do not stay weak
+                            forever after you master them. It
+                            uses up to three recent attempts
+                            to set the baseline and rank up to
+                            three focus pages.
                           </p>
+
+                          {!currentDocumentSummary.weakness.baselineReliable && (
+                            <span className="history-practice-note">
+                              Preliminary baseline: only{' '}
+                              {currentDocumentSummary.weakness.baselineQuestionCount}{' '}
+                              {currentDocumentSummary.weakness.baselineQuestionCount === 1
+                                ? 'question is'
+                                : 'questions are'}{' '}
+                              available for this comparison.
+                            </span>
+                          )}
 
                           <button
                             className="history-practice-button"

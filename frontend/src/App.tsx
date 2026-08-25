@@ -76,6 +76,7 @@ type PracticeFocus = {
 
 type MasteryContext = {
   baselinePercent: number
+  baselineQuestionCount: number
   source:
     | 'current_quiz'
     | 'history'
@@ -916,24 +917,36 @@ function App() {
             .question,
       )
 
-    const baselineScore =
-      quiz.questions.filter(
-        (
+    const baselineQuestions =
+      quiz.questions
+        .map((question, index) => ({
           question,
-          index,
-        ) =>
+          answer: selectedAnswers[index],
+        }))
+        .filter(
+          (item) =>
+            item.question.question_type ===
+            weakQuestionType,
+        )
+
+    const baselineScore =
+      baselineQuestions.filter(
+        (item) =>
           isQuestionCorrect(
-            question,
-            selectedAnswers[index],
+            item.question,
+            item.answer,
           ),
       ).length
 
+    const baselineQuestionCount =
+      baselineQuestions.length
+
     const baselinePercent =
-      quiz.questions.length > 0
+      baselineQuestionCount > 0
         ? Math.round(
             (
               baselineScore /
-              quiz.questions.length
+              baselineQuestionCount
             ) * 100,
           )
         : 0
@@ -1052,6 +1065,7 @@ function App() {
 
       setMasteryContext({
         baselinePercent,
+        baselineQuestionCount,
         source:
           'current_quiz',
         pages: weakPages,
@@ -1217,6 +1231,8 @@ function App() {
       setMasteryContext({
         baselinePercent:
           focus.baselinePercent,
+        baselineQuestionCount:
+          focus.baselineQuestionCount,
         source: 'history',
         pages: focus.pages,
         questionType:
@@ -1446,17 +1462,22 @@ function App() {
 
   function getMasteryMessage(
     delta: number,
+    baselineQuestionCount: number,
   ) {
+    if (baselineQuestionCount < 3) {
+      return 'Preliminary comparison only — the baseline has too few questions to show a strong mastery trend yet.'
+    }
+
     if (delta >= 20) {
       return 'Strong improvement — your targeted practice is paying off.'
     }
 
     if (delta > 0) {
-      return 'You improved on your weak-area baseline.'
+      return 'You improved on your recent weak-area baseline.'
     }
 
     if (delta === 0) {
-      return 'You matched your baseline. Another focused round can help.'
+      return 'You matched your recent baseline. Another focused round can help.'
     }
 
     return 'This area still needs practice. Review the explanations and try again.'
@@ -2655,7 +2676,9 @@ function App() {
                               </span>
 
                               <h3>
-                                Weak-area improvement
+                                {masteryContext.baselineQuestionCount < 3
+                                  ? 'Preliminary weak-area comparison'
+                                  : 'Weak-area improvement'}
                               </h3>
                             </div>
 
@@ -2681,7 +2704,9 @@ function App() {
                           <div className="mastery-score-grid">
                             <div>
                               <span>
-                                Baseline
+                                {masteryContext.baselineQuestionCount < 3
+                                  ? 'Preliminary baseline'
+                                  : 'Recent baseline'}
                               </span>
 
                               <strong>
@@ -2718,6 +2743,7 @@ function App() {
                           <p className="mastery-progress-message">
                             {getMasteryMessage(
                               masteryDelta,
+                              masteryContext.baselineQuestionCount,
                             )}
                           </p>
 
@@ -2727,6 +2753,12 @@ function App() {
                             'history'
                               ? 'your saved-history performance for this question type'
                               : 'the quiz that started this practice session'}
+                            {' '}
+                            • Baseline sample:{' '}
+                            {masteryContext.baselineQuestionCount}{' '}
+                            {masteryContext.baselineQuestionCount === 1
+                              ? 'question'
+                              : 'questions'}
                             {masteryContext.pages.length >
                               0 && (
                               <>
