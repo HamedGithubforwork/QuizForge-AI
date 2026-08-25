@@ -1,4 +1,4 @@
-name: Patch rubric validation
+name: Fix rubric validation patch
 
 on:
   push:
@@ -17,34 +17,18 @@ jobs:
         with:
           ref: validate-generated-rubrics
 
-      - name: Patch backend validation flow
+      - name: Fix backend syntax
         run: |
           python - <<'PY'
           from pathlib import Path
 
           path = Path('backend/main.py')
           text = path.read_text()
-
-          import_anchor = 'from pydantic import BaseModel, Field\n'
-          import_line = 'from quiz_validation import get_quiz_validation_errors\n'
-          if import_line not in text:
-              if import_anchor not in text:
-                  raise SystemExit('import anchor not found')
-              text = text.replace(
-                  import_anchor,
-                  import_anchor + import_line,
-                  1,
-              )
-
-          start_marker = '    client = AsyncOpenAI(\n'
-          end_marker = '    if (\n        len(quiz.questions)\n        != question_count\n    ):\n'
-          start = text.index(start_marker)
-          end = text.index(end_marker)
-
-          replacement = '''    client = AsyncOpenAI(\n        api_key=api_key,\n    )\n\n    quiz = None\n    validation_errors: list[str] = []\n\n    for generation_attempt in range(2):\n        retry_instruction = \"\"\n\n        if generation_attempt > 0:\n            issue_list = \\"\\n\\".join(\n                f\"- {issue}\"\n                for issue in validation_errors[:8]\n            )\n            retry_instruction = f\"\"\"\n\nVALIDATION RETRY:\n\nThe previous generated quiz was rejected by the application's deterministic validator.\nGenerate the entire quiz again and correct all of these structural or grading-rubric issues:\n{issue_list}\n\nDo not mention the retry or validation process in the quiz.\n\"\"\"\n\n        try:\n            response = await client.responses.parse(\n                model=\"gpt-5.6-luna\",\n                input=[\n                    {\n                        \"role\": \"developer\",\n                        \"content\": prompt + retry_instruction,\n                    },\n                    {\n                        \"role\": \"user\",\n                        \"content\": (\n                            \"Generate a quiz from \"\n                            \"the following study \"\n                            \"material:\\n\\n\"\n                            + study_material\n                        ),\n                    },\n                ],\n                text_format=Quiz,\n            )\n\n        except OpenAIError as error:\n            print(\n                \"OpenAI API error:\",\n                error,\n            )\n\n            raise HTTPException(\n                status_code=502,\n                detail=(\n                    \"The OpenAI quiz generation \"\n                    \"request failed. Check the \"\n                    \"backend terminal for details.\"\n                ),\n            ) from error\n\n        quiz = response.output_parsed\n\n        if quiz is None:\n            validation_errors = [\n                \"The response could not be parsed into the quiz schema.\"\n            ]\n            continue\n\n        validation_errors = (\n            get_quiz_validation_errors(\n                quiz,\n                question_count=question_count,\n                requested_question_type=question_type,\n                page_count=len(pages),\n            )\n        )\n\n        if not validation_errors:\n            break\n\n        print(\n            \"Generated quiz validation failed:\",\n            validation_errors,\n        )\n\n    if quiz is None or validation_errors:\n        raise HTTPException(\n            status_code=502,\n            detail=(\n                \"The AI returned inconsistent quiz or grading data after validation. \"\n                \"Please try generating the quiz again.\"\n            ),\n        )\n\n'''
-
-          text = text[:start] + replacement + text[end:]
-          path.write_text(text)
+          old = 'issue_list = \\"\\n\\".join('
+          new = 'issue_list = "\\n".join('
+          if old not in text:
+              raise SystemExit('syntax target not found')
+          path.write_text(text.replace(old, new, 1))
           PY
 
       - name: Commit patch
@@ -53,5 +37,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/main.py
           git diff --cached --quiet && exit 0
-          git commit -m "Validate generated grading rubrics before returning quizzes"
+          git commit -m "Fix rubric validation retry syntax"
           git push origin HEAD:validate-generated-rubrics
