@@ -50,6 +50,8 @@ def test_metric_snapshot_calculates_rates_and_averages():
             quiz_duration_ms_total="8000",
             quiz_cache_hits_total="3",
             quiz_cache_misses_total="1",
+            document_cache_hits_total="8",
+            document_cache_misses_total="2",
             quiz_generation_errors_total="1",
         )
     )
@@ -67,6 +69,9 @@ def test_metric_snapshot_calculates_rates_and_averages():
     assert snapshot["cache_hits_total"] == 3
     assert snapshot["cache_misses_total"] == 1
     assert snapshot["cache_hit_rate_percent"] == 75.0
+    assert snapshot["document_cache_hits_total"] == 8
+    assert snapshot["document_cache_misses_total"] == 2
+    assert snapshot["document_cache_hit_rate_percent"] == 80.0
     assert snapshot["quiz_generation_errors_total"] == 1
 
 
@@ -79,6 +84,7 @@ def test_metric_snapshot_handles_zero_totals():
     assert snapshot["average_http_latency_ms"] >= 0
     assert snapshot["average_quiz_latency_ms"] >= 0
     assert snapshot["cache_hit_rate_percent"] >= 0
+    assert snapshot["document_cache_hit_rate_percent"] >= 0
 
 
 def test_admin_access_requires_allowlisted_user(monkeypatch):
