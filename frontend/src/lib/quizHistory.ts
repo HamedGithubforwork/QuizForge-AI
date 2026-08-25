@@ -1,3 +1,7 @@
+import {
+  getCurrentDocumentSha256,
+  withDocumentIdentityInQuizData,
+} from './documentIdentity'
 import { supabase } from './supabase'
 
 type StoredSelectedAnswers =
@@ -8,6 +12,7 @@ export type QuizHistoryRow = {
   user_id: string
   quiz_title: string
   source_filename: string
+  document_sha256?: string | null
   difficulty: string
   question_type: string
   question_count: number
@@ -30,6 +35,27 @@ type SaveQuizHistoryInput = {
   selectedAnswers: StoredSelectedAnswers
 }
 
+type SupabaseInsertError = {
+  code?: string
+  message?: string
+}
+
+function isMissingDocumentSha256Column(
+  error: SupabaseInsertError,
+) {
+  const message =
+    (error.message ?? '').toLowerCase()
+
+  return (
+    message.includes('document_sha256') &&
+    (
+      error.code === 'PGRST204' ||
+      error.code === '42703' ||
+      message.includes('column')
+    )
+  )
+}
+
 export async function saveQuizHistory(
   input: SaveQuizHistoryInput,
 ) {
@@ -49,40 +75,73 @@ export async function saveQuizHistory(
     )
   }
 
+  const documentSha256 =
+    getCurrentDocumentSha256(
+      input.sourceFilename,
+    )
+
+  const payload = {
+    user_id:
+      userData.user.id,
+
+    quiz_title:
+      input.quizTitle,
+
+    source_filename:
+      input.sourceFilename,
+
+    difficulty:
+      input.difficulty,
+
+    question_type:
+      input.questionType,
+
+    question_count:
+      input.questionCount,
+
+    score:
+      input.score,
+
+    percentage:
+      input.percentage,
+
+    quiz_data:
+      withDocumentIdentityInQuizData(
+        input.quizData,
+        documentSha256,
+      ),
+
+    selected_answers:
+      input.selectedAnswers,
+  }
+
+  if (documentSha256) {
+    const { error } =
+      await supabase
+        .from('quiz_history')
+        .insert({
+          ...payload,
+          document_sha256:
+            documentSha256,
+        })
+
+    if (!error) {
+      return
+    }
+
+    if (
+      !isMissingDocumentSha256Column(
+        error,
+      )
+    ) {
+      throw error
+    }
+  }
+
   const { error } =
     await supabase
       .from('quiz_history')
-      .insert({
-        user_id:
-          userData.user.id,
-
-        quiz_title:
-          input.quizTitle,
-
-        source_filename:
-          input.sourceFilename,
-
-        difficulty:
-          input.difficulty,
-
-        question_type:
-          input.questionType,
-
-        question_count:
-          input.questionCount,
-
-        score:
-          input.score,
-
-        percentage:
-          input.percentage,
-
-        quiz_data:
-          input.quizData,
-
-        selected_answers:
-          input.selectedAnswers,
-      })
+      .insert(payload)
 
   if (error) {
     throw error
