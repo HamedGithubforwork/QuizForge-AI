@@ -1026,7 +1026,7 @@ If requested mode is "mixed":
         retry_instruction = ""
 
         if generation_attempt > 0:
-            issue_list = \"\n\".join(
+            issue_list = "\n".join(
                 f"- {issue}"
                 for issue in validation_errors[:8]
             )
