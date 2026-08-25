@@ -62,6 +62,16 @@ assert.equal(
 assert.equal(
   shouldRequestAiAnswerReview(
     conceptQuestion,
+    'this completely unrelated response discusses database indexing',
+    grade(),
+  ),
+  false,
+  'long unrelated answers should not consume semantic review',
+)
+
+assert.equal(
+  shouldRequestAiAnswerReview(
+    conceptQuestion,
     'CBT',
     grade({
       correct: true,
