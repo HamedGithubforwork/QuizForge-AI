@@ -11,14 +11,14 @@ export function prepareQuizGenerationRequest(
     return init
   }
 
-  const shouldForceNewQuiz =
+  const shouldGenerateNewQuizInsteadOfUsingCache =
     quizGenerationRequestCount > 0
 
   quizGenerationRequestCount += 1
 
   init.body.set(
-    'force_new_quiz',
-    shouldForceNewQuiz
+    'generate_new_quiz_instead_of_using_cache',
+    shouldGenerateNewQuizInsteadOfUsingCache
       ? 'true'
       : 'false',
   )
