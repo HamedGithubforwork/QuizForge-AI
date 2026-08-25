@@ -5,6 +5,7 @@ from observability import (
     METRIC_PREFIX,
     log_event,
     observe_http_request,
+    record_document_cache_metric,
     record_quiz_metrics,
 )
 
@@ -46,6 +47,34 @@ def test_log_event_returns_structured_payload():
     assert payload["event"] == "test_event"
     assert payload["example_value"] == 3
     assert payload["timestamp"]
+
+
+def test_document_cache_metrics_track_hit_and_miss():
+    client = FakeRedis()
+
+    asyncio.run(
+        record_document_cache_metric(
+            client,
+            "hit",
+        )
+    )
+    asyncio.run(
+        record_document_cache_metric(
+            client,
+            "miss",
+        )
+    )
+
+    assert client.calls == [
+        (
+            f"{METRIC_PREFIX}document_cache_hits_total",
+            1,
+        ),
+        (
+            f"{METRIC_PREFIX}document_cache_misses_total",
+            1,
+        ),
+    ]
 
 
 def test_quiz_metrics_track_cache_hit_and_latency():
