@@ -89,6 +89,20 @@ async def increment_metric(client, metric_name: str, amount: int = 1):
     await increment_metrics(client, {metric_name: amount})
 
 
+async def record_document_cache_metric(client, cache_result: str):
+    if cache_result == "hit":
+        metric_name = "document_cache_hits_total"
+    elif cache_result == "miss":
+        metric_name = "document_cache_misses_total"
+    else:
+        return
+
+    await increment_metric(
+        client,
+        metric_name,
+    )
+
+
 async def record_quiz_metrics(
     client,
     *,
