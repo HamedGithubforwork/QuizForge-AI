@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import time
@@ -632,6 +633,9 @@ async def upload_pdf(
 
     return {
         "filename": file.filename,
+        "pdf_sha256": hashlib.sha256(
+            contents
+        ).hexdigest(),
         "page_count": len(pages),
         "character_count": analysis[
             "total_characters"
