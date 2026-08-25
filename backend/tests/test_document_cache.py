@@ -126,6 +126,7 @@ def test_document_cache_hit_skips_pdf_extraction(
     pdf_sha256 = compute_pdf_sha256(
         contents
     )
+    metric_results = []
 
     async def fake_get_cached_document(
         _cache_key,
@@ -134,6 +135,12 @@ def test_document_cache_hit_skips_pdf_extraction(
             "pdf_sha256": pdf_sha256,
             "pages": pages,
         }
+
+    async def fake_record_document_cache_metric(
+        _client,
+        cache_result,
+    ):
+        metric_results.append(cache_result)
 
     def fail_extraction(_contents):
         raise AssertionError(
@@ -144,6 +151,11 @@ def test_document_cache_hit_skips_pdf_extraction(
         main_redis,
         "get_cached_document",
         fake_get_cached_document,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "record_document_cache_metric",
+        fake_record_document_cache_metric,
     )
     monkeypatch.setattr(
         main_redis,
@@ -160,6 +172,7 @@ def test_document_cache_hit_skips_pdf_extraction(
 
     assert result_hash == pdf_sha256
     assert result_pages == pages
+    assert metric_results == ["hit"]
 
 
 def test_document_cache_miss_extracts_and_stores(
@@ -173,6 +186,7 @@ def test_document_cache_miss_extracts_and_stores(
         }
     ]
     stored_documents = []
+    metric_results = []
 
     async def fake_get_cached_document(
         _cache_key,
@@ -192,6 +206,12 @@ def test_document_cache_miss_extracts_and_stores(
         )
         return True
 
+    async def fake_record_document_cache_metric(
+        _client,
+        cache_result,
+    ):
+        metric_results.append(cache_result)
+
     monkeypatch.setattr(
         main_redis,
         "get_cached_document",
@@ -206,6 +226,11 @@ def test_document_cache_miss_extracts_and_stores(
         main_redis,
         "cache_document",
         fake_cache_document,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "record_document_cache_metric",
+        fake_record_document_cache_metric,
     )
 
     result_hash, result_pages = asyncio.run(
@@ -224,6 +249,7 @@ def test_document_cache_miss_extracts_and_stores(
         "pdf_sha256": result_hash,
         "pages": pages,
     }
+    assert metric_results == ["miss"]
 
 
 def test_request_context_reuses_cached_pages(
