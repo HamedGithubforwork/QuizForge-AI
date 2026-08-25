@@ -1,0 +1,160 @@
+name: Patch weak-area mastery
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Patch weak-area mastery flow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # QuizHistory.tsx
+          path = Path('frontend/src/QuizHistory.tsx')
+          text = path.read_text()
+
+          anchor = """import {\n  isHistoryQuestionCorrect,\n} from './lib/historyQuestionGrader'\n"""
+          addition = anchor + """import {\n  analyzeWeakAreas,\n  type WeakAreaAttempt,\n} from './lib/weakAreaAnalytics'\n"""
+          if "from './lib/weakAreaAnalytics'" not in text:
+              if anchor not in text:
+                  raise SystemExit('QuizHistory import anchor not found')
+              text = text.replace(anchor, addition, 1)
+
+          old = """export type HistoryPracticeFocus = {\n  pages: number[]\n  questionType: HistoryQuestionType\n  avoidQuestions: string[]\n  baselinePercent: number\n}\n"""
+          new = """export type HistoryPracticeFocus = {\n  pages: number[]\n  questionType: HistoryQuestionType\n  avoidQuestions: string[]\n  baselinePercent: number\n  baselineQuestionCount: number\n}\n"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """type DocumentWeakness = {\n  questionType: HistoryQuestionType\n  pages: number[]\n  avoidQuestions: string[]\n  missedQuestions: number\n  baselinePercent: number\n}\n"""
+          new = """type DocumentWeakness = {\n  questionType: HistoryQuestionType\n  pages: number[]\n  avoidQuestions: string[]\n  missedQuestions: number\n  baselinePercent: number\n  baselineQuestionCount: number\n  baselineAttemptCount: number\n  baselineReliable: boolean\n}\n"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          start_marker = "  const currentDocumentSummary:\n"
+          end_marker = "  const recentHistory = history.slice(0, 5)\n"
+          start = text.index(start_marker)
+          end = text.index(end_marker)
+
+          replacement = '''  const currentDocumentSummary:\n    CurrentDocumentSummary | null =\n    useMemo(() => {\n      if (!currentFilename) {\n        return null\n      }\n\n      const matchingHistory = history.filter(\n        (item) =>\n          matchesHistoryDocument(\n            item,\n            currentFilename,\n            currentDocumentSha256,\n          ),\n      )\n\n      const attempts: WeakAreaAttempt[] =\n        matchingHistory.flatMap((item) => {\n          if (\n            !isStoredQuiz(item.quiz_data) ||\n            !isStoredAnswers(\n              item.selected_answers,\n            )\n          ) {\n            return []\n          }\n\n          return [\n            {\n              questions:\n                item.quiz_data.questions.map(\n                  (question, questionIndex) => ({\n                    questionType:\n                      question.question_type,\n                    question:\n                      question.question,\n                    sourcePages:\n                      question.source_pages,\n                    correct:\n                      isHistoryQuestionCorrect(\n                        question,\n                        item.selected_answers[\n                          String(questionIndex)\n                        ],\n                      ),\n                  }),\n                ),\n            },\n          ]\n        })\n\n      const weakness =\n        analyzeWeakAreas(attempts)\n\n      return {\n        attemptCount: matchingHistory.length,\n        weakness: weakness\n          ? {\n              questionType:\n                weakness.questionType,\n              pages: weakness.pages,\n              avoidQuestions:\n                weakness.avoidQuestions,\n              missedQuestions:\n                weakness.missedQuestions,\n              baselinePercent:\n                weakness.baselinePercent,\n              baselineQuestionCount:\n                weakness.baselineQuestionCount,\n              baselineAttemptCount:\n                weakness.baselineAttemptCount,\n              baselineReliable:\n                weakness.baselineReliable,\n            }\n          : null,\n      }\n    }, [\n      history,\n      currentFilename,\n      currentDocumentSha256,\n    ])\n\n'''
+          text = text[:start] + replacement + text[end:]
+
+          old = """        baselinePercent:\n          weakness.baselinePercent,\n"""
+          new = old + """        baselineQuestionCount:\n          weakness.baselineQuestionCount,\n"""
+          if new not in text:
+              if old not in text:
+                  raise SystemExit('History practice payload anchor not found')
+              text = text.replace(old, new, 1)
+
+          text = text.replace(
+              """                            Your saved attempts do not\n                            contain any incorrect\n                            answers for this document.\n""",
+              """                            Your newest saved evidence for\n                            each tested question type has\n                            no unresolved misses.\n""",
+              1,
+          )
+
+          text = text.replace(
+              """                                Missed Questions\n""",
+              """                                Recent Misses\n""",
+              1,
+          )
+
+          focus_card = """                            <article>\n                              <span>\n                                Focus Pages\n                              </span>\n                              <strong className=\"history-weakness-text-value\">\n                                {currentDocumentSummary.weakness.pages.length >\n                                0\n                                  ? currentDocumentSummary.weakness.pages.join(\n                                      ', ',\n                                    )\n                                  : 'Whole PDF'}\n                              </strong>\n                            </article>\n"""
+          baseline_card = focus_card + """                            <article>\n                              <span>\n                                Recent Baseline\n                              </span>\n                              <strong>\n                                {currentDocumentSummary.weakness.baselinePercent}%\n                              </strong>\n                            </article>\n                            <article>\n                              <span>\n                                Baseline Sample\n                              </span>\n                              <strong>\n                                {currentDocumentSummary.weakness.baselineQuestionCount}{' '}\n                                {currentDocumentSummary.weakness.baselineQuestionCount === 1\n                                  ? 'question'\n                                  : 'questions'}\n                              </strong>\n                            </article>\n"""
+          if baseline_card not in text:
+              if focus_card not in text:
+                  raise SystemExit('Focus card anchor not found')
+              text = text.replace(focus_card, baseline_card, 1)
+
+          old_desc = """                            QuizForge combines mistakes\n                            from every saved attempt for\n                            this PDF, finds the question\n                            type you miss most often, and\n                            targets up to three of your\n                            strongest weak pages.\n"""
+          new_desc = """                            QuizForge uses your newest\n                            evidence for each question type\n                            so old mistakes do not stay weak\n                            forever after you master them. It\n                            uses up to three recent attempts\n                            to set the baseline and rank up to\n                            three focus pages.\n"""
+          if old_desc in text:
+              text = text.replace(old_desc, new_desc, 1)
+
+          button_anchor = """                          <button\n                            className=\"history-practice-button\"\n"""
+          note = """                          {!currentDocumentSummary.weakness.baselineReliable && (\n                            <span className=\"history-practice-note\">\n                              Preliminary baseline: only{' '}\n                              {currentDocumentSummary.weakness.baselineQuestionCount}{' '}\n                              {currentDocumentSummary.weakness.baselineQuestionCount === 1\n                                ? 'question is'\n                                : 'questions are'}{' '}\n                              available for this comparison.\n                            </span>\n                          )}\n\n"""
+          if note not in text:
+              if button_anchor not in text:
+                  raise SystemExit('Practice button anchor not found')
+              text = text.replace(button_anchor, note + button_anchor, 1)
+
+          path.write_text(text)
+
+          # App.tsx
+          path = Path('frontend/src/App.tsx')
+          text = path.read_text()
+
+          old = """type MasteryContext = {\n  baselinePercent: number\n  source:\n"""
+          new = """type MasteryContext = {\n  baselinePercent: number\n  baselineQuestionCount: number\n  source:\n"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = '''    const baselineScore =\n      quiz.questions.filter(\n        (\n          question,\n          index,\n        ) =>\n          isQuestionCorrect(\n            question,\n            selectedAnswers[index],\n          ),\n      ).length\n\n    const baselinePercent =\n      quiz.questions.length > 0\n        ? Math.round(\n            (\n              baselineScore /\n              quiz.questions.length\n            ) * 100,\n          )\n        : 0\n'''
+          new = '''    const baselineQuestions =\n      quiz.questions\n        .map((question, index) => ({\n          question,\n          answer: selectedAnswers[index],\n        }))\n        .filter(\n          (item) =>\n            item.question.question_type ===\n            weakQuestionType,\n        )\n\n    const baselineScore =\n      baselineQuestions.filter(\n        (item) =>\n          isQuestionCorrect(\n            item.question,\n            item.answer,\n          ),\n      ).length\n\n    const baselineQuestionCount =\n      baselineQuestions.length\n\n    const baselinePercent =\n      baselineQuestionCount > 0\n        ? Math.round(\n            (\n              baselineScore /\n              baselineQuestionCount\n            ) * 100,\n          )\n        : 0\n'''
+          if old not in text:
+              raise SystemExit('Current quiz baseline block not found')
+          text = text.replace(old, new, 1)
+
+          old = """      setMasteryContext({\n        baselinePercent,\n        source:\n          'current_quiz',\n"""
+          new = """      setMasteryContext({\n        baselinePercent,\n        baselineQuestionCount,\n        source:\n          'current_quiz',\n"""
+          if old not in text:
+              raise SystemExit('Current mastery context anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = """      setMasteryContext({\n        baselinePercent:\n          focus.baselinePercent,\n        source: 'history',\n"""
+          new = """      setMasteryContext({\n        baselinePercent:\n          focus.baselinePercent,\n        baselineQuestionCount:\n          focus.baselineQuestionCount,\n        source: 'history',\n"""
+          if old not in text:
+              raise SystemExit('History mastery context anchor not found')
+          text = text.replace(old, new, 1)
+
+          old = '''  function getMasteryMessage(\n    delta: number,\n  ) {\n    if (delta >= 20) {\n      return 'Strong improvement — your targeted practice is paying off.'\n    }\n\n    if (delta > 0) {\n      return 'You improved on your weak-area baseline.'\n    }\n\n    if (delta === 0) {\n      return 'You matched your baseline. Another focused round can help.'\n    }\n\n    return 'This area still needs practice. Review the explanations and try again.'\n  }\n'''
+          new = '''  function getMasteryMessage(\n    delta: number,\n    baselineQuestionCount: number,\n  ) {\n    if (baselineQuestionCount < 3) {\n      return 'Preliminary comparison only — the baseline has too few questions to show a strong mastery trend yet.'\n    }\n\n    if (delta >= 20) {\n      return 'Strong improvement — your targeted practice is paying off.'\n    }\n\n    if (delta > 0) {\n      return 'You improved on your recent weak-area baseline.'\n    }\n\n    if (delta === 0) {\n      return 'You matched your recent baseline. Another focused round can help.'\n    }\n\n    return 'This area still needs practice. Review the explanations and try again.'\n  }\n'''
+          if old not in text:
+              raise SystemExit('Mastery message function not found')
+          text = text.replace(old, new, 1)
+
+          old = """                              <h3>\n                                Weak-area improvement\n                              </h3>\n"""
+          new = """                              <h3>\n                                {masteryContext.baselineQuestionCount < 3\n                                  ? 'Preliminary weak-area comparison'\n                                  : 'Weak-area improvement'}\n                              </h3>\n"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """                              <span>\n                                Baseline\n                              </span>\n"""
+          new = """                              <span>\n                                {masteryContext.baselineQuestionCount < 3\n                                  ? 'Preliminary baseline'\n                                  : 'Recent baseline'}\n                              </span>\n"""
+          if old in text:
+              text = text.replace(old, new, 1)
+
+          old = """                            {getMasteryMessage(\n                              masteryDelta,\n                            )}\n"""
+          new = """                            {getMasteryMessage(\n                              masteryDelta,\n                              masteryContext.baselineQuestionCount,\n                            )}\n"""
+          if old not in text:
+              raise SystemExit('Mastery message call not found')
+          text = text.replace(old, new, 1)
+
+          source_anchor = """                            {masteryContext.pages.length >\n                              0 && (\n"""
+          sample_note = """                            {' '}\n                            • Baseline sample:{' '}\n                            {masteryContext.baselineQuestionCount}{' '}\n                            {masteryContext.baselineQuestionCount === 1\n                              ? 'question'\n                              : 'questions'}\n"""
+          if sample_note not in text:
+              if source_anchor not in text:
+                  raise SystemExit('Mastery source anchor not found')
+              text = text.replace(source_anchor, sample_note + source_anchor, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/QuizHistory.tsx frontend/src/App.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix weak-area mastery baselines"
+          git push origin HEAD:main
