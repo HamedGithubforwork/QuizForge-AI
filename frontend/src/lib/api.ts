@@ -2,6 +2,9 @@ import {
   supabase,
 } from './supabase'
 import {
+  rememberCurrentDocumentIdentity,
+} from './documentIdentity'
+import {
   prepareQuizGenerationRequest,
 } from './quizGenerationPolicy'
 
@@ -55,6 +58,27 @@ async function sendAuthenticatedRequest(
   )
 }
 
+async function captureDocumentIdentity(
+  path: string,
+  response: Response,
+) {
+  if (
+    path !== '/api/documents/upload' ||
+    !response.ok
+  ) {
+    return
+  }
+
+  try {
+    rememberCurrentDocumentIdentity(
+      await response.clone().json(),
+    )
+  } catch {
+    // The upload response remains usable even if identity metadata
+    // is missing or malformed.
+  }
+}
+
 export async function apiFetch(
   path: string,
   init: RequestInit = {},
@@ -76,6 +100,10 @@ export async function apiFetch(
     )
 
   if (response.status !== 401) {
+    await captureDocumentIdentity(
+      path,
+      response,
+    )
     return response
   }
 
@@ -98,6 +126,11 @@ export async function apiFetch(
       preparedInit,
       data.session.access_token,
     )
+
+  await captureDocumentIdentity(
+    path,
+    response,
+  )
 
   return response
 }
