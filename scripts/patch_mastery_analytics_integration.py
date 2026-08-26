@@ -2,7 +2,6 @@ from pathlib import Path
 
 
 QUIZ_HISTORY = Path("frontend/src/QuizHistory.tsx")
-CI = Path(".github/workflows/ci.yml")
 
 
 def insert_before(text: str, marker: str, addition: str, label: str) -> str:
@@ -47,28 +46,3 @@ text = insert_before(
 )
 
 QUIZ_HISTORY.write_text(text)
-
-
-# Keep the new analytics policy covered by the normal frontend CI job.
-text = CI.read_text()
-mastery_test = (
-    "          node --experimental-strip-types "
-    "src/lib/masteryAnalytics.test.ts\n"
-)
-
-if mastery_test not in text:
-    marker = (
-        "          node --experimental-strip-types "
-        "src/lib/weakAreaAnalytics.test.ts\n"
-    )
-
-    if marker not in text:
-        raise SystemExit("mastery analytics CI marker not found")
-
-    text = text.replace(
-        marker,
-        marker + mastery_test,
-        1,
-    )
-
-CI.write_text(text)
