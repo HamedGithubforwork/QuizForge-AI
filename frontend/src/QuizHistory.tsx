@@ -4,6 +4,8 @@ import {
   useState,
 } from 'react'
 
+import MasteryAnalyticsPanel from './MasteryAnalyticsPanel.tsx'
+
 import {
   deleteQuizHistory,
   getQuizHistory,
@@ -682,6 +684,16 @@ function QuizHistory({
                       })}
                     </div>
                   </div>
+
+                  <MasteryAnalyticsPanel
+                    history={history}
+                    currentFilename={
+                      currentFilename
+                    }
+                    currentDocumentSha256={
+                      currentDocumentSha256
+                    }
+                  />
 
                   <div className="history-weakness-panel">
                     <div className="performance-heading">
