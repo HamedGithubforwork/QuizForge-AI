@@ -85,6 +85,7 @@ jobs:
           node --experimental-strip-types src/lib/answerFallback.test.ts
           node --experimental-strip-types src/lib/documentIdentity.test.ts
           node --experimental-strip-types src/lib/weakAreaAnalytics.test.ts
+          node --experimental-strip-types src/lib/masteryAnalytics.test.ts
           node --experimental-strip-types src/lib/quizGenerationPolicy.test.ts
 
       - name: Run frontend lint
