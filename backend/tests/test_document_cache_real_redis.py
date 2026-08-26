@@ -1,14 +1,45 @@
 import asyncio
 import os
 
-import main_redis
-import redis_integration
+import pymupdf
 from redis.asyncio import Redis
 
+import main_redis
+import redis_integration
+from observability import METRIC_PREFIX
 from redis_integration import build_document_cache_key
 
 
-def test_real_redis_document_cache_miss_then_hit_skips_extraction(
+PAGE_ONE_TEXT = (
+    "QuizForge real PyMuPDF Redis integration page one."
+)
+PAGE_TWO_TEXT = (
+    "Page two proves multi-page extraction survives the cache."
+)
+
+
+def make_real_pdf_bytes() -> bytes:
+    document = pymupdf.open()
+
+    try:
+        first_page = document.new_page()
+        first_page.insert_text(
+            (72, 72),
+            PAGE_ONE_TEXT,
+        )
+
+        second_page = document.new_page()
+        second_page.insert_text(
+            (72, 72),
+            PAGE_TWO_TEXT,
+        )
+
+        return document.tobytes()
+    finally:
+        document.close()
+
+
+def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
     monkeypatch,
 ):
     redis_url = os.environ.get(
@@ -24,6 +55,8 @@ def test_real_redis_document_cache_miss_then_hit_skips_extraction(
         )
 
         try:
+            # TEST_REDIS_URL points at the disposable Redis service used by
+            # this test/CI job. Never point this test at a valued Redis DB.
             await client.flushdb()
 
             monkeypatch.setattr(
@@ -37,30 +70,24 @@ def test_real_redis_document_cache_miss_then_hit_skips_extraction(
                 client,
             )
 
+            real_extract_pdf_pages = (
+                main_redis.extract_pdf_pages_without_redis
+            )
             extraction_calls = 0
 
-            def fake_extract_pdf_pages(contents):
+            def counting_real_extract_pdf_pages(contents):
                 nonlocal extraction_calls
                 extraction_calls += 1
-
-                return [
-                    {
-                        "page_number": 1,
-                        "text": (
-                            "Extracted once and then reused "
-                            "from the real Redis cache."
-                        ),
-                    }
-                ]
+                return real_extract_pdf_pages(contents)
 
             monkeypatch.setattr(
                 main_redis,
                 "extract_pdf_pages_without_redis",
-                fake_extract_pdf_pages,
+                counting_real_extract_pdf_pages,
             )
 
-            contents = b"real redis document cache test pdf"
-            user_id = "real-redis-test-user"
+            contents = make_real_pdf_bytes()
+            user_id = "real-pdf-redis-test-user"
 
             first_hash, first_pages = (
                 await main_redis.get_document_pages_with_cache(
@@ -68,6 +95,15 @@ def test_real_redis_document_cache_miss_then_hit_skips_extraction(
                     contents=contents,
                 )
             )
+
+            assert extraction_calls == 1
+            assert len(first_pages) == 2
+            assert [
+                page["page_number"]
+                for page in first_pages
+            ] == [1, 2]
+            assert PAGE_ONE_TEXT in first_pages[0]["text"]
+            assert PAGE_TWO_TEXT in first_pages[1]["text"]
 
             second_hash, second_pages = (
                 await main_redis.get_document_pages_with_cache(
@@ -92,6 +128,22 @@ def test_real_redis_document_cache_miss_then_hit_skips_extraction(
                 ttl
                 <= redis_integration.DOCUMENT_CACHE_TTL_SECONDS
             )
+
+            document_cache_misses = int(
+                await client.get(
+                    f"{METRIC_PREFIX}document_cache_misses_total"
+                )
+                or 0
+            )
+            document_cache_hits = int(
+                await client.get(
+                    f"{METRIC_PREFIX}document_cache_hits_total"
+                )
+                or 0
+            )
+
+            assert document_cache_misses == 1
+            assert document_cache_hits == 1
         finally:
             await client.flushdb()
             await client.aclose()
