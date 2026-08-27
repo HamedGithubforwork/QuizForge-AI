@@ -77,6 +77,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Audit production frontend dependencies
+        run: npm audit --omit=dev --audit-level=low
+
       - name: Run frontend grader, identity, mastery, fallback, and request-policy tests
         run: |
           node --experimental-strip-types src/lib/shortAnswerGrader.test.ts
