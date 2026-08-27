@@ -240,7 +240,7 @@ async def review_borderline_answers_with_ai(
         raise HTTPException(
             status_code=500,
             detail=(
-                "OPENAI_API_KEY is not configured on the backend."
+                "Semantic answer review is not configured on the backend."
             ),
         )
 
