@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import time
 from collections import defaultdict, deque
@@ -8,6 +9,8 @@ from typing import Any
 from fastapi import HTTPException
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
+
+from observability import log_event
 
 
 def get_positive_int_env(
@@ -183,10 +186,11 @@ async def enforce_quiz_rate_limit(
                 QUIZ_RATE_WINDOW_SECONDS,
             )
         except RedisError as error:
-            print(
-                "Redis rate-limit error; "
-                "using in-memory fallback:",
-                error,
+            log_event(
+                "redis_rate_limit_backend_error",
+                level=logging.WARNING,
+                fallback="memory",
+                error_type=type(error).__name__,
             )
         else:
             request_count = int(
@@ -261,14 +265,15 @@ async def get_cached_document(
             cache_key
         )
     except RedisError as error:
-        print(
-            "Redis document cache-read error:",
-            error,
+        log_event(
+            "document_cache_backend_error",
+            level=logging.WARNING,
+            operation="read",
+            error_type=type(error).__name__,
         )
         return None
 
     if not cached_value:
-        print("Redis document cache MISS")
         return None
 
     try:
@@ -276,7 +281,6 @@ async def get_cached_document(
             cached_value
         )
     except (TypeError, json.JSONDecodeError):
-        print("Redis document cache MISS")
         return None
 
     if (
@@ -290,10 +294,8 @@ async def get_cached_document(
             list,
         )
     ):
-        print("Redis document cache MISS")
         return None
 
-    print("Redis document cache HIT")
     return cached_document
 
 
@@ -325,9 +327,9 @@ async def cache_document(
         )
         > DOCUMENT_CACHE_MAX_BYTES
     ):
-        print(
-            "Redis document cache SKIP: "
-            "extracted text is too large"
+        log_event(
+            "document_cache_store_skipped",
+            reason="payload_too_large",
         )
         return False
 
@@ -338,9 +340,11 @@ async def cache_document(
             ex=DOCUMENT_CACHE_TTL_SECONDS,
         )
     except RedisError as error:
-        print(
-            "Redis document cache-write error:",
-            error,
+        log_event(
+            "document_cache_backend_error",
+            level=logging.WARNING,
+            operation="write",
+            error_type=type(error).__name__,
         )
         return False
 
@@ -408,14 +412,15 @@ async def get_cached_quiz(
             cache_key
         )
     except RedisError as error:
-        print(
-            "Redis cache-read error:",
-            error,
+        log_event(
+            "quiz_cache_backend_error",
+            level=logging.WARNING,
+            operation="read",
+            error_type=type(error).__name__,
         )
         return None
 
     if not cached_value:
-        print("Redis cache MISS")
         return None
 
     try:
@@ -423,10 +428,8 @@ async def get_cached_quiz(
             cached_value
         )
     except ValueError:
-        print("Redis cache MISS")
         return None
 
-    print("Redis cache HIT")
     return cached_quiz
 
 
@@ -451,7 +454,9 @@ async def cache_quiz(
             ex=QUIZ_CACHE_TTL_SECONDS,
         )
     except RedisError as error:
-        print(
-            "Redis cache-write error:",
-            error,
+        log_event(
+            "quiz_cache_backend_error",
+            level=logging.WARNING,
+            operation="write",
+            error_type=type(error).__name__,
         )
