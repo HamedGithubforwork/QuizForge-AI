@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import time
 from collections import defaultdict, deque
@@ -27,6 +28,7 @@ from answer_review import (
     AnswerReviewResponse,
     review_borderline_answers_with_ai,
 )
+from observability import log_event
 
 
 ENV_FILE = Path(__file__).resolve().parent / ".env"
@@ -827,7 +829,7 @@ async def generate_quiz(
         raise HTTPException(
             status_code=500,
             detail=(
-                "OPENAI_API_KEY is not "
+                "Quiz generation is not "
                 "configured on the backend."
             ),
         )
@@ -1084,17 +1086,18 @@ Do not mention the retry or validation process in the quiz.
             )
 
         except OpenAIError as error:
-            print(
-                "OpenAI API error:",
-                error,
+            log_event(
+                "openai_quiz_generation_error",
+                level=logging.ERROR,
+                error_type=type(error).__name__,
             )
 
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "The OpenAI quiz generation "
-                    "request failed. Check the "
-                    "backend terminal for details."
+                    "The quiz generation service "
+                    "is temporarily unavailable. "
+                    "Please try again."
                 ),
             ) from error
 
@@ -1118,9 +1121,11 @@ Do not mention the retry or validation process in the quiz.
         if not validation_errors:
             break
 
-        print(
-            "Generated quiz validation failed:",
-            validation_errors,
+        log_event(
+            "quiz_validation_failed",
+            level=logging.WARNING,
+            generation_attempt=generation_attempt + 1,
+            issue_count=len(validation_errors),
         )
 
     if quiz is None or validation_errors:
