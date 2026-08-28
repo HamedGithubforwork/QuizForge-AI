@@ -116,7 +116,7 @@ jobs:
         run: npm ci --prefix frontend
 
       - name: Install E2E dependencies
-        run: npm install --prefix e2e --package-lock=false
+        run: npm ci --prefix e2e
 
       - name: Install Chromium
         run: npx --prefix e2e playwright install --with-deps chromium
