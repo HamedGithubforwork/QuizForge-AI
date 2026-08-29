@@ -1,0 +1,51 @@
+name: Database migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "supabase/**"
+      - ".github/workflows/database-migrations.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "supabase/**"
+      - ".github/workflows/database-migrations.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild-from-zero:
+    name: Rebuild Supabase from migrations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.115.0
+
+      - name: Start local Supabase database
+        run: supabase db start
+
+      - name: Rebuild database from zero
+        run: supabase db reset --local --no-seed
+
+      - name: Verify recreated schema and security
+        env:
+          PGPASSWORD: postgres
+        run: >-
+          psql
+          postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          -v ON_ERROR_STOP=1
+          -f supabase/tests/schema_reproducibility.sql
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
