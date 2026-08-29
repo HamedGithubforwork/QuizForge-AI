@@ -2,519 +2,370 @@
 
 [![CI](https://github.com/HamedGithubforwork/QuizForge-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/HamedGithubforwork/QuizForge-AI/actions/workflows/ci.yml)
 
-AI-powered study platform that converts PDF study material into interactive practice quizzes with explanations, source-page references, performance analytics, personalized weak-area practice, and Redis-backed caching.
+**QuizForge AI is a deployed full-stack study platform that turns PDF notes into source-grounded practice quizzes, tracks performance over time, and generates targeted practice from a learner's weak areas.**
 
-🌐 **Live Demo:** https://quiz-forge-ai-nine.vercel.app  
-⚙️ **Backend API:** https://quizforge-ai-api.onrender.com  
-✅ **API Health:** https://quizforge-ai-api.onrender.com/api/health
+[Live Demo](https://quiz-forge-ai-nine.vercel.app) · [Backend API](https://quizforge-ai-api.onrender.com) · [API Health](https://quizforge-ai-api.onrender.com/api/health)
+
+> Production workflow verified end to end: sign in → upload PDF → process text → generate quiz → answer → score → save → history/analytics → weak-area practice.
 
 ---
 
-## Overview
+## Why this project
 
-QuizForge AI is a deployed full-stack web application that allows users to upload PDF study material and generate AI-powered quizzes based directly on document content.
+QuizForge AI started as a PDF-to-quiz application and grew into a production-oriented full-stack project. It demonstrates more than an AI API call: authentication, structured AI output, deterministic validation and grading, persistent user history, targeted learning analytics, Redis-backed caching and rate limiting, automated tests, CI, Docker development, and cloud deployment.
 
-The application tracks quiz performance over time, identifies weak areas, and generates targeted practice quizzes based on previous mistakes.
+### Engineering highlights
 
-The backend uses Redis caching to avoid unnecessary repeated AI generation requests and Redis-backed per-user rate limiting to control quiz-generation traffic.
+- **Grounded AI generation** — quiz questions, answers, explanations, and source pages are generated from the uploaded PDF rather than general model knowledge.
+- **Structured validation** — FastAPI/Pydantic schemas and deterministic validators reject malformed quiz or grading data before it reaches the UI.
+- **Adaptive practice** — saved attempts are analyzed by question type and source page to create new weak-area quizzes instead of simply repeating missed questions.
+- **Production caching** — Redis caches extracted documents and generated quizzes to reduce repeated work and external AI requests.
+- **Per-user protection** — authenticated endpoints, Redis-backed rate limiting, Supabase Row Level Security, configurable CORS, and security response headers.
+- **Automated quality gates** — backend tests, frontend grading/analytics tests, linting, production builds, dependency audit, and Playwright E2E run in GitHub Actions.
+- **Privacy-conscious observability** — structured logs record operational metadata without PDF text, user IDs, Redis keys, raw provider errors, or client IP access logs.
 
-The project includes:
+---
 
-- React + TypeScript frontend
-- Python + FastAPI backend
-- OpenAI-powered quiz generation
-- PostgreSQL persistence
-- Supabase authentication
-- Redis caching
-- Redis-backed rate limiting
-- Automated testing
-- GitHub Actions CI
-- Docker development
-- Production deployment on Vercel and Render
+## Product flow
+
+1. **Authenticate** with Supabase email/password authentication.
+2. **Upload a PDF** and extract selectable text with PyMuPDF.
+3. **Configure a quiz** with 5, 10, or 15 questions, difficulty, and question type.
+4. **Generate** a source-grounded quiz through the FastAPI/OpenAI backend.
+5. **Answer and review** multiple-choice, true/false, and short-answer questions with explanations and source-page references.
+6. **Save results** to Supabase PostgreSQL.
+7. **Analyze progress** using quiz history, score trends, mastery tracking, weak question types, and weak source pages.
+8. **Practice weak areas** with a new targeted quiz that focuses on recent mistakes without repeating the original missed questions.
+
+---
+
+## Screenshots
+
+### Upload and configure
+
+![QuizForge PDF upload and quiz settings](docs/screenshots/upload-and-settings.png)
+
+### Generated quiz
+
+![QuizForge generated quiz](docs/screenshots/generated-quiz.png)
+
+### Weak-area practice
+
+![QuizForge weak-area practice](docs/screenshots/weak-area-practice.png)
+
+### Quiz history and analytics
+
+![QuizForge quiz history](docs/screenshots/quiz-history.png)
 
 ---
 
 ## Features
 
-### Quiz Generation
+### Quiz generation
 
 - PDF upload and text extraction
-- AI-generated quizzes based on uploaded content
-- Multiple Choice questions
-- True / False questions
-- Short Answer questions
-- Mixed question types
+- Scanned/image-based PDF detection
+- 5, 10, or 15 questions
 - Easy, Medium, and Hard difficulty
-- 5, 10, or 15-question quizzes
+- Multiple Choice, True / False, Short Answer, or Mixed modes
 - AI-generated explanations
-- Source-page references
-- View Source functionality
+- Source-page references and **View Source** support
+- Prompt-injection-resistant instructions that treat PDF content as data rather than commands
+- Retry validation when AI output does not satisfy the quiz schema or grading rules
 
-### Quiz Experience
+### Quiz experience
 
-- Question navigation
-- Quiz scoring
-- Question-type performance breakdown
-- Retry Incorrect Questions
-- Smart short-answer matching
+- Question navigator
+- Unanswered-question detection
+- Overall score and per-type score breakdown
+- Retry Incorrect
+- Generate New Quiz
+- Deterministic short-answer grading with concept, exact, and numeric modes
+- Compatible numeric-unit conversion for common mass, length, volume, time, percentage, and temperature answers
+- Optional AI review for borderline short-answer paraphrases
 
-### Personalized Learning
+### Personalized learning
 
 - Persistent quiz history
 - Performance analytics
-- Weak-area detection
+- Recent score trends
+- Weak question-type detection
+- Weak source-page detection
 - Targeted weak-area practice
-- Mastery progress tracking
-- Practice based on previous incorrect answers
-- Practice based on weak source pages
-- Practice based on weak question types
+- Avoidance of previously missed question text when generating follow-up practice
+- Mastery tracking based on multiple recent attempts rather than a single high score
 
-### Authentication & Security
+### Authentication and account flows
 
-- Email/password authentication
+- Sign up and sign in
 - Email confirmation
-- Login and logout
-- Forgot Password
-- Password reset
-- Protected backend endpoints
-- Supabase access-token verification
-- Row Level Security
-- Configurable CORS
-- Security response headers
-- Server-side OpenAI credentials
-
-### Performance & Reliability
-
-- Redis quiz caching
-- Per-user Redis rate limiting
-- Configurable cache expiration
-- Automatic in-memory rate-limit fallback if Redis is unavailable
-- Docker health checks
-- Automated backend tests
-- Frontend linting
-- Production build validation
-- GitHub Actions CI
+- Sign out
+- Forgot password
+- Password recovery/reset
+- Supabase bearer-session authentication for protected backend requests
+- Automatic session refresh/retry for expired frontend API requests
 
 ---
 
-## Tech Stack
+## Tech stack
 
-### Frontend
-
-- React
-- TypeScript
-- Vite
-- Supabase JavaScript Client
-- HTML / CSS
-
-### Backend
-
-- Python
-- FastAPI
-- Pydantic
-- PyMuPDF
-- OpenAI API
-- HTTPX
-
-### Database & Authentication
-
-- Supabase
-- PostgreSQL
-- Supabase Auth
-- Row Level Security (RLS)
-
-### Caching & Rate Limiting
-
-- Redis
-- Redis Async Client
-- TTL-based quiz caching
-- Redis-backed per-user request counters
-
-### Testing & DevOps
-
-- pytest
-- GitHub Actions
-- Docker
-- Docker Compose
-- Git
-- GitHub
-
-### Deployment
-
-- Vercel — frontend
-- Render — FastAPI backend
-- Render Key Value — Redis-compatible cache
-- Supabase — PostgreSQL and authentication
+| Layer | Technology |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, HTML/CSS |
+| Backend | Python, FastAPI, Pydantic, HTTPX |
+| PDF processing | PyMuPDF |
+| AI | OpenAI API with structured responses |
+| Database | PostgreSQL via Supabase |
+| Authentication | Supabase Auth |
+| Caching / rate limiting | Redis |
+| Frontend deployment | Vercel |
+| Backend deployment | Render |
+| Testing | pytest, Node-based TypeScript tests, Playwright |
+| CI / DevOps | GitHub Actions, Docker, Docker Compose |
 
 ---
 
 ## Architecture
 
 ```text
-                            User
-                              │
-                              ▼
-                 ┌───────────────────────┐
-                 │    React + Vite       │
-                 │       Vercel          │
-                 └───────────┬───────────┘
-                             │
-                    Authenticated API
-                         Requests
+                           User
                              │
                              ▼
-                 ┌───────────────────────┐
-                 │       FastAPI         │
-                 │        Render         │
-                 └─────┬─────┬─────┬─────┘
-                       │     │     │
-              ┌────────┘     │     └─────────┐
-              ▼              ▼               ▼
-           Redis         OpenAI API       Supabase
-        Cache + Rate                       Auth + DB
-          Limiting
-                             │
-                             ▼
-                       PDF Processing
-                         PyMuPDF
+                  ┌────────────────────┐
+                  │ React + TypeScript │
+                  │      Vercel        │
+                  └─────────┬──────────┘
+                            │
+                 Supabase session token
+                            │
+                            ▼
+                  ┌────────────────────┐
+                  │      FastAPI       │
+                  │       Render       │
+                  └───┬────────┬───────┘
+                      │        │
+             ┌────────┘        └─────────────┐
+             ▼                               ▼
+      ┌─────────────┐                 ┌─────────────┐
+      │    Redis    │                 │ OpenAI API  │
+      │ cache/rate  │                 │ quiz/review │
+      └─────────────┘                 └─────────────┘
+             │
+             │                         ┌─────────────┐
+             └────────────────────────►│  Supabase   │
+                                       │ Auth + DB   │
+                                       └─────────────┘
+
+PDF extraction inside FastAPI: PyMuPDF
 ```
 
-The React frontend authenticates users through Supabase and sends the user's access token with protected API requests.
+### Request path
 
-FastAPI verifies the access token before allowing protected PDF-processing and quiz-generation operations.
+The browser authenticates with Supabase and sends the current access token to protected FastAPI endpoints. FastAPI verifies that session before processing PDFs or generating quizzes. OpenAI credentials stay server-side.
 
-OpenAI is accessed only through the backend, preventing the OpenAI API key from being exposed in the browser.
+For PDF work, the backend computes a document identity, extracts text with PyMuPDF, and can reuse extracted pages from Redis. Quiz requests are fingerprinted by user/document/configuration so eligible repeated requests can use a cached quiz. New-quiz and weak-area flows can intentionally bypass the existing quiz result while still reusing cached document extraction.
 
-Redis is used to cache previously generated quizzes and maintain per-user rate-limit counters.
-
-Supabase PostgreSQL stores persistent quiz history and performance data.
+Quiz history is stored in Supabase PostgreSQL and protected with Row Level Security so users can access only their own saved attempts.
 
 ---
 
-## Redis Caching
+## Redis caching and rate limiting
 
-Quiz generation can require an external AI request, so QuizForge uses Redis to avoid unnecessarily regenerating identical quizzes.
+Quiz generation can involve PDF extraction and an external AI request, so QuizForge uses Redis for two independent caches:
 
-Before generating a quiz, the backend creates a cache fingerprint using information including:
+- **Document cache** — reuses extracted PDF pages for the same authenticated user/document.
+- **Quiz cache** — reuses an already generated quiz for an identical eligible request.
 
-- Authenticated user
-- PDF contents
-- Number of questions
-- Difficulty
-- Question type
-- Practice configuration
-
-The backend then checks Redis for an existing quiz.
+Default TTLs:
 
 ```text
-Quiz Request
-     │
-     ▼
-Build Cache Key
-     │
-     ▼
-Check Redis
-   /     \
- HIT     MISS
-  │        │
-  │        ▼
-  │    OpenAI API
-  │        │
-  │        ▼
-  │    Store in Redis
-  │        │
-  └────────┴──────► Return Quiz
+Document cache: 86400 seconds (24 hours)
+Quiz cache:      3600 seconds (1 hour)
 ```
 
-### Cache Hit
-
-If an identical quiz already exists in Redis:
+Quiz-generation traffic is also protected by a Redis-backed per-user limiter. The default is:
 
 ```text
-Redis cache HIT
+10 quiz-generation requests per 600 seconds
 ```
 
-The cached quiz is returned without another OpenAI generation request.
-
-### Cache Miss
-
-If no matching quiz exists:
-
-```text
-Redis cache MISS
-```
-
-QuizForge generates the quiz normally and stores the result in Redis for future requests.
-
-The default cache TTL is:
-
-```text
-3600 seconds
-```
-
-or approximately one hour.
-
-The cache is stored separately from the FastAPI process, allowing cached quizzes to remain available across backend process restarts while the Redis service remains available.
+If the Redis rate-limit backend is unavailable, QuizForge falls back to an in-memory limiter rather than removing protection entirely.
 
 ---
 
-## Redis Rate Limiting
+## Reliability and security
 
-QuizForge also uses Redis for per-user quiz-generation rate limiting.
+The project includes several production-oriented safeguards:
 
-Each authenticated user receives a Redis-backed request counter.
+- Supabase session verification on protected backend routes
+- PostgreSQL Row Level Security for quiz history
+- Server-side OpenAI credentials
+- Configurable production CORS allowlist
+- `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy` response headers
+- PDF MIME/type, size, and text-extraction validation
+- Scanned-PDF detection before AI generation
+- Per-user quiz-generation rate limiting
+- Structured quiz/rubric validation before returning AI output
+- Generic client-facing provider errors
+- Structured redacted operational logging
+- No Uvicorn client-IP access logging in production
 
-The default configuration allows:
-
-```text
-10 quiz-generation requests
-per 600 seconds
-```
-
-The values can be changed through environment variables.
-
-If Redis becomes unavailable, the application falls back to an in-memory rate limiter so quiz-generation protection remains available.
-
----
-
-## Quiz Generation
-
-Users can configure:
-
-- Number of questions: 5, 10, or 15
-- Difficulty: Easy, Medium, or Hard
-- Question type:
-  - Multiple Choice
-  - True / False
-  - Short Answer
-  - Mixed
-
-Generated questions can contain:
-
-- Correct answer
-- Explanation
-- Source page
-- Question type
+Secrets are provided through environment variables and are not committed to the repository.
 
 ---
 
-## Personalized Practice
+## Testing and CI
 
-QuizForge AI analyzes previous quiz performance to identify areas where a user needs more practice.
+GitHub Actions runs three independent jobs on pushes and pull requests to `main`:
 
-Targeted quizzes can use:
+### Backend tests
 
-- Incorrect answers
-- Weak source pages
-- Weak question types
-- Historical quiz performance
+- Python 3.11
+- Redis 7 service container
+- `pytest`
+- API/authentication/PDF validation
+- Redis cache and rate-limit behavior
+- observability/admin metrics
+- answer review and quiz validation
+- disposable real-Redis integration tests
 
-The application also tracks mastery progress by comparing targeted-practice performance with the user's previous performance.
+### Frontend checks
 
----
+- Node 22
+- production dependency audit
+- TypeScript grading, document-identity, fallback, weak-area, mastery, and request-policy tests
+- oxlint
+- production Vite build
 
-## Authentication & Security
+### Playwright E2E
 
-QuizForge AI uses Supabase Authentication.
+- Chromium
+- authentication UI flow
+- PDF processing and quiz flow with mocked services
+- answering/scoring
+- source references
+- save/history behavior
+- weak-area practice
+- short-answer history behavior
 
-Supported authentication functionality includes:
-
-- Account creation
-- Email confirmation
-- Login
-- Logout
-- Forgot password
-- Password reset
-
-The FastAPI backend includes:
-
-- Supabase access-token verification
-- Protected PDF upload endpoints
-- Protected quiz-generation endpoints
-- Configurable CORS
-- Security response headers
-- Redis-backed per-user rate limiting
-- Server-side OpenAI API credentials
-
-Sensitive environment variables are not committed to GitHub.
-
----
-
-## Database Security
-
-Quiz history and performance data are stored in Supabase PostgreSQL.
-
-Row Level Security policies restrict users to accessing their own application data.
-
----
-
-## Automated Testing
-
-Run backend tests with:
+Run the main local checks with:
 
 ```bash
+# Backend
 cd backend
+pip install -r requirements-dev.txt
 python -m pytest -q
-```
 
-The backend test suite covers areas including:
-
-- API health
-- Authentication requirements
-- PDF validation
-- PDF text extraction
-- Scanned-PDF detection
-- Quiz configuration validation
-- Weak-area parsing
-- Invalid request handling
-- Redis cache-key generation
-- Redis rate limiting
-
-Frontend checks:
-
-```bash
-cd frontend
-npm run test:grader
+# Frontend
+cd ../frontend
+npm ci
 npm run lint
 npm run build
+
+# E2E (from repository root)
+npm ci --prefix e2e
+npx --prefix e2e playwright install chromium
+npm --prefix e2e test
 ```
+
+The exact frontend TypeScript test commands used by CI are documented in `.github/workflows/ci.yml`.
 
 ---
 
-## Continuous Integration
+## Local development
 
-GitHub Actions automatically runs CI checks on pushes and pull requests.
+### Prerequisites
 
-The pipeline validates both the backend and frontend before changes are merged or deployed.
+- Git
+- Python 3.11+ recommended
+- Node.js 22+
+- Redis, or Docker Desktop
+- Supabase project
+- OpenAI API key
 
-```text
-GitHub Push / Pull Request
-            │
-            ▼
-      GitHub Actions
-       /          \
-      ▼            ▼
-   Backend      Frontend
-   pytest       grader tests
-                lint
-                production build
-       \          /
-        ▼        ▼
-          CI Result
-```
+### Option 1 — Docker Compose
 
-This helps prevent broken code from reaching production.
-
----
-
-## Local Development
-
-### 1. Clone the repository
+Clone the repository:
 
 ```bash
 git clone https://github.com/HamedGithubforwork/QuizForge-AI.git
 cd QuizForge-AI
 ```
 
-### 2. Backend Setup
+Create local environment files from the included templates:
+
+```text
+backend/.env.example  → backend/.env
+frontend/.env.example → frontend/.env.local
+```
+
+Fill in your Supabase/OpenAI values, then start the stack:
+
+```bash
+docker compose up --build
+```
+
+Local services:
+
+```text
+Frontend  http://localhost:5173
+Backend   http://localhost:8000
+Redis     internal Docker service
+```
+
+Stop the stack with:
+
+```bash
+docker compose down
+```
+
+### Option 2 — Run services manually
+
+Backend:
 
 ```bash
 cd backend
 python -m venv .venv
 ```
 
-Activate the virtual environment on Windows:
+Windows PowerShell:
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Install and run:
 
 ```bash
 pip install -r requirements.txt
-```
-
-Create:
-
-```text
-backend/.env
-```
-
-Use `backend/.env.example` as the template.
-
-When running without Docker, configure `REDIS_URL` to point to an accessible Redis instance.
-
-Start the Redis-enabled FastAPI application:
-
-```bash
 uvicorn main_redis:app --reload
 ```
 
-Backend:
+When Redis is running directly on your machine rather than through Docker, use a local URL such as:
 
-```text
-http://127.0.0.1:8000
+```env
+REDIS_URL=redis://127.0.0.1:6379/0
 ```
 
-### 3. Frontend Setup
+Frontend, in another terminal:
 
 ```bash
 cd frontend
-npm install
-```
-
-Create:
-
-```text
-frontend/.env.local
-```
-
-Use `frontend/.env.example` as the template.
-
-Start Vite:
-
-```bash
+npm ci
 npm run dev
 ```
 
-Frontend:
-
-```text
-http://localhost:5173
-```
-
 ---
 
-## Docker Development
+## Environment variables
 
-The complete development stack can be started with Docker Compose.
-
-From the project root:
-
-```bash
-docker compose up --build
-```
-
-Docker Compose starts:
-
-```text
-Redis     → Internal Redis service
-Backend   → http://localhost:8000
-Frontend  → http://localhost:5173
-```
-
-The backend waits for the Redis health check before starting.
-
-Stop the containers with:
-
-```bash
-docker compose down
-```
-
----
-
-## Environment Variables
+Use the committed example files as the source of truth.
 
 ### Backend
 
@@ -522,15 +373,17 @@ docker compose down
 OPENAI_API_KEY=
 SUPABASE_URL=
 SUPABASE_PUBLISHABLE_KEY=
-ALLOWED_ORIGINS=
-
-REDIS_URL=
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+REDIS_URL=redis://redis:6379/0
 
 QUIZ_RATE_LIMIT=10
 QUIZ_RATE_WINDOW_SECONDS=600
-
 QUIZ_CACHE_TTL_SECONDS=3600
 QUIZ_CACHE_VERSION=v1
+DOCUMENT_CACHE_TTL_SECONDS=86400
+DOCUMENT_CACHE_MAX_BYTES=1500000
+DOCUMENT_CACHE_VERSION=v1
+LOG_LEVEL=INFO
 ```
 
 ### Frontend
@@ -538,117 +391,65 @@ QUIZ_CACHE_VERSION=v1
 ```env
 VITE_SUPABASE_URL=
 VITE_SUPABASE_PUBLISHABLE_KEY=
-VITE_API_URL=
+VITE_API_URL=http://127.0.0.1:8000
 ```
 
-See the included `.env.example` files for configuration templates.
+Never commit real secret values.
 
 ---
 
-## Deployment
+## Production deployment
 
-QuizForge AI uses a split production architecture.
+QuizForge uses a split cloud architecture:
 
-### Frontend — Vercel
+- **Frontend — Vercel:** https://quiz-forge-ai-nine.vercel.app
+- **Backend — Render:** https://quizforge-ai-api.onrender.com
+- **Database/Auth — Supabase:** PostgreSQL, Auth, and RLS
+- **Cache/Rate limiting — Redis:** production Redis-compatible service
 
-https://quiz-forge-ai-nine.vercel.app
-
-Vercel hosts the React + TypeScript frontend.
-
-### Backend — Render
-
-https://quizforge-ai-api.onrender.com
-
-Render hosts the FastAPI API using:
+Render starts the production API with:
 
 ```bash
-uvicorn main_redis:app --host 0.0.0.0 --port $PORT
+uvicorn main_redis:app --host 0.0.0.0 --port $PORT --no-access-log
 ```
 
-### Redis — Render Key Value
+The `--no-access-log` flag prevents Uvicorn from writing client IP addresses to application logs; QuizForge's structured request logs retain only operational fields such as method, route, status, duration, and a random request ID.
 
-The production backend connects to a Redis-compatible Render Key Value instance.
-
-Redis provides:
-
-- Quiz caching
-- Cache expiration
-- Per-user rate-limit counters
-
-### Database & Authentication — Supabase
-
-Supabase provides:
-
-- PostgreSQL
-- Authentication
-- Email confirmation
-- Password recovery
-- Row Level Security
-
-> The free Render backend may sleep after periods of inactivity, so the first request can take longer while the service wakes up.
+> The free Render web service can cold-start after inactivity, so the first backend request may take longer than subsequent requests.
 
 ---
 
-## Production Cache Validation
+## Current status
 
-Redis caching has been tested against the deployed application.
+QuizForge AI is deployed and supports the complete production workflow from authentication and PDF upload through quiz generation, deterministic grading, persistent history, analytics, and targeted weak-area practice.
 
-A new PDF and quiz configuration produces:
+Current limitations include:
+
+- image-only/scanned PDFs are detected but OCR is not implemented yet
+- AI generation requires an external provider request on cache miss/bypass
+- the free backend tier may cold-start after inactivity
+
+---
+
+## Repository structure
 
 ```text
-Redis cache MISS
+QuizForge-AI/
+├── backend/              FastAPI API, PDF processing, Redis integration, tests
+├── frontend/             React + TypeScript application
+├── e2e/                  Playwright end-to-end tests
+├── docs/screenshots/     README product screenshots
+├── supabase/migrations/  Database/RLS migrations
+├── .github/workflows/    GitHub Actions CI
+├── docker-compose.yml    Local full-stack development
+└── render.yaml           Render production configuration
 ```
-
-Repeating the same request produces:
-
-```text
-Redis cache HIT
-```
-
-The cache was also successfully retrieved after the FastAPI service restarted, confirming that cached data is stored independently of the backend process.
-
----
-
-## Screenshots
-
-### Upload and quiz configuration
-
-Upload a PDF, process the study material, and configure question count, difficulty, and question type before generation.
-
-![QuizForge PDF upload and quiz settings](docs/screenshots/upload-and-settings.png)
-
-### AI-generated quiz
-
-Answer generated questions with instant correctness feedback, explanations, and source-page references.
-
-![QuizForge generated quiz](docs/screenshots/generated-quiz.png)
-
-### Weak-area practice
-
-QuizForge analyzes saved attempts to identify weak question types and source pages for targeted practice.
-
-![QuizForge weak-area practice](docs/screenshots/weak-area-practice.png)
-
-### Quiz history
-
-Saved quiz attempts let users review scores, difficulty, question types, and previous study sessions.
-
-![QuizForge quiz history](docs/screenshots/quiz-history.png)
-
----
-
-## Project Status
-
-QuizForge AI is deployed and actively developed.
-
-The production application currently supports the complete workflow from authentication and PDF upload through AI quiz generation, Redis caching, persistent quiz history, analytics, targeted weak-area practice, and password recovery.
 
 ---
 
 ## Author
 
-**Hamed Vasheghani Farahani**
-
+**Hamed Vasheghani Farahani**  
 Computer Science student at Concordia University.
 
 GitHub: https://github.com/HamedGithubforwork
