@@ -41,21 +41,15 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 
 ## Screenshots
 
-### Upload and configure
+### Upload, process, and configure
 
-![QuizForge PDF upload and quiz settings](docs/screenshots/upload-and-settings.png)
+![QuizForge PDF upload, processing, and quiz settings](docs/screenshots/upload-and-settings.png)
 
-### Generated quiz
+### Answer review and explanations
 
-![QuizForge generated quiz](docs/screenshots/generated-quiz.png)
+![QuizForge answer review with explanations](docs/screenshots/generated-quiz.png)
 
-### Weak-area practice
-
-![QuizForge weak-area practice](docs/screenshots/weak-area-practice.png)
-
-### Quiz history and analytics
-
-![QuizForge quiz history](docs/screenshots/quiz-history.png)
+> The live demo contains the current history/mastery analytics and targeted weak-area practice UI. Older screenshots of those views were removed from the README so the portfolio does not show stale production screens.
 
 ---
 
