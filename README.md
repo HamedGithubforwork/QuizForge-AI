@@ -220,39 +220,78 @@ Secrets are provided through environment variables and are not committed to the 
 
 ## Testing and CI
 
-GitHub Actions runs three independent jobs on pushes and pull requests to `main`:
+QuizForge uses multiple test layers instead of relying on a single browser happy-path test. GitHub Actions runs all three CI jobs on every push and pull request targeting `main`.
+
+| Layer | CI job | What it protects | Runtime |
+| --- | --- | --- | --- |
+| Backend API / infrastructure | **Backend tests** | API behavior, authentication requirements, PDF validation, document identity, Redis caching/rate limiting, metrics, answer review, quiz validation | Python 3.11 + Redis 7 |
+| Frontend domain logic | **Frontend checks** | grading, numeric-unit handling, history grading, fallback logic, document identity, weak-area analytics, mastery analytics, quiz-generation policy, lint/build integrity | Node 22 |
+| Browser workflow | **Playwright E2E** | sign-in UI, PDF processing, quiz generation, answering/scoring, source references, saving/history, weak-area practice | Chromium |
 
 ### Backend tests
 
-- Python 3.11
-- Redis 7 service container
-- `pytest`
-- API/authentication/PDF validation
-- Redis cache and rate-limit behavior
-- observability/admin metrics
-- answer review and quiz validation
-- disposable real-Redis integration tests
+The backend suite contains dedicated pytest modules for the API, Redis integration, document caching, document identity, observability, admin metrics, answer review, and generated-quiz validation.
 
-### Frontend checks
+CI starts a disposable `redis:7-alpine` service and exposes it only through `TEST_REDIS_URL`, so the real-Redis integration tests exercise actual Redis behavior without touching production data.
 
-- Node 22
-- production dependency audit
-- TypeScript grading, document-identity, fallback, weak-area, mastery, and request-policy tests
-- oxlint
-- production Vite build
+Key areas include:
+
+- API health and authentication requirements
+- PDF MIME/size/text validation and extraction behavior
+- document SHA-256 identity
+- document-cache hit/miss behavior
+- Redis-backed quiz caching and rate limiting
+- Redis failure/fallback paths
+- structured observability and admin metrics
+- AI answer-review response handling
+- generated question, rubric, numeric-unit, and source-page validation
+
+### Frontend logic checks
+
+The frontend CI job runs eight focused TypeScript test files directly under Node before linting and building the production bundle:
+
+```text
+shortAnswerGrader.test.ts
+numericUnitGrading.test.ts
+historyQuestionGrader.test.ts
+answerFallback.test.ts
+documentIdentity.test.ts
+weakAreaAnalytics.test.ts
+masteryAnalytics.test.ts
+quizGenerationPolicy.test.ts
+```
+
+The same job also runs:
+
+- `npm audit --omit=dev --audit-level=low`
+- `npm run lint`
+- `npm run build`
+
+This makes the production build and production dependency audit part of the CI gate rather than separate manual checks.
 
 ### Playwright E2E
 
-- Chromium
-- authentication UI flow
-- PDF processing and quiz flow with mocked services
-- answering/scoring
-- source references
-- save/history behavior
-- weak-area practice
-- short-answer history behavior
+Two Playwright specs exercise the application from Chromium:
 
-Run the main local checks with:
+- `quizforge.spec.ts` — authentication UI, upload/process/generate, answering and scoring, explanations/source pages, save/history, weak-area practice, and invalid-login handling
+- `short-answer-history.spec.ts` — short-answer scoring/history persistence behavior and document identity flow
+
+External services are intentionally mocked at the browser network layer in this suite. CI therefore does **not** spend OpenAI credits or depend on live Supabase/Render availability, which keeps the browser tests reproducible.
+
+On E2E failure, GitHub Actions uploads the Playwright report as an artifact for 7 days.
+
+### Production smoke testing
+
+Deterministic CI is complemented by a separate live-production smoke test. The deployed Vercel/Render/Supabase application has been verified through the real browser flow:
+
+```text
+sign in → upload PDF → process → generate → answer → results
+→ save → history/analytics → weak-area practice
+```
+
+This live smoke test is intentionally separate from CI: CI stays reproducible with mocked external services, while the smoke test validates that the actual deployed services work together.
+
+### Run the checks locally
 
 ```bash
 # Backend
@@ -263,6 +302,14 @@ python -m pytest -q
 # Frontend
 cd ../frontend
 npm ci
+node --experimental-strip-types src/lib/shortAnswerGrader.test.ts
+node --experimental-strip-types src/lib/numericUnitGrading.test.ts
+node --experimental-strip-types src/lib/historyQuestionGrader.test.ts
+node --experimental-strip-types src/lib/answerFallback.test.ts
+node --experimental-strip-types src/lib/documentIdentity.test.ts
+node --experimental-strip-types src/lib/weakAreaAnalytics.test.ts
+node --experimental-strip-types src/lib/masteryAnalytics.test.ts
+node --experimental-strip-types src/lib/quizGenerationPolicy.test.ts
 npm run lint
 npm run build
 
@@ -272,7 +319,7 @@ npx --prefix e2e playwright install chromium
 npm --prefix e2e test
 ```
 
-The exact frontend TypeScript test commands used by CI are documented in `.github/workflows/ci.yml`.
+The CI implementation is in `.github/workflows/ci.yml`, and the browser-suite details are documented in `e2e/README.md`.
 
 ---
 
