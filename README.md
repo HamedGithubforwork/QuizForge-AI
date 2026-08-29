@@ -197,24 +197,44 @@ If the Redis rate-limit backend is unavailable, QuizForge falls back to an in-me
 
 ---
 
-## Reliability and security
+## Security and production engineering
 
-The project includes several production-oriented safeguards:
+QuizForge treats authentication, AI output, uploaded documents, external providers, and production logs as separate trust boundaries. The goal is not to assume any one layer is safe by default, but to validate and constrain data at each boundary.
 
-- Supabase session verification on protected backend routes
-- PostgreSQL Row Level Security for quiz history
-- Server-side OpenAI credentials
-- Configurable production CORS allowlist
-- `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy` response headers
-- PDF MIME/type, size, and text-extraction validation
-- Scanned-PDF detection before AI generation
-- Per-user quiz-generation rate limiting
-- Structured quiz/rubric validation before returning AI output
-- Generic client-facing provider errors
-- Structured redacted operational logging
-- No Uvicorn client-IP access logging in production
+| Area | Implementation |
+| --- | --- |
+| Authentication | Protected FastAPI routes require a Supabase bearer token. The backend verifies the token server-side against Supabase Auth before accepting PDF or AI work. Invalid/expired sessions return `401`; authentication-provider failures fail closed with `503`. |
+| Data isolation | Quiz history is accessed through Supabase PostgreSQL with Row Level Security so authenticated users are restricted to their own rows. The privileged RLS helper function is not executable through the public/authenticated Data API roles. |
+| Secret handling | OpenAI credentials remain server-side and are loaded from environment variables. The browser never receives the OpenAI API key. Example environment files contain placeholders only. |
+| CORS / browser boundary | Backend CORS uses an explicit environment-controlled origin allowlist, permits only `GET`/`POST`, accepts only `Authorization` and `Content-Type`, and does not enable cross-origin credentials. |
+| Security headers | API responses include `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a `Permissions-Policy` disabling camera, microphone, and geolocation access. |
+| PDF / request validation | Uploads must be `application/pdf`, are capped at 15 MB, and are parsed by PyMuPDF. Quiz generation rejects likely scanned/image-only documents, excessive extracted text, invalid counts/difficulty/types, nonexistent focus pages, and malformed weak-area input. |
+| AI trust boundary | PDF text is explicitly treated as untrusted study material rather than instructions. OpenAI output must parse into the Pydantic schema and pass deterministic question-count, type, rubric, numeric-unit, answer-consistency, and source-page validation before being returned. Invalid output is retried once and then rejected. |
+| Abuse protection | Quiz generation uses a shared Redis-backed per-user rate limiter with `429` + `Retry-After`. If Redis is unavailable, protection falls back to a process-local in-memory limiter rather than disappearing. |
+| Cache isolation | Document and quiz cache fingerprints are scoped using the authenticated user plus document/request identity. Cache keys and document identifiers are not written to application logs. |
+| Admin surface | `/api/admin/metrics` requires both a valid authenticated session and membership in the configured `ADMIN_USER_IDS`; other authenticated users receive `403`. |
+| Observability / privacy | Structured logs contain operational fields such as event, route, status, duration, cache result, question count, and random request ID. Application logging avoids bearer tokens, user IDs, PDF text, Redis keys, and raw provider exception messages. Production Uvicorn access logging is disabled so client IP addresses are not written by the default access logger. |
 
-Secrets are provided through environment variables and are not committed to the repository.
+### Failure behavior
+
+Production dependencies are expected to fail occasionally, so the backend uses explicit degradation and error boundaries:
+
+- **Supabase Auth unavailable** → protected requests fail closed with a generic `503` rather than bypassing authentication.
+- **Redis rate-limit backend unavailable** → rate limiting falls back to in-memory enforcement.
+- **Redis cache unavailable** → cache operations degrade to misses; quiz/PDF processing can continue without exposing Redis error details to the client.
+- **OpenAI/provider error** → the server logs only the exception class and returns a generic `502` message.
+- **Malformed AI output** → deterministic validation rejects it; one regeneration attempt is allowed before returning a generic `502`.
+- **Unexpected request failure** → structured observability records request ID, route, duration, and exception type without logging request bodies or raw exception text.
+
+### Production privacy hardening
+
+The production Render process starts with:
+
+```bash
+uvicorn main_redis:app --host 0.0.0.0 --port $PORT --no-access-log
+```
+
+This keeps Uvicorn's default IP-bearing access log disabled while QuizForge's own structured request middleware still records method, route, status, duration, and a random request ID for debugging and operational metrics.
 
 ---
 
