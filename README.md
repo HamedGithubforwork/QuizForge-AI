@@ -127,45 +127,76 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 
 ## Architecture
 
-```text
-                           User
-                             │
-                             ▼
-                  ┌────────────────────┐
-                  │ React + TypeScript │
-                  │      Vercel        │
-                  └─────────┬──────────┘
-                            │
-                 Supabase session token
-                            │
-                            ▼
-                  ┌────────────────────┐
-                  │      FastAPI       │
-                  │       Render       │
-                  └───┬────────┬───────┘
-                      │        │
-             ┌────────┘        └─────────────┐
-             ▼                               ▼
-      ┌─────────────┐                 ┌─────────────┐
-      │    Redis    │                 │ OpenAI API  │
-      │ cache/rate  │                 │ quiz/review │
-      └─────────────┘                 └─────────────┘
-             │
-             │                         ┌─────────────┐
-             └────────────────────────►│  Supabase   │
-                                       │ Auth + DB   │
-                                       └─────────────┘
+```mermaid
+flowchart LR
+    U[User / Browser]
 
-PDF extraction inside FastAPI: PyMuPDF
+    subgraph V["Vercel — Frontend"]
+        FE["React + TypeScript + Vite<br/>UI • deterministic grading • analytics"]
+    end
+
+    subgraph S["Supabase"]
+        AUTH["Supabase Auth<br/>email/password sessions"]
+        DB[("PostgreSQL<br/>quiz_history + RLS")]
+    end
+
+    subgraph R["Render — Backend"]
+        API["FastAPI API<br/>protected endpoints"]
+        PDF["PyMuPDF<br/>PDF extraction"]
+        VALID["Pydantic + deterministic validation<br/>quiz schema • grading rubric • source pages"]
+    end
+
+    REDIS[("Redis<br/>document cache • quiz cache<br/>rate limits • metrics")]
+    OAI["OpenAI API<br/>structured quiz generation<br/>borderline answer review"]
+
+    U --> FE
+
+    FE -->|"Sign up / sign in"| AUTH
+    AUTH -->|"Session token"| FE
+
+    FE -->|"Save / read / delete quiz history"| DB
+    DB -->|"RLS-protected rows"| FE
+
+    FE -->|"Bearer token + PDF + quiz config"| API
+    API -->|"Verify bearer token"| AUTH
+
+    API --> PDF
+    PDF -->|"Extracted pages + document SHA"| API
+
+    API <--> |"Cache + rate-limit operations"| REDIS
+
+    API -->|"Grounded prompt + PDF text"| OAI
+    OAI -->|"Structured response"| VALID
+    VALID -->|"Validated quiz"| API
+
+    API -->|"Quiz + explanations + source pages"| FE
 ```
 
-### Request path
+### Request and data flow
 
-The browser authenticates with Supabase and sends the current access token to protected FastAPI endpoints. FastAPI verifies that session before processing PDFs or generating quizzes. OpenAI credentials stay server-side.
+The architecture intentionally separates **user-facing state**, **protected AI/PDF processing**, and **persistent history**:
 
-For PDF work, the backend computes a document identity, extracts text with PyMuPDF, and can reuse extracted pages from Redis. Quiz requests are fingerprinted by user/document/configuration so eligible repeated requests can use a cached quiz. New-quiz and weak-area flows can intentionally bypass the existing quiz result while still reusing cached document extraction.
+1. **Authentication** — the React client signs users in through Supabase Auth and receives a session token.
+2. **Protected backend request** — PDF upload and quiz-generation calls go from the browser to FastAPI with the Supabase bearer token.
+3. **Backend authentication** — FastAPI verifies that token against Supabase before accepting protected work.
+4. **PDF processing** — PyMuPDF extracts page text; Redis can reuse the extracted document for later requests from the same authenticated user/document.
+5. **Rate limiting and cache lookup** — Redis tracks per-user quiz-generation limits and checks whether an eligible quiz request can be served from cache.
+6. **AI generation** — on a cache miss or intentional bypass, FastAPI sends a grounded prompt and the extracted study material to OpenAI.
+7. **Validation boundary** — structured AI output must pass the Pydantic schema and deterministic quiz/grading/source-page validation before FastAPI returns it to the browser.
+8. **Client grading and learning flow** — the React application handles normal deterministic grading, score breakdowns, history analytics, mastery calculations, and weak-area selection. Borderline short-answer cases can optionally call the protected AI review endpoint.
+9. **Persistent history** — the frontend saves and reads `quiz_history` directly through the Supabase client; PostgreSQL Row Level Security restricts rows to the authenticated user.
+10. **Targeted practice** — weak-area settings are sent back through FastAPI for a new quiz. The quiz cache can be intentionally bypassed while the document cache is still reused.
 
-Quiz history is stored in Supabase PostgreSQL and protected with Row Level Security so users can access only their own saved attempts.
+### Trust boundaries
+
+| Boundary | Responsibility |
+| --- | --- |
+| Browser → FastAPI | Bearer-authenticated PDF/AI requests; no OpenAI secret is exposed to the client |
+| Browser → Supabase | Authenticated history CRUD protected by PostgreSQL RLS |
+| FastAPI → Supabase Auth | Server-side verification of the user's bearer session |
+| FastAPI → Redis | User-scoped cache fingerprints, shared rate limiting, and operational metrics |
+| FastAPI → OpenAI | Server-side provider credential and grounded/structured generation |
+| OpenAI → FastAPI | AI output is treated as untrusted until deterministic validation passes |
 
 ---
 
