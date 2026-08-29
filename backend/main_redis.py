@@ -2,9 +2,11 @@ import logging
 import os
 import time
 from contextvars import ContextVar
+from types import FunctionType
 
 from fastapi import (
     Depends,
+    FastAPI,
     File,
     Form,
     HTTPException,
@@ -35,27 +37,15 @@ from redis_integration import (
 
 AuthenticatedUser = base_app.AuthenticatedUser
 Quiz = base_app.Quiz
-app = base_app.app
 get_current_user = base_app.get_current_user
 extract_pdf_pages_without_redis = (
     base_app.extract_pdf_pages
 )
-upload_pdf_without_redis = base_app.upload_pdf
-generate_quiz_without_redis = base_app.generate_quiz
 
 
-# The Redis entrypoint owns quiz-generation rate limiting. Disable the
-# legacy process-local limiter in main.py for this process so a cache miss
-# is not rate-limited twice. Running `uvicorn main:app` directly is
-# unaffected and still uses the original in-memory limiter.
-base_app.enforce_quiz_rate_limit = lambda _user_id: None
-
-
-# The original endpoints call a synchronous PDF extraction function. The
-# Redis-aware wrapper loads or extracts the pages asynchronously first,
-# then exposes those pages only to the current request via ContextVar.
-# This avoids another PyMuPDF extraction inside the original endpoint and
-# remains safe when multiple requests run concurrently.
+# Redis-aware requests may pre-load PDF pages before delegating to the
+# base endpoint logic. ContextVar keeps those pages isolated to the current
+# request without changing main.py's global extraction function.
 _document_pages_context = ContextVar(
     "quizforge_document_pages_context",
     default=None,
@@ -85,9 +75,136 @@ def extract_pdf_pages_from_context(
     )
 
 
-base_app.extract_pdf_pages = (
-    extract_pdf_pages_from_context
+def _skip_local_quiz_rate_limit(
+    _user_id: str,
+):
+    """The Redis entrypoint already applies the shared limiter."""
+
+
+def _clone_endpoint_with_global_overrides(
+    endpoint,
+    **overrides,
+):
+    """Clone a base endpoint with isolated runtime dependencies.
+
+    The cloned function receives a copy of the base endpoint's global
+    namespace with only the requested dependencies replaced. This keeps the
+    production Redis path from mutating main.py globals while still reusing
+    the authoritative validation and response logic.
+    """
+
+    endpoint_globals = dict(
+        endpoint.__globals__
+    )
+    endpoint_globals.update(overrides)
+
+    cloned_endpoint = FunctionType(
+        endpoint.__code__,
+        endpoint_globals,
+        endpoint.__name__,
+        endpoint.__defaults__,
+        endpoint.__closure__,
+    )
+
+    cloned_endpoint.__kwdefaults__ = (
+        dict(endpoint.__kwdefaults__)
+        if endpoint.__kwdefaults__
+        else None
+    )
+    cloned_endpoint.__annotations__ = dict(
+        getattr(
+            endpoint,
+            "__annotations__",
+            {},
+        )
+    )
+    cloned_endpoint.__dict__.update(
+        getattr(endpoint, "__dict__", {})
+    )
+    cloned_endpoint.__doc__ = endpoint.__doc__
+    cloned_endpoint.__module__ = endpoint.__module__
+    cloned_endpoint.__qualname__ = endpoint.__qualname__
+
+    return cloned_endpoint
+
+
+# These delegates reuse the base endpoint code without changing the base
+# application's global rate limiter, PDF extractor, or route table.
+upload_pdf_without_redis = (
+    _clone_endpoint_with_global_overrides(
+        base_app.upload_pdf,
+        extract_pdf_pages=(
+            extract_pdf_pages_from_context
+        ),
+    )
 )
+
+generate_quiz_without_redis = (
+    _clone_endpoint_with_global_overrides(
+        base_app.generate_quiz,
+        enforce_quiz_rate_limit=(
+            _skip_local_quiz_rate_limit
+        ),
+        extract_pdf_pages=(
+            extract_pdf_pages_from_context
+        ),
+    )
+)
+
+
+def create_redis_app():
+    """Build the production app without mutating the base FastAPI app."""
+
+    redis_app = FastAPI(
+        title=base_app.app.title,
+        version=base_app.app.version,
+    )
+
+    # Preserve the base security-header and CORS middleware configuration.
+    redis_app.user_middleware = list(
+        base_app.app.user_middleware
+    )
+    redis_app.exception_handlers.update(
+        base_app.app.exception_handlers
+    )
+
+    # FastAPI already created fresh documentation routes for redis_app.
+    # Reuse only the base business routes that are not replaced below.
+    built_in_paths = {
+        path
+        for path in (
+            base_app.app.openapi_url,
+            "/docs",
+            "/docs/oauth2-redirect",
+            "/redoc",
+        )
+        if path
+    }
+
+    overridden_paths = {
+        "/api/documents/upload",
+        "/api/quizzes/generate",
+    }
+
+    for route in base_app.app.routes:
+        route_path = getattr(
+            route,
+            "path",
+            None,
+        )
+
+        if (
+            route_path in built_in_paths
+            or route_path in overridden_paths
+        ):
+            continue
+
+        redis_app.router.routes.append(route)
+
+    return redis_app
+
+
+app = create_redis_app()
 
 
 async def get_document_pages_with_cache(
@@ -199,20 +316,6 @@ async def admin_metrics(
     return await get_metric_snapshot(
         redis_client,
     )
-
-
-# Replace the original upload and quiz-generation routes with Redis-aware
-# wrappers. The original functions still perform validation and preserve
-# the existing response format.
-app.router.routes = [
-    route
-    for route in app.router.routes
-    if getattr(route, "path", None)
-    not in {
-        "/api/documents/upload",
-        "/api/quizzes/generate",
-    }
-]
 
 
 @app.post("/api/documents/upload")
