@@ -3,6 +3,7 @@ from io import BytesIO
 
 import main as base_app
 import main_redis
+from fastapi import HTTPException
 from starlette.datastructures import Headers, UploadFile
 
 from redis_integration import (
@@ -123,15 +124,33 @@ def test_rate_limit_uses_redis_key():
     assert key == "quizforge:rate:test-user"
 
 
-def test_redis_entrypoint_disables_legacy_rate_limiter():
+def test_redis_entrypoint_keeps_base_rate_limiter_isolated():
     base_app._generation_requests.clear()
 
-    for _ in range(base_app.QUIZ_RATE_LIMIT + 1):
+    for _ in range(base_app.QUIZ_RATE_LIMIT):
         base_app.enforce_quiz_rate_limit(
             "test-user",
         )
 
-    assert not base_app._generation_requests
+    try:
+        base_app.enforce_quiz_rate_limit(
+            "test-user",
+        )
+    except HTTPException as error:
+        assert error.status_code == 429
+    else:
+        raise AssertionError(
+            "the base app limiter must remain active"
+        )
+
+    assert (
+        main_redis.generate_quiz_without_redis.__globals__[
+            "enforce_quiz_rate_limit"
+        ]
+        is main_redis._skip_local_quiz_rate_limit
+    )
+
+    base_app._generation_requests.clear()
 
 
 def test_normal_generation_can_return_cached_quiz(
