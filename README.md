@@ -130,26 +130,25 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 ```mermaid
 flowchart TD
     USER[User / Browser]
-    FE[React + TypeScript Frontend<br/>Vercel]
+    FE[React + TypeScript<br/>Vercel]
+    API[FastAPI<br/>Auth • PDF orchestration • validation<br/>Render]
+
     AUTH[Supabase Auth]
     DB[(PostgreSQL<br/>Quiz History + RLS)]
-    API[FastAPI Backend<br/>Render]
-    PDF[PyMuPDF<br/>PDF Text Extraction]
-    REDIS[(Redis<br/>Cache + Rate Limits + Metrics)]
+    PDF[PyMuPDF<br/>PDF Extraction]
+    REDIS[(Redis<br/>Cache • Rate Limits • Metrics)]
     AI[OpenAI API<br/>Quiz Generation + Answer Review]
-    VALID[Deterministic Validation<br/>Schema + Grading + Source Pages]
 
     USER --> FE
-    FE -->|Sign in / session| AUTH
-    FE -->|History CRUD| DB
-    FE -->|Authenticated PDF / quiz requests| API
-    API -->|Verify session| AUTH
+    FE --> AUTH
+    FE --> DB
+    FE --> API
+
+    API --> AUTH
     API --> PDF
     API --> REDIS
     API --> AI
-    AI --> VALID
-    VALID --> API
-    API -->|Quiz + explanations + sources| FE
+    API --> FE
 ```
 
 ### How the pieces connect
@@ -157,11 +156,10 @@ flowchart TD
 - **React on Vercel** handles the interface, deterministic grading, analytics, and weak-area selection.
 - **Supabase Auth** manages user sessions. FastAPI verifies the same bearer session before protected PDF/AI operations.
 - **Supabase PostgreSQL** stores quiz history. The frontend accesses it through the Supabase client, while Row Level Security restricts users to their own rows.
-- **FastAPI on Render** owns PDF validation, extraction orchestration, quiz-generation requests, answer-review requests, and server-side secrets.
+- **FastAPI on Render** owns authentication checks, PDF orchestration, server-side secrets, AI requests, and deterministic validation of generated quiz data before it reaches the frontend.
 - **PyMuPDF** extracts selectable text and page boundaries from uploaded PDFs.
 - **Redis** provides document caching, quiz caching, per-user rate limiting, and operational metrics.
 - **OpenAI** generates structured quiz data and can review borderline short answers.
-- **Deterministic validation** sits between AI output and the application: generated quizzes must satisfy the schema, grading rules, question count/type rules, and valid source-page references before they are returned.
 
 ### Main request paths
 
