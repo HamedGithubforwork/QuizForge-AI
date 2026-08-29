@@ -116,9 +116,6 @@ async def get_document_pages_with_cache(
         log_event(
             "document_cache_lookup",
             cache_result="hit",
-            document_hash_prefix=(
-                pdf_sha256[:12]
-            ),
             page_count=len(
                 cached_document["pages"]
             ),
@@ -149,9 +146,6 @@ async def get_document_pages_with_cache(
     log_event(
         "document_cache_lookup",
         cache_result="miss",
-        document_hash_prefix=(
-            pdf_sha256[:12]
-        ),
         page_count=len(pages),
         stored=cached,
     )
