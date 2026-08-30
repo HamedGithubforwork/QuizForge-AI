@@ -4,7 +4,7 @@ import os
 import pymupdf
 from redis.asyncio import Redis
 
-import main_redis
+import application
 import redis_integration
 from observability import METRIC_PREFIX
 from redis_integration import build_document_cache_key
@@ -65,13 +65,13 @@ def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
                 client,
             )
             monkeypatch.setattr(
-                main_redis,
+                application,
                 "redis_client",
                 client,
             )
 
             real_extract_pdf_pages = (
-                main_redis.extract_pdf_pages_off_event_loop
+                application.extract_pdf_pages_off_event_loop
             )
             extraction_calls = 0
 
@@ -83,7 +83,7 @@ def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
                 )
 
             monkeypatch.setattr(
-                main_redis,
+                application,
                 "extract_pdf_pages_off_event_loop",
                 counting_real_extract_pdf_pages,
             )
@@ -92,7 +92,7 @@ def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
             user_id = "real-pdf-redis-test-user"
 
             first_hash, first_pages = (
-                await main_redis.get_document_pages_with_cache(
+                await application.get_document_pages_with_cache(
                     user_id=user_id,
                     contents=contents,
                 )
@@ -108,7 +108,7 @@ def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
             assert PAGE_TWO_TEXT in first_pages[1]["text"]
 
             second_hash, second_pages = (
-                await main_redis.get_document_pages_with_cache(
+                await application.get_document_pages_with_cache(
                     user_id=user_id,
                     contents=contents,
                 )
