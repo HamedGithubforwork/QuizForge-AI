@@ -1,4 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Page,
+} from '@playwright/test'
 
 const testEmail =
   process.env.INTEGRATION_TEST_EMAIL ||
@@ -6,6 +11,85 @@ const testEmail =
 const testPassword =
   process.env.INTEGRATION_TEST_PASSWORD ||
   'Integration123!'
+const supabaseUrl =
+  process.env.INTEGRATION_SUPABASE_URL || ''
+const supabasePublishableKey =
+  process.env.INTEGRATION_SUPABASE_PUBLISHABLE_KEY || ''
+
+async function seedOlderHistory(
+  request: APIRequestContext,
+) {
+  expect(supabaseUrl).not.toBe('')
+  expect(supabasePublishableKey).not.toBe('')
+
+  const loginResponse = await request.post(
+    `${supabaseUrl}/auth/v1/token?grant_type=password`,
+    {
+      headers: {
+        apikey: supabasePublishableKey,
+      },
+      data: {
+        email: testEmail,
+        password: testPassword,
+      },
+    },
+  )
+
+  expect(loginResponse.ok()).toBe(true)
+
+  const loginBody =
+    await loginResponse.json()
+  const accessToken =
+    loginBody.access_token as string
+  const userId =
+    loginBody.user?.id as string
+
+  expect(accessToken).toBeTruthy()
+  expect(userId).toBeTruthy()
+
+  const olderRows = Array.from(
+    { length: 24 },
+    (_, index) => {
+      const rowNumber = index + 1
+      const title =
+        `Integration Older Quiz ${rowNumber}`
+
+      return {
+        user_id: userId,
+        quiz_title: title,
+        source_filename:
+          'integration-seed.pdf',
+        difficulty: 'medium',
+        question_type: 'multiple_choice',
+        question_count: 5,
+        score: 3,
+        percentage: 60,
+        quiz_data: {
+          title,
+          questions: [],
+        },
+        selected_answers: {},
+        created_at:
+          `2026-01-${String(rowNumber).padStart(2, '0')}T00:00:00.000Z`,
+      }
+    },
+  )
+
+  const insertResponse = await request.post(
+    `${supabaseUrl}/rest/v1/quiz_history`,
+    {
+      headers: {
+        apikey: supabasePublishableKey,
+        Authorization:
+          `Bearer ${accessToken}`,
+        Prefer: 'return=minimal',
+      },
+      data: olderRows,
+    },
+  )
+
+  expect(insertResponse.ok()).toBe(true)
+}
 
 function escapePdfText(value: string) {
   return value
@@ -76,9 +160,10 @@ function waitForDocumentUpload(page: Page) {
 
 test(
   'browser uses real local Supabase, FastAPI, and Redis',
-  async ({ page }) => {
+  async ({ page, request }) => {
     test.setTimeout(60_000)
 
+    await seedOlderHistory(request)
     await page.goto('/')
 
     await expect(
@@ -110,7 +195,7 @@ test(
       })
 
     await expect(historyToggle).toContainText(
-      '1 saved quiz',
+      '25 saved quizzes',
     )
     await historyToggle.click()
 
@@ -125,13 +210,28 @@ test(
       page.getByText('Other User Hidden Quiz'),
     ).toHaveCount(0)
 
+    const loadMoreButton =
+      page.getByRole('button', {
+        name: 'Load More Saved Quizzes',
+      })
+
+    await expect(loadMoreButton).toBeVisible()
+    await loadMoreButton.click()
+    await expect(
+      page.getByText(
+        'Integration Older Quiz 1',
+        { exact: true },
+      ),
+    ).toBeVisible()
+    await expect(loadMoreButton).toHaveCount(0)
+
     await seedCard.getByRole('button', {
       name: 'Delete',
     }).click()
 
     await expect(seedCard).toHaveCount(0)
     await expect(historyToggle).toContainText(
-      '0 saved quizzes',
+      '24 saved quizzes',
     )
 
     const fileInput =
