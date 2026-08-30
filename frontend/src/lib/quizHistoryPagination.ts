@@ -2,6 +2,11 @@ export const QUIZ_HISTORY_PAGE_SIZE = 20
 export const MAX_QUIZ_HISTORY_PAGE_SIZE = 50
 export const DOCUMENT_HISTORY_ANALYSIS_LIMIT = 30
 
+export type QuizHistoryCursor = {
+  createdAt: string
+  id: string
+}
+
 export function normalizeHistoryPageSize(
   value: number,
 ) {
@@ -38,20 +43,53 @@ export function appendUniqueHistoryRows<
   ]
 }
 
-export function hasMoreHistoryRows({
-  offset,
-  loadedCount,
-  totalCount,
-  pageSize,
-}: {
-  offset: number
-  loadedCount: number
-  totalCount: number | null
-  pageSize: number
-}) {
-  if (totalCount !== null) {
-    return offset + loadedCount < totalCount
+export function createHistoryCursor<
+  Row extends {
+    created_at: string
+    id: string
+  },
+>(row: Row | null | undefined): QuizHistoryCursor | null {
+  if (!row) {
+    return null
   }
 
-  return loadedCount === pageSize
+  return {
+    createdAt: row.created_at,
+    id: row.id,
+  }
+}
+
+export function buildHistoryCursorFilter(
+  cursor: QuizHistoryCursor,
+) {
+  return [
+    `created_at.lt.${cursor.createdAt}`,
+    'and(',
+    `created_at.eq.${cursor.createdAt},`,
+    `id.lt.${cursor.id}`,
+    ')',
+  ].join('')
+}
+
+export function splitHistoryPageRows<
+  Row extends {
+    created_at: string
+    id: string
+  },
+>(
+  rows: Row[],
+  pageSize: number,
+) {
+  const items = rows.slice(0, pageSize)
+  const hasMore = rows.length > pageSize
+
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore
+      ? createHistoryCursor(
+          items[items.length - 1],
+        )
+      : null,
+  }
 }
