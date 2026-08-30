@@ -159,8 +159,15 @@ function QuizSettingsPanel({
           </button>
 
           {generationStage && (
-            <div className="generation-status">
-              <span className="loading-spinner" />
+            <div
+              className="generation-status"
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className="loading-spinner"
+                aria-hidden="true"
+              />
 
               <strong>
                 {generationStage}
