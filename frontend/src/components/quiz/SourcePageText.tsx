@@ -4,8 +4,8 @@ import {
 } from 'react'
 
 import {
-  apiFetch,
-} from '../../lib/api'
+  loadSourcePageText,
+} from '../../lib/sourcePageCache'
 
 type SourcePageTextProps = {
   documentSha256: string
@@ -30,35 +30,14 @@ function SourcePageText({
       setIsLoading(true)
 
       try {
-        const response = await apiFetch(
-          `/api/documents/${encodeURIComponent(
+        const sourceText =
+          await loadSourcePageText(
             documentSha256,
-          )}/pages/${pageNumber}`,
-        )
-
-        const data =
-          await response.json() as {
-            detail?: string
-            text?: string
-          }
-
-        if (!response.ok) {
-          throw new Error(
-            data.detail ||
-              'Source text is unavailable.',
+            pageNumber,
           )
-        }
-
-        if (
-          typeof data.text !== 'string'
-        ) {
-          throw new Error(
-            'Source text is unavailable.',
-          )
-        }
 
         if (!cancelled) {
-          setText(data.text)
+          setText(sourceText)
         }
       } catch (loadError) {
         if (!cancelled) {
