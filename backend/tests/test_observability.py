@@ -3,32 +3,49 @@ from types import SimpleNamespace
 
 from observability import (
     METRIC_PREFIX,
+    TIMING_PREFIX,
     log_event,
     observe_http_request,
     record_document_cache_metric,
     record_quiz_metrics,
+    record_timing_sample,
 )
 
 
 class FakePipeline:
     def __init__(self, client):
         self.client = client
+        self.operation_count = 0
 
     def incrby(self, key, amount):
         self.client.calls.append(
             (key, amount)
         )
+        self.operation_count += 1
+        return self
+
+    def lpush(self, key, value):
+        self.client.timing_calls.append(
+            ("lpush", key, value)
+        )
+        self.operation_count += 1
+        return self
+
+    def ltrim(self, key, start, end):
+        self.client.timing_calls.append(
+            ("ltrim", key, start, end)
+        )
+        self.operation_count += 1
         return self
 
     async def execute(self):
-        return [1] * len(
-            self.client.calls
-        )
+        return [1] * self.operation_count
 
 
 class FakeRedis:
     def __init__(self):
         self.calls = []
+        self.timing_calls = []
 
     def pipeline(
         self,
@@ -77,6 +94,24 @@ def test_document_cache_metrics_track_hit_and_miss():
     ]
 
 
+def test_timing_metric_keeps_a_bounded_redis_sample_list():
+    client = FakeRedis()
+
+    asyncio.run(
+        record_timing_sample(
+            client,
+            "auth_latency_ms",
+            12.345,
+        )
+    )
+
+    key = f"{TIMING_PREFIX}auth_latency_ms"
+    assert client.timing_calls == [
+        ("lpush", key, 12.35),
+        ("ltrim", key, 0, 199),
+    ]
+
+
 def test_quiz_metrics_track_cache_hit_and_latency():
     client = FakeRedis()
 
@@ -102,6 +137,11 @@ def test_quiz_metrics_track_cache_hit_and_latency():
             1,
         ),
     ]
+    assert (
+        "lpush",
+        f"{TIMING_PREFIX}quiz_latency_ms",
+        123.6,
+    ) in client.timing_calls
 
 
 def test_quiz_metrics_track_failed_cache_miss():
@@ -154,3 +194,9 @@ def test_http_observability_adds_request_id_and_metrics():
         f"{METRIC_PREFIX}http_requests_total",
         1,
     ) in client.calls
+    assert any(
+        call[0] == "lpush"
+        and call[1]
+        == f"{TIMING_PREFIX}http_latency_ms"
+        for call in client.timing_calls
+    )

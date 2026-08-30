@@ -1,12 +1,17 @@
 import asyncio
 import logging
+import math
 
 from redis.exceptions import RedisError
 
 from observability import (
     METRIC_PREFIX,
     METRICS_TIMEOUT_SECONDS,
+    TIMING_PREFIX,
+    TIMING_SAMPLE_LIMIT,
+    TIMING_SAMPLE_NAMES,
     get_memory_metric,
+    get_memory_timing_samples,
     log_event,
 )
 
@@ -24,8 +29,79 @@ METRIC_NAMES = (
     "quiz_generation_errors_total",
 )
 
+TIMING_DISPLAY_NAMES = {
+    "http_latency_ms": "http",
+    "quiz_latency_ms": "quiz",
+    "auth_latency_ms": "auth",
+    "document_cache_lookup_latency_ms": (
+        "document_cache_lookup"
+    ),
+    "document_cache_write_latency_ms": (
+        "document_cache_write"
+    ),
+    "pdf_extraction_latency_ms": "pdf_extraction",
+    "openai_generation_latency_ms": "openai_generation",
+    "quiz_validation_latency_ms": "quiz_validation",
+    "quiz_cache_lookup_latency_ms": "quiz_cache_lookup",
+    "quiz_cache_write_latency_ms": "quiz_cache_write",
+}
 
-def build_metric_snapshot(values: dict[str, int], backend: str):
+
+def _nearest_rank_percentile(
+    samples: list[float],
+    percentile: float,
+):
+    if not samples:
+        return 0.0
+
+    ordered = sorted(samples)
+    rank = max(
+        1,
+        math.ceil(
+            percentile * len(ordered)
+        ),
+    )
+    return round(
+        ordered[rank - 1],
+        2,
+    )
+
+
+def build_latency_percentiles(
+    timing_samples: dict[str, list[float]],
+):
+    result = {}
+
+    for timing_name in TIMING_SAMPLE_NAMES:
+        samples = [
+            max(0.0, float(sample))
+            for sample in timing_samples.get(
+                timing_name,
+                [],
+            )
+        ]
+        result[
+            TIMING_DISPLAY_NAMES[timing_name]
+        ] = {
+            "sample_count": len(samples),
+            "p50": _nearest_rank_percentile(
+                samples,
+                0.50,
+            ),
+            "p95": _nearest_rank_percentile(
+                samples,
+                0.95,
+            ),
+        }
+
+    return result
+
+
+def build_metric_snapshot(
+    values: dict[str, int],
+    backend: str,
+    timing_samples: dict[str, list[float]] | None = None,
+):
     http_requests = values["http_requests_total"]
     quiz_requests = values["quiz_requests_total"]
     cache_hits = values["quiz_cache_hits_total"]
@@ -82,7 +158,24 @@ def build_metric_snapshot(values: dict[str, int], backend: str):
             document_cache_hit_rate,
             2,
         ),
+        "latency_percentiles_ms": build_latency_percentiles(
+            timing_samples or {}
+        ),
     }
+
+
+def _parse_timing_samples(raw_samples):
+    samples = []
+
+    for raw_sample in raw_samples or []:
+        try:
+            samples.append(
+                max(0.0, float(raw_sample))
+            )
+        except (TypeError, ValueError):
+            continue
+
+    return samples
 
 
 async def get_metric_snapshot(client=None):
@@ -91,16 +184,41 @@ async def get_metric_snapshot(client=None):
             pipeline = client.pipeline(transaction=False)
             for metric_name in METRIC_NAMES:
                 pipeline.get(f"{METRIC_PREFIX}{metric_name}")
+            for timing_name in TIMING_SAMPLE_NAMES:
+                pipeline.lrange(
+                    f"{TIMING_PREFIX}{timing_name}",
+                    0,
+                    TIMING_SAMPLE_LIMIT - 1,
+                )
 
             raw_values = await asyncio.wait_for(
                 pipeline.execute(),
                 timeout=METRICS_TIMEOUT_SECONDS,
             )
+            scalar_count = len(METRIC_NAMES)
+            raw_metrics = raw_values[:scalar_count]
+            raw_timings = raw_values[scalar_count:]
             values = {
                 metric_name: int(raw_value or 0)
-                for metric_name, raw_value in zip(METRIC_NAMES, raw_values)
+                for metric_name, raw_value in zip(
+                    METRIC_NAMES,
+                    raw_metrics,
+                )
             }
-            return build_metric_snapshot(values, "redis")
+            timing_samples = {
+                timing_name: _parse_timing_samples(
+                    raw_samples
+                )
+                for timing_name, raw_samples in zip(
+                    TIMING_SAMPLE_NAMES,
+                    raw_timings,
+                )
+            }
+            return build_metric_snapshot(
+                values,
+                "redis",
+                timing_samples,
+            )
         except (
             RedisError,
             AttributeError,
@@ -118,4 +236,14 @@ async def get_metric_snapshot(client=None):
         metric_name: get_memory_metric(metric_name)
         for metric_name in METRIC_NAMES
     }
-    return build_metric_snapshot(values, "memory")
+    timing_samples = {
+        timing_name: get_memory_timing_samples(
+            timing_name
+        )
+        for timing_name in TIMING_SAMPLE_NAMES
+    }
+    return build_metric_snapshot(
+        values,
+        "memory",
+        timing_samples,
+    )
