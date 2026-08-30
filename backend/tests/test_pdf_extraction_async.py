@@ -1,7 +1,7 @@
 import asyncio
 import threading
 
-import main_redis
+import quiz_service
 
 
 def test_pdf_extraction_runs_in_worker_thread(
@@ -24,13 +24,13 @@ def test_pdf_extraction_runs_in_worker_thread(
         return expected_pages
 
     monkeypatch.setattr(
-        main_redis,
-        "extract_pdf_pages_without_redis",
+        quiz_service,
+        "extract_pdf_pages",
         fake_extraction,
     )
 
     pages = asyncio.run(
-        main_redis.extract_pdf_pages_off_event_loop(
+        quiz_service.extract_pdf_pages_off_event_loop(
             b"pdf bytes"
         )
     )
