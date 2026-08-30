@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 import os
@@ -351,45 +350,6 @@ def parse_avoid_questions(
         for value in parsed
         if value.strip()
     ]
-
-
-def build_upload_response(
-    filename: str | None,
-    contents: bytes,
-    pages,
-):
-    analysis = analyze_extracted_text(
-        pages,
-    )
-
-    return {
-        "filename": filename,
-        "pdf_sha256": hashlib.sha256(
-            contents
-        ).hexdigest(),
-        "page_count": len(pages),
-        "character_count": analysis[
-            "total_characters"
-        ],
-        "extractable_page_count": analysis[
-            "extractable_page_count"
-        ],
-        "scanned_likely": analysis[
-            "scanned_likely"
-        ],
-        "warning": analysis["warning"],
-        "pages": [
-            {
-                "page_number": page["page_number"],
-                "character_count": len(
-                    page["text"]
-                ),
-                "preview": page["text"][:300],
-                "text": page["text"],
-            }
-            for page in pages
-        ],
-    }
 
 
 async def generate_quiz_from_pages(

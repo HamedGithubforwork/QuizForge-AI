@@ -4,7 +4,7 @@ from io import BytesIO
 
 from starlette.datastructures import Headers, UploadFile
 
-import main_redis
+import application
 from processed_documents import (
     build_document_cache_key_from_sha,
 )
@@ -68,22 +68,22 @@ def patch_document_cache_dependencies(
         return None
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_document",
         fake_get_cached_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "extract_pdf_pages_off_event_loop",
         fake_extraction,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "cache_document",
         fake_cache_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_document_cache_metric",
         fake_metric,
     )
@@ -101,7 +101,7 @@ def install_hash_counter(monkeypatch):
         ).hexdigest()
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "compute_pdf_sha256",
         counted_hash,
     )
@@ -139,7 +139,7 @@ def test_document_cache_reuses_precomputed_hash(
     ).hexdigest()
 
     result_hash, result_pages = asyncio.run(
-        main_redis.get_document_pages_with_cache(
+        application.get_document_pages_with_cache(
             user_id="user-1",
             contents=CONTENTS,
             pdf_sha256=pdf_sha256,
@@ -155,7 +155,7 @@ def test_document_cache_reuses_precomputed_hash(
     }
 
 
-def test_legacy_file_generation_hashes_pdf_once(
+def test_file_generation_hashes_pdf_once(
     monkeypatch,
 ):
     patch_document_cache_dependencies(
@@ -165,7 +165,7 @@ def test_legacy_file_generation_hashes_pdf_once(
         monkeypatch
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "remember_processed_document",
         lambda **_kwargs: True,
     )
@@ -175,12 +175,12 @@ def test_legacy_file_generation_hashes_pdf_once(
             pdf_sha256,
             _content_type,
             contents,
-        ) = await main_redis.get_generation_source_identity(
+        ) = await application.get_generation_source_identity(
             document_sha256="",
             file=make_upload(),
         )
 
-        pages = await main_redis.get_generation_pages(
+        pages = await application.get_generation_pages(
             user_id="user-1",
             pdf_sha256=pdf_sha256,
             contents=contents,
@@ -209,16 +209,16 @@ def test_production_upload_hashes_pdf_once(
         monkeypatch
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "remember_processed_document",
         lambda **_kwargs: True,
     )
 
     response = asyncio.run(
-        main_redis.upload_pdf(
+        application.upload_pdf(
             file=make_upload(),
             current_user=(
-                main_redis.AuthenticatedUser(
+                application.AuthenticatedUser(
                     id="user-1"
                 )
             ),

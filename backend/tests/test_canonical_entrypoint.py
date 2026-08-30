@@ -3,7 +3,7 @@ from pathlib import Path
 
 import application
 import main
-import main_redis
+import quiz_service
 import redis_integration
 
 
@@ -12,7 +12,22 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_main_is_the_single_supported_app_instance():
     assert main.app is application.app
-    assert main_redis.app is application.app
+    assert not (
+        REPO_ROOT
+        / "backend"
+        / "main_redis.py"
+    ).exists()
+
+
+def test_removed_legacy_surfaces_stay_removed():
+    assert not hasattr(
+        quiz_service,
+        "build_upload_response",
+    )
+    assert not hasattr(
+        main,
+        "generate_quiz",
+    )
 
 
 def test_canonical_rate_limit_falls_back_without_redis(

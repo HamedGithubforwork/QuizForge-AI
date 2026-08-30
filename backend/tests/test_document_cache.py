@@ -1,6 +1,6 @@
 import asyncio
 
-import main_redis
+import application
 import processed_documents
 import redis_integration
 from processed_documents import (
@@ -157,23 +157,23 @@ def test_document_cache_hit_skips_pdf_extraction_and_memory_copy(
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_document",
         fake_get_cached_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_document_cache_metric",
         fake_record_document_cache_metric,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "extract_pdf_pages_off_event_loop",
         fail_extraction,
     )
 
     result_hash, result_pages = asyncio.run(
-        main_redis.get_document_pages_with_cache(
+        application.get_document_pages_with_cache(
             user_id="user-1",
             contents=contents,
         )
@@ -230,28 +230,28 @@ def test_document_cache_miss_stores_only_in_redis(
         metric_results.append(cache_result)
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_document",
         fake_get_cached_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "extract_pdf_pages_off_event_loop",
         fake_extraction,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "cache_document",
         fake_cache_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_document_cache_metric",
         fake_record_document_cache_metric,
     )
 
     result_hash, result_pages = asyncio.run(
-        main_redis.get_document_pages_with_cache(
+        application.get_document_pages_with_cache(
             user_id="user-1",
             contents=contents,
         )
@@ -305,28 +305,28 @@ def test_document_cache_write_failure_uses_memory_fallback(
         return None
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_document",
         fake_get_cached_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "extract_pdf_pages_off_event_loop",
         fake_extraction,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "cache_document",
         fake_cache_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_document_cache_metric",
         ignore_metric,
     )
 
     result_hash, result_pages = asyncio.run(
-        main_redis.get_document_pages_with_cache(
+        application.get_document_pages_with_cache(
             user_id="user-1",
             contents=contents,
         )

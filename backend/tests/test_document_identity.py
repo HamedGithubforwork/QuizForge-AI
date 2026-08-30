@@ -6,7 +6,7 @@ import pymupdf
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 
-import main
+import application
 
 
 def make_pdf_bytes() -> bytes:
@@ -50,12 +50,12 @@ def make_upload(
 
 def test_upload_hash_is_stable_when_filename_changes():
     contents = make_pdf_bytes()
-    user = main.AuthenticatedUser(
+    user = application.AuthenticatedUser(
         id="document-identity-test-user",
     )
 
     first = asyncio.run(
-        main.upload_pdf(
+        application.upload_pdf(
             file=make_upload(
                 "notes.pdf",
                 contents,
@@ -65,7 +65,7 @@ def test_upload_hash_is_stable_when_filename_changes():
     )
 
     second = asyncio.run(
-        main.upload_pdf(
+        application.upload_pdf(
             file=make_upload(
                 "renamed-notes.pdf",
                 contents,
