@@ -17,7 +17,10 @@ from app_shared import (
     create_app,
     get_current_user,
 )
-from document_api import UploadResponse
+from document_api import (
+    UploadResponse,
+    build_upload_response_from_sha,
+)
 from observability import (
     elapsed_ms,
     log_event,
@@ -26,6 +29,7 @@ from observability import (
     record_quiz_metrics,
 )
 from processed_documents import (
+    build_document_cache_key_from_sha,
     build_quiz_cache_key_from_sha,
     get_processed_document,
     normalize_document_sha256,
@@ -34,7 +38,6 @@ from processed_documents import (
 import quiz_service
 from quiz_service import (
     Quiz,
-    build_upload_response,
     generate_quiz_from_pages,
     normalize_quiz_settings,
     validate_pdf_content_type,
@@ -43,7 +46,6 @@ from quiz_service import (
 from redis_integration import (
     QUIZ_GENERATION_POLL_INTERVAL_SECONDS,
     QUIZ_GENERATION_WAIT_SECONDS,
-    build_document_cache_key,
     cache_document,
     cache_quiz,
     compute_pdf_sha256,
@@ -72,14 +74,17 @@ async def extract_pdf_pages_off_event_loop(
 async def get_document_pages_with_cache(
     user_id: str,
     contents: bytes,
+    pdf_sha256: str | None = None,
 ):
-    pdf_sha256 = compute_pdf_sha256(
-        contents
+    resolved_pdf_sha256 = (
+        pdf_sha256
+        if pdf_sha256 is not None
+        else compute_pdf_sha256(contents)
     )
 
-    cache_key = build_document_cache_key(
+    cache_key = build_document_cache_key_from_sha(
         user_id=user_id,
-        contents=contents,
+        pdf_sha256=resolved_pdf_sha256,
     )
 
     cached_document = await get_cached_document(
@@ -101,7 +106,7 @@ async def get_document_pages_with_cache(
         )
 
         return (
-            cached_document["pdf_sha256"],
+            resolved_pdf_sha256,
             cached_document["pages"],
         )
 
@@ -112,7 +117,7 @@ async def get_document_pages_with_cache(
     cached = await cache_document(
         cache_key,
         {
-            "pdf_sha256": pdf_sha256,
+            "pdf_sha256": resolved_pdf_sha256,
             "pages": pages,
         },
     )
@@ -129,7 +134,7 @@ async def get_document_pages_with_cache(
         stored=cached,
     )
 
-    return pdf_sha256, pages
+    return resolved_pdf_sha256, pages
 
 
 async def get_generation_source_identity(
@@ -200,6 +205,7 @@ async def get_generation_pages(
             await get_document_pages_with_cache(
                 user_id=user_id,
                 contents=contents,
+                pdf_sha256=pdf_sha256,
             )
         )
 
@@ -413,10 +419,10 @@ async def upload_pdf(
         pages=pages,
     )
 
-    return build_upload_response(
-        file.filename,
-        contents,
-        pages,
+    return build_upload_response_from_sha(
+        filename=file.filename,
+        pdf_sha256=pdf_sha256,
+        pages=pages,
     )
 
 
