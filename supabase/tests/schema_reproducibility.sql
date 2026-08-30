@@ -180,7 +180,7 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where e.evtname = 'ensure_rls'
       and e.evtevent = 'ddl_command_end'
-      and e.evenabled = 'O'
+      and e.evtenabled = 'O'
       and n.nspname = 'public'
       and p.proname = 'rls_auto_enable'
       and e.evttags @> array['CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO']::text[];
