@@ -6,10 +6,12 @@ import {
 } from './documentIdentity'
 import {
   appendUniqueHistoryRows,
+  buildHistoryCursorFilter,
   DOCUMENT_HISTORY_ANALYSIS_LIMIT,
-  hasMoreHistoryRows,
   normalizeHistoryPageSize,
   QUIZ_HISTORY_PAGE_SIZE,
+  splitHistoryPageRows,
+  type QuizHistoryCursor,
 } from './quizHistoryPagination'
 import { supabase } from './supabase'
 
@@ -51,12 +53,12 @@ type SupabaseInsertError = {
 
 export type QuizHistoryPage = {
   items: QuizHistoryRow[]
-  totalCount: number
+  nextCursor: QuizHistoryCursor | null
   hasMore: boolean
 }
 
 type GetQuizHistoryPageInput = {
-  offset?: number
+  cursor?: QuizHistoryCursor | null
   limit?: number
 }
 
@@ -173,56 +175,39 @@ export async function saveQuizHistory(
 }
 
 export async function getQuizHistoryPage({
-  offset = 0,
+  cursor = null,
   limit = QUIZ_HISTORY_PAGE_SIZE,
 }: GetQuizHistoryPageInput = {}): Promise<QuizHistoryPage> {
-  const safeOffset = Math.max(
-    0,
-    Math.floor(offset),
-  )
   const pageSize =
     normalizeHistoryPageSize(limit)
 
-  const {
-    data,
-    error,
-    count,
-  } =
-    await supabase
-      .from('quiz_history')
-      .select('*', {
-        count: 'exact',
-      })
-      .order('created_at', {
-        ascending: false,
-      })
-      .order('id', {
-        ascending: false,
-      })
-      .range(
-        safeOffset,
-        safeOffset + pageSize - 1,
-      )
+  let query = supabase
+    .from('quiz_history')
+    .select('*')
+    .order('created_at', {
+      ascending: false,
+    })
+    .order('id', {
+      ascending: false,
+    })
+    .limit(pageSize + 1)
+
+  if (cursor) {
+    query = query.or(
+      buildHistoryCursorFilter(cursor),
+    )
+  }
+
+  const { data, error } = await query
 
   if (error) {
     throw error
   }
 
-  const items =
-    (data ?? []) as QuizHistoryRow[]
-  const totalCount =
-    count ?? safeOffset + items.length
-
-  return {
-    items,
-    totalCount,
-    hasMore: hasMoreHistoryRows({
-      offset: safeOffset,
-      loadedCount: items.length,
-      totalCount: count,
-      pageSize,
-    }),
-  }
+  return splitHistoryPageRows(
+    (data ?? []) as QuizHistoryRow[],
+    pageSize,
+  )
 }
 
 export async function getQuizHistoryForDocument({
