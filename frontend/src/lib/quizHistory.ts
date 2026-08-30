@@ -1,7 +1,16 @@
 import {
   getCurrentDocumentSha256,
+  matchesHistoryDocument,
+  normalizeDocumentSha256,
   withDocumentIdentityInQuizData,
 } from './documentIdentity'
+import {
+  appendUniqueHistoryRows,
+  DOCUMENT_HISTORY_ANALYSIS_LIMIT,
+  hasMoreHistoryRows,
+  normalizeHistoryPageSize,
+  QUIZ_HISTORY_PAGE_SIZE,
+} from './quizHistoryPagination'
 import { supabase } from './supabase'
 
 type StoredSelectedAnswers =
@@ -40,6 +49,23 @@ type SupabaseInsertError = {
   message?: string
 }
 
+export type QuizHistoryPage = {
+  items: QuizHistoryRow[]
+  totalCount: number
+  hasMore: boolean
+}
+
+type GetQuizHistoryPageInput = {
+  offset?: number
+  limit?: number
+}
+
+type GetDocumentHistoryInput = {
+  sourceFilename: string
+  documentSha256?: string | null
+  limit?: number
+}
+
 function isMissingDocumentSha256Column(
   error: SupabaseInsertError,
 ) {
@@ -54,6 +80,21 @@ function isMissingDocumentSha256Column(
       message.includes('column')
     )
   )
+}
+
+function sortNewestFirst(
+  first: QuizHistoryRow,
+  second: QuizHistoryRow,
+) {
+  const timeDifference =
+    new Date(second.created_at).getTime() -
+    new Date(first.created_at).getTime()
+
+  if (timeDifference !== 0) {
+    return timeDifference
+  }
+
+  return second.id.localeCompare(first.id)
 }
 
 export async function saveQuizHistory(
@@ -81,36 +122,19 @@ export async function saveQuizHistory(
     )
 
   const payload = {
-    user_id:
-      userData.user.id,
-
-    quiz_title:
-      input.quizTitle,
-
-    source_filename:
-      input.sourceFilename,
-
-    difficulty:
-      input.difficulty,
-
-    question_type:
-      input.questionType,
-
-    question_count:
-      input.questionCount,
-
-    score:
-      input.score,
-
-    percentage:
-      input.percentage,
-
+    user_id: userData.user.id,
+    quiz_title: input.quizTitle,
+    source_filename: input.sourceFilename,
+    difficulty: input.difficulty,
+    question_type: input.questionType,
+    question_count: input.questionCount,
+    score: input.score,
+    percentage: input.percentage,
     quiz_data:
       withDocumentIdentityInQuizData(
         input.quizData,
         documentSha256,
       ),
-
     selected_answers:
       input.selectedAnswers,
   }
@@ -148,28 +172,134 @@ export async function saveQuizHistory(
   }
 }
 
-export async function getQuizHistory() {
+export async function getQuizHistoryPage({
+  offset = 0,
+  limit = QUIZ_HISTORY_PAGE_SIZE,
+}: GetQuizHistoryPageInput = {}): Promise<QuizHistoryPage> {
+  const safeOffset = Math.max(
+    0,
+    Math.floor(offset),
+  )
+  const pageSize =
+    normalizeHistoryPageSize(limit)
+
   const {
     data,
     error,
+    count,
   } =
     await supabase
       .from('quiz_history')
-      .select('*')
-      .order(
-        'created_at',
-        {
-          ascending: false,
-        },
+      .select('*', {
+        count: 'exact',
+      })
+      .order('created_at', {
+        ascending: false,
+      })
+      .order('id', {
+        ascending: false,
+      })
+      .range(
+        safeOffset,
+        safeOffset + pageSize - 1,
       )
 
   if (error) {
     throw error
   }
 
-  return (
-    data ?? []
-  ) as QuizHistoryRow[]
+  const items =
+    (data ?? []) as QuizHistoryRow[]
+  const totalCount =
+    count ?? safeOffset + items.length
+
+  return {
+    items,
+    totalCount,
+    hasMore: hasMoreHistoryRows({
+      offset: safeOffset,
+      loadedCount: items.length,
+      totalCount: count,
+      pageSize,
+    }),
+  }
+}
+
+export async function getQuizHistoryForDocument({
+  sourceFilename,
+  documentSha256,
+  limit = DOCUMENT_HISTORY_ANALYSIS_LIMIT,
+}: GetDocumentHistoryInput) {
+  const pageSize =
+    normalizeHistoryPageSize(limit)
+  const normalizedHash =
+    normalizeDocumentSha256(
+      documentSha256,
+    )
+
+  const createQuery = () =>
+    supabase
+      .from('quiz_history')
+      .select('*')
+      .order('created_at', {
+        ascending: false,
+      })
+      .order('id', {
+        ascending: false,
+      })
+      .limit(pageSize)
+
+  if (!normalizedHash) {
+    const { data, error } =
+      await createQuery().eq(
+        'source_filename',
+        sourceFilename,
+      )
+
+    if (error) {
+      throw error
+    }
+
+    return (
+      (data ?? []) as QuizHistoryRow[]
+    ).slice(0, pageSize)
+  }
+
+  const [hashedResult, legacyResult] =
+    await Promise.all([
+      createQuery().eq(
+        'document_sha256',
+        normalizedHash,
+      ),
+      createQuery()
+        .is('document_sha256', null)
+        .eq(
+          'source_filename',
+          sourceFilename,
+        ),
+    ])
+
+  if (hashedResult.error) {
+    throw hashedResult.error
+  }
+
+  if (legacyResult.error) {
+    throw legacyResult.error
+  }
+
+  return appendUniqueHistoryRows(
+    (hashedResult.data ?? []) as QuizHistoryRow[],
+    (legacyResult.data ?? []) as QuizHistoryRow[],
+  )
+    .filter((item) =>
+      matchesHistoryDocument(
+        item,
+        sourceFilename,
+        normalizedHash,
+      ),
+    )
+    .sort(sortNewestFirst)
+    .slice(0, pageSize)
 }
 
 export async function deleteQuizHistory(
