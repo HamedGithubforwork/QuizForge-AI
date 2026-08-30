@@ -15,6 +15,10 @@ from app_shared import (
     get_current_user,
     get_positive_int_env,
 )
+from document_api import UploadResponse
+from processed_documents import (
+    remember_processed_document,
+)
 from quiz_service import (
     MAX_AI_CHARACTERS,
     MAX_FILE_SIZE,
@@ -110,10 +114,13 @@ def enforce_quiz_rate_limit(
 app = create_app()
 
 
-@app.post("/api/documents/upload")
+@app.post(
+    "/api/documents/upload",
+    response_model=UploadResponse,
+)
 async def upload_pdf(
     file: UploadFile = File(...),
-    _current_user: AuthenticatedUser = Depends(
+    current_user: AuthenticatedUser = Depends(
         get_current_user
     ),
 ):
@@ -128,11 +135,19 @@ async def upload_pdf(
         contents
     )
 
-    return build_upload_response(
+    response = build_upload_response(
         file.filename,
         contents,
         pages,
     )
+
+    remember_processed_document(
+        user_id=current_user.id,
+        pdf_sha256=response["pdf_sha256"],
+        pages=pages,
+    )
+
+    return response
 
 
 @app.post(
