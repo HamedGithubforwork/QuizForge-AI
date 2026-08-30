@@ -296,12 +296,18 @@ function AuthGate() {
   if (loading) {
     return (
       <main className="auth-page">
-        <section className="auth-card loading-card">
+        <section
+          className="auth-card loading-card"
+          aria-busy="true"
+        >
           <div className="auth-logo">
             QF
           </div>
 
-          <div className="auth-spinner" />
+          <div
+            className="auth-spinner"
+            aria-hidden="true"
+          />
 
           <p>
             Loading QuizForge...
@@ -382,7 +388,10 @@ function AuthGate() {
             </label>
 
             {error && (
-              <div className="auth-error">
+              <div
+                className="auth-error"
+                role="alert"
+              >
                 {error}
               </div>
             )}
@@ -436,6 +445,9 @@ function AuthGate() {
                     ? 'auth-tab active'
                     : 'auth-tab'
                 }
+                aria-pressed={
+                  mode === 'login'
+                }
                 onClick={() =>
                   changeMode('login')
                 }
@@ -449,6 +461,9 @@ function AuthGate() {
                   mode === 'signup'
                     ? 'auth-tab active'
                     : 'auth-tab'
+                }
+                aria-pressed={
+                  mode === 'signup'
                 }
                 onClick={() =>
                   changeMode('signup')
@@ -539,13 +554,20 @@ function AuthGate() {
             )}
 
             {error && (
-              <div className="auth-error">
+              <div
+                className="auth-error"
+                role="alert"
+              >
                 {error}
               </div>
             )}
 
             {message && (
-              <div className="auth-message">
+              <div
+                className="auth-message"
+                role="status"
+                aria-live="polite"
+              >
                 {message}
               </div>
             )}
