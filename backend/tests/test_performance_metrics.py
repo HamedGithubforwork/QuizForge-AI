@@ -1,8 +1,8 @@
 import asyncio
 
 import app_shared
+import application
 import main
-import main_redis
 import quiz_service
 
 
@@ -42,7 +42,7 @@ def test_canonical_app_has_expected_phase_timers():
 
     for function_name, timing_name in expected.items():
         function = getattr(
-            main_redis,
+            application,
             function_name,
         )
         assert getattr(
@@ -51,7 +51,7 @@ def test_canonical_app_has_expected_phase_timers():
             None,
         ) == timing_name
 
-    assert main.app is main_redis.app
+    assert main.app is application.app
 
 
 def test_quiz_generation_instrumentation_wraps_openai_and_validation():
@@ -64,7 +64,7 @@ def test_quiz_generation_instrumentation_wraps_openai_and_validation():
         "__wrapped__",
     )
     assert (
-        main_redis.generate_quiz_from_pages
+        application.generate_quiz_from_pages
         is quiz_service.generate_quiz_from_pages
     )
 
