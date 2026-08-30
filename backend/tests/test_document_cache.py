@@ -1,7 +1,12 @@
 import asyncio
 
 import main_redis
+import processed_documents
 import redis_integration
+from processed_documents import (
+    build_document_cache_key_from_sha,
+    remember_processed_document,
+)
 from redis_integration import (
     build_document_cache_key,
     cache_document,
@@ -109,9 +114,11 @@ def test_document_cache_round_trip():
     )
 
 
-def test_document_cache_hit_skips_pdf_extraction(
+def test_document_cache_hit_skips_pdf_extraction_and_memory_copy(
     monkeypatch,
 ):
+    processed_documents._memory_documents.clear()
+
     contents = b"same pdf"
     pages = [
         {
@@ -123,6 +130,12 @@ def test_document_cache_hit_skips_pdf_extraction(
         contents
     )
     metric_results = []
+
+    assert remember_processed_document(
+        user_id="user-1",
+        pdf_sha256=pdf_sha256,
+        pages=pages,
+    ) is True
 
     async def fake_get_cached_document(
         _cache_key,
@@ -166,14 +179,22 @@ def test_document_cache_hit_skips_pdf_extraction(
         )
     )
 
+    cache_key = build_document_cache_key_from_sha(
+        user_id="user-1",
+        pdf_sha256=pdf_sha256,
+    )
+
     assert result_hash == pdf_sha256
     assert result_pages == pages
     assert metric_results == ["hit"]
+    assert cache_key not in processed_documents._memory_documents
 
 
-def test_document_cache_miss_extracts_and_stores(
+def test_document_cache_miss_stores_only_in_redis(
     monkeypatch,
 ):
+    processed_documents._memory_documents.clear()
+
     contents = b"same pdf"
     pages = [
         {
@@ -246,3 +267,76 @@ def test_document_cache_miss_extracts_and_stores(
         "pages": pages,
     }
     assert metric_results == ["miss"]
+    assert not processed_documents._memory_documents
+
+
+def test_document_cache_write_failure_uses_memory_fallback(
+    monkeypatch,
+):
+    processed_documents._memory_documents.clear()
+
+    contents = b"redis unavailable pdf"
+    pages = [
+        {
+            "page_number": 1,
+            "text": "Fallback extracted text",
+        }
+    ]
+
+    async def fake_get_cached_document(
+        _cache_key,
+    ):
+        return None
+
+    async def fake_extraction(received_contents):
+        assert received_contents == contents
+        return pages
+
+    async def fake_cache_document(
+        _cache_key,
+        _document,
+    ):
+        return False
+
+    async def ignore_metric(
+        _client,
+        _cache_result,
+    ):
+        return None
+
+    monkeypatch.setattr(
+        main_redis,
+        "get_cached_document",
+        fake_get_cached_document,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "extract_pdf_pages_off_event_loop",
+        fake_extraction,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "cache_document",
+        fake_cache_document,
+    )
+    monkeypatch.setattr(
+        main_redis,
+        "record_document_cache_metric",
+        ignore_metric,
+    )
+
+    result_hash, result_pages = asyncio.run(
+        main_redis.get_document_pages_with_cache(
+            user_id="user-1",
+            contents=contents,
+        )
+    )
+
+    cache_key = build_document_cache_key_from_sha(
+        user_id="user-1",
+        pdf_sha256=result_hash,
+    )
+
+    assert result_pages == pages
+    assert cache_key in processed_documents._memory_documents
+    assert len(processed_documents._memory_documents) == 1

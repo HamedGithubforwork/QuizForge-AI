@@ -31,6 +31,7 @@ from observability import (
 from processed_documents import (
     build_document_cache_key_from_sha,
     build_quiz_cache_key_from_sha,
+    forget_processed_document,
     get_processed_document,
     normalize_document_sha256,
     remember_processed_document,
@@ -92,6 +93,11 @@ async def get_document_pages_with_cache(
     )
 
     if cached_document is not None:
+        forget_processed_document(
+            user_id=user_id,
+            pdf_sha256=resolved_pdf_sha256,
+        )
+
         await record_document_cache_metric(
             redis_client,
             "hit",
@@ -122,6 +128,20 @@ async def get_document_pages_with_cache(
         },
     )
 
+    fallback_stored = False
+
+    if cached:
+        forget_processed_document(
+            user_id=user_id,
+            pdf_sha256=resolved_pdf_sha256,
+        )
+    else:
+        fallback_stored = remember_processed_document(
+            user_id=user_id,
+            pdf_sha256=resolved_pdf_sha256,
+            pages=pages,
+        )
+
     await record_document_cache_metric(
         redis_client,
         "miss",
@@ -132,6 +152,7 @@ async def get_document_pages_with_cache(
         cache_result="miss",
         page_count=len(pages),
         stored=cached,
+        fallback_stored=fallback_stored,
     )
 
     return resolved_pdf_sha256, pages
@@ -207,12 +228,6 @@ async def get_generation_pages(
                 contents=contents,
                 pdf_sha256=pdf_sha256,
             )
-        )
-
-        remember_processed_document(
-            user_id=user_id,
-            pdf_sha256=pdf_sha256,
-            pages=pages,
         )
 
         return pages
@@ -411,12 +426,6 @@ async def upload_pdf(
             user_id=current_user.id,
             contents=contents,
         )
-    )
-
-    remember_processed_document(
-        user_id=current_user.id,
-        pdf_sha256=pdf_sha256,
-        pages=pages,
     )
 
     return build_upload_response_from_sha(
