@@ -6,7 +6,14 @@ Use ``main:app`` for local development, CI, Docker, and production.
 import sys
 
 import application as _application
+from performance_metrics import (
+    install_performance_instrumentation,
+)
 
+
+install_performance_instrumentation(
+    _application
+)
 
 # Older imports still resolve to the exact canonical application module, so
 # there is no second FastAPI instance or duplicated route state.
