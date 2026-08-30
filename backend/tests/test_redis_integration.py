@@ -144,10 +144,8 @@ def test_redis_entrypoint_keeps_base_rate_limiter_isolated():
         )
 
     assert (
-        main_redis.generate_quiz_without_redis.__globals__[
-            "enforce_quiz_rate_limit"
-        ]
-        is main_redis._skip_local_quiz_rate_limit
+        main_redis.enforce_quiz_rate_limit
+        is enforce_quiz_rate_limit
     )
 
     base_app._generation_requests.clear()
@@ -199,7 +197,7 @@ def test_normal_generation_can_return_cached_quiz(
     )
     monkeypatch.setattr(
         main_redis,
-        "generate_quiz_without_redis",
+        "generate_quiz_from_pages",
         fail_generation,
     )
     monkeypatch.setattr(
@@ -311,7 +309,7 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
     )
     monkeypatch.setattr(
         main_redis,
-        "generate_quiz_without_redis",
+        "generate_quiz_from_pages",
         fake_generation,
     )
     monkeypatch.setattr(
