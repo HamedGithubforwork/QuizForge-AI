@@ -91,6 +91,7 @@ function buildSession() {
 
 async function mockSupabase(page: Page) {
   const historyRows: Record<string, unknown>[] = []
+  let historyGetCount = 0
 
   await page.route(
     '**/supabase-mock/auth/v1/token**',
@@ -124,6 +125,8 @@ async function mockSupabase(page: Page) {
       const request = route.request()
 
       if (request.method() === 'GET') {
+        historyGetCount += 1
+
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -161,6 +164,10 @@ async function mockSupabase(page: Page) {
       })
     },
   )
+
+  return {
+    getHistoryGetCount: () => historyGetCount,
+  }
 }
 
 async function mockBackend(page: Page) {
@@ -238,9 +245,21 @@ async function logIn(page: Page) {
 test(
   'keeps a correct short answer correct after saving and reopening history',
   async ({ page }) => {
-    await mockSupabase(page)
+    const historyRequests =
+      await mockSupabase(page)
     await mockBackend(page)
     await logIn(page)
+
+    await expect(
+      page.getByRole('button', {
+        name: /My Quiz History/,
+      }),
+    ).toContainText(
+      'Open to load saved quizzes',
+    )
+    expect(
+      historyRequests.getHistoryGetCount(),
+    ).toBe(0)
 
     await page
       .locator('input[type="file"]')
@@ -318,6 +337,10 @@ test(
       ),
     ).toBeVisible()
 
+    expect(
+      historyRequests.getHistoryGetCount(),
+    ).toBe(0)
+
     await page
       .getByRole('button', {
         name: /My Quiz History/,
@@ -331,6 +354,10 @@ test(
           name: shortAnswerQuiz.title,
         }),
     ).toBeVisible()
+
+    expect(
+      historyRequests.getHistoryGetCount(),
+    ).toBeGreaterThan(0)
 
     const shortAnswerPerformance =
       page
