@@ -1,0 +1,3 @@
+# Direct development/test dependencies.
+-r requirements.in
+pytest>=8.0,<9.0
