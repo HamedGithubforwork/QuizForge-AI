@@ -149,10 +149,12 @@ def test_upload_extracts_text_from_pdf(
         data["pages"][0]["page_number"]
         == 1
     )
+    assert "text" not in data["pages"][0]
     assert (
         "QuizForge AI test document"
-        in data["pages"][0]["text"]
+        in data["pages"][0]["preview"]
     )
+    assert len(data["pages"][0]["preview"]) <= 300
 
 
 def test_analyze_extracted_text_flags_scan():

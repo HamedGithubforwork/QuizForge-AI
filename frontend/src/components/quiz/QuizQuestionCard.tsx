@@ -6,9 +6,9 @@ import {
 } from '../../lib/quizPresentation'
 import type {
   AnswerValue,
-  PageResult,
   QuizQuestion,
 } from '../../types/quiz'
+import SourcePageText from './SourcePageText.tsx'
 
 type QuizQuestionCardProps = {
   question: QuizQuestion
@@ -20,7 +20,7 @@ type QuizQuestionCardProps = {
   needsAttention: boolean
   isCorrect: boolean
   isSourceOpen: boolean
-  documentPages: PageResult[]
+  documentSha256: string
   onAnswerChange:
     (
       questionIndex: number,
@@ -38,7 +38,7 @@ function QuizQuestionCard({
   needsAttention,
   isCorrect,
   isSourceOpen,
-  documentPages,
+  documentSha256,
   onAnswerChange,
   onToggleSource,
 }: QuizQuestionCardProps) {
@@ -322,30 +322,25 @@ function QuizQuestionCard({
           {isSourceOpen && (
             <div className="source-panel">
               {question.source_pages.map(
-                (pageNumber) => {
-                  const sourcePage =
-                    documentPages.find(
-                      (page) =>
-                        page.page_number ===
-                        pageNumber,
-                    )
+                (pageNumber) => (
+                  <div
+                    className="source-page"
+                    key={pageNumber}
+                  >
+                    <strong>
+                      Page {pageNumber}
+                    </strong>
 
-                  return (
-                    <div
-                      className="source-page"
-                      key={pageNumber}
-                    >
-                      <strong>
-                        Page {pageNumber}
-                      </strong>
-
-                      <p className="source-page-text">
-                        {sourcePage?.text ||
-                          'Source text unavailable.'}
-                      </p>
-                    </div>
-                  )
-                },
+                    <SourcePageText
+                      documentSha256={
+                        documentSha256
+                      }
+                      pageNumber={
+                        pageNumber
+                      }
+                    />
+                  </div>
+                ),
               )}
             </div>
           )}

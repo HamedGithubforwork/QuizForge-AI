@@ -6,7 +6,6 @@ export type PageResult = {
   page_number: number
   character_count: number
   preview: string
-  text: string
 }
 
 export type UploadResult = {

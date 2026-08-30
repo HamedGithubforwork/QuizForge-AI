@@ -168,6 +168,14 @@ test(
     expect(
       firstUploadBody.character_count,
     ).toBeGreaterThan(100)
+    expect(
+      firstUploadBody.pages[0].text,
+    ).toBeUndefined()
+    expect(
+      firstUploadBody.pages[0].preview,
+    ).toContain(
+      'QuizForge local integration test study material',
+    )
     await expect(successHeading).toBeVisible()
 
     // Processing the same PDF again exercises the real Redis document cache hit.

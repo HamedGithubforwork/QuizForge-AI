@@ -338,8 +338,8 @@ function QuizSession({
                   openSourceQuestionIndex ===
                   questionIndex
                 }
-                documentPages={
-                  documentResult.pages
+                documentSha256={
+                  documentResult.pdf_sha256
                 }
                 onAnswerChange={
                   onAnswerChange
