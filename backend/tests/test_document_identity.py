@@ -60,7 +60,7 @@ def test_upload_hash_is_stable_when_filename_changes():
                 "notes.pdf",
                 contents,
             ),
-            _current_user=user,
+            current_user=user,
         )
     )
 
@@ -70,7 +70,7 @@ def test_upload_hash_is_stable_when_filename_changes():
                 "renamed-notes.pdf",
                 contents,
             ),
-            _current_user=user,
+            current_user=user,
         )
     )
 
