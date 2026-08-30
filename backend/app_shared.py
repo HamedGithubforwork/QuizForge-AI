@@ -20,6 +20,7 @@ from document_api import (
 )
 from observability import (
     elapsed_ms,
+    log_event,
     record_timing_sample,
 )
 from outbound_clients import (
@@ -99,6 +100,30 @@ async def _record_auth_timing(started_at: float):
         redis_client,
         "auth_latency_ms",
         elapsed_ms(started_at),
+    )
+
+
+async def _get_performance_snapshot(client):
+    from admin_metrics import get_metric_snapshot
+
+    return await get_metric_snapshot(client)
+
+
+async def log_startup_performance_snapshot(client):
+    try:
+        snapshot = await _get_performance_snapshot(
+            client
+        )
+    except Exception as error:
+        log_event(
+            "performance_snapshot_error",
+            error_type=type(error).__name__,
+        )
+        return
+
+    log_event(
+        "performance_snapshot",
+        snapshot=snapshot,
     )
 
 
@@ -221,6 +246,12 @@ async def get_current_user(
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
     await start_outbound_clients()
+
+    from redis_integration import redis_client
+
+    await log_startup_performance_snapshot(
+        redis_client
+    )
 
     try:
         yield
