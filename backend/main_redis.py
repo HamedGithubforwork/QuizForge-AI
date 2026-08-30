@@ -12,6 +12,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from starlette.concurrency import run_in_threadpool
 
 import main as base_app
 from admin_metrics import get_metric_snapshot
@@ -72,6 +73,17 @@ def extract_pdf_pages_from_context(
 
     return extract_pdf_pages_without_redis(
         contents
+    )
+
+
+async def extract_pdf_pages_off_event_loop(
+    contents: bytes,
+):
+    """Run blocking PyMuPDF extraction in Starlette's worker threadpool."""
+
+    return await run_in_threadpool(
+        extract_pdf_pages_without_redis,
+        contents,
     )
 
 
@@ -243,7 +255,7 @@ async def get_document_pages_with_cache(
             cached_document["pages"],
         )
 
-    pages = extract_pdf_pages_without_redis(
+    pages = await extract_pdf_pages_off_event_loop(
         contents
     )
 
