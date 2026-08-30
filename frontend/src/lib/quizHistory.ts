@@ -53,12 +53,13 @@ type SupabaseInsertError = {
 
 export type QuizHistoryPage = {
   items: QuizHistoryRow[]
-  totalCount: number
+  totalCount: number | null
   hasMore: boolean
+  nextCursor: QuizHistoryCursor | null
 }
 
 type GetQuizHistoryPageInput = {
-  offset?: number
+  cursor?: QuizHistoryCursor
   limit?: number
 }
 
@@ -66,64 +67,6 @@ type GetDocumentHistoryInput = {
   sourceFilename: string
   documentSha256?: string | null
   limit?: number
-}
-
-type HistoryPaginationState = {
-  initialized: boolean
-  pageSize: number
-  loadedIds: string[]
-  nextCursor: QuizHistoryCursor | null
-  totalCount: number
-}
-
-const historyPaginationState: HistoryPaginationState = {
-  initialized: false,
-  pageSize: QUIZ_HISTORY_PAGE_SIZE,
-  loadedIds: [],
-  nextCursor: null,
-  totalCount: 0,
-}
-
-function resetHistoryPaginationState({
-  pageSize,
-  items,
-  nextCursor,
-  totalCount,
-}: {
-  pageSize: number
-  items: QuizHistoryRow[]
-  nextCursor: QuizHistoryCursor | null
-  totalCount: number
-}) {
-  historyPaginationState.initialized = true
-  historyPaginationState.pageSize = pageSize
-  historyPaginationState.loadedIds =
-    items.map((item) => item.id)
-  historyPaginationState.nextCursor =
-    nextCursor
-  historyPaginationState.totalCount =
-    totalCount
-}
-
-function appendHistoryPaginationState(
-  items: QuizHistoryRow[],
-  nextCursor: QuizHistoryCursor | null,
-) {
-  const seen = new Set(
-    historyPaginationState.loadedIds,
-  )
-
-  items.forEach((item) => {
-    if (!seen.has(item.id)) {
-      seen.add(item.id)
-      historyPaginationState.loadedIds.push(
-        item.id,
-      )
-    }
-  })
-
-  historyPaginationState.nextCursor =
-    nextCursor
 }
 
 function isMissingDocumentSha256Column(
@@ -233,21 +176,13 @@ export async function saveQuizHistory(
 }
 
 export async function getQuizHistoryPage({
-  offset = 0,
+  cursor,
   limit = QUIZ_HISTORY_PAGE_SIZE,
 }: GetQuizHistoryPageInput = {}): Promise<QuizHistoryPage> {
-  const safeOffset = Math.max(
-    0,
-    Math.floor(offset),
-  )
   const pageSize =
     normalizeHistoryPageSize(limit)
-  const shouldStartNewPagination =
-    safeOffset === 0 ||
-    !historyPaginationState.initialized ||
-    historyPaginationState.pageSize !== pageSize
 
-  if (shouldStartNewPagination) {
+  if (!cursor) {
     const {
       data,
       error,
@@ -278,38 +213,11 @@ export async function getQuizHistoryPage({
       page.items.length +
         (page.hasMore ? 1 : 0)
 
-    resetHistoryPaginationState({
-      pageSize,
-      items: page.items,
-      nextCursor: page.nextCursor,
-      totalCount,
-    })
-
     return {
       items: page.items,
       totalCount,
       hasMore: page.hasMore,
-    }
-  }
-
-  if (
-    safeOffset !==
-    historyPaginationState.loadedIds.length
-  ) {
-    throw new Error(
-      'Quiz history changed while loading. Please refresh the history list.',
-    )
-  }
-
-  const cursor =
-    historyPaginationState.nextCursor
-
-  if (!cursor) {
-    return {
-      items: [],
-      totalCount:
-        historyPaginationState.totalCount,
-      hasMore: false,
+      nextCursor: page.nextCursor,
     }
   }
 
@@ -334,16 +242,11 @@ export async function getQuizHistoryPage({
     pageSize,
   )
 
-  appendHistoryPaginationState(
-    page.items,
-    page.nextCursor,
-  )
-
   return {
     items: page.items,
-    totalCount:
-      historyPaginationState.totalCount,
+    totalCount: null,
     hasMore: page.hasMore,
+    nextCursor: page.nextCursor,
   }
 }
 
@@ -435,21 +338,5 @@ export async function deleteQuizHistory(
 
   if (error) {
     throw error
-  }
-
-  if (
-    historyPaginationState.loadedIds.includes(
-      id,
-    )
-  ) {
-    historyPaginationState.loadedIds =
-      historyPaginationState.loadedIds.filter(
-        (loadedId) => loadedId !== id,
-      )
-    historyPaginationState.totalCount =
-      Math.max(
-        0,
-        historyPaginationState.totalCount - 1,
-      )
   }
 }

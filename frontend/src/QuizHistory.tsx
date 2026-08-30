@@ -24,6 +24,7 @@ import {
 import {
   appendUniqueHistoryRows,
   DOCUMENT_HISTORY_ANALYSIS_LIMIT,
+  type QuizHistoryCursor,
 } from './lib/quizHistoryPagination'
 import type {
   ShortAnswerGradingSpec,
@@ -247,6 +248,10 @@ function QuizHistory({
     useState(0)
   const [hasMoreHistory, setHasMoreHistory] =
     useState(false)
+  const [
+    nextHistoryCursor,
+    setNextHistoryCursor,
+  ] = useState<QuizHistoryCursor | null>(null)
   const [loading, setLoading] =
     useState(true)
   const [loadingMore, setLoadingMore] =
@@ -321,6 +326,8 @@ function QuizHistory({
       setLoading(true)
       setError('')
       setLoadMoreError('')
+      setHasMoreHistory(false)
+      setNextHistoryCursor(null)
 
       try {
         const page =
@@ -331,10 +338,15 @@ function QuizHistory({
         }
 
         setHistory(page.items)
-        setTotalHistoryCount(
-          page.totalCount,
-        )
+        if (page.totalCount !== null) {
+          setTotalHistoryCount(
+            page.totalCount,
+          )
+        }
         setHasMoreHistory(page.hasMore)
+        setNextHistoryCursor(
+          page.nextCursor,
+        )
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -406,7 +418,8 @@ function QuizHistory({
   async function handleLoadMore() {
     if (
       loadingMore ||
-      !hasMoreHistory
+      !hasMoreHistory ||
+      !nextHistoryCursor
     ) {
       return
     }
@@ -417,7 +430,7 @@ function QuizHistory({
     try {
       const page =
         await getQuizHistoryPage({
-          offset: history.length,
+          cursor: nextHistoryCursor,
         })
 
       setHistory((previous) =>
@@ -426,10 +439,10 @@ function QuizHistory({
           page.items,
         ),
       )
-      setTotalHistoryCount(
-        page.totalCount,
-      )
       setHasMoreHistory(page.hasMore)
+      setNextHistoryCursor(
+        page.nextCursor,
+      )
     } catch (err) {
       setLoadMoreError(
         err instanceof Error
