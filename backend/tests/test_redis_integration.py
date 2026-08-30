@@ -1,8 +1,8 @@
 import asyncio
 from io import BytesIO
 
-import main as base_app
-import main_redis
+import application
+import main
 from starlette.datastructures import Headers, UploadFile
 
 from redis_integration import (
@@ -123,22 +123,18 @@ def test_rate_limit_uses_redis_key():
     assert key == "quizforge:rate:test-user"
 
 
-def test_canonical_entrypoints_use_shared_rate_limiter():
+def test_canonical_application_uses_shared_rate_limiter():
     assert (
-        base_app.enforce_quiz_rate_limit
+        application.enforce_quiz_rate_limit
         is enforce_quiz_rate_limit
     )
-    assert (
-        main_redis.enforce_quiz_rate_limit
-        is enforce_quiz_rate_limit
-    )
-    assert base_app.app is main_redis.app
+    assert main.app is application.app
 
 
 def test_normal_generation_can_return_cached_quiz(
     monkeypatch,
 ):
-    cached_quiz = main_redis.Quiz(
+    cached_quiz = application.Quiz(
         title="Cached quiz",
         questions=[],
     )
@@ -170,28 +166,28 @@ def test_normal_generation_can_return_cached_quiz(
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "enforce_quiz_rate_limit",
         fake_rate_limit,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_quiz",
         fake_get_cached_quiz,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         fail_generation,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_quiz_metrics",
         fake_metrics,
     )
 
     result = asyncio.run(
-        main_redis.generate_quiz(
+        application.generate_quiz(
             file=make_upload(),
             document_sha256="",
             question_count=5,
@@ -202,7 +198,7 @@ def test_normal_generation_can_return_cached_quiz(
             avoid_questions="[]",
             generate_new_quiz_instead_of_using_cache=False,
             current_user=(
-                main_redis.AuthenticatedUser(
+                application.AuthenticatedUser(
                     id="test-user"
                 )
             ),
@@ -216,7 +212,7 @@ def test_normal_generation_can_return_cached_quiz(
 def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
     monkeypatch,
 ):
-    generated_quiz = main_redis.Quiz(
+    generated_quiz = application.Quiz(
         title="Fresh quiz",
         questions=[],
     )
@@ -280,38 +276,38 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "enforce_quiz_rate_limit",
         fake_rate_limit,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_quiz",
         fail_cache_read,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_document_pages_with_cache",
         fake_document_pages,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         fake_generation,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "cache_quiz",
         fake_cache_quiz,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_quiz_metrics",
         fake_metrics,
     )
 
     result = asyncio.run(
-        main_redis.generate_quiz(
+        application.generate_quiz(
             file=make_upload(),
             document_sha256="",
             question_count=5,
@@ -322,7 +318,7 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
             avoid_questions="[]",
             generate_new_quiz_instead_of_using_cache=True,
             current_user=(
-                main_redis.AuthenticatedUser(
+                application.AuthenticatedUser(
                     id="test-user"
                 )
             ),
