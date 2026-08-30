@@ -48,6 +48,7 @@ function UploadPanel({
         className="file-input"
         type="file"
         accept="application/pdf"
+        aria-label="Study material PDF"
         onChange={onFileChange}
       />
 
