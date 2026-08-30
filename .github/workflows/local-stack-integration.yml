@@ -97,8 +97,9 @@ jobs:
           set +a
 
           : "${API_URL:?Supabase API_URL was not reported}"
-          : "${ANON_KEY:?Supabase ANON_KEY was not reported}"
-          : "${SERVICE_ROLE_KEY:?Supabase SERVICE_ROLE_KEY was not reported}"
+
+          PUBLIC_KEY="${PUBLISHABLE_KEY:-${ANON_KEY:-}}"
+          : "${PUBLIC_KEY:?Supabase publishable key was not reported}"
 
           TEST_EMAIL="quizforge-integration@example.com"
           TEST_PASSWORD="Integration123!"
@@ -110,53 +111,75 @@ jobs:
 
             curl --fail --silent --show-error \
               --request POST \
-              "${API_URL}/auth/v1/admin/users" \
-              --header "apikey: ${SERVICE_ROLE_KEY}" \
-              --header "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
+              "${API_URL}/auth/v1/signup" \
+              --header "apikey: ${PUBLIC_KEY}" \
               --header "Content-Type: application/json" \
               --data "$(jq -cn \
                 --arg email "${email}" \
                 --arg password "${password}" \
-                '{email:$email,password:$password,email_confirm:true}')"
+                '{email:$email,password:$password}')"
           }
 
           TEST_USER_JSON="$(create_user "${TEST_EMAIL}" "${TEST_PASSWORD}")"
           OTHER_USER_JSON="$(create_user "${OTHER_EMAIL}" "${TEST_PASSWORD}")"
 
-          TEST_USER_ID="$(jq -r '.id' <<<"${TEST_USER_JSON}")"
-          OTHER_USER_ID="$(jq -r '.id' <<<"${OTHER_USER_JSON}")"
+          TEST_USER_ID="$(jq -r '.user.id // .id // empty' <<<"${TEST_USER_JSON}")"
+          OTHER_USER_ID="$(jq -r '.user.id // .id // empty' <<<"${OTHER_USER_JSON}")"
 
           test -n "${TEST_USER_ID}"
-          test "${TEST_USER_ID}" != "null"
           test -n "${OTHER_USER_ID}"
-          test "${OTHER_USER_ID}" != "null"
+
+          LOGIN_JSON="$(
+            curl --fail --silent --show-error \
+              --request POST \
+              "${API_URL}/auth/v1/token?grant_type=password" \
+              --header "apikey: ${PUBLIC_KEY}" \
+              --header "Content-Type: application/json" \
+              --data "$(jq -cn \
+                --arg email "${TEST_EMAIL}" \
+                --arg password "${TEST_PASSWORD}" \
+                '{email:$email,password:$password}')"
+          )"
+
+          test -n "$(jq -r '.access_token // empty' <<<"${LOGIN_JSON}")"
 
           seed_history() {
             local user_id="$1"
             local title="$2"
 
-            curl --fail --silent --show-error \
-              --request POST \
-              "${API_URL}/rest/v1/quiz_history" \
-              --header "apikey: ${SERVICE_ROLE_KEY}" \
-              --header "Authorization: Bearer ${SERVICE_ROLE_KEY}" \
-              --header "Content-Type: application/json" \
-              --header "Prefer: return=minimal" \
-              --data "$(jq -cn \
-                --arg user_id "${user_id}" \
-                --arg title "${title}" \
-                '{
-                  user_id:$user_id,
-                  quiz_title:$title,
-                  source_filename:"integration-seed.pdf",
-                  difficulty:"medium",
-                  question_type:"multiple_choice",
-                  question_count:5,
-                  score:4,
-                  percentage:80,
-                  quiz_data:{title:$title,questions:[]},
-                  selected_answers:{}
-                }')"
+            PGPASSWORD=postgres psql \
+              postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+              -v ON_ERROR_STOP=1 \
+              -v user_id="${user_id}" \
+              -v title="${title}" \
+              <<'SQL'
+          INSERT INTO public.quiz_history (
+            user_id,
+            quiz_title,
+            source_filename,
+            difficulty,
+            question_type,
+            question_count,
+            score,
+            percentage,
+            quiz_data,
+            selected_answers
+          ) VALUES (
+            :'user_id'::uuid,
+            :'title',
+            'integration-seed.pdf',
+            'medium',
+            'multiple_choice',
+            5,
+            4,
+            80,
+            jsonb_build_object(
+              'title', :'title',
+              'questions', '[]'::jsonb
+            ),
+            '{}'::jsonb
+          );
+          SQL
           }
 
           seed_history "${TEST_USER_ID}" "Integration Seed Quiz"
@@ -164,12 +187,12 @@ jobs:
 
           {
             echo "INTEGRATION_SUPABASE_URL=${API_URL}"
-            echo "INTEGRATION_SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "INTEGRATION_SUPABASE_PUBLISHABLE_KEY=${PUBLIC_KEY}"
             echo "INTEGRATION_API_URL=http://127.0.0.1:8000"
             echo "INTEGRATION_TEST_EMAIL=${TEST_EMAIL}"
             echo "INTEGRATION_TEST_PASSWORD=${TEST_PASSWORD}"
             echo "SUPABASE_URL=${API_URL}"
-            echo "SUPABASE_PUBLISHABLE_KEY=${ANON_KEY}"
+            echo "SUPABASE_PUBLISHABLE_KEY=${PUBLIC_KEY}"
             echo "REDIS_URL=redis://127.0.0.1:6379/0"
             echo "ALLOWED_ORIGINS=http://127.0.0.1:4174"
           } >> "${GITHUB_ENV}"
