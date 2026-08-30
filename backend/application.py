@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import time
 
 from fastapi import (
@@ -60,6 +61,9 @@ from redis_integration import (
 
 
 app = create_app()
+
+QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0
+QUIZ_GENERATION_POLL_JITTER_RATIO = 0.2
 
 
 async def extract_pdf_pages_off_event_loop(
@@ -272,6 +276,23 @@ async def get_generation_pages(
     return document["pages"]
 
 
+def get_quiz_generation_poll_delay(
+    poll_interval_seconds: float,
+):
+    bounded_interval = min(
+        max(0.0, poll_interval_seconds),
+        QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS,
+    )
+    jitter_floor = bounded_interval * (
+        1 - QUIZ_GENERATION_POLL_JITTER_RATIO
+    )
+
+    return random.uniform(
+        max(0.0, jitter_floor),
+        bounded_interval,
+    )
+
+
 async def acquire_quiz_generation_turn(
     cache_key: str,
     *,
@@ -304,11 +325,29 @@ async def acquire_quiz_generation_turn(
         time.monotonic()
         + QUIZ_GENERATION_WAIT_SECONDS
     )
+    poll_interval = (
+        QUIZ_GENERATION_POLL_INTERVAL_SECONDS
+    )
 
-    while time.monotonic() < deadline:
-        await asyncio.sleep(
-            QUIZ_GENERATION_POLL_INTERVAL_SECONDS
+    while True:
+        remaining_wait = (
+            deadline - time.monotonic()
         )
+
+        if remaining_wait <= 0:
+            break
+
+        poll_delay = min(
+            get_quiz_generation_poll_delay(
+                poll_interval
+            ),
+            remaining_wait,
+        )
+
+        await asyncio.sleep(poll_delay)
+
+        if time.monotonic() >= deadline:
+            break
 
         if use_cached_result:
             cached_quiz = await get_cached_quiz(
@@ -327,6 +366,10 @@ async def acquire_quiz_generation_turn(
             return None, None
 
         if not attempt.acquired:
+            poll_interval = min(
+                poll_interval * 2,
+                QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS,
+            )
             continue
 
         if use_cached_result:
