@@ -221,17 +221,37 @@ jobs:
         run: npm --prefix e2e run test:integration
 
       - name: Verify Redis document cache miss and hit
-        shell: bash
         run: |
-          set -euo pipefail
+          python - <<'PY'
+          from redis import Redis
 
-          CACHE_KEYS="$(redis-cli --scan --pattern 'quizforge:document-cache:*' | wc -l | tr -d ' ')"
-          MISSES="$(redis-cli GET quizforge:metrics:document_cache_misses_total || true)"
-          HITS="$(redis-cli GET quizforge:metrics:document_cache_hits_total || true)"
+          client = Redis.from_url(
+              "redis://127.0.0.1:6379/0",
+              decode_responses=True,
+          )
 
-          test "${CACHE_KEYS}" -ge 1
-          test "${MISSES:-0}" -ge 1
-          test "${HITS:-0}" -ge 1
+          cache_keys = list(
+              client.scan_iter(
+                  match="quizforge:document-cache:*"
+              )
+          )
+          misses = int(
+              client.get(
+                  "quizforge:metrics:document_cache_misses_total"
+              )
+              or 0
+          )
+          hits = int(
+              client.get(
+                  "quizforge:metrics:document_cache_hits_total"
+              )
+              or 0
+          )
+
+          assert len(cache_keys) >= 1, cache_keys
+          assert misses >= 1, misses
+          assert hits >= 1, hits
+          PY
 
       - name: Upload integration diagnostics on failure
         if: failure()
