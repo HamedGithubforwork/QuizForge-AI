@@ -60,6 +60,9 @@ jobs:
       - name: Run backend tests
         run: python -m pytest -q
 
+      - name: Build backend Docker image
+        run: docker build -t quizforge-backend-ci .
+
   frontend-checks:
     name: Frontend checks
     runs-on: ubuntu-latest
