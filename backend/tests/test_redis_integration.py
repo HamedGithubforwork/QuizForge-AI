@@ -209,6 +209,7 @@ def test_normal_generation_can_return_cached_quiz(
     result = asyncio.run(
         main_redis.generate_quiz(
             file=make_upload(),
+            document_sha256="",
             question_count=5,
             difficulty="medium",
             question_type="multiple_choice",
@@ -326,6 +327,7 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
     result = asyncio.run(
         main_redis.generate_quiz(
             file=make_upload(),
+            document_sha256="",
             question_count=5,
             difficulty="medium",
             question_type="multiple_choice",

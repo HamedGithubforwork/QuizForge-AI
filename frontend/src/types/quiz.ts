@@ -11,6 +11,7 @@ export type PageResult = {
 
 export type UploadResult = {
   filename: string
+  pdf_sha256: string
   page_count: number
   character_count: number
   extractable_page_count: number

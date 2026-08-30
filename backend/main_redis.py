@@ -24,6 +24,12 @@ from observability import (
     record_document_cache_metric,
     record_quiz_metrics,
 )
+from processed_documents import (
+    build_quiz_cache_key_from_sha,
+    get_processed_document,
+    normalize_document_sha256,
+    remember_processed_document,
+)
 import quiz_service
 from quiz_service import (
     Quiz,
@@ -37,7 +43,6 @@ from redis_integration import (
     QUIZ_GENERATION_POLL_INTERVAL_SECONDS,
     QUIZ_GENERATION_WAIT_SECONDS,
     build_document_cache_key,
-    build_quiz_cache_key,
     cache_document,
     cache_quiz,
     compute_pdf_sha256,
@@ -124,6 +129,125 @@ async def get_document_pages_with_cache(
     )
 
     return pdf_sha256, pages
+
+
+async def get_generation_source_identity(
+    *,
+    document_sha256: str,
+    file: UploadFile | None,
+):
+    supplied_hash = (
+        document_sha256
+        if isinstance(
+            document_sha256,
+            str,
+        )
+        else ""
+    )
+
+    if supplied_hash.strip():
+        normalized_hash = (
+            normalize_document_sha256(
+                supplied_hash
+            )
+        )
+
+        if normalized_hash is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Processed document identifier is invalid."
+                ),
+            )
+
+        return (
+            normalized_hash,
+            "application/pdf",
+            None,
+        )
+
+    if file is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Process the PDF before generating a quiz."
+            ),
+        )
+
+    validate_pdf_content_type(
+        file.content_type
+    )
+
+    contents = await file.read()
+    validate_pdf_size(contents)
+
+    return (
+        compute_pdf_sha256(contents),
+        file.content_type,
+        contents,
+    )
+
+
+async def get_generation_pages(
+    *,
+    user_id: str,
+    pdf_sha256: str,
+    contents: bytes | None,
+):
+    if contents is not None:
+        _resolved_hash, pages = (
+            await get_document_pages_with_cache(
+                user_id=user_id,
+                contents=contents,
+            )
+        )
+
+        remember_processed_document(
+            user_id=user_id,
+            pdf_sha256=pdf_sha256,
+            pages=pages,
+        )
+
+        return pages
+
+    document = await get_processed_document(
+        user_id=user_id,
+        pdf_sha256=pdf_sha256,
+    )
+
+    if document is None:
+        await record_document_cache_metric(
+            redis_client,
+            "miss",
+        )
+
+        log_event(
+            "processed_document_lookup",
+            cache_result="miss",
+        )
+
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Processed document expired or is unavailable. "
+                "Please process the PDF again."
+            ),
+        )
+
+    await record_document_cache_metric(
+        redis_client,
+        "hit",
+    )
+
+    log_event(
+        "processed_document_lookup",
+        cache_result="hit",
+        page_count=len(
+            document["pages"]
+        ),
+    )
+
+    return document["pages"]
 
 
 async def acquire_quiz_generation_turn(
@@ -272,11 +396,17 @@ async def upload_pdf(
     contents = await file.read()
     validate_pdf_size(contents)
 
-    _pdf_sha256, pages = (
+    pdf_sha256, pages = (
         await get_document_pages_with_cache(
             user_id=current_user.id,
             contents=contents,
         )
+    )
+
+    remember_processed_document(
+        user_id=current_user.id,
+        pdf_sha256=pdf_sha256,
+        pages=pages,
     )
 
     return build_upload_response(
@@ -291,7 +421,8 @@ async def upload_pdf(
     response_model=Quiz,
 )
 async def generate_quiz(
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    document_sha256: str = Form(""),
     question_count: int = Form(5),
     difficulty: str = Form("medium"),
     question_type: str = Form(
@@ -318,10 +449,6 @@ async def generate_quiz(
     )
 
     try:
-        validate_pdf_content_type(
-            file.content_type
-        )
-
         (
             question_count,
             difficulty,
@@ -332,12 +459,20 @@ async def generate_quiz(
             question_type,
         )
 
-        contents = await file.read()
-        validate_pdf_size(contents)
+        (
+            pdf_sha256,
+            content_type,
+            contents,
+        ) = await get_generation_source_identity(
+            document_sha256=(
+                document_sha256
+            ),
+            file=file,
+        )
 
-        cache_key = build_quiz_cache_key(
+        cache_key = build_quiz_cache_key_from_sha(
             user_id=current_user.id,
-            contents=contents,
+            pdf_sha256=pdf_sha256,
             question_count=question_count,
             difficulty=difficulty,
             question_type=question_type,
@@ -346,7 +481,7 @@ async def generate_quiz(
                 focus_question_types
             ),
             avoid_questions=avoid_questions,
-            content_type=file.content_type,
+            content_type=content_type,
         )
 
         if not generate_new_quiz_instead_of_using_cache:
@@ -407,11 +542,10 @@ async def generate_quiz(
             return singleflight_cached_quiz
 
         try:
-            _pdf_sha256, pages = (
-                await get_document_pages_with_cache(
-                    user_id=current_user.id,
-                    contents=contents,
-                )
+            pages = await get_generation_pages(
+                user_id=current_user.id,
+                pdf_sha256=pdf_sha256,
+                contents=contents,
             )
 
             quiz = await generate_quiz_from_pages(

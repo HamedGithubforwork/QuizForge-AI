@@ -8,6 +8,7 @@ const TEST_EMAIL = 'student@example.com'
 const TEST_PASSWORD = 'correct-password'
 const TEST_USER_ID = 'e2e-user-id'
 const ACCESS_TOKEN = 'e2e-access-token'
+const DOCUMENT_SHA256 = 'a'.repeat(64)
 
 const gradingNone = {
   grading_version: 2,
@@ -233,6 +234,7 @@ async function mockBackend(page: Page) {
         contentType: 'application/json',
         body: JSON.stringify({
           filename: 'e2e-notes.pdf',
+          pdf_sha256: DOCUMENT_SHA256,
           page_count: 2,
           character_count: 1560,
           extractable_page_count: 2,
@@ -267,6 +269,22 @@ async function mockBackend(page: Page) {
       expect(
         route.request().headers().authorization,
       ).toBe(`Bearer ${ACCESS_TOKEN}`)
+
+      const requestBody =
+        route.request().postData() ?? ''
+
+      expect(requestBody).toContain(
+        'name="document_sha256"',
+      )
+      expect(requestBody).toContain(
+        DOCUMENT_SHA256,
+      )
+      expect(requestBody).not.toContain(
+        'filename="e2e-notes.pdf"',
+      )
+      expect(requestBody).not.toContain(
+        'name="file"',
+      )
 
       generationCount += 1
 
