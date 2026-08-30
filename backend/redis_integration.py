@@ -12,6 +12,11 @@ from fastapi import HTTPException
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from cache_identity import (
+    build_document_cache_key_from_sha as build_document_cache_identity,
+    build_quiz_cache_key_from_sha as build_quiz_cache_identity,
+    compute_pdf_sha256,
+)
 from observability import log_event
 
 
@@ -324,37 +329,27 @@ async def enforce_answer_review_rate_limit(
     )
 
 
-def compute_pdf_sha256(
-    contents: bytes,
+def build_document_cache_key_from_sha(
+    *,
+    user_id: str,
+    pdf_sha256: str,
 ):
-    return hashlib.sha256(
-        contents
-    ).hexdigest()
+    return build_document_cache_identity(
+        cache_version=DOCUMENT_CACHE_VERSION,
+        user_id=user_id,
+        pdf_sha256=pdf_sha256,
+    )
 
 
 def build_document_cache_key(
     user_id: str,
     contents: bytes,
 ):
-    request_data = {
-        "cache_version": DOCUMENT_CACHE_VERSION,
-        "user_id": user_id,
-        "pdf_sha256": compute_pdf_sha256(
+    return build_document_cache_key_from_sha(
+        user_id=user_id,
+        pdf_sha256=compute_pdf_sha256(
             contents
         ),
-    }
-
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            request_data,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-
-    return (
-        "quizforge:document-cache:"
-        f"{fingerprint}"
     )
 
 
@@ -462,6 +457,34 @@ async def cache_document(
     return True
 
 
+def build_quiz_cache_key_from_sha(
+    *,
+    user_id: str,
+    pdf_sha256: str,
+    question_count: int,
+    difficulty: str,
+    question_type: str,
+    focus_pages: str,
+    focus_question_types: str,
+    avoid_questions: str,
+    content_type: str | None,
+):
+    return build_quiz_cache_identity(
+        cache_version=QUIZ_CACHE_VERSION,
+        user_id=user_id,
+        pdf_sha256=pdf_sha256,
+        question_count=question_count,
+        difficulty=difficulty,
+        question_type=question_type,
+        focus_pages=focus_pages,
+        focus_question_types=(
+            focus_question_types
+        ),
+        avoid_questions=avoid_questions,
+        content_type=content_type,
+    )
+
+
 def build_quiz_cache_key(
     user_id: str,
     contents: bytes,
@@ -473,34 +496,20 @@ def build_quiz_cache_key(
     avoid_questions: str,
     content_type: str | None,
 ):
-    request_data = {
-        "cache_version": QUIZ_CACHE_VERSION,
-        "user_id": user_id,
-        "pdf_sha256": compute_pdf_sha256(
+    return build_quiz_cache_key_from_sha(
+        user_id=user_id,
+        pdf_sha256=compute_pdf_sha256(
             contents
         ),
-        "content_type": content_type or "",
-        "question_count": question_count,
-        "difficulty": difficulty.strip().lower(),
-        "question_type": question_type.strip().lower(),
-        "focus_pages": focus_pages.strip(),
-        "focus_question_types": (
-            focus_question_types.strip()
+        question_count=question_count,
+        difficulty=difficulty,
+        question_type=question_type,
+        focus_pages=focus_pages,
+        focus_question_types=(
+            focus_question_types
         ),
-        "avoid_questions": avoid_questions.strip(),
-    }
-
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            request_data,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-
-    return (
-        "quizforge:quiz-cache:"
-        f"{fingerprint}"
+        avoid_questions=avoid_questions,
+        content_type=content_type,
     )
 
 
