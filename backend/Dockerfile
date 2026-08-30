@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements.txt requirements.lock ./
+COPY requirements.in requirements.lock requirements.txt ./
 
 RUN pip install --no-cache-dir -r requirements.txt
 
