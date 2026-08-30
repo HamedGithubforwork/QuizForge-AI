@@ -120,6 +120,11 @@ const practiceQuiz = {
   ),
 }
 
+const sourcePageText: Record<number, string> = {
+  1: 'TCP provides reliable ordered delivery. UDP is a connectionless transport protocol.',
+  2: 'ARP maps IPv4 addresses to MAC addresses. DNS resolves host names to IP addresses. HTTP is used for web requests.',
+}
+
 async function mockSupabase(
   page: Page,
   options: {
@@ -221,6 +226,7 @@ async function mockSupabase(
 
 async function mockBackend(page: Page) {
   let generationCount = 0
+  let sourceRequestCount = 0
 
   await page.route(
     '**/api-mock/api/documents/upload',
@@ -246,18 +252,48 @@ async function mockBackend(page: Page) {
               character_count: 780,
               preview:
                 'TCP provides reliable ordered delivery. UDP is connectionless.',
-              text:
-                'TCP provides reliable ordered delivery. UDP is a connectionless transport protocol.',
             },
             {
               page_number: 2,
               character_count: 780,
               preview:
                 'ARP maps IPv4 addresses to MAC addresses. DNS resolves host names.',
-              text:
-                'ARP maps IPv4 addresses to MAC addresses. DNS resolves host names to IP addresses. HTTP is used for web requests.',
             },
           ],
+        }),
+      })
+    },
+  )
+
+  await page.route(
+    '**/api-mock/api/documents/*/pages/*',
+    async (route) => {
+      expect(
+        route.request().headers().authorization,
+      ).toBe(`Bearer ${ACCESS_TOKEN}`)
+
+      const url = new URL(
+        route.request().url(),
+      )
+      const segments =
+        url.pathname.split('/')
+      const pageNumber = Number(
+        segments[segments.length - 1],
+      )
+
+      expect(url.pathname).toContain(
+        DOCUMENT_SHA256,
+      )
+
+      sourceRequestCount += 1
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          pdf_sha256: DOCUMENT_SHA256,
+          page_number: pageNumber,
+          text: sourcePageText[pageNumber],
         }),
       })
     },
@@ -300,7 +336,12 @@ async function mockBackend(page: Page) {
     },
   )
 
-  return () => generationCount
+  return {
+    getGenerationCount: () =>
+      generationCount,
+    getSourceRequestCount: () =>
+      sourceRequestCount,
+  }
 }
 
 async function submitLogin(
@@ -335,7 +376,7 @@ test(
   'logs in and completes the PDF, quiz, history, and weak-area workflow',
   async ({ page }) => {
     await mockSupabase(page)
-    const getGenerationCount =
+    const backend =
       await mockBackend(page)
 
     await logIn(page)
@@ -422,6 +463,10 @@ test(
       ),
     ).toBeVisible()
 
+    expect(
+      backend.getSourceRequestCount(),
+    ).toBe(0)
+
     await cards
       .nth(0)
       .getByRole('button', {
@@ -433,9 +478,13 @@ test(
       cards
         .nth(0)
         .getByText(
-          'TCP provides reliable ordered delivery. UDP is a connectionless transport protocol.',
+          sourcePageText[1],
         ),
     ).toBeVisible()
+
+    expect(
+      backend.getSourceRequestCount(),
+    ).toBe(1)
 
     await page
       .getByRole('button', {
@@ -487,7 +536,9 @@ test(
       }),
     ).toBeVisible()
 
-    expect(getGenerationCount()).toBe(2)
+    expect(
+      backend.getGenerationCount(),
+    ).toBe(2)
   },
 )
 
