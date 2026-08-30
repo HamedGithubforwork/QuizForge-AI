@@ -6,23 +6,24 @@
 
 [Live Demo](https://quiz-forge-ai-nine.vercel.app) · [Backend API](https://quizforge-ai-api.onrender.com) · [API Health](https://quizforge-ai-api.onrender.com/api/health)
 
-> Production workflow verified end to end: sign in → upload PDF → process text → generate quiz → answer → score → save → history/analytics → weak-area practice.
+> The production application supports the full learner workflow: sign in → upload PDF → process text → generate quiz → answer → score → save → history/analytics → weak-area practice.
 
 ---
 
 ## Why this project
 
-QuizForge AI started as a PDF-to-quiz application and grew into a production-oriented full-stack project. It demonstrates more than an AI API call: authentication, structured AI output, deterministic validation and grading, persistent user history, targeted learning analytics, Redis-backed caching and rate limiting, automated tests, CI, Docker development, and cloud deployment.
+QuizForge AI started as a PDF-to-quiz application and grew into a production-oriented full-stack project. It demonstrates authentication, structured AI output, deterministic validation and grading, persistent user history, mastery analytics, Redis-backed caching and rate limiting, automated browser/integration testing, observability, Docker development, and cloud deployment.
 
 ### Engineering highlights
 
-- **Grounded AI generation** — quiz questions, answers, explanations, and source pages are generated from the uploaded PDF rather than general model knowledge.
-- **Structured validation** — FastAPI/Pydantic schemas and deterministic validators reject malformed quiz or grading data before it reaches the UI.
-- **Adaptive practice** — saved attempts are analyzed by question type and source page to create new weak-area quizzes instead of simply repeating missed questions.
-- **Production caching** — Redis caches extracted documents and generated quizzes to reduce repeated work and external AI requests.
-- **Per-user protection** — authenticated endpoints, Redis-backed rate limiting, Supabase Row Level Security, configurable CORS, and security response headers.
-- **Automated quality gates** — backend tests, frontend grading/analytics tests, linting, production builds, dependency audit, and Playwright E2E run in GitHub Actions.
-- **Privacy-conscious observability** — structured logs record operational metadata without PDF text, user IDs, Redis keys, raw provider errors, or client IP access logs.
+- **Grounded AI generation** — questions, answers, explanations, and source pages must be supported by the uploaded PDF.
+- **Structured validation** — FastAPI/Pydantic schemas and deterministic validators reject malformed generated quizzes and grading rubrics before they reach the browser.
+- **Stable document identity** — SHA-256 document identity keeps history associated with the same PDF even when a file is renamed.
+- **Adaptive practice** — saved attempts are analyzed by question type and source page to create new weak-area quizzes rather than simply repeating missed questions.
+- **Production caching** — Redis caches extracted document data and eligible generated quizzes and supports source-page retrieval without repeatedly loading full processed documents.
+- **Distributed coordination** — Redis also backs per-user rate limiting, generation single-flight locking, and operational metrics, with safe process-local fallbacks where designed.
+- **Automated quality gates** — pytest, frontend domain tests, lint/build checks, Playwright browser tests, real local-stack integration, database migration verification, security audits, and production smoke checks run through GitHub Actions.
+- **Privacy-conscious observability** — structured logs and performance metrics avoid PDF text, bearer tokens, user IDs, Redis keys, raw provider errors, and default IP-bearing Uvicorn access logs.
 
 ---
 
@@ -31,11 +32,11 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 1. **Authenticate** with Supabase email/password authentication.
 2. **Upload a PDF** and extract selectable text with PyMuPDF.
 3. **Configure a quiz** with 5, 10, or 15 questions, difficulty, and question type.
-4. **Generate** a source-grounded quiz through the FastAPI/OpenAI backend.
+4. **Generate** a source-grounded quiz through FastAPI and OpenAI.
 5. **Answer and review** multiple-choice, true/false, and short-answer questions with explanations and source-page references.
 6. **Save results** to Supabase PostgreSQL.
 7. **Analyze progress** using quiz history, score trends, mastery tracking, weak question types, and weak source pages.
-8. **Practice weak areas** with a new targeted quiz that focuses on recent mistakes without repeating the original missed questions.
+8. **Practice weak areas** with a new targeted quiz focused on recent mistakes without repeating the original missed questions.
 
 ---
 
@@ -49,7 +50,7 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 
 ![QuizForge answer review with explanations](docs/screenshots/generated-quiz.png)
 
-> The live demo contains the current history/mastery analytics and targeted weak-area practice UI. Older screenshots of those views were removed from the README so the portfolio does not show stale production screens.
+> The live demo contains the current history/mastery analytics and targeted weak-area practice UI. Older screenshots of those views were intentionally removed so the portfolio does not show stale production screens.
 
 ---
 
@@ -63,9 +64,11 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 - Easy, Medium, and Hard difficulty
 - Multiple Choice, True / False, Short Answer, or Mixed modes
 - AI-generated explanations
-- Source-page references and **View Source** support
-- Prompt-injection-resistant instructions that treat PDF content as data rather than commands
-- Retry validation when AI output does not satisfy the quiz schema or grading rules
+- Source-page references and authenticated **View Source** retrieval
+- Prompt-injection-resistant instructions that treat PDF content as untrusted study material rather than instructions
+- Deterministic validation and one regeneration attempt when AI output violates the quiz/grading contract
+- Processed-document reuse so later generations can reference a user-scoped document SHA instead of retransmitting the PDF bytes
+- Generate New Quiz cache bypass while still reusing safe processed-document work
 
 ### Quiz experience
 
@@ -76,18 +79,22 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 - Generate New Quiz
 - Deterministic short-answer grading with concept, exact, and numeric modes
 - Compatible numeric-unit conversion for common mass, length, volume, time, percentage, and temperature answers
-- Optional AI review for borderline short-answer paraphrases
+- Optional conservative AI review for borderline short-answer paraphrases
+- Lazy source-page retrieval with bounded frontend caching
 
 ### Personalized learning
 
 - Persistent quiz history
+- Stable PDF identity across renamed copies
+- Lazy-loaded history
+- Cursor-based history pagination
 - Performance analytics
 - Recent score trends
 - Weak question-type detection
 - Weak source-page detection
 - Targeted weak-area practice
 - Avoidance of previously missed question text when generating follow-up practice
-- Mastery tracking based on multiple recent attempts rather than a single high score
+- Mastery tracking based on repeated recent evidence rather than a single high score
 
 ### Authentication and account flows
 
@@ -111,11 +118,11 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 | AI | OpenAI API with structured responses |
 | Database | PostgreSQL via Supabase |
 | Authentication | Supabase Auth |
-| Caching / rate limiting | Redis |
+| Caching / rate limiting / coordination | Redis |
 | Frontend deployment | Vercel |
 | Backend deployment | Render |
 | Testing | pytest, Node-based TypeScript tests, Playwright |
-| CI / DevOps | GitHub Actions, Docker, Docker Compose |
+| CI / DevOps | GitHub Actions, Docker, Docker Compose, Supabase CLI |
 
 ---
 
@@ -130,7 +137,7 @@ flowchart TD
     AUTH[Supabase Auth]
     DB[(PostgreSQL<br/>Quiz History + RLS)]
     PDF[PyMuPDF<br/>PDF Extraction]
-    REDIS[(Redis<br/>Cache • Rate Limits • Metrics)]
+    REDIS[(Redis<br/>Cache • Rate Limits • Locks • Metrics)]
     AI[OpenAI API<br/>Quiz Generation + Answer Review]
 
     USER --> FE
@@ -145,124 +152,120 @@ flowchart TD
     API --> FE
 ```
 
-### How the pieces connect
+### Responsibility boundaries
 
-- **React on Vercel** handles the interface, deterministic grading, analytics, and weak-area selection.
-- **Supabase Auth** manages user sessions. FastAPI verifies the same bearer session before protected PDF/AI operations.
-- **Supabase PostgreSQL** stores quiz history. The frontend accesses it through the Supabase client, while Row Level Security restricts users to their own rows.
-- **FastAPI on Render** owns authentication checks, PDF orchestration, server-side secrets, AI requests, and deterministic validation of generated quiz data before it reaches the frontend.
+- **React on Vercel** owns the interface, deterministic client-side grading, quiz session state, saved-history views, analytics, and weak-area selection.
+- **Supabase Auth** owns user sessions. FastAPI verifies bearer sessions server-side before protected PDF/AI work.
+- **Supabase PostgreSQL** stores quiz history. The browser uses the Supabase client under Row Level Security so users are restricted to their own rows.
+- **FastAPI on Render** owns protected PDF orchestration, server-side secrets, request validation, provider calls, generated-quiz validation, rate-limit enforcement, and cache/processed-document coordination.
 - **PyMuPDF** extracts selectable text and page boundaries from uploaded PDFs.
-- **Redis** provides document caching, quiz caching, per-user rate limiting, and operational metrics.
-- **OpenAI** generates structured quiz data and can review borderline short answers.
+- **Redis** provides document/quiz/source caches, per-user rate limits, generation single-flight locking, and operational metrics. Correctness paths degrade safely when Redis is unavailable according to the backend fallback design.
+- **OpenAI** generates structured quiz data and performs conservative semantic review for selected borderline short answers. Provider output is not trusted merely because it parses.
 
 ### Main request paths
 
 | Flow | Path |
 | --- | --- |
 | Sign in | Browser → Supabase Auth |
-| Upload / generate quiz | Browser → FastAPI → PyMuPDF / Redis / OpenAI |
+| Upload/process PDF | Browser → FastAPI → PyMuPDF / Redis |
+| Generate quiz | Browser → FastAPI → Redis / OpenAI |
 | Verify protected request | FastAPI → Supabase Auth |
-| Save / load history | Browser → Supabase PostgreSQL under RLS |
+| Save/load history | Browser → Supabase PostgreSQL under RLS |
+| View cited source | Browser → FastAPI → user-scoped processed source cache |
 | Weak-area practice | Browser analytics → FastAPI → new grounded quiz |
 
 ---
 
-## Redis caching and rate limiting
+## Redis caching, rate limiting, and coordination
 
-Quiz generation can involve PDF extraction and an external AI request, so QuizForge uses Redis for two independent caches:
+Quiz generation can involve PDF extraction and an external AI request, so QuizForge separates reusable document work from generated-quiz caching.
 
 - **Document cache** — reuses extracted PDF pages for the same authenticated user/document.
+- **Processed-document/source cache** — retains server-side page data so the browser can generate again using `document_sha256` and lazily fetch cited pages without resending full PDF bytes.
 - **Quiz cache** — reuses an already generated quiz for an identical eligible request.
+- **Single-flight lock** — prevents duplicate concurrent work for identical quiz-generation requests; explicit fresh-generation requests remain fresh while being serialized.
+- **Rate limits** — quiz generation and semantic answer review use separate per-user policies.
+- **Metrics** — Redis stores aggregate counters and bounded timing samples used by the authenticated admin metrics endpoint.
 
-Default TTLs:
+Default document and quiz cache TTLs are:
 
 ```text
 Document cache: 86400 seconds (24 hours)
 Quiz cache:      3600 seconds (1 hour)
 ```
 
-Quiz-generation traffic is also protected by a Redis-backed per-user limiter. The default is:
+Default quiz-generation rate limit:
 
 ```text
-10 quiz-generation requests per 600 seconds
+10 requests per 600 seconds
 ```
 
-If the Redis rate-limit backend is unavailable, QuizForge falls back to an in-memory limiter rather than removing protection entirely.
+Redis failures do not silently disable security or fabricate cache success. Rate limiting falls back to process-local enforcement, while cache/processed-document paths follow their explicit safe-degradation behavior.
 
 ---
 
 ## Security and production engineering
 
-QuizForge treats authentication, AI output, uploaded documents, external providers, and production logs as separate trust boundaries. The goal is not to assume any one layer is safe by default, but to validate and constrain data at each boundary.
+QuizForge treats authentication, AI output, uploaded documents, external providers, persistent data, caches, and logs as separate trust boundaries.
 
 | Area | Implementation |
 | --- | --- |
-| Authentication | Protected FastAPI routes require a Supabase bearer token. The backend verifies the token server-side against Supabase Auth before accepting PDF or AI work. Invalid/expired sessions return `401`; authentication-provider failures fail closed with `503`. |
-| Data isolation | Quiz history is accessed through Supabase PostgreSQL with Row Level Security so authenticated users are restricted to their own rows. The privileged RLS helper function is not executable through the public/authenticated Data API roles. |
-| Secret handling | OpenAI credentials remain server-side and are loaded from environment variables. The browser never receives the OpenAI API key. Example environment files contain placeholders only. |
-| CORS / browser boundary | Backend CORS uses an explicit environment-controlled origin allowlist, permits only `GET`/`POST`, accepts only `Authorization` and `Content-Type`, and does not enable cross-origin credentials. |
-| Security headers | API responses include `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a `Permissions-Policy` disabling camera, microphone, and geolocation access. |
-| PDF / request validation | Uploads must be `application/pdf`, are capped at 15 MB, and are parsed by PyMuPDF. Quiz generation rejects likely scanned/image-only documents, excessive extracted text, invalid counts/difficulty/types, nonexistent focus pages, and malformed weak-area input. |
-| AI trust boundary | PDF text is explicitly treated as untrusted study material rather than instructions. OpenAI output must parse into the Pydantic schema and pass deterministic question-count, type, rubric, numeric-unit, answer-consistency, and source-page validation before being returned. Invalid output is retried once and then rejected. |
-| Abuse protection | Quiz generation uses a shared Redis-backed per-user rate limiter with `429` + `Retry-After`. If Redis is unavailable, protection falls back to a process-local in-memory limiter rather than disappearing. |
-| Cache isolation | Document and quiz cache fingerprints are scoped using the authenticated user plus document/request identity. Cache keys and document identifiers are not written to application logs. |
-| Admin surface | `/api/admin/metrics` requires both a valid authenticated session and membership in the configured `ADMIN_USER_IDS`; other authenticated users receive `403`. |
-| Observability / privacy | Structured logs contain operational fields such as event, route, status, duration, cache result, question count, and random request ID. Application logging avoids bearer tokens, user IDs, PDF text, Redis keys, and raw provider exception messages. Production Uvicorn access logging is disabled so client IP addresses are not written by the default access logger. |
+| Authentication | Protected FastAPI routes require a Supabase bearer token. Invalid/expired sessions return `401`; authentication-provider failures fail closed with a generic `503`. |
+| Data isolation | Quiz history uses Supabase RLS and user-scoped policies. Browser-facing table privileges are restricted to the operations the app requires. |
+| Secret handling | OpenAI and other server-only credentials remain in backend environment variables. Example environment files contain placeholders only. |
+| CORS / browser boundary | Backend CORS uses an explicit environment-controlled allowlist and restricted methods/headers. |
+| Security headers | Production responses are checked for anti-sniffing, referrer, framing, permissions, and transport-security headers. |
+| PDF / request validation | Uploads must be PDFs, are capped at 15 MB, and are parsed by PyMuPDF. Quiz generation validates text volume, question settings, focus pages, weak-area inputs, and processed-document identity. |
+| AI trust boundary | PDF text is treated as data, not instructions. OpenAI output must satisfy Pydantic schemas and deterministic structural/grading/source-page validation before reaching the client. |
+| Abuse protection | Quiz generation and semantic answer review are independently rate-limited; distributed Redis enforcement has bounded in-memory fallback behavior. |
+| Cache isolation | Cache/document identities are scoped by authenticated user plus document/request identity. |
+| Admin surface | `/api/admin/metrics` requires both a valid session and membership in `ADMIN_USER_IDS`; access fails closed when the allowlist is absent. |
+| Observability / privacy | Structured logs record operational metadata and timing data without request bodies, bearer tokens, PDF text, user IDs, Redis keys, or raw provider exception messages. |
 
 ### Failure behavior
 
-Production dependencies are expected to fail occasionally, so the backend uses explicit degradation and error boundaries:
-
-- **Supabase Auth unavailable** → protected requests fail closed with a generic `503` rather than bypassing authentication.
+- **Supabase Auth unavailable** → protected requests fail closed with a generic `503`.
 - **Redis rate-limit backend unavailable** → rate limiting falls back to in-memory enforcement.
-- **Redis cache unavailable** → cache operations degrade to misses; quiz/PDF processing can continue without exposing Redis error details to the client.
-- **OpenAI/provider error** → the server logs only the exception class and returns a generic `502` message.
-- **Malformed AI output** → deterministic validation rejects it; one regeneration attempt is allowed before returning a generic `502`.
-- **Unexpected request failure** → structured observability records request ID, route, duration, and exception type without logging request bodies or raw exception text.
+- **Redis cache unavailable** → cache work degrades safely rather than returning fabricated hits.
+- **OpenAI/provider error** → the server logs only redacted operational metadata and returns a generic provider failure.
+- **Malformed AI output** → deterministic validation rejects it; one regeneration attempt is allowed before returning an error.
+- **Unexpected request failure** → structured observability records request ID, route, duration, and exception type without raw request/provider content.
 
 ### Production privacy hardening
 
-The production Render process starts with:
+Render starts the canonical FastAPI application with:
 
 ```bash
-uvicorn main_redis:app --host 0.0.0.0 --port $PORT --no-access-log
+uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
 ```
 
-This keeps Uvicorn's default IP-bearing access log disabled while QuizForge's own structured request middleware still records method, route, status, duration, and a random request ID for debugging and operational metrics.
+The `--no-access-log` flag disables Uvicorn's default IP-bearing access log while QuizForge's own structured request middleware retains privacy-conscious operational fields.
 
 ---
 
 ## Testing and CI
 
-QuizForge uses multiple test layers instead of relying on a single browser happy-path test. GitHub Actions runs all three CI jobs on every push and pull request targeting `main`.
+QuizForge uses several verification layers. Workflows are **path-sensitive**: a pull request or push runs the checks relevant to the files it changes instead of unconditionally rerunning every job.
 
-| Layer | CI job | What it protects | Runtime |
-| --- | --- | --- | --- |
-| Backend API / infrastructure | **Backend tests** | API behavior, authentication requirements, PDF validation, document identity, Redis caching/rate limiting, metrics, answer review, quiz validation | Python 3.11 + Redis 7 |
-| Frontend domain logic | **Frontend checks** | grading, numeric-unit handling, history grading, fallback logic, document identity, weak-area analytics, mastery analytics, quiz-generation policy, lint/build integrity | Node 22 |
-| Browser workflow | **Playwright E2E** | sign-in UI, PDF processing, quiz generation, answering/scoring, source references, saving/history, weak-area practice | Chromium |
+| Layer | Workflow / job | What it protects |
+| --- | --- | --- |
+| Backend | **CI → Backend tests** | API behavior, auth enforcement, PDF validation, Redis behavior, metrics, AI review normalization, generated-quiz validation, Docker build |
+| Frontend | **CI → Frontend checks** | grading, numeric units, history consistency, fallback logic, document identity, analytics/mastery, pagination, lint and production build |
+| Browser | **CI → Playwright E2E** | authentication UI, upload/generate/score flows, source retrieval, history, weak-area practice, accessibility/keyboard behavior |
+| Real local stack | **Local stack integration** | Browser + local Supabase + FastAPI + Redis, RLS isolation, migrations, document cache behavior |
+| Database | **Database migrations** | Rebuilds local Supabase from zero and verifies schema/security reproducibility |
+| Dependencies | **Security checks** | `pip-audit` and npm dependency audits on dependency changes plus scheduled/manual runs |
+| Production | **Deployment smoke** | Scheduled/manual read-only checks of deployed Vercel/Render wiring, health, headers, CORS, and unauthenticated admin protection |
 
 ### Backend tests
 
-The backend suite contains dedicated pytest modules for the API, Redis integration, document caching, document identity, observability, admin metrics, answer review, and generated-quiz validation.
+The backend pytest suite covers API contracts, authentication requirements, PDF validation/extraction, stable document identity, Redis caching/rate limiting, processed-document/source caching, generation coordination, observability, admin metrics, answer review, and deterministic generated-quiz validation.
 
-CI starts a disposable `redis:7-alpine` service and exposes it only through `TEST_REDIS_URL`, so the real-Redis integration tests exercise actual Redis behavior without touching production data.
-
-Key areas include:
-
-- API health and authentication requirements
-- PDF MIME/size/text validation and extraction behavior
-- document SHA-256 identity
-- document-cache hit/miss behavior
-- Redis-backed quiz caching and rate limiting
-- Redis failure/fallback paths
-- structured observability and admin metrics
-- AI answer-review response handling
-- generated question, rubric, numeric-unit, and source-page validation
+CI starts a disposable `redis:7-alpine` service through `TEST_REDIS_URL`, so real-Redis tests exercise actual protocol/TTL/locking behavior without touching production Redis.
 
 ### Frontend logic checks
 
-The frontend CI job runs eight focused TypeScript test files directly under Node before linting and building the production bundle:
+The current frontend CI job runs these focused TypeScript tests directly under Node before linting and building:
 
 ```text
 shortAnswerGrader.test.ts
@@ -273,39 +276,44 @@ documentIdentity.test.ts
 weakAreaAnalytics.test.ts
 masteryAnalytics.test.ts
 quizGenerationPolicy.test.ts
+quizHistoryPagination.test.ts
 ```
 
-The same job also runs:
+It then runs:
 
-- `npm audit --omit=dev --audit-level=low`
-- `npm run lint`
-- `npm run build`
+```bash
+npm run lint
+npm run build
+```
 
-This makes the production build and production dependency audit part of the CI gate rather than separate manual checks.
+Dependency auditing is owned by the separate **Security checks** workflow rather than duplicated in normal frontend CI.
 
 ### Playwright E2E
 
-Two Playwright specs exercise the application from Chromium:
+The standard browser suite currently includes:
 
-- `quizforge.spec.ts` — authentication UI, upload/process/generate, answering and scoring, explanations/source pages, save/history, weak-area practice, and invalid-login handling
-- `short-answer-history.spec.ts` — short-answer scoring/history persistence behavior and document identity flow
+- `quizforge.spec.ts` — authentication UI, upload/process/generate, answering/scoring, explanations/source pages, save/history, weak-area practice, and invalid-login handling
+- `short-answer-history.spec.ts` — short-answer grading/history persistence and document identity behavior
+- `source-page-cache.spec.ts` — lazy source retrieval and frontend source-cache behavior
+- `accessibility.spec.ts` — keyboard/accessibility-focused browser behavior
 
-External services are intentionally mocked at the browser network layer in this suite. CI therefore does **not** spend OpenAI credits or depend on live Supabase/Render availability, which keeps the browser tests reproducible.
+Standard Playwright tests mock external services at the browser network layer so CI stays deterministic and does not spend OpenAI credits.
 
-On E2E failure, GitHub Actions uploads the Playwright report as an artifact for 7 days.
+A separate integration Playwright configuration runs against local Supabase, FastAPI, and Redis for real cross-service verification.
 
 ### Production smoke testing
 
-Deterministic CI is complemented by a separate live-production smoke test. The deployed Vercel/Render/Supabase application has been verified through the real browser flow:
+`.github/workflows/deployment-smoke.yml` runs a scheduled and manually dispatchable **read-only** production smoke check. It deliberately avoids authentication, database writes, PDF uploads, Redis mutations, and OpenAI calls. It verifies:
 
-```text
-sign in → upload PDF → process → generate → answer → results
-→ save → history/analytics → weak-area practice
-```
+- Vercel frontend reachability and deployed JS bundle wiring
+- Render backend health/root contracts
+- production security response headers
+- unauthenticated denial of `/api/admin/metrics`
+- production frontend-origin CORS preflight
 
-This live smoke test is intentionally separate from CI: CI stays reproducible with mocked external services, while the smoke test validates that the actual deployed services work together.
+This is separate from the previously exercised full authenticated production workflow: deterministic CI stays reproducible, while the scheduled smoke checks public deployment wiring without mutating production state.
 
-### Run the checks locally
+### Run the main checks locally
 
 ```bash
 # Backend
@@ -324,16 +332,17 @@ node --experimental-strip-types src/lib/documentIdentity.test.ts
 node --experimental-strip-types src/lib/weakAreaAnalytics.test.ts
 node --experimental-strip-types src/lib/masteryAnalytics.test.ts
 node --experimental-strip-types src/lib/quizGenerationPolicy.test.ts
+node --experimental-strip-types src/lib/quizHistoryPagination.test.ts
 npm run lint
 npm run build
 
-# E2E (from repository root)
+# Standard E2E (repository root)
 npm ci --prefix e2e
 npx --prefix e2e playwright install chromium
 npm --prefix e2e test
 ```
 
-The CI implementation is in `.github/workflows/ci.yml`, and the browser-suite details are documented in `e2e/README.md`.
+See `.github/workflows/` and `e2e/README.md` for the complete CI and integration commands.
 
 ---
 
@@ -342,7 +351,7 @@ The CI implementation is in `.github/workflows/ci.yml`, and the browser-suite de
 ### Prerequisites
 
 - Git
-- Python 3.11+ recommended
+- Python 3.11.16 (repository runtime baseline)
 - Node.js 22+
 - Redis, or Docker Desktop
 - Supabase project
@@ -350,14 +359,12 @@ The CI implementation is in `.github/workflows/ci.yml`, and the browser-suite de
 
 ### Option 1 — Docker Compose
 
-Clone the repository:
-
 ```bash
 git clone https://github.com/HamedGithubforwork/QuizForge-AI.git
 cd QuizForge-AI
 ```
 
-Create local environment files from the included templates:
+Create local environment files from the committed examples:
 
 ```text
 backend/.env.example  → backend/.env
@@ -409,10 +416,10 @@ Install and run:
 
 ```bash
 pip install -r requirements.txt
-uvicorn main_redis:app --reload
+uvicorn main:app --reload
 ```
 
-When Redis is running directly on your machine rather than through Docker, use a local URL such as:
+When Redis runs directly on the machine, use a URL such as:
 
 ```env
 REDIS_URL=redis://127.0.0.1:6379/0
@@ -430,28 +437,31 @@ npm run dev
 
 ## Environment variables
 
-Use the committed example files as the source of truth.
-
-### Backend
+Use the committed `.env.example` files as the source of truth. Backend configuration currently includes:
 
 ```env
-OPENAI_API_KEY=
-SUPABASE_URL=
-SUPABASE_PUBLISHABLE_KEY=
+OPENAI_API_KEY=your_openai_api_key
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
-REDIS_URL=redis://redis:6379/0
 
+REDIS_URL=redis://redis:6379/0
 QUIZ_RATE_LIMIT=10
 QUIZ_RATE_WINDOW_SECONDS=600
+ANSWER_REVIEW_RATE_LIMIT=20
+ANSWER_REVIEW_RATE_WINDOW_SECONDS=600
 QUIZ_CACHE_TTL_SECONDS=3600
 QUIZ_CACHE_VERSION=v1
+QUIZ_GENERATION_LOCK_TTL_SECONDS=120
+QUIZ_GENERATION_WAIT_SECONDS=30
 DOCUMENT_CACHE_TTL_SECONDS=86400
 DOCUMENT_CACHE_MAX_BYTES=1500000
 DOCUMENT_CACHE_VERSION=v1
+
 LOG_LEVEL=INFO
 ```
 
-### Frontend
+Frontend configuration uses:
 
 ```env
 VITE_SUPABASE_URL=
@@ -472,27 +482,25 @@ QuizForge uses a split cloud architecture:
 - **Database/Auth — Supabase:** PostgreSQL, Auth, and RLS
 - **Cache/Rate limiting — Redis:** production Redis-compatible service
 
-Render starts the production API with:
+The committed Render configuration uses the canonical backend entrypoint:
 
 ```bash
-uvicorn main_redis:app --host 0.0.0.0 --port $PORT --no-access-log
+uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
 ```
 
-The `--no-access-log` flag prevents Uvicorn from writing client IP addresses to application logs; QuizForge's structured request logs retain only operational fields such as method, route, status, duration, and a random request ID.
+Render is configured to deploy after checks pass. Production secrets remain external to the repository.
 
 > The free Render web service can cold-start after inactivity, so the first backend request may take longer than subsequent requests.
 
 ---
 
-## Current status
+## Current limitations
 
-QuizForge AI is deployed and supports the complete production workflow from authentication and PDF upload through quiz generation, deterministic grading, persistent history, analytics, and targeted weak-area practice.
-
-Current limitations include:
-
-- image-only/scanned PDFs are detected but OCR is not implemented yet
-- AI generation requires an external provider request on cache miss/bypass
-- the free backend tier may cold-start after inactivity
+- Image-only/scanned PDFs are detected but OCR is not implemented yet.
+- Quiz generation rejects documents whose extracted text exceeds the current AI-input limit.
+- AI generation requires an external provider request on cache miss/bypass.
+- Processed-document/cache data is intentionally temporary and can expire, requiring the PDF to be processed again.
+- The free backend tier may cold-start after inactivity.
 
 ---
 
@@ -502,10 +510,12 @@ Current limitations include:
 QuizForge-AI/
 ├── backend/              FastAPI API, PDF processing, Redis integration, tests
 ├── frontend/             React + TypeScript application
-├── e2e/                  Playwright end-to-end tests
+├── e2e/                  Playwright standard + local-stack integration tests
 ├── docs/screenshots/     README product screenshots
+├── scripts/              Read-only production smoke tooling
 ├── supabase/migrations/  Database/RLS migrations
-├── .github/workflows/    GitHub Actions CI
+├── supabase/tests/       Schema/security reproducibility checks
+├── .github/workflows/    CI, integration, migration, security, smoke workflows
 ├── docker-compose.yml    Local full-stack development
 └── render.yaml           Render production configuration
 ```
