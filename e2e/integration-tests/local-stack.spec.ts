@@ -82,9 +82,12 @@ test(
     await page.getByLabel('Password').fill(
       testPassword,
     )
-    await page.getByRole('button', {
-      name: 'Log In',
-    }).click()
+    await page.locator('form').getByRole(
+      'button',
+      {
+        name: 'Log In',
+      },
+    ).click()
 
     await expect(
       page.getByText(testEmail),
