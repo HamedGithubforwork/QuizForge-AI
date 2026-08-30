@@ -1,3 +1,2 @@
--r requirements.txt
-pytest>=8.0,<9.0
-httpx>=0.27,<1.0
+# Development/test installs use the exact graph in requirements-dev.lock.
+-r requirements-dev.lock
