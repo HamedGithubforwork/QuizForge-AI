@@ -6,10 +6,12 @@ import {
 } from './documentIdentity'
 import {
   appendUniqueHistoryRows,
+  buildHistoryCursorFilter,
   DOCUMENT_HISTORY_ANALYSIS_LIMIT,
-  hasMoreHistoryRows,
   normalizeHistoryPageSize,
   QUIZ_HISTORY_PAGE_SIZE,
+  splitHistoryPageRows,
+  type QuizHistoryCursor,
 } from './quizHistoryPagination'
 import { supabase } from './supabase'
 
@@ -64,6 +66,64 @@ type GetDocumentHistoryInput = {
   sourceFilename: string
   documentSha256?: string | null
   limit?: number
+}
+
+type HistoryPaginationState = {
+  initialized: boolean
+  pageSize: number
+  loadedIds: string[]
+  nextCursor: QuizHistoryCursor | null
+  totalCount: number
+}
+
+const historyPaginationState: HistoryPaginationState = {
+  initialized: false,
+  pageSize: QUIZ_HISTORY_PAGE_SIZE,
+  loadedIds: [],
+  nextCursor: null,
+  totalCount: 0,
+}
+
+function resetHistoryPaginationState({
+  pageSize,
+  items,
+  nextCursor,
+  totalCount,
+}: {
+  pageSize: number
+  items: QuizHistoryRow[]
+  nextCursor: QuizHistoryCursor | null
+  totalCount: number
+}) {
+  historyPaginationState.initialized = true
+  historyPaginationState.pageSize = pageSize
+  historyPaginationState.loadedIds =
+    items.map((item) => item.id)
+  historyPaginationState.nextCursor =
+    nextCursor
+  historyPaginationState.totalCount =
+    totalCount
+}
+
+function appendHistoryPaginationState(
+  items: QuizHistoryRow[],
+  nextCursor: QuizHistoryCursor | null,
+) {
+  const seen = new Set(
+    historyPaginationState.loadedIds,
+  )
+
+  items.forEach((item) => {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      historyPaginationState.loadedIds.push(
+        item.id,
+      )
+    }
+  })
+
+  historyPaginationState.nextCursor =
+    nextCursor
 }
 
 function isMissingDocumentSha256Column(
@@ -182,13 +242,17 @@ export async function getQuizHistoryPage({
   )
   const pageSize =
     normalizeHistoryPageSize(limit)
+  const shouldStartNewPagination =
+    safeOffset === 0 ||
+    !historyPaginationState.initialized ||
+    historyPaginationState.pageSize !== pageSize
 
-  const {
-    data,
-    error,
-    count,
-  } =
-    await supabase
+  if (shouldStartNewPagination) {
+    const {
+      data,
+      error,
+      count,
+    } = await supabase
       .from('quiz_history')
       .select('*', {
         count: 'exact',
@@ -199,29 +263,87 @@ export async function getQuizHistoryPage({
       .order('id', {
         ascending: false,
       })
-      .range(
-        safeOffset,
-        safeOffset + pageSize - 1,
-      )
+      .limit(pageSize + 1)
+
+    if (error) {
+      throw error
+    }
+
+    const page = splitHistoryPageRows(
+      (data ?? []) as QuizHistoryRow[],
+      pageSize,
+    )
+    const totalCount =
+      count ??
+      page.items.length +
+        (page.hasMore ? 1 : 0)
+
+    resetHistoryPaginationState({
+      pageSize,
+      items: page.items,
+      nextCursor: page.nextCursor,
+      totalCount,
+    })
+
+    return {
+      items: page.items,
+      totalCount,
+      hasMore: page.hasMore,
+    }
+  }
+
+  if (
+    safeOffset !==
+    historyPaginationState.loadedIds.length
+  ) {
+    throw new Error(
+      'Quiz history changed while loading. Please refresh the history list.',
+    )
+  }
+
+  const cursor =
+    historyPaginationState.nextCursor
+
+  if (!cursor) {
+    return {
+      items: [],
+      totalCount:
+        historyPaginationState.totalCount,
+      hasMore: false,
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('quiz_history')
+    .select('*')
+    .or(buildHistoryCursorFilter(cursor))
+    .order('created_at', {
+      ascending: false,
+    })
+    .order('id', {
+      ascending: false,
+    })
+    .limit(pageSize + 1)
 
   if (error) {
     throw error
   }
 
-  const items =
-    (data ?? []) as QuizHistoryRow[]
-  const totalCount =
-    count ?? safeOffset + items.length
+  const page = splitHistoryPageRows(
+    (data ?? []) as QuizHistoryRow[],
+    pageSize,
+  )
+
+  appendHistoryPaginationState(
+    page.items,
+    page.nextCursor,
+  )
 
   return {
-    items,
-    totalCount,
-    hasMore: hasMoreHistoryRows({
-      offset: safeOffset,
-      loadedCount: items.length,
-      totalCount: count,
-      pageSize,
-    }),
+    items: page.items,
+    totalCount:
+      historyPaginationState.totalCount,
+    hasMore: page.hasMore,
   }
 }
 
@@ -313,5 +435,21 @@ export async function deleteQuizHistory(
 
   if (error) {
     throw error
+  }
+
+  if (
+    historyPaginationState.loadedIds.includes(
+      id,
+    )
+  ) {
+    historyPaginationState.loadedIds =
+      historyPaginationState.loadedIds.filter(
+        (loadedId) => loadedId !== id,
+      )
+    historyPaginationState.totalCount =
+      Math.max(
+        0,
+        historyPaginationState.totalCount - 1,
+      )
   }
 }

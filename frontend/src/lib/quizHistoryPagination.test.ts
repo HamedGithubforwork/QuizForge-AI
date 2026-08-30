@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 
 import {
   appendUniqueHistoryRows,
-  hasMoreHistoryRows,
+  buildHistoryCursorFilter,
+  createHistoryCursor,
   MAX_QUIZ_HISTORY_PAGE_SIZE,
   normalizeHistoryPageSize,
   QUIZ_HISTORY_PAGE_SIZE,
+  splitHistoryPageRows,
 } from './quizHistoryPagination.ts'
 
 assert.equal(
@@ -42,42 +44,57 @@ assert.deepEqual(
   ],
 )
 
-assert.equal(
-  hasMoreHistoryRows({
-    offset: 0,
-    loadedCount: 20,
-    totalCount: 45,
-    pageSize: 20,
-  }),
-  true,
+const rows = [
+  {
+    id: '00000000-0000-0000-0000-000000000005',
+    created_at: '2026-08-30T12:00:05.000Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000004',
+    created_at: '2026-08-30T12:00:04.000Z',
+  },
+  {
+    id: '00000000-0000-0000-0000-000000000003',
+    created_at: '2026-08-30T12:00:03.000Z',
+  },
+]
+
+const firstPage = splitHistoryPageRows(
+  rows,
+  2,
+)
+
+assert.deepEqual(
+  firstPage.items,
+  rows.slice(0, 2),
+)
+assert.equal(firstPage.hasMore, true)
+assert.deepEqual(
+  firstPage.nextCursor,
+  {
+    createdAt: '2026-08-30T12:00:04.000Z',
+    id: '00000000-0000-0000-0000-000000000004',
+  },
+)
+
+assert.deepEqual(
+  createHistoryCursor(rows[1]),
+  firstPage.nextCursor,
 )
 assert.equal(
-  hasMoreHistoryRows({
-    offset: 40,
-    loadedCount: 5,
-    totalCount: 45,
-    pageSize: 20,
-  }),
-  false,
+  buildHistoryCursorFilter(
+    firstPage.nextCursor,
+  ),
+  'created_at.lt.2026-08-30T12:00:04.000Z,and(created_at.eq.2026-08-30T12:00:04.000Z,id.lt.00000000-0000-0000-0000-000000000004)',
 )
-assert.equal(
-  hasMoreHistoryRows({
-    offset: 0,
-    loadedCount: 20,
-    totalCount: null,
-    pageSize: 20,
-  }),
-  true,
+
+const finalPage = splitHistoryPageRows(
+  rows.slice(2),
+  2,
 )
-assert.equal(
-  hasMoreHistoryRows({
-    offset: 20,
-    loadedCount: 7,
-    totalCount: null,
-    pageSize: 20,
-  }),
-  false,
-)
+
+assert.equal(finalPage.hasMore, false)
+assert.equal(finalPage.nextCursor, null)
 
 console.log(
   'quiz history pagination tests passed',
