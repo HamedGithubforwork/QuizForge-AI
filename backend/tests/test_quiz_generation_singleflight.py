@@ -145,6 +145,7 @@ def patch_common_dependencies(
 async def call_generate(*, bypass=False):
     return await main_redis.generate_quiz(
         file=make_upload(),
+        document_sha256="",
         question_count=5,
         difficulty="medium",
         question_type="multiple_choice",
