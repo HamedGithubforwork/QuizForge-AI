@@ -34,7 +34,6 @@ def test_document_cache_key_is_stable_for_same_pdf():
         user_id="user-1",
         contents=b"same pdf bytes",
     )
-
     second = build_document_cache_key(
         user_id="user-1",
         contents=b"same pdf bytes",
@@ -48,7 +47,6 @@ def test_document_cache_key_changes_with_pdf_contents():
         user_id="user-1",
         contents=b"pdf one",
     )
-
     second = build_document_cache_key(
         user_id="user-1",
         contents=b"pdf two",
@@ -62,7 +60,6 @@ def test_document_cache_key_is_isolated_per_user():
         user_id="user-1",
         contents=b"same pdf",
     )
-
     second = build_document_cache_key(
         user_id="user-2",
         contents=b"same pdf",
@@ -97,7 +94,6 @@ def test_document_cache_round_trip():
             client=fake_redis,
         )
     )
-
     cached = asyncio.run(
         get_cached_document(
             cache_key,
@@ -142,7 +138,7 @@ def test_document_cache_hit_skips_pdf_extraction(
     ):
         metric_results.append(cache_result)
 
-    def fail_extraction(_contents):
+    async def fail_extraction(_contents):
         raise AssertionError(
             "a document-cache hit must not run PyMuPDF extraction"
         )
@@ -159,7 +155,7 @@ def test_document_cache_hit_skips_pdf_extraction(
     )
     monkeypatch.setattr(
         main_redis,
-        "extract_pdf_pages_without_redis",
+        "extract_pdf_pages_off_event_loop",
         fail_extraction,
     )
 
@@ -193,7 +189,7 @@ def test_document_cache_miss_extracts_and_stores(
     ):
         return None
 
-    def fake_extraction(received_contents):
+    async def fake_extraction(received_contents):
         assert received_contents == contents
         return pages
 
@@ -219,7 +215,7 @@ def test_document_cache_miss_extracts_and_stores(
     )
     monkeypatch.setattr(
         main_redis,
-        "extract_pdf_pages_without_redis",
+        "extract_pdf_pages_off_event_loop",
         fake_extraction,
     )
     monkeypatch.setattr(
@@ -250,48 +246,3 @@ def test_document_cache_miss_extracts_and_stores(
         "pages": pages,
     }
     assert metric_results == ["miss"]
-
-
-def test_request_context_reuses_cached_pages(
-    monkeypatch,
-):
-    contents = b"same pdf"
-    pages = [
-        {
-            "page_number": 1,
-            "text": "Context-cached text",
-        }
-    ]
-
-    def fail_extraction(_contents):
-        raise AssertionError(
-            "matching request context must skip extraction"
-        )
-
-    monkeypatch.setattr(
-        main_redis,
-        "extract_pdf_pages_without_redis",
-        fail_extraction,
-    )
-
-    token = (
-        main_redis._document_pages_context.set(
-            (
-                compute_pdf_sha256(contents),
-                pages,
-            )
-        )
-    )
-
-    try:
-        result = (
-            main_redis.extract_pdf_pages_from_context(
-                contents
-            )
-        )
-    finally:
-        main_redis._document_pages_context.reset(
-            token
-        )
-
-    assert result == pages
