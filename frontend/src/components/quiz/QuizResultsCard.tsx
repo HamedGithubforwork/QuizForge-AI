@@ -317,7 +317,11 @@ function QuizResultsCard({
       </div>
 
       {saveMessage && (
-        <p className="save-message">
+        <p
+          className="save-message"
+          role="status"
+          aria-live="polite"
+        >
           {saveMessage}
         </p>
       )}
