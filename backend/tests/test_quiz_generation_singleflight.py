@@ -4,7 +4,7 @@ from io import BytesIO
 from redis.exceptions import RedisError
 from starlette.datastructures import Headers, UploadFile
 
-import main_redis
+import application
 import redis_integration
 
 
@@ -113,39 +113,39 @@ def patch_common_dependencies(
         fake_redis,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "enforce_quiz_rate_limit",
         fake_rate_limit,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_document_pages_with_cache",
         fake_document_pages,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         generation,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_quiz_metrics",
         fake_metrics,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "QUIZ_GENERATION_POLL_INTERVAL_SECONDS",
         0.005,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "QUIZ_GENERATION_WAIT_SECONDS",
         1,
     )
 
 
 async def call_generate(*, bypass=False):
-    return await main_redis.generate_quiz(
+    return await application.generate_quiz(
         file=make_upload(),
         document_sha256="",
         question_count=5,
@@ -156,7 +156,7 @@ async def call_generate(*, bypass=False):
         avoid_questions="[]",
         generate_new_quiz_instead_of_using_cache=bypass,
         current_user=(
-            main_redis.AuthenticatedUser(
+            application.AuthenticatedUser(
                 id="test-user"
             )
         ),
@@ -174,7 +174,7 @@ def test_identical_concurrent_requests_generate_only_once(
         nonlocal generation_calls
         generation_calls += 1
         await asyncio.sleep(0.05)
-        return main_redis.Quiz(
+        return application.Quiz(
             title="Generated once",
             questions=[],
         )
@@ -232,7 +232,7 @@ def test_generate_new_requests_are_serialized_but_stay_fresh(
         finally:
             active_generations -= 1
 
-        return main_redis.Quiz(
+        return application.Quiz(
             title=f"Fresh quiz {generation_number}",
             questions=[],
         )
@@ -273,7 +273,7 @@ def test_redis_lock_failure_falls_back_to_generation(
     async def fake_generation(**_kwargs):
         nonlocal generation_calls
         generation_calls += 1
-        return main_redis.Quiz(
+        return application.Quiz(
             title="Fallback quiz",
             questions=[],
         )
