@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from answer_review import (
 from document_api import (
     SourcePageResponse,
     resolve_source_page,
+)
+from observability import (
+    elapsed_ms,
+    record_timing_sample,
 )
 from outbound_clients import (
     close_outbound_clients,
@@ -87,6 +92,16 @@ SUPABASE_PUBLISHABLE_KEY = os.getenv(
 )
 
 
+async def _record_auth_timing(started_at: float):
+    from redis_integration import redis_client
+
+    await record_timing_sample(
+        redis_client,
+        "auth_latency_ms",
+        elapsed_ms(started_at),
+    )
+
+
 async def get_current_user(
     authorization: str | None = Header(
         default=None,
@@ -125,6 +140,8 @@ async def get_current_user(
             detail="Authentication is required.",
         )
 
+    auth_started_at = time.perf_counter()
+
     try:
         client = await get_http_client()
         response = await client.get(
@@ -144,6 +161,10 @@ async def get_current_user(
                 "temporarily unavailable."
             ),
         ) from error
+    finally:
+        await _record_auth_timing(
+            auth_started_at
+        )
 
     if response.status_code != 200:
         if response.status_code >= 500:
