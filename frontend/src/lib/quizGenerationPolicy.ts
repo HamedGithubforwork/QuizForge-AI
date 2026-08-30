@@ -1,6 +1,6 @@
 import {
   getCurrentDocumentSha256,
-} from './documentIdentity'
+} from './documentIdentity.ts'
 
 let quizGenerationRequestCount = 0
 
