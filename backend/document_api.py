@@ -4,6 +4,7 @@ from processed_documents import (
     get_processed_document,
     normalize_document_sha256,
 )
+from quiz_service import analyze_extracted_text
 
 
 class UploadPageSummary(BaseModel):
@@ -27,6 +28,43 @@ class SourcePageResponse(BaseModel):
     pdf_sha256: str
     page_number: int
     text: str
+
+
+def build_upload_response_from_sha(
+    *,
+    filename: str | None,
+    pdf_sha256: str,
+    pages: list,
+):
+    analysis = analyze_extracted_text(
+        pages,
+    )
+
+    return {
+        "filename": filename,
+        "pdf_sha256": pdf_sha256,
+        "page_count": len(pages),
+        "character_count": analysis[
+            "total_characters"
+        ],
+        "extractable_page_count": analysis[
+            "extractable_page_count"
+        ],
+        "scanned_likely": analysis[
+            "scanned_likely"
+        ],
+        "warning": analysis["warning"],
+        "pages": [
+            {
+                "page_number": page["page_number"],
+                "character_count": len(
+                    page["text"]
+                ),
+                "preview": page["text"][:300],
+            }
+            for page in pages
+        ],
+    }
 
 
 async def resolve_source_page(

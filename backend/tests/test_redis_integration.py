@@ -258,11 +258,13 @@ def test_generate_new_quiz_instead_of_using_cache_bypasses_cache(
     async def fake_document_pages(
         user_id,
         contents,
+        pdf_sha256=None,
     ):
         assert user_id == "test-user"
         assert contents == b"same pdf"
+        assert pdf_sha256 is not None
         return (
-            "test-document-hash",
+            pdf_sha256,
             [
                 {
                     "page_number": 1,
