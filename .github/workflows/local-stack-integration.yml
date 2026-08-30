@@ -204,7 +204,7 @@ jobs:
       - name: Start production-style Redis backend
         run: |
           cd backend
-          nohup python -m uvicorn main_redis:app \
+          nohup python -m uvicorn main:app \
             --host 127.0.0.1 \
             --port 8000 \
             > ../backend-integration.log 2>&1 &
