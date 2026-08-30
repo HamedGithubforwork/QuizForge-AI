@@ -1,0 +1,40 @@
+name: Deployment smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 12 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/smoke_production.py"
+      - ".github/workflows/deployment-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deployment-smoke
+  cancel-in-progress: true
+
+jobs:
+  production-smoke:
+    name: Vercel + Render read-only smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run read-only production smoke checks
+        env:
+          QUIZFORGE_FRONTEND_URL: https://quiz-forge-ai-nine.vercel.app
+          QUIZFORGE_BACKEND_URL: https://quizforge-ai-api.onrender.com
+        run: python scripts/smoke_production.py
