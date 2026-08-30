@@ -5,7 +5,7 @@ const supabaseUrl =
   process.env.INTEGRATION_SUPABASE_URL ||
   'http://127.0.0.1:54321'
 const supabasePublishableKey =
-  process.env.INTEGRATION_SUPABASE_ANON_KEY ||
+  process.env.INTEGRATION_SUPABASE_PUBLISHABLE_KEY ||
   ''
 const apiUrl =
   process.env.INTEGRATION_API_URL ||
@@ -13,7 +13,7 @@ const apiUrl =
 
 if (!supabasePublishableKey) {
   throw new Error(
-    'INTEGRATION_SUPABASE_ANON_KEY is required for local-stack integration tests.',
+    'INTEGRATION_SUPABASE_PUBLISHABLE_KEY is required for local-stack integration tests.',
   )
 }
 
