@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-import main_redis
+import application
 from admin_metrics import get_metric_snapshot
 from observability import (
     METRIC_PREFIX,
@@ -156,14 +156,14 @@ def test_admin_access_requires_allowlisted_user(monkeypatch):
         "admin-user,second-admin",
     )
 
-    user = main_redis.AuthenticatedUser(
+    user = application.AuthenticatedUser(
         id="regular-user",
         email="user@example.com",
     )
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(
-            main_redis.require_admin(user)
+            application.require_admin(user)
         )
 
     assert error.value.status_code == 403
@@ -175,13 +175,13 @@ def test_admin_access_accepts_allowlisted_user(monkeypatch):
         "admin-user,second-admin",
     )
 
-    user = main_redis.AuthenticatedUser(
+    user = application.AuthenticatedUser(
         id="admin-user",
         email="admin@example.com",
     )
 
     result = asyncio.run(
-        main_redis.require_admin(user)
+        application.require_admin(user)
     )
 
     assert result.id == "admin-user"
@@ -193,13 +193,13 @@ def test_admin_access_is_locked_when_allowlist_is_empty(monkeypatch):
         raising=False,
     )
 
-    user = main_redis.AuthenticatedUser(
+    user = application.AuthenticatedUser(
         id="admin-user",
     )
 
     with pytest.raises(HTTPException) as error:
         asyncio.run(
-            main_redis.require_admin(user)
+            application.require_admin(user)
         )
 
     assert error.value.status_code == 403
@@ -208,7 +208,7 @@ def test_admin_access_is_locked_when_allowlist_is_empty(monkeypatch):
 def test_admin_metrics_route_is_registered():
     paths = {
         getattr(route, "path", None)
-        for route in main_redis.app.router.routes
+        for route in application.app.router.routes
     }
 
     assert "/api/admin/metrics" in paths
