@@ -14,17 +14,6 @@ install_performance_instrumentation(
     _application
 )
 
-from application import *  # noqa: E402,F403
-from quiz_service import (  # noqa: E402
-    MAX_AI_CHARACTERS,
-    MAX_FILE_SIZE,
-    MIN_EXTRACTABLE_CHARACTERS,
-    SCAN_CHARACTERS_PER_PAGE,
-    QuizQuestion,
-    ShortAnswerGradingSpec,
-    analyze_extracted_text,
-    extract_pdf_pages,
-    parse_avoid_questions,
-    parse_focus_pages,
-    parse_focus_question_types,
-)
+# Keep the ASGI surface intentionally small. Runtime code lives in
+# ``application`` and service helpers live in their authoritative modules.
+app = _application.app
