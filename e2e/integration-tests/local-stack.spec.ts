@@ -139,13 +139,22 @@ test(
 
     await processButton.click()
 
+    const processedPanel = page
+      .getByRole('heading', {
+        name: 'PDF processed successfully',
+      })
+      .locator('..')
+
     await expect(
       page.getByRole('heading', {
         name: 'PDF processed successfully',
       }),
     ).toBeVisible()
     await expect(
-      page.getByText('integration-notes.pdf'),
+      processedPanel.getByText(
+        'integration-notes.pdf',
+        { exact: true },
+      ),
     ).toBeVisible()
 
     // Processing the same PDF again exercises the real Redis document cache hit.
