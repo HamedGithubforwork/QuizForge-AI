@@ -131,16 +131,24 @@ async def get_document_pages_with_cache(
     return pdf_sha256, pages
 
 
-async def get_generation_document(
+async def get_generation_source_identity(
     *,
-    user_id: str,
     document_sha256: str,
     file: UploadFile | None,
 ):
-    if document_sha256.strip():
+    supplied_hash = (
+        document_sha256
+        if isinstance(
+            document_sha256,
+            str,
+        )
+        else ""
+    )
+
+    if supplied_hash.strip():
         normalized_hash = (
             normalize_document_sha256(
-                document_sha256
+                supplied_hash
             )
         )
 
@@ -152,47 +160,10 @@ async def get_generation_document(
                 ),
             )
 
-        document = await get_processed_document(
-            user_id=user_id,
-            pdf_sha256=normalized_hash,
-        )
-
-        if document is None:
-            await record_document_cache_metric(
-                redis_client,
-                "miss",
-            )
-
-            log_event(
-                "processed_document_lookup",
-                cache_result="miss",
-            )
-
-            raise HTTPException(
-                status_code=410,
-                detail=(
-                    "Processed document expired or is unavailable. "
-                    "Please process the PDF again."
-                ),
-            )
-
-        await record_document_cache_metric(
-            redis_client,
-            "hit",
-        )
-
-        log_event(
-            "processed_document_lookup",
-            cache_result="hit",
-            page_count=len(
-                document["pages"]
-            ),
-        )
-
         return (
             normalized_hash,
-            document["pages"],
             "application/pdf",
+            None,
         )
 
     if file is None:
@@ -210,24 +181,73 @@ async def get_generation_document(
     contents = await file.read()
     validate_pdf_size(contents)
 
-    pdf_sha256, pages = (
-        await get_document_pages_with_cache(
-            user_id=user_id,
-            contents=contents,
-        )
+    return (
+        compute_pdf_sha256(contents),
+        file.content_type,
+        contents,
     )
 
-    remember_processed_document(
+
+async def get_generation_pages(
+    *,
+    user_id: str,
+    pdf_sha256: str,
+    contents: bytes | None,
+):
+    if contents is not None:
+        _resolved_hash, pages = (
+            await get_document_pages_with_cache(
+                user_id=user_id,
+                contents=contents,
+            )
+        )
+
+        remember_processed_document(
+            user_id=user_id,
+            pdf_sha256=pdf_sha256,
+            pages=pages,
+        )
+
+        return pages
+
+    document = await get_processed_document(
         user_id=user_id,
         pdf_sha256=pdf_sha256,
-        pages=pages,
     )
 
-    return (
-        pdf_sha256,
-        pages,
-        file.content_type,
+    if document is None:
+        await record_document_cache_metric(
+            redis_client,
+            "miss",
+        )
+
+        log_event(
+            "processed_document_lookup",
+            cache_result="miss",
+        )
+
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Processed document expired or is unavailable. "
+                "Please process the PDF again."
+            ),
+        )
+
+    await record_document_cache_metric(
+        redis_client,
+        "hit",
     )
+
+    log_event(
+        "processed_document_lookup",
+        cache_result="hit",
+        page_count=len(
+            document["pages"]
+        ),
+    )
+
+    return document["pages"]
 
 
 async def acquire_quiz_generation_turn(
@@ -441,10 +461,9 @@ async def generate_quiz(
 
         (
             pdf_sha256,
-            pages,
             content_type,
-        ) = await get_generation_document(
-            user_id=current_user.id,
+            contents,
+        ) = await get_generation_source_identity(
             document_sha256=(
                 document_sha256
             ),
@@ -523,6 +542,12 @@ async def generate_quiz(
             return singleflight_cached_quiz
 
         try:
+            pages = await get_generation_pages(
+                user_id=current_user.id,
+                pdf_sha256=pdf_sha256,
+                contents=contents,
+            )
+
             quiz = await generate_quiz_from_pages(
                 pages=pages,
                 question_count=question_count,
