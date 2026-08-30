@@ -63,7 +63,7 @@ export function buildHistoryCursorFilter(
   cursor: QuizHistoryCursor,
 ) {
   return [
-    `created_at.lt.${cursor.createdAt}`,
+    `created_at.lt.${cursor.createdAt},`,
     'and(',
     `created_at.eq.${cursor.createdAt},`,
     `id.lt.${cursor.id}`,
