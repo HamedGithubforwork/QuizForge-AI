@@ -1,5 +1,6 @@
 // @ts-nocheck
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import {
   appendUniqueHistoryRows,
@@ -95,6 +96,34 @@ const finalPage = splitHistoryPageRows(
 
 assert.equal(finalPage.hasMore, false)
 assert.equal(finalPage.nextCursor, null)
+
+const quizHistorySource = readFileSync(
+  new URL('./quizHistory.ts', import.meta.url),
+  'utf8',
+)
+const quizHistoryComponentSource = readFileSync(
+  new URL('../QuizHistory.tsx', import.meta.url),
+  'utf8',
+)
+
+assert.equal(
+  quizHistorySource.includes(
+    'historyPaginationState',
+  ),
+  false,
+)
+assert.equal(
+  quizHistorySource.includes('offset?: number'),
+  false,
+)
+assert.match(
+  quizHistoryComponentSource,
+  /useState<QuizHistoryCursor \| null>/,
+)
+assert.match(
+  quizHistoryComponentSource,
+  /cursor: nextHistoryCursor/,
+)
 
 console.log(
   'quiz history pagination tests passed',
