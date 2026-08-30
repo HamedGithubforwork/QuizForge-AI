@@ -1,0 +1,8 @@
+# Direct production dependencies.
+# Runtime installs consume requirements.lock via requirements.txt.
+fastapi[standard]
+pymupdf
+openai
+python-dotenv
+httpx
+redis>=5.0,<7.0

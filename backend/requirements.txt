@@ -1,6 +1,3 @@
-fastapi[standard]
-pymupdf
-openai
-python-dotenv
-httpx
-redis>=5.0,<7.0
+# Install direct production requirements under the exact resolved constraints.
+-c requirements.lock
+-r requirements.in
