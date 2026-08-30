@@ -1,5 +1,6 @@
 import main
 import main_redis
+import quiz_service
 
 
 def _route_count(app, path: str):
@@ -14,15 +15,10 @@ def test_redis_entrypoint_uses_separate_fastapi_app():
     assert main_redis.app is not main.app
 
 
-def test_importing_redis_entrypoint_does_not_mutate_base_dependencies():
-    assert (
-        main.extract_pdf_pages
-        is main_redis.extract_pdf_pages_without_redis
-    )
-    assert (
-        main.enforce_quiz_rate_limit.__name__
-        == "enforce_quiz_rate_limit"
-    )
+def test_base_and_redis_apps_share_service_models_not_app_state():
+    assert main.Quiz is quiz_service.Quiz
+    assert main_redis.Quiz is quiz_service.Quiz
+    assert main.get_current_user is main_redis.get_current_user
 
 
 def test_base_and_redis_apps_each_keep_one_public_route_per_contract():
@@ -34,38 +30,26 @@ def test_base_and_redis_apps_each_keep_one_public_route_per_contract():
         assert _route_count(main_redis.app, path) == 1
 
 
-def test_redis_delegates_use_isolated_runtime_overrides():
-    upload_globals = (
-        main_redis.upload_pdf_without_redis.__globals__
+def test_redis_entrypoint_no_longer_clones_base_endpoints():
+    assert not hasattr(
+        main_redis,
+        "_clone_endpoint_with_global_overrides",
     )
-    generation_globals = (
-        main_redis.generate_quiz_without_redis.__globals__
+    assert not hasattr(
+        main_redis,
+        "upload_pdf_without_redis",
     )
-
-    assert (
-        upload_globals["extract_pdf_pages"]
-        is main_redis.extract_pdf_pages_from_context
+    assert not hasattr(
+        main_redis,
+        "generate_quiz_without_redis",
     )
-    assert (
-        generation_globals["extract_pdf_pages"]
-        is main_redis.extract_pdf_pages_from_context
-    )
-    assert (
-        generation_globals["enforce_quiz_rate_limit"]
-        is main_redis._skip_local_quiz_rate_limit
-    )
-
-    assert (
-        main.generate_quiz.__globals__["extract_pdf_pages"]
-        is main.extract_pdf_pages
-    )
-    assert (
-        main.generate_quiz.__globals__["enforce_quiz_rate_limit"]
-        is main.enforce_quiz_rate_limit
+    assert not hasattr(
+        main_redis,
+        "_document_pages_context",
     )
 
 
-def test_redis_app_preserves_base_business_routes_and_adds_admin_metrics():
+def test_redis_app_preserves_common_routes_and_adds_admin_metrics():
     assert _route_count(main_redis.app, "/") == 1
     assert _route_count(main_redis.app, "/api/health") == 1
     assert _route_count(main_redis.app, "/api/answers/review") == 1
