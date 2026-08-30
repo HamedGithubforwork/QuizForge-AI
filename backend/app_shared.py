@@ -13,6 +13,10 @@ from answer_review import (
     AnswerReviewResponse,
     review_borderline_answers_with_ai,
 )
+from document_api import (
+    SourcePageResponse,
+    resolve_source_page,
+)
 from outbound_clients import (
     close_outbound_clients,
     get_http_client,
@@ -270,6 +274,54 @@ def create_app():
                 "Frontend connected to FastAPI!"
             )
         }
+
+    @app.get(
+        "/api/documents/{document_sha256}/pages/{page_number}",
+        response_model=SourcePageResponse,
+    )
+    async def get_document_source_page(
+        document_sha256: str,
+        page_number: int,
+        current_user: AuthenticatedUser = Depends(
+            get_current_user
+        ),
+    ):
+        if page_number < 1:
+            raise HTTPException(
+                status_code=404,
+                detail="Source page does not exist.",
+            )
+
+        status, source_page = await resolve_source_page(
+            user_id=current_user.id,
+            document_sha256=document_sha256,
+            page_number=page_number,
+        )
+
+        if status == "invalid_document":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Processed document identifier is invalid."
+                ),
+            )
+
+        if status == "missing_document":
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    "Processed document expired or is unavailable. "
+                    "Please process the PDF again."
+                ),
+            )
+
+        if status == "missing_page":
+            raise HTTPException(
+                status_code=404,
+                detail="Source page does not exist.",
+            )
+
+        return source_page
 
     @app.post(
         "/api/answers/review",
