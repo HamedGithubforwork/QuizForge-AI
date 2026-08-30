@@ -71,18 +71,20 @@ def test_real_pdf_pymupdf_then_real_redis_hit_skips_second_extraction(
             )
 
             real_extract_pdf_pages = (
-                main_redis.extract_pdf_pages_without_redis
+                main_redis.extract_pdf_pages_off_event_loop
             )
             extraction_calls = 0
 
-            def counting_real_extract_pdf_pages(contents):
+            async def counting_real_extract_pdf_pages(contents):
                 nonlocal extraction_calls
                 extraction_calls += 1
-                return real_extract_pdf_pages(contents)
+                return await real_extract_pdf_pages(
+                    contents
+                )
 
             monkeypatch.setattr(
                 main_redis,
-                "extract_pdf_pages_without_redis",
+                "extract_pdf_pages_off_event_loop",
                 counting_real_extract_pdf_pages,
             )
 
