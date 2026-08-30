@@ -1,7 +1,5 @@
 import json
 import os
-import time
-from collections import defaultdict, deque
 from typing import Literal
 
 from fastapi import HTTPException
@@ -9,48 +7,12 @@ from openai import OpenAIError
 from pydantic import BaseModel, Field
 
 from outbound_clients import get_openai_client
-
-
-def _positive_int_env(
-    name: str,
-    default: int,
-):
-    raw_value = os.getenv(name)
-
-    if not raw_value:
-        return default
-
-    try:
-        value = int(raw_value)
-    except ValueError:
-        return default
-
-    return max(1, value)
-
-
-ANSWER_REVIEW_RATE_LIMIT = _positive_int_env(
-    "ANSWER_REVIEW_RATE_LIMIT",
-    20,
+from redis_integration import (
+    enforce_answer_review_rate_limit,
 )
 
-ANSWER_REVIEW_RATE_WINDOW_SECONDS = (
-    _positive_int_env(
-        "ANSWER_REVIEW_RATE_WINDOW_SECONDS",
-        600,
-    )
-)
 
 MIN_CORRECT_CONFIDENCE = 0.80
-RATE_LIMIT_CLEANUP_INTERVAL_SECONDS = min(
-    60,
-    ANSWER_REVIEW_RATE_WINDOW_SECONDS,
-)
-
-_review_requests: dict[
-    str,
-    deque[float],
-] = defaultdict(deque)
-_last_review_cleanup_at = 0.0
 
 
 class AnswerReviewCase(BaseModel):
@@ -88,84 +50,6 @@ class AnswerReviewModelResponse(BaseModel):
 
 class AnswerReviewResponse(BaseModel):
     decisions: list[AnswerReviewDecision]
-
-
-def _cleanup_stale_review_users(
-    now: float,
-):
-    global _last_review_cleanup_at
-
-    if (
-        now - _last_review_cleanup_at
-        < RATE_LIMIT_CLEANUP_INTERVAL_SECONDS
-    ):
-        return
-
-    cutoff = (
-        now
-        - ANSWER_REVIEW_RATE_WINDOW_SECONDS
-    )
-
-    stale_user_ids = [
-        user_id
-        for user_id, request_times
-        in _review_requests.items()
-        if (
-            not request_times
-            or request_times[-1] <= cutoff
-        )
-    ]
-
-    for user_id in stale_user_ids:
-        _review_requests.pop(
-            user_id,
-            None,
-        )
-
-    _last_review_cleanup_at = now
-
-
-def enforce_answer_review_rate_limit(
-    user_id: str,
-):
-    now = time.monotonic()
-
-    _cleanup_stale_review_users(now)
-
-    request_times = _review_requests[user_id]
-    cutoff = (
-        now
-        - ANSWER_REVIEW_RATE_WINDOW_SECONDS
-    )
-
-    while (
-        request_times
-        and request_times[0] <= cutoff
-    ):
-        request_times.popleft()
-
-    if len(request_times) >= ANSWER_REVIEW_RATE_LIMIT:
-        wait_seconds = max(
-            1,
-            int(
-                ANSWER_REVIEW_RATE_WINDOW_SECONDS
-                - (now - request_times[0])
-            )
-            + 1,
-        )
-
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                "Too many semantic answer review requests. "
-                "Please wait before trying again."
-            ),
-            headers={
-                "Retry-After": str(wait_seconds),
-            },
-        )
-
-    request_times.append(now)
 
 
 def normalize_review_response(
@@ -234,7 +118,9 @@ async def review_borderline_answers_with_ai(
     request: AnswerReviewRequest,
     user_id: str,
 ) -> AnswerReviewResponse:
-    enforce_answer_review_rate_limit(user_id)
+    await enforce_answer_review_rate_limit(
+        user_id,
+    )
 
     api_key = os.getenv("OPENAI_API_KEY")
 
