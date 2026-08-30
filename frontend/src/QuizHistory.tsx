@@ -5,15 +5,14 @@ import {
 } from 'react'
 
 import MasteryAnalyticsPanel from './MasteryAnalyticsPanel.tsx'
-
 import {
   deleteQuizHistory,
-  getQuizHistory,
+  getQuizHistoryForDocument,
+  getQuizHistoryPage,
   type QuizHistoryRow,
 } from './lib/quizHistory'
 import {
   getCurrentDocumentSha256,
-  matchesHistoryDocument,
 } from './lib/documentIdentity'
 import {
   isHistoryQuestionCorrect,
@@ -22,6 +21,10 @@ import {
   analyzeWeakAreas,
   type WeakAreaAttempt,
 } from './lib/weakAreaAnalytics'
+import {
+  appendUniqueHistoryRows,
+  DOCUMENT_HISTORY_ANALYSIS_LIMIT,
+} from './lib/quizHistoryPagination'
 import type {
   ShortAnswerGradingSpec,
 } from './lib/shortAnswerGrader'
@@ -136,7 +139,8 @@ function isStoredQuestion(
     return false
   }
 
-  const question = value as Partial<StoredQuestion>
+  const question =
+    value as Partial<StoredQuestion>
 
   return (
     (
@@ -237,9 +241,19 @@ function QuizHistory({
 }: QuizHistoryProps) {
   const [history, setHistory] =
     useState<QuizHistoryRow[]>([])
+  const [documentHistory, setDocumentHistory] =
+    useState<QuizHistoryRow[]>([])
+  const [totalHistoryCount, setTotalHistoryCount] =
+    useState(0)
+  const [hasMoreHistory, setHasMoreHistory] =
+    useState(false)
   const [loading, setLoading] =
     useState(true)
+  const [loadingMore, setLoadingMore] =
+    useState(false)
   const [error, setError] =
+    useState('')
+  const [loadMoreError, setLoadMoreError] =
     useState('')
   const [expanded, setExpanded] =
     useState(false)
@@ -292,26 +306,126 @@ function QuizHistory({
         )
       : null
 
-  async function loadHistory() {
-    setLoading(true)
-    setError('')
+  useEffect(() => {
+    let cancelled = false
 
-    try {
-      setHistory(await getQuizHistory())
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not load quiz history.',
-      )
-    } finally {
-      setLoading(false)
+    async function loadFirstPage() {
+      setLoading(true)
+      setError('')
+      setLoadMoreError('')
+
+      try {
+        const page =
+          await getQuizHistoryPage()
+
+        if (cancelled) {
+          return
+        }
+
+        setHistory(page.items)
+        setTotalHistoryCount(
+          page.totalCount,
+        )
+        setHasMoreHistory(page.hasMore)
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not load quiz history.',
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
     }
-  }
+
+    void loadFirstPage()
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
 
   useEffect(() => {
-    loadHistory()
-  }, [refreshKey])
+    let cancelled = false
+
+    async function loadCurrentDocumentHistory() {
+      if (!currentFilename) {
+        setDocumentHistory([])
+        return
+      }
+
+      try {
+        const rows =
+          await getQuizHistoryForDocument({
+            sourceFilename: currentFilename,
+            documentSha256:
+              currentDocumentSha256,
+            limit:
+              DOCUMENT_HISTORY_ANALYSIS_LIMIT,
+          })
+
+        if (!cancelled) {
+          setDocumentHistory(rows)
+        }
+      } catch {
+        if (!cancelled) {
+          setDocumentHistory([])
+        }
+      }
+    }
+
+    void loadCurrentDocumentHistory()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    currentDocumentSha256,
+    currentFilename,
+    refreshKey,
+  ])
+
+  async function handleLoadMore() {
+    if (
+      loadingMore ||
+      !hasMoreHistory
+    ) {
+      return
+    }
+
+    setLoadingMore(true)
+    setLoadMoreError('')
+
+    try {
+      const page =
+        await getQuizHistoryPage({
+          offset: history.length,
+        })
+
+      setHistory((previous) =>
+        appendUniqueHistoryRows(
+          previous,
+          page.items,
+        ),
+      )
+      setTotalHistoryCount(
+        page.totalCount,
+      )
+      setHasMoreHistory(page.hasMore)
+    } catch (err) {
+      setLoadMoreError(
+        err instanceof Error
+          ? err.message
+          : 'Could not load more saved quizzes.',
+      )
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   async function handleDelete(id: string) {
     try {
@@ -320,6 +434,15 @@ function QuizHistory({
         previous.filter(
           (item) => item.id !== id,
         ),
+      )
+      setDocumentHistory((previous) =>
+        previous.filter(
+          (item) => item.id !== id,
+        ),
+      )
+      setTotalHistoryCount(
+        (previous) =>
+          Math.max(0, previous - 1),
       )
     } catch (err) {
       setError(
@@ -331,24 +454,24 @@ function QuizHistory({
   }
 
   const analytics = useMemo(() => {
-    const quizzesCompleted = history.length
+    const loadedQuizCount = history.length
     const totalQuestions = history.reduce(
       (total, item) =>
         total + item.question_count,
       0,
     )
     const averageScore =
-      quizzesCompleted > 0
+      loadedQuizCount > 0
         ? Math.round(
             history.reduce(
               (total, item) =>
                 total + item.percentage,
               0,
-            ) / quizzesCompleted,
+            ) / loadedQuizCount,
           )
         : 0
     const bestScore =
-      quizzesCompleted > 0
+      loadedQuizCount > 0
         ? Math.max(
             ...history.map(
               (item) => item.percentage,
@@ -356,7 +479,7 @@ function QuizHistory({
           )
         : 0
     const latestScore =
-      quizzesCompleted > 0
+      loadedQuizCount > 0
         ? history[0].percentage
         : 0
     const typePerformance =
@@ -374,7 +497,8 @@ function QuizHistory({
 
       item.quiz_data.questions.forEach(
         (question, questionIndex) => {
-          const type = question.question_type
+          const type =
+            question.question_type
           typePerformance[type].total += 1
           const answer =
             item.selected_answers[
@@ -394,14 +518,15 @@ function QuizHistory({
     })
 
     return {
-      quizzesCompleted,
+      loadedQuizCount,
+      quizzesCompleted: totalHistoryCount,
       totalQuestions,
       averageScore,
       bestScore,
       latestScore,
       typePerformance,
     }
-  }, [history])
+  }, [history, totalHistoryCount])
 
   const currentDocumentSummary:
     CurrentDocumentSummary | null =
@@ -410,17 +535,8 @@ function QuizHistory({
         return null
       }
 
-      const matchingHistory = history.filter(
-        (item) =>
-          matchesHistoryDocument(
-            item,
-            currentFilename,
-            currentDocumentSha256,
-          ),
-      )
-
       const attempts: WeakAreaAttempt[] =
-        matchingHistory.flatMap((item) => {
+        documentHistory.flatMap((item) => {
           if (
             !isStoredQuiz(item.quiz_data) ||
             !isStoredAnswers(
@@ -458,7 +574,8 @@ function QuizHistory({
         analyzeWeakAreas(attempts)
 
       return {
-        attemptCount: matchingHistory.length,
+        attemptCount:
+          documentHistory.length,
         weakness: weakness
           ? {
               questionType:
@@ -480,12 +597,12 @@ function QuizHistory({
           : null,
       }
     }, [
-      history,
       currentFilename,
-      currentDocumentSha256,
+      documentHistory,
     ])
 
-  const recentHistory = history.slice(0, 5)
+  const recentHistory =
+    history.slice(0, 5)
 
   async function handleHistoryPractice() {
     const weakness =
@@ -506,7 +623,8 @@ function QuizHistory({
     try {
       await onPracticeWeakAreas({
         pages: weakness.pages,
-        questionType: weakness.questionType,
+        questionType:
+          weakness.questionType,
         avoidQuestions:
           weakness.avoidQuestions,
         baselinePercent:
@@ -533,8 +651,8 @@ function QuizHistory({
         <div>
           <strong>My Quiz History</strong>
           <span>
-            {history.length}{' '}
-            {history.length === 1
+            {totalHistoryCount}{' '}
+            {totalHistoryCount === 1
               ? 'saved quiz'
               : 'saved quizzes'}
           </span>
@@ -590,11 +708,21 @@ function QuizHistory({
                     </span>
                   </div>
 
+                  <p className="history-status">
+                    Score analytics currently use{' '}
+                    {analytics.loadedQuizCount} of{' '}
+                    {analytics.quizzesCompleted} saved{' '}
+                    {analytics.quizzesCompleted === 1
+                      ? 'quiz'
+                      : 'quizzes'}.
+                    {hasMoreHistory
+                      ? ' Load more below to include older attempts.'
+                      : ''}
+                  </p>
+
                   <div className="analytics-grid">
                     <article className="analytics-card">
-                      <span>
-                        Quizzes Completed
-                      </span>
+                      <span>Saved Quizzes</span>
                       <strong>
                         {analytics.quizzesCompleted}
                       </strong>
@@ -613,7 +741,7 @@ function QuizHistory({
                     </article>
                     <article className="analytics-card">
                       <span>
-                        Questions Answered
+                        Questions Analyzed
                       </span>
                       <strong>
                         {analytics.totalQuestions}
@@ -627,7 +755,7 @@ function QuizHistory({
                         Performance by question type
                       </h3>
                       <span>
-                        Based on saved quizzes
+                        Based on loaded quizzes
                       </span>
                     </div>
 
@@ -686,7 +814,7 @@ function QuizHistory({
                   </div>
 
                   <MasteryAnalyticsPanel
-                    history={history}
+                    history={documentHistory}
                     currentFilename={
                       currentFilename
                     }
@@ -701,7 +829,9 @@ function QuizHistory({
                         Long-term weak areas
                       </h3>
                       <span>
-                        Current PDF history
+                        Up to the latest{' '}
+                        {DOCUMENT_HISTORY_ANALYSIS_LIMIT}{' '}
+                        attempts for this PDF
                       </span>
                     </div>
 
@@ -755,8 +885,8 @@ function QuizHistory({
                         <>
                           <div className="history-weakness-file">
                             <span>
-                              Analyzing saved attempts
-                              for
+                              Analyzing recent saved
+                              attempts for
                             </span>
                             <strong>
                               {getDisplayFilename(
@@ -768,7 +898,7 @@ function QuizHistory({
                           <div className="history-weakness-grid">
                             <article>
                               <span>
-                                Saved Attempts
+                                Recent Attempts
                               </span>
                               <strong>
                                 {currentDocumentSummary.attemptCount}
@@ -797,11 +927,8 @@ function QuizHistory({
                                 Focus Pages
                               </span>
                               <strong className="history-weakness-text-value">
-                                {currentDocumentSummary.weakness.pages.length >
-                                0
-                                  ? currentDocumentSummary.weakness.pages.join(
-                                      ', ',
-                                    )
+                                {currentDocumentSummary.weakness.pages.length > 0
+                                  ? currentDocumentSummary.weakness.pages.join(', ')
                                   : 'Whole PDF'}
                               </strong>
                             </article>
@@ -869,8 +996,7 @@ function QuizHistory({
                           {!canPracticeHistory && (
                             <span className="history-practice-note">
                               Process this PDF above to
-                              enable history-based
-                              practice.
+                              enable history-based practice.
                             </span>
                           )}
                         </>
@@ -920,7 +1046,11 @@ function QuizHistory({
                 </section>
 
                 <div className="history-divider">
-                  <span>Saved quizzes</span>
+                  <span>
+                    Saved quizzes · Showing{' '}
+                    {history.length} of{' '}
+                    {totalHistoryCount}
+                  </span>
                 </div>
 
                 <div className="history-list">
@@ -936,9 +1066,7 @@ function QuizHistory({
                               item.created_at,
                             )}
                           </span>
-                          <h3>
-                            {item.quiz_title}
-                          </h3>
+                          <h3>{item.quiz_title}</h3>
                           <p>
                             {getDisplayFilename(
                               item.source_filename,
@@ -983,6 +1111,25 @@ function QuizHistory({
                     </article>
                   ))}
                 </div>
+
+                {loadMoreError && (
+                  <div className="history-error">
+                    {loadMoreError}
+                  </div>
+                )}
+
+                {hasMoreHistory && (
+                  <button
+                    className="history-practice-button"
+                    type="button"
+                    onClick={handleLoadMore}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore
+                      ? 'Loading More...'
+                      : 'Load More Saved Quizzes'}
+                  </button>
+                )}
               </>
             )}
         </div>
