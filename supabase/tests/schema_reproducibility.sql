@@ -78,8 +78,7 @@ begin
         'quiz_history_pkey',
         'quiz_history_user_created_at_id_idx',
         'quiz_history_user_created_at_idx',
-        'quiz_history_user_document_sha256_idx',
-        'quiz_history_user_id_idx'
+        'quiz_history_user_document_sha256_idx'
     ]::text[] then
         raise exception 'quiz_history indexes do not match: %', actual_indexes;
     end if;
@@ -197,11 +196,12 @@ begin
         '20260825064129',
         '20260827090238',
         '20260830090413',
-        '20260830090750'
+        '20260830090750',
+        '20260830124256'
     ]::text[]);
 
-    if migration_count <> 5 then
-        raise exception 'expected migration chain was not fully applied; found % of 5 versions', migration_count;
+    if migration_count <> 6 then
+        raise exception 'expected migration chain was not fully applied; found % of 6 versions', migration_count;
     end if;
 
     select col_description(
