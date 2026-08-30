@@ -3,7 +3,6 @@ from pathlib import Path
 
 import application
 import main
-import main_redis
 import redis_integration
 
 
@@ -12,7 +11,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_main_is_the_single_supported_app_instance():
     assert main.app is application.app
-    assert main_redis.app is application.app
+    assert not (
+        REPO_ROOT
+        / "backend"
+        / "main_redis.py"
+    ).exists()
 
 
 def test_canonical_rate_limit_falls_back_without_redis(
