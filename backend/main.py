@@ -120,7 +120,7 @@ app = create_app()
 )
 async def upload_pdf(
     file: UploadFile = File(...),
-    current_user: AuthenticatedUser = Depends(
+    _current_user: AuthenticatedUser = Depends(
         get_current_user
     ),
 ):
@@ -142,7 +142,7 @@ async def upload_pdf(
     )
 
     remember_processed_document(
-        user_id=current_user.id,
+        user_id=_current_user.id,
         pdf_sha256=response["pdf_sha256"],
         pages=pages,
     )
