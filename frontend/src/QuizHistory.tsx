@@ -257,6 +257,10 @@ function QuizHistory({
     useState('')
   const [expanded, setExpanded] =
     useState(false)
+  const [historyEnabled, setHistoryEnabled] =
+    useState(false)
+  const [historyLoaded, setHistoryLoaded] =
+    useState(false)
   const [
     isHistoryPracticeGenerating,
     setIsHistoryPracticeGenerating,
@@ -307,6 +311,10 @@ function QuizHistory({
       : null
 
   useEffect(() => {
+    if (!historyEnabled) {
+      return
+    }
+
     let cancelled = false
 
     async function loadFirstPage() {
@@ -338,6 +346,7 @@ function QuizHistory({
       } finally {
         if (!cancelled) {
           setLoading(false)
+          setHistoryLoaded(true)
         }
       }
     }
@@ -347,9 +356,13 @@ function QuizHistory({
     return () => {
       cancelled = true
     }
-  }, [refreshKey])
+  }, [historyEnabled, refreshKey])
 
   useEffect(() => {
+    if (!historyEnabled) {
+      return
+    }
+
     let cancelled = false
 
     async function loadCurrentDocumentHistory() {
@@ -386,6 +399,7 @@ function QuizHistory({
   }, [
     currentDocumentSha256,
     currentFilename,
+    historyEnabled,
     refreshKey,
   ])
 
@@ -642,19 +656,26 @@ function QuizHistory({
       <button
         className="history-toggle"
         type="button"
-        onClick={() =>
+        onClick={() => {
+          setHistoryEnabled(true)
           setExpanded(
             (previous) => !previous,
           )
-        }
+        }}
       >
         <div>
           <strong>My Quiz History</strong>
           <span>
-            {totalHistoryCount}{' '}
-            {totalHistoryCount === 1
-              ? 'saved quiz'
-              : 'saved quizzes'}
+            {historyLoaded ? (
+              <>
+                {totalHistoryCount}{' '}
+                {totalHistoryCount === 1
+                  ? 'saved quiz'
+                  : 'saved quizzes'}
+              </>
+            ) : (
+              'Open to load saved quizzes'
+            )}
           </span>
         </div>
         <span>{expanded ? '▲' : '▼'}</span>

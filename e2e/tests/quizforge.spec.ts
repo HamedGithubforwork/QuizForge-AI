@@ -498,15 +498,18 @@ test(
       ),
     ).toBeVisible()
 
-    await expect(
-      page.getByText('1 saved quiz'),
-    ).toBeVisible()
-
-    await page
-      .getByRole('button', {
+    const historyToggle =
+      page.getByRole('button', {
         name: /My Quiz History/,
       })
-      .click()
+
+    await expect(
+      historyToggle,
+    ).toContainText(
+      'Open to load saved quizzes',
+    )
+
+    await historyToggle.click()
 
     await expect(
       page
@@ -515,6 +518,10 @@ test(
           name: firstQuiz.title,
         }),
     ).toBeVisible()
+
+    await expect(
+      historyToggle,
+    ).toContainText('1 saved quiz')
 
     await page
       .getByRole('button', {
