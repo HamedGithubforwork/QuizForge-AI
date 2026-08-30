@@ -24,9 +24,83 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    name: Detect dependency changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      e2e: ${{ steps.changes.outputs.e2e }}
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify dependency changes
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" != "push" && "${EVENT_NAME}" != "pull_request" ]]; then
+            echo "backend=true" >> "${GITHUB_OUTPUT}"
+            echo "frontend=true" >> "${GITHUB_OUTPUT}"
+            echo "e2e=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
+          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
+          else
+            git show --pretty="" --name-only "${CURRENT_SHA}" > changed-files.txt
+          fi
+
+          backend=false
+          frontend=false
+          e2e=false
+
+          while IFS= read -r file; do
+            case "${file}" in
+              backend/requirements*)
+                backend=true
+                ;;
+              frontend/package*.json)
+                frontend=true
+                ;;
+              e2e/package*.json)
+                e2e=true
+                ;;
+              .github/workflows/security.yml)
+                backend=true
+                frontend=true
+                e2e=true
+                ;;
+            esac
+          done < changed-files.txt
+
+          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
+          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
+          echo "e2e=${e2e}" >> "${GITHUB_OUTPUT}"
+
   backend-dependency-audit:
     name: Backend dependency audit
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -48,6 +122,8 @@ jobs:
 
   frontend-dependency-audit:
     name: Frontend dependency audit
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -69,6 +145,8 @@ jobs:
 
   e2e-dependency-audit:
     name: E2E dependency audit
+    needs: changes
+    if: needs.changes.outputs.e2e == 'true'
     runs-on: ubuntu-latest
 
     steps:

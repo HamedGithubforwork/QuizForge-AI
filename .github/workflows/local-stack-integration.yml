@@ -10,6 +10,7 @@ on:
       - "e2e/integration-tests/**"
       - "e2e/playwright.integration.config.ts"
       - "e2e/package.json"
+      - "e2e/package-lock.json"
       - "supabase/**"
       - ".github/workflows/local-stack-integration.yml"
   pull_request:
@@ -21,11 +22,16 @@ on:
       - "e2e/integration-tests/**"
       - "e2e/playwright.integration.config.ts"
       - "e2e/package.json"
+      - "e2e/package-lock.json"
       - "supabase/**"
       - ".github/workflows/local-stack-integration.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: local-stack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   real-local-stack:
