@@ -228,6 +228,15 @@ def create_app():
             "camera=(), microphone=(), "
             "geolocation=()"
         )
+        response.headers[
+            "X-Frame-Options"
+        ] = "DENY"
+        response.headers[
+            "Strict-Transport-Security"
+        ] = (
+            "max-age=31536000; "
+            "includeSubDomains"
+        )
 
         return response
 
