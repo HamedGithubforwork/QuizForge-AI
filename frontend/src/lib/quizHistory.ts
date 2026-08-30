@@ -53,12 +53,12 @@ type SupabaseInsertError = {
 
 export type QuizHistoryPage = {
   items: QuizHistoryRow[]
-  nextCursor: QuizHistoryCursor | null
+  totalCount: number
   hasMore: boolean
 }
 
 type GetQuizHistoryPageInput = {
-  cursor?: QuizHistoryCursor | null
+  offset?: number
   limit?: number
 }
 
@@ -66,6 +66,64 @@ type GetDocumentHistoryInput = {
   sourceFilename: string
   documentSha256?: string | null
   limit?: number
+}
+
+type HistoryPaginationState = {
+  initialized: boolean
+  pageSize: number
+  loadedIds: string[]
+  nextCursor: QuizHistoryCursor | null
+  totalCount: number
+}
+
+const historyPaginationState: HistoryPaginationState = {
+  initialized: false,
+  pageSize: QUIZ_HISTORY_PAGE_SIZE,
+  loadedIds: [],
+  nextCursor: null,
+  totalCount: 0,
+}
+
+function resetHistoryPaginationState({
+  pageSize,
+  items,
+  nextCursor,
+  totalCount,
+}: {
+  pageSize: number
+  items: QuizHistoryRow[]
+  nextCursor: QuizHistoryCursor | null
+  totalCount: number
+}) {
+  historyPaginationState.initialized = true
+  historyPaginationState.pageSize = pageSize
+  historyPaginationState.loadedIds =
+    items.map((item) => item.id)
+  historyPaginationState.nextCursor =
+    nextCursor
+  historyPaginationState.totalCount =
+    totalCount
+}
+
+function appendHistoryPaginationState(
+  items: QuizHistoryRow[],
+  nextCursor: QuizHistoryCursor | null,
+) {
+  const seen = new Set(
+    historyPaginationState.loadedIds,
+  )
+
+  items.forEach((item) => {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      historyPaginationState.loadedIds.push(
+        item.id,
+      )
+    }
+  })
+
+  historyPaginationState.nextCursor =
+    nextCursor
 }
 
 function isMissingDocumentSha256Column(
@@ -175,15 +233,90 @@ export async function saveQuizHistory(
 }
 
 export async function getQuizHistoryPage({
-  cursor = null,
+  offset = 0,
   limit = QUIZ_HISTORY_PAGE_SIZE,
 }: GetQuizHistoryPageInput = {}): Promise<QuizHistoryPage> {
+  const safeOffset = Math.max(
+    0,
+    Math.floor(offset),
+  )
   const pageSize =
     normalizeHistoryPageSize(limit)
+  const shouldStartNewPagination =
+    safeOffset === 0 ||
+    !historyPaginationState.initialized ||
+    historyPaginationState.pageSize !== pageSize
 
-  let query = supabase
+  if (shouldStartNewPagination) {
+    const {
+      data,
+      error,
+      count,
+    } = await supabase
+      .from('quiz_history')
+      .select('*', {
+        count: 'exact',
+      })
+      .order('created_at', {
+        ascending: false,
+      })
+      .order('id', {
+        ascending: false,
+      })
+      .limit(pageSize + 1)
+
+    if (error) {
+      throw error
+    }
+
+    const page = splitHistoryPageRows(
+      (data ?? []) as QuizHistoryRow[],
+      pageSize,
+    )
+    const totalCount =
+      count ??
+      page.items.length +
+        (page.hasMore ? 1 : 0)
+
+    resetHistoryPaginationState({
+      pageSize,
+      items: page.items,
+      nextCursor: page.nextCursor,
+      totalCount,
+    })
+
+    return {
+      items: page.items,
+      totalCount,
+      hasMore: page.hasMore,
+    }
+  }
+
+  if (
+    safeOffset !==
+    historyPaginationState.loadedIds.length
+  ) {
+    throw new Error(
+      'Quiz history changed while loading. Please refresh the history list.',
+    )
+  }
+
+  const cursor =
+    historyPaginationState.nextCursor
+
+  if (!cursor) {
+    return {
+      items: [],
+      totalCount:
+        historyPaginationState.totalCount,
+      hasMore: false,
+    }
+  }
+
+  const { data, error } = await supabase
     .from('quiz_history')
     .select('*')
+    .or(buildHistoryCursorFilter(cursor))
     .order('created_at', {
       ascending: false,
     })
@@ -192,22 +325,26 @@ export async function getQuizHistoryPage({
     })
     .limit(pageSize + 1)
 
-  if (cursor) {
-    query = query.or(
-      buildHistoryCursorFilter(cursor),
-    )
-  }
-
-  const { data, error } = await query
-
   if (error) {
     throw error
   }
 
-  return splitHistoryPageRows(
+  const page = splitHistoryPageRows(
     (data ?? []) as QuizHistoryRow[],
     pageSize,
   )
+
+  appendHistoryPaginationState(
+    page.items,
+    page.nextCursor,
+  )
+
+  return {
+    items: page.items,
+    totalCount:
+      historyPaginationState.totalCount,
+    hasMore: page.hasMore,
+  }
 }
 
 export async function getQuizHistoryForDocument({
@@ -298,5 +435,21 @@ export async function deleteQuizHistory(
 
   if (error) {
     throw error
+  }
+
+  if (
+    historyPaginationState.loadedIds.includes(
+      id,
+    )
+  ) {
+    historyPaginationState.loadedIds =
+      historyPaginationState.loadedIds.filter(
+        (loadedId) => loadedId !== id,
+      )
+    historyPaginationState.totalCount =
+      Math.max(
+        0,
+        historyPaginationState.totalCount - 1,
+      )
   }
 }
