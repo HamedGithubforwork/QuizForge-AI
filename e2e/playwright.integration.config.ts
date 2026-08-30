@@ -21,7 +21,10 @@ export default defineConfig({
   testDir: './integration-tests',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // This suite intentionally mutates its isolated local Supabase state.
+  // A Playwright retry would re-run against the already-mutated database,
+  // so keep retries disabled and let the workflow recreate the stack per run.
+  retries: 0,
   workers: 1,
   reporter: process.env.CI
     ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-integration-report' }]]
