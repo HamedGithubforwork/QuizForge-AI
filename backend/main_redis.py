@@ -17,6 +17,7 @@ from app_shared import (
     create_app,
     get_current_user,
 )
+from document_api import UploadResponse
 from observability import (
     elapsed_ms,
     log_event,
@@ -382,7 +383,10 @@ async def admin_metrics(
     )
 
 
-@app.post("/api/documents/upload")
+@app.post(
+    "/api/documents/upload",
+    response_model=UploadResponse,
+)
 async def upload_pdf(
     file: UploadFile = File(...),
     current_user: AuthenticatedUser = Depends(
