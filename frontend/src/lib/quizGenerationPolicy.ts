@@ -1,3 +1,7 @@
+import {
+  getCurrentDocumentSha256,
+} from './documentIdentity'
+
 let quizGenerationRequestCount = 0
 
 export function prepareQuizGenerationRequest(
@@ -9,6 +13,27 @@ export function prepareQuizGenerationRequest(
     !(init.body instanceof FormData)
   ) {
     return init
+  }
+
+  const sourceFile =
+    init.body.get('file')
+
+  if (
+    typeof File !== 'undefined' &&
+    sourceFile instanceof File
+  ) {
+    const documentSha256 =
+      getCurrentDocumentSha256(
+        sourceFile.name,
+      )
+
+    if (documentSha256) {
+      init.body.delete('file')
+      init.body.set(
+        'document_sha256',
+        documentSha256,
+      )
+    }
   }
 
   const shouldGenerateNewQuizInsteadOfUsingCache =
