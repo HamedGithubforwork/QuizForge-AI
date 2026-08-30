@@ -4,12 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
-  push:
-    branches:
-      - main
-    paths:
-      - "scripts/smoke_production.py"
-      - ".github/workflows/deployment-smoke.yml"
 
 permissions:
   contents: read
