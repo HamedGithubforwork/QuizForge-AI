@@ -125,6 +125,34 @@ def expect_json(response: Response, expected: object, label: str) -> None:
     expect(payload == expected, f"{label} returned unexpected JSON: {payload!r}")
 
 
+def expect_security_headers(response: Response, label: str) -> None:
+    expect(
+        response.headers.get("x-content-type-options", "").lower() == "nosniff",
+        f"{label} is missing X-Content-Type-Options: nosniff",
+    )
+    expect(
+        response.headers.get("referrer-policy", "").lower() == "no-referrer",
+        f"{label} is missing Referrer-Policy: no-referrer",
+    )
+    expect(
+        response.headers.get("x-frame-options", "").lower() == "deny",
+        f"{label} is missing X-Frame-Options: DENY",
+    )
+
+    permissions_policy = response.headers.get("permissions-policy", "").lower()
+    for directive in ("camera=()", "microphone=()", "geolocation=()"):
+        expect(
+            directive in permissions_policy,
+            f"{label} Permissions-Policy is missing {directive}",
+        )
+
+    hsts = response.headers.get("strict-transport-security", "").lower()
+    expect(
+        "max-age=" in hsts,
+        f"{label} is missing Strict-Transport-Security",
+    )
+
+
 def pass_check(message: str) -> None:
     print(f"PASS {message}", flush=True)
 
@@ -139,6 +167,9 @@ def check_frontend() -> None:
     expect("QuizForge AI" in html, "frontend HTML is missing the QuizForge AI title")
     expect('id="root"' in html or "id='root'" in html, "frontend HTML is missing #root")
     pass_check("Vercel frontend shell is reachable")
+
+    expect_security_headers(frontend, "Vercel frontend")
+    pass_check("Vercel frontend security response headers are present")
 
     script_sources = re.findall(
         r"<script\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>",
@@ -189,21 +220,8 @@ def check_backend() -> None:
     )
     pass_check("Render FastAPI root contract is healthy")
 
-    expect(
-        health.headers.get("x-content-type-options", "").lower() == "nosniff",
-        "backend is missing X-Content-Type-Options: nosniff",
-    )
-    expect(
-        health.headers.get("referrer-policy", "").lower() == "no-referrer",
-        "backend is missing Referrer-Policy: no-referrer",
-    )
-    permissions_policy = health.headers.get("permissions-policy", "").lower()
-    for directive in ("camera=()", "microphone=()", "geolocation=()"):
-        expect(
-            directive in permissions_policy,
-            f"backend Permissions-Policy is missing {directive}",
-        )
-    pass_check("backend security response headers are present")
+    expect_security_headers(health, "Render backend")
+    pass_check("Render backend security response headers are present")
 
     metrics = request_with_retries(
         f"{BACKEND_URL}/api/admin/metrics",
