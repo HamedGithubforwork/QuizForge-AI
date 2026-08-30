@@ -1,13 +1,13 @@
-import hashlib
 import json
 import time
 from collections import OrderedDict
 
+from cache_identity import normalize_document_sha256
 from redis_integration import (
     DOCUMENT_CACHE_MAX_BYTES,
     DOCUMENT_CACHE_TTL_SECONDS,
-    DOCUMENT_CACHE_VERSION,
-    QUIZ_CACHE_VERSION,
+    build_document_cache_key_from_sha,
+    build_quiz_cache_key_from_sha,
     get_cached_document,
     get_positive_int_env,
 )
@@ -28,89 +28,6 @@ _memory_documents: OrderedDict[
     str,
     tuple[float, int, dict],
 ] = OrderedDict()
-
-
-def normalize_document_sha256(
-    value: str | None,
-):
-    normalized = (value or "").strip().lower()
-
-    if len(normalized) != 64:
-        return None
-
-    if any(
-        character not in "0123456789abcdef"
-        for character in normalized
-    ):
-        return None
-
-    return normalized
-
-
-def build_document_cache_key_from_sha(
-    *,
-    user_id: str,
-    pdf_sha256: str,
-):
-    request_data = {
-        "cache_version": DOCUMENT_CACHE_VERSION,
-        "user_id": user_id,
-        "pdf_sha256": pdf_sha256,
-    }
-
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            request_data,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-
-    return (
-        "quizforge:document-cache:"
-        f"{fingerprint}"
-    )
-
-
-def build_quiz_cache_key_from_sha(
-    *,
-    user_id: str,
-    pdf_sha256: str,
-    question_count: int,
-    difficulty: str,
-    question_type: str,
-    focus_pages: str,
-    focus_question_types: str,
-    avoid_questions: str,
-    content_type: str | None,
-):
-    request_data = {
-        "cache_version": QUIZ_CACHE_VERSION,
-        "user_id": user_id,
-        "pdf_sha256": pdf_sha256,
-        "content_type": content_type or "",
-        "question_count": question_count,
-        "difficulty": difficulty.strip().lower(),
-        "question_type": question_type.strip().lower(),
-        "focus_pages": focus_pages.strip(),
-        "focus_question_types": (
-            focus_question_types.strip()
-        ),
-        "avoid_questions": avoid_questions.strip(),
-    }
-
-    fingerprint = hashlib.sha256(
-        json.dumps(
-            request_data,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-    ).hexdigest()
-
-    return (
-        "quizforge:quiz-cache:"
-        f"{fingerprint}"
-    )
 
 
 def _remove_expired_memory_documents(
