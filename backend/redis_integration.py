@@ -3,7 +3,9 @@ import json
 import logging
 import os
 import time
+import uuid
 from collections import defaultdict, deque
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
@@ -68,6 +70,18 @@ QUIZ_CACHE_VERSION = (
     or "v1"
 )
 
+QUIZ_GENERATION_LOCK_TTL_SECONDS = get_positive_int_env(
+    "QUIZ_GENERATION_LOCK_TTL_SECONDS",
+    120,
+)
+
+QUIZ_GENERATION_WAIT_SECONDS = get_positive_int_env(
+    "QUIZ_GENERATION_WAIT_SECONDS",
+    30,
+)
+
+QUIZ_GENERATION_POLL_INTERVAL_SECONDS = 0.1
+
 DOCUMENT_CACHE_TTL_SECONDS = get_positive_int_env(
     "DOCUMENT_CACHE_TTL_SECONDS",
     86400,
@@ -123,6 +137,15 @@ return {current, ttl}
 """
 
 
+RELEASE_QUIZ_GENERATION_LOCK_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+
+return 0
+"""
+
+
 QUIZ_RATE_LIMIT_DETAIL = (
     "Too many quiz generation requests. "
     "Please wait before trying again."
@@ -132,6 +155,13 @@ ANSWER_REVIEW_RATE_LIMIT_DETAIL = (
     "Too many semantic answer review requests. "
     "Please wait before trying again."
 )
+
+
+@dataclass(frozen=True)
+class QuizGenerationLockAttempt:
+    backend_available: bool
+    acquired: bool
+    token: str | None = None
 
 
 def _raise_rate_limit(
@@ -472,6 +502,120 @@ def build_quiz_cache_key(
         "quizforge:quiz-cache:"
         f"{fingerprint}"
     )
+
+
+def build_quiz_generation_lock_key(
+    cache_key: str,
+):
+    cache_prefix = "quizforge:quiz-cache:"
+
+    fingerprint = (
+        cache_key.removeprefix(cache_prefix)
+        if cache_key.startswith(cache_prefix)
+        else hashlib.sha256(
+            cache_key.encode("utf-8")
+        ).hexdigest()
+    )
+
+    return (
+        "quizforge:quiz-generation-lock:"
+        f"{fingerprint}"
+    )
+
+
+async def try_acquire_quiz_generation_lock(
+    cache_key: str,
+    client: Any = None,
+):
+    selected_client = (
+        client
+        if client is not None
+        else redis_client
+    )
+
+    if selected_client is None:
+        return QuizGenerationLockAttempt(
+            backend_available=False,
+            acquired=False,
+        )
+
+    lock_key = build_quiz_generation_lock_key(
+        cache_key
+    )
+    token = uuid.uuid4().hex
+
+    try:
+        acquired = await selected_client.set(
+            lock_key,
+            token,
+            nx=True,
+            ex=QUIZ_GENERATION_LOCK_TTL_SECONDS,
+        )
+    except RedisError as error:
+        log_event(
+            "quiz_generation_lock_backend_error",
+            level=logging.WARNING,
+            operation="acquire",
+            fallback="unlocked_generation",
+            error_type=type(error).__name__,
+        )
+        return QuizGenerationLockAttempt(
+            backend_available=False,
+            acquired=False,
+        )
+
+    if not acquired:
+        return QuizGenerationLockAttempt(
+            backend_available=True,
+            acquired=False,
+        )
+
+    return QuizGenerationLockAttempt(
+        backend_available=True,
+        acquired=True,
+        token=token,
+    )
+
+
+async def release_quiz_generation_lock(
+    cache_key: str,
+    token: str | None,
+    client: Any = None,
+):
+    if not token:
+        return False
+
+    selected_client = (
+        client
+        if client is not None
+        else redis_client
+    )
+
+    if selected_client is None:
+        return False
+
+    lock_key = build_quiz_generation_lock_key(
+        cache_key
+    )
+
+    try:
+        released = await selected_client.eval(
+            RELEASE_QUIZ_GENERATION_LOCK_SCRIPT,
+            1,
+            lock_key,
+            token,
+        )
+    except RedisError as error:
+        log_event(
+            "quiz_generation_lock_backend_error",
+            level=logging.WARNING,
+            operation="release",
+            fallback="ttl_expiry",
+            error_type=type(error).__name__,
+        )
+        return False
+
+    return bool(released)
 
 
 async def get_cached_quiz(

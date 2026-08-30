@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import time
@@ -33,6 +34,8 @@ from quiz_service import (
     validate_pdf_size,
 )
 from redis_integration import (
+    QUIZ_GENERATION_POLL_INTERVAL_SECONDS,
+    QUIZ_GENERATION_WAIT_SECONDS,
     build_document_cache_key,
     build_quiz_cache_key,
     cache_document,
@@ -42,6 +45,8 @@ from redis_integration import (
     get_cached_document,
     get_cached_quiz,
     redis_client,
+    release_quiz_generation_lock,
+    try_acquire_quiz_generation_lock,
 )
 
 
@@ -119,6 +124,90 @@ async def get_document_pages_with_cache(
     )
 
     return pdf_sha256, pages
+
+
+async def acquire_quiz_generation_turn(
+    cache_key: str,
+    *,
+    use_cached_result: bool,
+):
+    attempt = await try_acquire_quiz_generation_lock(
+        cache_key
+    )
+
+    if not attempt.backend_available:
+        return None, None
+
+    if attempt.acquired:
+        if use_cached_result:
+            cached_quiz = await get_cached_quiz(
+                cache_key,
+                Quiz,
+            )
+
+            if cached_quiz is not None:
+                await release_quiz_generation_lock(
+                    cache_key,
+                    attempt.token,
+                )
+                return cached_quiz, None
+
+        return None, attempt.token
+
+    deadline = (
+        time.monotonic()
+        + QUIZ_GENERATION_WAIT_SECONDS
+    )
+
+    while time.monotonic() < deadline:
+        await asyncio.sleep(
+            QUIZ_GENERATION_POLL_INTERVAL_SECONDS
+        )
+
+        if use_cached_result:
+            cached_quiz = await get_cached_quiz(
+                cache_key,
+                Quiz,
+            )
+
+            if cached_quiz is not None:
+                return cached_quiz, None
+
+        attempt = await try_acquire_quiz_generation_lock(
+            cache_key
+        )
+
+        if not attempt.backend_available:
+            return None, None
+
+        if not attempt.acquired:
+            continue
+
+        if use_cached_result:
+            cached_quiz = await get_cached_quiz(
+                cache_key,
+                Quiz,
+            )
+
+            if cached_quiz is not None:
+                await release_quiz_generation_lock(
+                    cache_key,
+                    attempt.token,
+                )
+                return cached_quiz, None
+
+        return None, attempt.token
+
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Quiz generation is already in progress. "
+            "Please retry shortly."
+        ),
+        headers={
+            "Retry-After": "2",
+        },
+    )
 
 
 @app.middleware("http")
@@ -286,30 +375,68 @@ async def generate_quiz(
 
                 return cached_quiz
 
-        _pdf_sha256, pages = (
-            await get_document_pages_with_cache(
-                user_id=current_user.id,
-                contents=contents,
-            )
-        )
-
-        quiz = await generate_quiz_from_pages(
-            pages=pages,
-            question_count=question_count,
-            difficulty=difficulty,
-            question_type=question_type,
-            focus_pages=focus_pages,
-            focus_question_types=(
-                focus_question_types
-            ),
-            avoid_questions=avoid_questions,
-        )
-
-        # A requested new generation replaces the older cached quiz.
-        await cache_quiz(
+        (
+            singleflight_cached_quiz,
+            generation_lock_token,
+        ) = await acquire_quiz_generation_turn(
             cache_key,
-            quiz,
+            use_cached_result=(
+                not generate_new_quiz_instead_of_using_cache
+            ),
         )
+
+        if singleflight_cached_quiz is not None:
+            duration = elapsed_ms(
+                started_at,
+            )
+
+            await record_quiz_metrics(
+                redis_client,
+                cache_result="hit",
+                duration_ms=duration,
+            )
+
+            log_event(
+                "quiz_generation_completed",
+                cache_result="hit",
+                duration_ms=duration,
+                question_count=question_count,
+                singleflight_waited=True,
+            )
+
+            return singleflight_cached_quiz
+
+        try:
+            _pdf_sha256, pages = (
+                await get_document_pages_with_cache(
+                    user_id=current_user.id,
+                    contents=contents,
+                )
+            )
+
+            quiz = await generate_quiz_from_pages(
+                pages=pages,
+                question_count=question_count,
+                difficulty=difficulty,
+                question_type=question_type,
+                focus_pages=focus_pages,
+                focus_question_types=(
+                    focus_question_types
+                ),
+                avoid_questions=avoid_questions,
+            )
+
+            # A requested new generation replaces the older cached quiz.
+            await cache_quiz(
+                cache_key,
+                quiz,
+            )
+        finally:
+            if generation_lock_token is not None:
+                await release_quiz_generation_lock(
+                    cache_key,
+                    generation_lock_token,
+                )
     except HTTPException as error:
         duration = elapsed_ms(
             started_at,
