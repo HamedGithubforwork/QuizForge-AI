@@ -195,9 +195,12 @@ test(
       })
 
     await expect(historyToggle).toContainText(
-      '25 saved quizzes',
+      'Open to load saved quizzes',
     )
     await historyToggle.click()
+    await expect(historyToggle).toContainText(
+      '25 saved quizzes',
+    )
 
     const seedCard = page
       .locator('article.history-card')
