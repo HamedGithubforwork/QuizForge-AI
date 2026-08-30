@@ -90,6 +90,7 @@ jobs:
           node --experimental-strip-types src/lib/weakAreaAnalytics.test.ts
           node --experimental-strip-types src/lib/masteryAnalytics.test.ts
           node --experimental-strip-types src/lib/quizGenerationPolicy.test.ts
+          node --experimental-strip-types src/lib/quizHistoryPagination.test.ts
 
       - name: Run frontend lint
         run: npm run lint
