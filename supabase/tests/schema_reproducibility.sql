@@ -76,6 +76,7 @@ begin
 
     if actual_indexes is distinct from array[
         'quiz_history_pkey',
+        'quiz_history_user_created_at_id_idx',
         'quiz_history_user_created_at_idx',
         'quiz_history_user_document_sha256_idx',
         'quiz_history_user_id_idx'
@@ -186,11 +187,12 @@ begin
     where version = any(array[
         '20260824000000',
         '20260825064129',
-        '20260827090238'
+        '20260827090238',
+        '20260830084000'
     ]::text[]);
 
-    if migration_count <> 3 then
-        raise exception 'expected migration chain was not fully applied; found % of 3 versions', migration_count;
+    if migration_count <> 4 then
+        raise exception 'expected migration chain was not fully applied; found % of 4 versions', migration_count;
     end if;
 
     select col_description(
