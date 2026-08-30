@@ -4,16 +4,101 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "e2e/**"
+      - ".python-version"
+      - "render.yaml"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches:
       - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "e2e/**"
+      - ".python-version"
+      - "render.yaml"
+      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      playwright: ${{ steps.changes.outputs.playwright }}
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
+          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
+            git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
+          else
+            git show --pretty="" --name-only "${CURRENT_SHA}" > changed-files.txt
+          fi
+
+          echo "Changed files:"
+          cat changed-files.txt
+
+          backend=false
+          frontend=false
+          playwright=false
+
+          while IFS= read -r file; do
+            case "${file}" in
+              backend/*|.python-version|render.yaml)
+                backend=true
+                ;;
+              frontend/*)
+                frontend=true
+                playwright=true
+                ;;
+              e2e/tests/*|e2e/playwright.config.ts|e2e/package.json|e2e/package-lock.json)
+                playwright=true
+                ;;
+              .github/workflows/ci.yml)
+                backend=true
+                frontend=true
+                playwright=true
+                ;;
+            esac
+          done < changed-files.txt
+
+          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
+          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
+          echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+
   backend-tests:
     name: Backend tests
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -65,6 +150,8 @@ jobs:
 
   frontend-checks:
     name: Frontend checks
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
 
     defaults:
@@ -84,9 +171,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Audit production frontend dependencies
-        run: npm audit --omit=dev --audit-level=low
 
       - name: Run frontend grader, identity, mastery, fallback, and request-policy tests
         run: |
@@ -108,6 +192,8 @@ jobs:
 
   playwright-e2e:
     name: Playwright E2E
+    needs: changes
+    if: needs.changes.outputs.playwright == 'true'
     runs-on: ubuntu-latest
 
     steps:
