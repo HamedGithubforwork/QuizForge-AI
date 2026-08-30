@@ -45,6 +45,16 @@ QUIZ_RATE_WINDOW_SECONDS = get_positive_int_env(
     600,
 )
 
+ANSWER_REVIEW_RATE_LIMIT = get_positive_int_env(
+    "ANSWER_REVIEW_RATE_LIMIT",
+    20,
+)
+
+ANSWER_REVIEW_RATE_WINDOW_SECONDS = get_positive_int_env(
+    "ANSWER_REVIEW_RATE_WINDOW_SECONDS",
+    600,
+)
+
 QUIZ_CACHE_TTL_SECONDS = get_positive_int_env(
     "QUIZ_CACHE_TTL_SECONDS",
     3600,
@@ -95,6 +105,11 @@ _memory_generation_requests: dict[
     deque[float],
 ] = defaultdict(deque)
 
+_memory_answer_review_requests: dict[
+    str,
+    deque[float],
+] = defaultdict(deque)
+
 
 RATE_LIMIT_SCRIPT = """
 local current = redis.call('INCR', KEYS[1])
@@ -108,14 +123,24 @@ return {current, ttl}
 """
 
 
-def _raise_rate_limit(wait_seconds: int):
+QUIZ_RATE_LIMIT_DETAIL = (
+    "Too many quiz generation requests. "
+    "Please wait before trying again."
+)
+
+ANSWER_REVIEW_RATE_LIMIT_DETAIL = (
+    "Too many semantic answer review requests. "
+    "Please wait before trying again."
+)
+
+
+def _raise_rate_limit(
+    wait_seconds: int,
+    detail: str,
+):
     raise HTTPException(
         status_code=429,
-        detail=(
-            "Too many quiz generation "
-            "requests. Please wait before "
-            "trying again."
-        ),
+        detail=detail,
         headers={
             "Retry-After": str(
                 max(1, wait_seconds)
@@ -126,17 +151,17 @@ def _raise_rate_limit(wait_seconds: int):
 
 def _enforce_memory_rate_limit(
     user_id: str,
+    *,
+    request_store: dict[str, deque[float]],
+    limit: int,
+    window_seconds: int,
+    detail: str,
 ):
     now = time.monotonic()
 
-    request_times = (
-        _memory_generation_requests[user_id]
-    )
+    request_times = request_store[user_id]
 
-    cutoff = (
-        now
-        - QUIZ_RATE_WINDOW_SECONDS
-    )
+    cutoff = now - window_seconds
 
     while (
         request_times
@@ -144,14 +169,11 @@ def _enforce_memory_rate_limit(
     ):
         request_times.popleft()
 
-    if (
-        len(request_times)
-        >= QUIZ_RATE_LIMIT
-    ):
+    if len(request_times) >= limit:
         wait_seconds = max(
             1,
             int(
-                QUIZ_RATE_WINDOW_SECONDS
+                window_seconds
                 - (
                     now
                     - request_times[0]
@@ -162,13 +184,21 @@ def _enforce_memory_rate_limit(
 
         _raise_rate_limit(
             wait_seconds,
+            detail,
         )
 
     request_times.append(now)
 
 
-async def enforce_quiz_rate_limit(
+async def _enforce_distributed_rate_limit(
     user_id: str,
+    *,
+    redis_key: str,
+    limit: int,
+    window_seconds: int,
+    detail: str,
+    memory_store: dict[str, deque[float]],
+    limiter_name: str,
     client: Any = None,
 ):
     selected_client = (
@@ -182,13 +212,14 @@ async def enforce_quiz_rate_limit(
             result = await selected_client.eval(
                 RATE_LIMIT_SCRIPT,
                 1,
-                f"quizforge:rate:{user_id}",
-                QUIZ_RATE_WINDOW_SECONDS,
+                redis_key,
+                window_seconds,
             )
         except RedisError as error:
             log_event(
                 "redis_rate_limit_backend_error",
                 level=logging.WARNING,
+                limiter=limiter_name,
                 fallback="memory",
                 error_type=type(error).__name__,
             )
@@ -201,15 +232,65 @@ async def enforce_quiz_rate_limit(
                 int(result[1]),
             )
 
-            if request_count > QUIZ_RATE_LIMIT:
+            if request_count > limit:
                 _raise_rate_limit(
                     ttl,
+                    detail,
                 )
 
             return
 
     _enforce_memory_rate_limit(
         user_id,
+        request_store=memory_store,
+        limit=limit,
+        window_seconds=window_seconds,
+        detail=detail,
+    )
+
+
+async def enforce_quiz_rate_limit(
+    user_id: str,
+    client: Any = None,
+):
+    await _enforce_distributed_rate_limit(
+        user_id,
+        redis_key=f"quizforge:rate:{user_id}",
+        limit=QUIZ_RATE_LIMIT,
+        window_seconds=(
+            QUIZ_RATE_WINDOW_SECONDS
+        ),
+        detail=QUIZ_RATE_LIMIT_DETAIL,
+        memory_store=(
+            _memory_generation_requests
+        ),
+        limiter_name="quiz_generation",
+        client=client,
+    )
+
+
+async def enforce_answer_review_rate_limit(
+    user_id: str,
+    client: Any = None,
+):
+    await _enforce_distributed_rate_limit(
+        user_id,
+        redis_key=(
+            "quizforge:rate:answer-review:"
+            f"{user_id}"
+        ),
+        limit=ANSWER_REVIEW_RATE_LIMIT,
+        window_seconds=(
+            ANSWER_REVIEW_RATE_WINDOW_SECONDS
+        ),
+        detail=(
+            ANSWER_REVIEW_RATE_LIMIT_DETAIL
+        ),
+        memory_store=(
+            _memory_answer_review_requests
+        ),
+        limiter_name="answer_review",
+        client=client,
     )
 
 
