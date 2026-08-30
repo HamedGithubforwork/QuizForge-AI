@@ -1,6 +1,7 @@
 import hashlib
 import json
 import time
+from collections import OrderedDict
 
 from redis_integration import (
     DOCUMENT_CACHE_MAX_BYTES,
@@ -8,13 +9,25 @@ from redis_integration import (
     DOCUMENT_CACHE_VERSION,
     QUIZ_CACHE_VERSION,
     get_cached_document,
+    get_positive_int_env,
 )
 
 
-_memory_documents: dict[
+PROCESSED_DOCUMENT_MEMORY_MAX_ENTRIES = get_positive_int_env(
+    "PROCESSED_DOCUMENT_MEMORY_MAX_ENTRIES",
+    16,
+)
+
+PROCESSED_DOCUMENT_MEMORY_MAX_BYTES = get_positive_int_env(
+    "PROCESSED_DOCUMENT_MEMORY_MAX_BYTES",
+    12_000_000,
+)
+
+
+_memory_documents: OrderedDict[
     str,
-    tuple[float, dict],
-] = {}
+    tuple[float, int, dict],
+] = OrderedDict()
 
 
 def normalize_document_sha256(
@@ -100,16 +113,23 @@ def build_quiz_cache_key_from_sha(
     )
 
 
-def _remove_expired_memory_documents():
-    now = time.monotonic()
+def _remove_expired_memory_documents(
+    now: float | None = None,
+):
+    resolved_now = (
+        time.monotonic()
+        if now is None
+        else now
+    )
 
     expired_keys = [
         cache_key
         for cache_key, (
             expires_at,
+            _serialized_size,
             _document,
         ) in _memory_documents.items()
-        if expires_at <= now
+        if expires_at <= resolved_now
     ]
 
     for cache_key in expired_keys:
@@ -117,6 +137,43 @@ def _remove_expired_memory_documents():
             cache_key,
             None,
         )
+
+
+def _memory_document_bytes():
+    return sum(
+        serialized_size
+        for (
+            _expires_at,
+            serialized_size,
+            _document,
+        ) in _memory_documents.values()
+    )
+
+
+def forget_processed_document(
+    *,
+    user_id: str,
+    pdf_sha256: str,
+):
+    normalized_hash = normalize_document_sha256(
+        pdf_sha256
+    )
+
+    if normalized_hash is None:
+        return False
+
+    cache_key = build_document_cache_key_from_sha(
+        user_id=user_id,
+        pdf_sha256=normalized_hash,
+    )
+
+    return (
+        _memory_documents.pop(
+            cache_key,
+            None,
+        )
+        is not None
+    )
 
 
 def remember_processed_document(
@@ -147,19 +204,56 @@ def remember_processed_document(
         ).encode("utf-8")
     )
 
-    if serialized_size > DOCUMENT_CACHE_MAX_BYTES:
+    if (
+        serialized_size > DOCUMENT_CACHE_MAX_BYTES
+        or serialized_size
+        > PROCESSED_DOCUMENT_MEMORY_MAX_BYTES
+    ):
         return False
 
-    _remove_expired_memory_documents()
+    now = time.monotonic()
+    _remove_expired_memory_documents(now)
 
     cache_key = build_document_cache_key_from_sha(
         user_id=user_id,
         pdf_sha256=normalized_hash,
     )
 
+    _memory_documents.pop(
+        cache_key,
+        None,
+    )
+
+    while (
+        _memory_documents
+        and (
+            len(_memory_documents)
+            >= PROCESSED_DOCUMENT_MEMORY_MAX_ENTRIES
+            or (
+                _memory_document_bytes()
+                + serialized_size
+                > PROCESSED_DOCUMENT_MEMORY_MAX_BYTES
+            )
+        )
+    ):
+        _memory_documents.popitem(
+            last=False
+        )
+
+    if (
+        len(_memory_documents)
+        >= PROCESSED_DOCUMENT_MEMORY_MAX_ENTRIES
+        or (
+            _memory_document_bytes()
+            + serialized_size
+            > PROCESSED_DOCUMENT_MEMORY_MAX_BYTES
+        )
+    ):
+        return False
+
     _memory_documents[cache_key] = (
-        time.monotonic()
-        + DOCUMENT_CACHE_TTL_SECONDS,
+        now + DOCUMENT_CACHE_TTL_SECONDS,
+        serialized_size,
         document,
     )
 
@@ -190,6 +284,10 @@ async def get_processed_document(
     )
 
     if cached_document is not None:
+        _memory_documents.pop(
+            cache_key,
+            None,
+        )
         return cached_document
 
     _remove_expired_memory_documents()
@@ -201,5 +299,14 @@ async def get_processed_document(
     if memory_entry is None:
         return None
 
-    _expires_at, document = memory_entry
+    (
+        _expires_at,
+        _serialized_size,
+        document,
+    ) = memory_entry
+
+    _memory_documents.move_to_end(
+        cache_key
+    )
+
     return document
