@@ -4,7 +4,7 @@ import logging
 import os
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any
 
@@ -12,7 +12,21 @@ from redis.exceptions import RedisError
 
 
 METRIC_PREFIX = "quizforge:metrics:"
+TIMING_PREFIX = f"{METRIC_PREFIX}timing:"
 METRICS_TIMEOUT_SECONDS = 0.25
+TIMING_SAMPLE_LIMIT = 200
+TIMING_SAMPLE_NAMES = (
+    "http_latency_ms",
+    "quiz_latency_ms",
+    "auth_latency_ms",
+    "document_cache_lookup_latency_ms",
+    "document_cache_write_latency_ms",
+    "pdf_extraction_latency_ms",
+    "openai_generation_latency_ms",
+    "quiz_validation_latency_ms",
+    "quiz_cache_lookup_latency_ms",
+    "quiz_cache_write_latency_ms",
+)
 
 logger = logging.getLogger("quizforge.observability")
 
@@ -26,6 +40,9 @@ logger.setLevel(getattr(logging, log_level_name, logging.INFO))
 logger.propagate = False
 
 _memory_metrics: dict[str, int] = defaultdict(int)
+_memory_timing_samples: dict[str, deque[float]] = defaultdict(
+    lambda: deque(maxlen=TIMING_SAMPLE_LIMIT)
+)
 
 
 def elapsed_ms(started_at: float):
@@ -89,6 +106,50 @@ async def increment_metric(client, metric_name: str, amount: int = 1):
     await increment_metrics(client, {metric_name: amount})
 
 
+async def record_timing_sample(
+    client,
+    timing_name: str,
+    duration_ms: float,
+):
+    if timing_name not in TIMING_SAMPLE_NAMES:
+        return
+
+    normalized_duration = round(
+        max(0.0, float(duration_ms)),
+        2,
+    )
+
+    if client is not None:
+        try:
+            pipeline = client.pipeline(transaction=False)
+            timing_key = f"{TIMING_PREFIX}{timing_name}"
+            pipeline.lpush(
+                timing_key,
+                normalized_duration,
+            )
+            pipeline.ltrim(
+                timing_key,
+                0,
+                TIMING_SAMPLE_LIMIT - 1,
+            )
+            await asyncio.wait_for(
+                pipeline.execute(),
+                timeout=METRICS_TIMEOUT_SECONDS,
+            )
+            return
+        except (RedisError, AttributeError, asyncio.TimeoutError) as error:
+            log_event(
+                "timing_metrics_backend_error",
+                level=logging.WARNING,
+                timing_name=timing_name,
+                error_type=type(error).__name__,
+            )
+
+    _memory_timing_samples[timing_name].append(
+        normalized_duration
+    )
+
+
 async def record_document_cache_metric(client, cache_result: str):
     if cache_result == "hit":
         metric_name = "document_cache_hits_total"
@@ -124,10 +185,24 @@ async def record_quiz_metrics(
         metrics["quiz_generation_errors_total"] = 1
 
     await increment_metrics(client, metrics)
+    await record_timing_sample(
+        client,
+        "quiz_latency_ms",
+        duration_ms,
+    )
 
 
 def get_memory_metric(metric_name: str):
     return _memory_metrics.get(metric_name, 0)
+
+
+def get_memory_timing_samples(timing_name: str):
+    return list(
+        _memory_timing_samples.get(
+            timing_name,
+            (),
+        )
+    )
 
 
 async def observe_http_request(request, call_next, metric_client=None):
@@ -145,6 +220,11 @@ async def observe_http_request(request, call_next, metric_client=None):
                 "http_duration_ms_total": max(0, int(round(duration))),
                 "http_5xx_total": 1,
             },
+        )
+        await record_timing_sample(
+            metric_client,
+            "http_latency_ms",
+            duration,
         )
         log_event(
             "http_request_failed",
@@ -167,6 +247,11 @@ async def observe_http_request(request, call_next, metric_client=None):
         metrics["http_5xx_total"] = 1
 
     await increment_metrics(metric_client, metrics)
+    await record_timing_sample(
+        metric_client,
+        "http_latency_ms",
+        duration,
+    )
     response.headers["X-Request-ID"] = request_id
 
     log_event(
