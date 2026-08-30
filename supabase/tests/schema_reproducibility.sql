@@ -132,14 +132,22 @@ begin
     if not has_table_privilege('authenticated', 'public.quiz_history', 'SELECT')
        or not has_table_privilege('authenticated', 'public.quiz_history', 'INSERT')
        or not has_table_privilege('authenticated', 'public.quiz_history', 'DELETE')
-       or has_table_privilege('authenticated', 'public.quiz_history', 'UPDATE') then
+       or has_table_privilege('authenticated', 'public.quiz_history', 'UPDATE')
+       or has_table_privilege('authenticated', 'public.quiz_history', 'TRUNCATE')
+       or has_table_privilege('authenticated', 'public.quiz_history', 'REFERENCES')
+       or has_table_privilege('authenticated', 'public.quiz_history', 'TRIGGER')
+       or has_table_privilege('authenticated', 'public.quiz_history', 'MAINTAIN') then
         raise exception 'authenticated table privileges do not match the application contract';
     end if;
 
     if has_table_privilege('anon', 'public.quiz_history', 'SELECT')
        or has_table_privilege('anon', 'public.quiz_history', 'INSERT')
        or has_table_privilege('anon', 'public.quiz_history', 'DELETE')
-       or has_table_privilege('anon', 'public.quiz_history', 'UPDATE') then
+       or has_table_privilege('anon', 'public.quiz_history', 'UPDATE')
+       or has_table_privilege('anon', 'public.quiz_history', 'TRUNCATE')
+       or has_table_privilege('anon', 'public.quiz_history', 'REFERENCES')
+       or has_table_privilege('anon', 'public.quiz_history', 'TRIGGER')
+       or has_table_privilege('anon', 'public.quiz_history', 'MAINTAIN') then
         raise exception 'anon must not have direct quiz_history privileges';
     end if;
 
@@ -188,11 +196,12 @@ begin
         '20260824000000',
         '20260825064129',
         '20260827090238',
-        '20260830084000'
+        '20260830090413',
+        '20260830090750'
     ]::text[]);
 
-    if migration_count <> 4 then
-        raise exception 'expected migration chain was not fully applied; found % of 4 versions', migration_count;
+    if migration_count <> 5 then
+        raise exception 'expected migration chain was not fully applied; found % of 5 versions', migration_count;
     end if;
 
     select col_description(
