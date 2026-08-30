@@ -1,27 +1,36 @@
 import logging
 import os
 import time
-from contextvars import ContextVar
-from types import FunctionType
 
 from fastapi import (
     Depends,
-    FastAPI,
     File,
     Form,
     HTTPException,
     UploadFile,
 )
-from starlette.concurrency import run_in_threadpool
 
-import main as base_app
 from admin_metrics import get_metric_snapshot
+from app_shared import (
+    AuthenticatedUser,
+    create_app,
+    get_current_user,
+)
 from observability import (
     elapsed_ms,
     log_event,
     observe_http_request,
     record_document_cache_metric,
     record_quiz_metrics,
+)
+import quiz_service
+from quiz_service import (
+    Quiz,
+    build_upload_response,
+    generate_quiz_from_pages,
+    normalize_quiz_settings,
+    validate_pdf_content_type,
+    validate_pdf_size,
 )
 from redis_integration import (
     build_document_cache_key,
@@ -36,187 +45,17 @@ from redis_integration import (
 )
 
 
-AuthenticatedUser = base_app.AuthenticatedUser
-Quiz = base_app.Quiz
-get_current_user = base_app.get_current_user
-extract_pdf_pages_without_redis = (
-    base_app.extract_pdf_pages
-)
-
-
-# Redis-aware requests may pre-load PDF pages before delegating to the
-# base endpoint logic. ContextVar keeps those pages isolated to the current
-# request without changing main.py's global extraction function.
-_document_pages_context = ContextVar(
-    "quizforge_document_pages_context",
-    default=None,
-)
-
-
-def extract_pdf_pages_from_context(
-    contents: bytes,
-):
-    cached_context = (
-        _document_pages_context.get()
-    )
-
-    if cached_context is not None:
-        cached_hash, cached_pages = (
-            cached_context
-        )
-
-        if (
-            compute_pdf_sha256(contents)
-            == cached_hash
-        ):
-            return cached_pages
-
-    return extract_pdf_pages_without_redis(
-        contents
-    )
+app = create_app()
 
 
 async def extract_pdf_pages_off_event_loop(
     contents: bytes,
 ):
-    """Run blocking PyMuPDF extraction in Starlette's worker threadpool."""
+    """Use the shared PDF service without blocking the event loop."""
 
-    return await run_in_threadpool(
-        extract_pdf_pages_without_redis,
-        contents,
+    return await quiz_service.extract_pdf_pages_off_event_loop(
+        contents
     )
-
-
-def _skip_local_quiz_rate_limit(
-    _user_id: str,
-):
-    """The Redis entrypoint already applies the shared limiter."""
-
-
-def _clone_endpoint_with_global_overrides(
-    endpoint,
-    **overrides,
-):
-    """Clone a base endpoint with isolated runtime dependencies.
-
-    The cloned function receives a copy of the base endpoint's global
-    namespace with only the requested dependencies replaced. This keeps the
-    production Redis path from mutating main.py globals while still reusing
-    the authoritative validation and response logic.
-    """
-
-    endpoint_globals = dict(
-        endpoint.__globals__
-    )
-    endpoint_globals.update(overrides)
-
-    cloned_endpoint = FunctionType(
-        endpoint.__code__,
-        endpoint_globals,
-        endpoint.__name__,
-        endpoint.__defaults__,
-        endpoint.__closure__,
-    )
-
-    cloned_endpoint.__kwdefaults__ = (
-        dict(endpoint.__kwdefaults__)
-        if endpoint.__kwdefaults__
-        else None
-    )
-    cloned_endpoint.__annotations__ = dict(
-        getattr(
-            endpoint,
-            "__annotations__",
-            {},
-        )
-    )
-    cloned_endpoint.__dict__.update(
-        getattr(endpoint, "__dict__", {})
-    )
-    cloned_endpoint.__doc__ = endpoint.__doc__
-    cloned_endpoint.__module__ = endpoint.__module__
-    cloned_endpoint.__qualname__ = endpoint.__qualname__
-
-    return cloned_endpoint
-
-
-# These delegates reuse the base endpoint code without changing the base
-# application's global rate limiter, PDF extractor, or route table.
-upload_pdf_without_redis = (
-    _clone_endpoint_with_global_overrides(
-        base_app.upload_pdf,
-        extract_pdf_pages=(
-            extract_pdf_pages_from_context
-        ),
-    )
-)
-
-generate_quiz_without_redis = (
-    _clone_endpoint_with_global_overrides(
-        base_app.generate_quiz,
-        enforce_quiz_rate_limit=(
-            _skip_local_quiz_rate_limit
-        ),
-        extract_pdf_pages=(
-            extract_pdf_pages_from_context
-        ),
-    )
-)
-
-
-def create_redis_app():
-    """Build the production app without mutating the base FastAPI app."""
-
-    redis_app = FastAPI(
-        title=base_app.app.title,
-        version=base_app.app.version,
-    )
-
-    # Preserve the base security-header and CORS middleware configuration.
-    redis_app.user_middleware = list(
-        base_app.app.user_middleware
-    )
-    redis_app.exception_handlers.update(
-        base_app.app.exception_handlers
-    )
-
-    # FastAPI already created fresh documentation routes for redis_app.
-    # Reuse only the base business routes that are not replaced below.
-    built_in_paths = {
-        path
-        for path in (
-            base_app.app.openapi_url,
-            "/docs",
-            "/docs/oauth2-redirect",
-            "/redoc",
-        )
-        if path
-    }
-
-    overridden_paths = {
-        "/api/documents/upload",
-        "/api/quizzes/generate",
-    }
-
-    for route in base_app.app.routes:
-        route_path = getattr(
-            route,
-            "path",
-            None,
-        )
-
-        if (
-            route_path in built_in_paths
-            or route_path in overridden_paths
-        ):
-            continue
-
-        redis_app.router.routes.append(route)
-
-    return redis_app
-
-
-app = create_redis_app()
 
 
 async def get_document_pages_with_cache(
@@ -337,43 +176,25 @@ async def upload_pdf(
         get_current_user
     ),
 ):
-    if file.content_type != "application/pdf":
-        return await upload_pdf_without_redis(
-            file=file,
-            _current_user=current_user,
-        )
+    validate_pdf_content_type(
+        file.content_type
+    )
 
     contents = await file.read()
-    await file.seek(0)
+    validate_pdf_size(contents)
 
-    if len(contents) > base_app.MAX_FILE_SIZE:
-        return await upload_pdf_without_redis(
-            file=file,
-            _current_user=current_user,
-        )
-
-    pdf_sha256, pages = (
+    _pdf_sha256, pages = (
         await get_document_pages_with_cache(
             user_id=current_user.id,
             contents=contents,
         )
     )
 
-    context_token = (
-        _document_pages_context.set(
-            (pdf_sha256, pages)
-        )
+    return build_upload_response(
+        file.filename,
+        contents,
+        pages,
     )
-
-    try:
-        return await upload_pdf_without_redis(
-            file=file,
-            _current_user=current_user,
-        )
-    finally:
-        _document_pages_context.reset(
-            context_token
-        )
 
 
 @app.post(
@@ -396,96 +217,38 @@ async def generate_quiz(
     ),
 ):
     started_at = time.perf_counter()
-
-    # Redis is the shared rate limiter across backend instances.
-    await enforce_quiz_rate_limit(
-        current_user.id,
-    )
-
-    contents = await file.read()
-    await file.seek(0)
-
-    cache_key = build_quiz_cache_key(
-        user_id=current_user.id,
-        contents=contents,
-        question_count=question_count,
-        difficulty=difficulty,
-        question_type=question_type,
-        focus_pages=focus_pages,
-        focus_question_types=(
-            focus_question_types
-        ),
-        avoid_questions=avoid_questions,
-        content_type=file.content_type,
-    )
-
     cache_result = (
         "bypass"
         if generate_new_quiz_instead_of_using_cache
         else "miss"
     )
 
-    if not generate_new_quiz_instead_of_using_cache:
-        cached_quiz = await get_cached_quiz(
-            cache_key,
-            Quiz,
-        )
-
-        if cached_quiz is not None:
-            duration = elapsed_ms(
-                started_at,
-            )
-
-            await record_quiz_metrics(
-                redis_client,
-                cache_result="hit",
-                duration_ms=duration,
-            )
-
-            log_event(
-                "quiz_generation_completed",
-                cache_result="hit",
-                duration_ms=duration,
-                question_count=question_count,
-            )
-
-            return cached_quiz
-
-    context_token = None
-
-    should_prepare_document_cache = (
-        file.content_type == "application/pdf"
-        and len(contents)
-        <= base_app.MAX_FILE_SIZE
-        and question_count in [5, 10, 15]
-        and difficulty.lower()
-        in ["easy", "medium", "hard"]
-        and question_type.lower()
-        in [
-            "multiple_choice",
-            "true_false",
-            "short_answer",
-            "mixed",
-        ]
+    # Redis is the shared rate limiter across backend instances.
+    await enforce_quiz_rate_limit(
+        current_user.id,
     )
 
     try:
-        if should_prepare_document_cache:
-            pdf_sha256, pages = (
-                await get_document_pages_with_cache(
-                    user_id=current_user.id,
-                    contents=contents,
-                )
-            )
+        validate_pdf_content_type(
+            file.content_type
+        )
 
-            context_token = (
-                _document_pages_context.set(
-                    (pdf_sha256, pages)
-                )
-            )
+        (
+            question_count,
+            difficulty,
+            question_type,
+        ) = normalize_quiz_settings(
+            question_count,
+            difficulty,
+            question_type,
+        )
 
-        quiz = await generate_quiz_without_redis(
-            file=file,
+        contents = await file.read()
+        validate_pdf_size(contents)
+
+        cache_key = build_quiz_cache_key(
+            user_id=current_user.id,
+            contents=contents,
             question_count=question_count,
             difficulty=difficulty,
             question_type=question_type,
@@ -494,7 +257,58 @@ async def generate_quiz(
                 focus_question_types
             ),
             avoid_questions=avoid_questions,
-            current_user=current_user,
+            content_type=file.content_type,
+        )
+
+        if not generate_new_quiz_instead_of_using_cache:
+            cached_quiz = await get_cached_quiz(
+                cache_key,
+                Quiz,
+            )
+
+            if cached_quiz is not None:
+                duration = elapsed_ms(
+                    started_at,
+                )
+
+                await record_quiz_metrics(
+                    redis_client,
+                    cache_result="hit",
+                    duration_ms=duration,
+                )
+
+                log_event(
+                    "quiz_generation_completed",
+                    cache_result="hit",
+                    duration_ms=duration,
+                    question_count=question_count,
+                )
+
+                return cached_quiz
+
+        _pdf_sha256, pages = (
+            await get_document_pages_with_cache(
+                user_id=current_user.id,
+                contents=contents,
+            )
+        )
+
+        quiz = await generate_quiz_from_pages(
+            pages=pages,
+            question_count=question_count,
+            difficulty=difficulty,
+            question_type=question_type,
+            focus_pages=focus_pages,
+            focus_question_types=(
+                focus_question_types
+            ),
+            avoid_questions=avoid_questions,
+        )
+
+        # A requested new generation replaces the older cached quiz.
+        await cache_quiz(
+            cache_key,
+            quiz,
         )
     except HTTPException as error:
         duration = elapsed_ms(
@@ -550,18 +364,6 @@ async def generate_quiz(
         )
 
         raise
-    finally:
-        if context_token is not None:
-            _document_pages_context.reset(
-                context_token
-            )
-
-    # Store the newly generated quiz under the normal request cache key.
-    # A requested new generation therefore replaces the older cached quiz.
-    await cache_quiz(
-        cache_key,
-        quiz,
-    )
 
     duration = elapsed_ms(
         started_at,
