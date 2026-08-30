@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
 const testEmail =
   process.env.INTEGRATION_TEST_EMAIL ||
@@ -63,8 +63,8 @@ function makeTextPdf() {
   return Buffer.from(pdf, 'ascii')
 }
 
-function waitForDocumentUpload(page: Parameters<typeof test>[0] extends never ? never : any) {
-  return page.waitForResponse((response: any) => {
+function waitForDocumentUpload(page: Page) {
+  return page.waitForResponse((response) => {
     const url = new URL(response.url())
 
     return (
