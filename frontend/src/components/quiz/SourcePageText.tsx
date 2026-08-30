@@ -7,52 +7,27 @@ import {
   apiFetch,
 } from '../../lib/api'
 
-const sourcePageCache =
-  new Map<string, string>()
-
 type SourcePageTextProps = {
   documentSha256: string
   pageNumber: number
-  fallbackText?: string
-}
-
-function buildCacheKey(
-  documentSha256: string,
-  pageNumber: number,
-) {
-  return `${documentSha256}:${pageNumber}`
 }
 
 function SourcePageText({
   documentSha256,
   pageNumber,
-  fallbackText,
 }: SourcePageTextProps) {
-  const cacheKey = buildCacheKey(
-    documentSha256,
-    pageNumber,
-  )
-
-  const [text, setText] = useState(
-    () =>
-      fallbackText ||
-      sourcePageCache.get(cacheKey) ||
-      '',
-  )
+  const [text, setText] = useState('')
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] =
-    useState(!text)
+    useState(true)
 
   useEffect(() => {
-    if (text) {
-      return
-    }
-
     let cancelled = false
 
     async function loadSourcePage() {
-      setIsLoading(true)
+      setText('')
       setError('')
+      setIsLoading(true)
 
       try {
         const response = await apiFetch(
@@ -82,11 +57,6 @@ function SourcePageText({
           )
         }
 
-        sourcePageCache.set(
-          cacheKey,
-          data.text,
-        )
-
         if (!cancelled) {
           setText(data.text)
         }
@@ -111,10 +81,8 @@ function SourcePageText({
       cancelled = true
     }
   }, [
-    cacheKey,
     documentSha256,
     pageNumber,
-    text,
   ])
 
   if (text) {
