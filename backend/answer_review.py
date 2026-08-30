@@ -5,8 +5,10 @@ from collections import defaultdict, deque
 from typing import Literal
 
 from fastapi import HTTPException
-from openai import AsyncOpenAI, OpenAIError
+from openai import OpenAIError
 from pydantic import BaseModel, Field
+
+from outbound_clients import get_openai_client
 
 
 def _positive_int_env(
@@ -267,8 +269,8 @@ Rules:
 - Return exactly one decision for every question_index provided.
 """.strip()
 
-    client = AsyncOpenAI(
-        api_key=api_key,
+    client = await get_openai_client(
+        api_key,
     )
 
     try:

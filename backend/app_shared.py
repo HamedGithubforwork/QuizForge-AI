@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
@@ -11,6 +12,11 @@ from answer_review import (
     AnswerReviewRequest,
     AnswerReviewResponse,
     review_borderline_answers_with_ai,
+)
+from outbound_clients import (
+    close_outbound_clients,
+    get_http_client,
+    start_outbound_clients,
 )
 
 
@@ -116,18 +122,16 @@ async def get_current_user(
         )
 
     try:
-        async with httpx.AsyncClient(
-            timeout=8.0,
-        ) as client:
-            response = await client.get(
-                f"{SUPABASE_URL}/auth/v1/user",
-                headers={
-                    "apikey": SUPABASE_PUBLISHABLE_KEY,
-                    "Authorization": (
-                        f"Bearer {access_token}"
-                    ),
-                },
-            )
+        client = await get_http_client()
+        response = await client.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={
+                "apikey": SUPABASE_PUBLISHABLE_KEY,
+                "Authorization": (
+                    f"Bearer {access_token}"
+                ),
+            },
+        )
     except httpx.RequestError as error:
         raise HTTPException(
             status_code=503,
@@ -189,10 +193,21 @@ async def get_current_user(
     )
 
 
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    await start_outbound_clients()
+
+    try:
+        yield
+    finally:
+        await close_outbound_clients()
+
+
 def create_app():
     app = FastAPI(
         title="QuizForge AI API",
         version="0.7.0",
+        lifespan=app_lifespan,
     )
 
     app.add_middleware(

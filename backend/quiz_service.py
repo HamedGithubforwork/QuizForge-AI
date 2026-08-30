@@ -6,11 +6,12 @@ from typing import Literal
 
 import pymupdf
 from fastapi import HTTPException
-from openai import AsyncOpenAI, OpenAIError
+from openai import OpenAIError
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from observability import log_event
+from outbound_clients import get_openai_client
 from quiz_validation import get_quiz_validation_errors
 
 
@@ -659,8 +660,8 @@ If requested mode is "mixed":
 - Distribute the remaining questions reasonably among the three types.
 """
 
-    client = AsyncOpenAI(
-        api_key=api_key,
+    client = await get_openai_client(
+        api_key,
     )
 
     quiz = None
