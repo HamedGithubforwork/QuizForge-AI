@@ -63,6 +63,17 @@ function makeTextPdf() {
   return Buffer.from(pdf, 'ascii')
 }
 
+function waitForDocumentUpload(page: Parameters<typeof test>[0] extends never ? never : any) {
+  return page.waitForResponse((response: any) => {
+    const url = new URL(response.url())
+
+    return (
+      url.pathname === '/api/documents/upload' &&
+      response.request().method() === 'POST'
+    )
+  })
+}
+
 test(
   'browser uses real local Supabase, FastAPI, and Redis',
   async ({ page }) => {
@@ -136,34 +147,37 @@ test(
       page.getByRole('button', {
         name: 'Process PDF',
       })
-
-    await processButton.click()
-
-    const processedPanel = page
-      .getByRole('heading', {
+    const successHeading =
+      page.getByRole('heading', {
         name: 'PDF processed successfully',
       })
-      .locator('..')
 
-    await expect(
-      page.getByRole('heading', {
-        name: 'PDF processed successfully',
-      }),
-    ).toBeVisible()
-    await expect(
-      processedPanel.getByText(
-        'integration-notes.pdf',
-        { exact: true },
-      ),
-    ).toBeVisible()
+    const firstUploadPromise =
+      waitForDocumentUpload(page)
+    await processButton.click()
+    const firstUploadResponse =
+      await firstUploadPromise
+
+    expect(firstUploadResponse.status()).toBe(200)
+    const firstUploadBody =
+      await firstUploadResponse.json()
+    expect(firstUploadBody.filename).toBe(
+      'integration-notes.pdf',
+    )
+    expect(firstUploadBody.page_count).toBe(1)
+    expect(
+      firstUploadBody.character_count,
+    ).toBeGreaterThan(100)
+    await expect(successHeading).toBeVisible()
 
     // Processing the same PDF again exercises the real Redis document cache hit.
+    const secondUploadPromise =
+      waitForDocumentUpload(page)
     await processButton.click()
+    const secondUploadResponse =
+      await secondUploadPromise
 
-    await expect(
-      page.getByRole('heading', {
-        name: 'PDF processed successfully',
-      }),
-    ).toBeVisible()
+    expect(secondUploadResponse.status()).toBe(200)
+    await expect(successHeading).toBeVisible()
   },
 )
