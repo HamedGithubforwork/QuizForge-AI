@@ -11,6 +11,10 @@ from redis_integration import (
     get_cached_document,
     get_positive_int_env,
 )
+from source_page_cache import (
+    get_cached_source_page,
+    seed_source_page_cache,
+)
 
 
 PROCESSED_DOCUMENT_MEMORY_MAX_ENTRIES = get_positive_int_env(
@@ -65,6 +69,39 @@ def _memory_document_bytes():
             _document,
         ) in _memory_documents.values()
     )
+
+
+def _source_page_from_document(
+    document: dict,
+    page_number: int,
+):
+    pages = document.get("pages")
+
+    if not isinstance(pages, list):
+        return "missing_document", None
+
+    source_page = next(
+        (
+            page
+            for page in pages
+            if (
+                isinstance(page, dict)
+                and page.get("page_number")
+                == page_number
+            )
+        ),
+        None,
+    )
+
+    if source_page is None:
+        return "missing_page", None
+
+    source_text = source_page.get("text")
+
+    if not isinstance(source_text, str):
+        return "missing_page", None
+
+    return "ok", source_text
 
 
 def forget_processed_document(
@@ -205,6 +242,10 @@ async def get_processed_document(
             cache_key,
             None,
         )
+        await seed_source_page_cache(
+            cache_key,
+            cached_document["pages"],
+        )
         return cached_document
 
     _remove_expired_memory_documents()
@@ -227,3 +268,84 @@ async def get_processed_document(
     )
 
     return document
+
+
+async def get_processed_page(
+    *,
+    user_id: str,
+    pdf_sha256: str,
+    page_number: int,
+):
+    normalized_hash = normalize_document_sha256(
+        pdf_sha256
+    )
+
+    if normalized_hash is None:
+        return "invalid_document", None
+
+    cache_key = build_document_cache_key_from_sha(
+        user_id=user_id,
+        pdf_sha256=normalized_hash,
+    )
+
+    cache_status, source_text = (
+        await get_cached_source_page(
+            cache_key,
+            page_number,
+        )
+    )
+
+    if cache_status == "ok":
+        _memory_documents.pop(
+            cache_key,
+            None,
+        )
+        return "ok", source_text
+
+    if cache_status == "missing_page":
+        return "missing_page", None
+
+    if cache_status == "unseeded":
+        cached_document = (
+            await get_cached_document(
+                cache_key
+            )
+        )
+
+        if cached_document is not None:
+            _memory_documents.pop(
+                cache_key,
+                None,
+            )
+            await seed_source_page_cache(
+                cache_key,
+                cached_document["pages"],
+            )
+            return _source_page_from_document(
+                cached_document,
+                page_number,
+            )
+
+    _remove_expired_memory_documents()
+
+    memory_entry = _memory_documents.get(
+        cache_key
+    )
+
+    if memory_entry is None:
+        return "missing_document", None
+
+    (
+        _expires_at,
+        _serialized_size,
+        document,
+    ) = memory_entry
+
+    _memory_documents.move_to_end(
+        cache_key
+    )
+
+    return _source_page_from_document(
+        document,
+        page_number,
+    )

@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 from processed_documents import (
-    get_processed_document,
+    get_processed_page,
     normalize_document_sha256,
 )
 from quiz_service import analyze_extracted_text
@@ -80,30 +80,16 @@ async def resolve_source_page(
     if normalized_hash is None:
         return "invalid_document", None
 
-    document = await get_processed_document(
-        user_id=user_id,
-        pdf_sha256=normalized_hash,
+    status, source_text = (
+        await get_processed_page(
+            user_id=user_id,
+            pdf_sha256=normalized_hash,
+            page_number=page_number,
+        )
     )
 
-    if document is None:
-        return "missing_document", None
-
-    source_page = next(
-        (
-            page
-            for page in document["pages"]
-            if page.get("page_number") == page_number
-        ),
-        None,
-    )
-
-    if source_page is None:
-        return "missing_page", None
-
-    source_text = source_page.get("text")
-
-    if not isinstance(source_text, str):
-        return "missing_page", None
+    if status != "ok":
+        return status, None
 
     return (
         "ok",
