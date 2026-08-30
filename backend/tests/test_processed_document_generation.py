@@ -2,7 +2,7 @@ import asyncio
 
 from fastapi import HTTPException
 
-import main_redis
+import application
 
 
 DOCUMENT_SHA256 = "a" * 64
@@ -75,37 +75,37 @@ def patch_generation_dependencies(
         return None
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "enforce_quiz_rate_limit",
         fake_rate_limit,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_processed_document",
         fake_get_processed_document,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "get_cached_quiz",
         fake_get_cached_quiz,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "acquire_quiz_generation_turn",
         fake_acquire_turn,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "cache_quiz",
         fake_cache_quiz,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_quiz_metrics",
         fake_record_quiz_metrics,
     )
     monkeypatch.setattr(
-        main_redis,
+        application,
         "record_document_cache_metric",
         fake_record_document_cache_metric,
     )
@@ -113,7 +113,7 @@ def patch_generation_dependencies(
 
 def call_generation(user_id: str):
     return asyncio.run(
-        main_redis.generate_quiz(
+        application.generate_quiz(
             file=None,
             document_sha256=(
                 DOCUMENT_SHA256
@@ -128,7 +128,7 @@ def call_generation(user_id: str):
             avoid_questions="[]",
             generate_new_quiz_instead_of_using_cache=False,
             current_user=(
-                main_redis.AuthenticatedUser(
+                application.AuthenticatedUser(
                     id=user_id
                 )
             ),
@@ -153,13 +153,13 @@ def test_generation_uses_processed_pages_without_pdf_upload(
         generated_pages.append(
             kwargs["pages"]
         )
-        return main_redis.Quiz(
+        return application.Quiz(
             title="Handle quiz",
             questions=[],
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         fake_generation,
     )
@@ -186,7 +186,7 @@ def test_expired_processed_document_requires_reprocessing(
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         fail_generation,
     )
@@ -224,7 +224,7 @@ def test_same_hash_cannot_access_another_users_document(
         )
 
     monkeypatch.setattr(
-        main_redis,
+        application,
         "generate_quiz_from_pages",
         fail_generation,
     )
