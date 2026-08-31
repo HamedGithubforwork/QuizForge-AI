@@ -31,6 +31,11 @@ VALIDATION_BATCH_SIZE = 100
 VALIDATION_WARMUP_RUNS = 2
 VALIDATION_SAMPLE_RUNS = 12
 
+P95_BUDGETS_MS = {
+    "pdf_extraction_40_pages": 50.0,
+    "quiz_validation_100x15_questions": 120.0,
+}
+
 
 @dataclass(frozen=True)
 class BenchmarkResult:
@@ -58,6 +63,7 @@ class BenchmarkResult:
             "operations_per_sample": self.operations_per_sample,
             "median_ms": round(self.median_ms, 3),
             "p95_ms": round(self.p95_ms, 3),
+            "p95_budget_ms": P95_BUDGETS_MS[self.name],
         }
 
 
@@ -303,11 +309,32 @@ def run_benchmarks() -> list[BenchmarkResult]:
     ]
 
 
+def _budget_failures(
+    results: list[BenchmarkResult],
+) -> list[str]:
+    failures: list[str] = []
+
+    for result in results:
+        budget_ms = P95_BUDGETS_MS[result.name]
+        if result.p95_ms > budget_ms:
+            failures.append(
+                f"{result.name} p95 {result.p95_ms:.3f} ms "
+                f"exceeded {budget_ms:.3f} ms budget"
+            )
+
+    return failures
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Run deterministic CPU-local QuizForge backend performance benchmarks."
         )
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Fail when a benchmark exceeds its p95 regression budget.",
     )
     parser.add_argument(
         "--json",
@@ -317,23 +344,36 @@ def main() -> int:
     args = parser.parse_args()
 
     results = run_benchmarks()
+    failures = _budget_failures(results) if args.check else []
     payload = {
         "python": sys.version.split()[0],
         "results": [result.as_dict() for result in results],
+        "budget_failures": failures,
     }
 
     if args.json:
         print(json.dumps(payload, sort_keys=True))
-        return 0
+        return 1 if failures else 0
 
     print("QuizForge deterministic backend benchmark")
     print(f"Python: {payload['python']}")
     for result in results:
+        budget_ms = P95_BUDGETS_MS[result.name]
         print(
             f"- {result.name}: median={result.median_ms:.3f} ms, "
             f"p95={result.p95_ms:.3f} ms, "
+            f"budget={budget_ms:.3f} ms, "
             f"operations/sample={result.operations_per_sample}"
         )
+
+    if failures:
+        print("Performance budget failures:")
+        for failure in failures:
+            print(f"- {failure}")
+        return 1
+
+    if args.check:
+        print("All performance budgets passed.")
 
     return 0
 
