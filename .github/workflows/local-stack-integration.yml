@@ -53,10 +53,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
           cache: pip
@@ -66,7 +66,7 @@ jobs:
             backend/requirements.lock
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -75,7 +75,7 @@ jobs:
             e2e/package-lock.json
 
       - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@v3
         with:
           version: 2.115.0
 
@@ -267,7 +267,7 @@ jobs:
 
       - name: Upload integration diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: local-stack-integration-diagnostics
           path: |
