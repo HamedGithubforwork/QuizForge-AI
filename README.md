@@ -24,7 +24,7 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 - **Adaptive practice** — saved attempts are analyzed by question type and source page to create new weak-area quizzes rather than simply repeating missed questions.
 - **Production caching** — Redis caches extracted document data and eligible generated quizzes and supports source-page retrieval without repeatedly loading full processed documents.
 - **Distributed coordination** — Redis also backs per-user rate limiting, generation single-flight locking, and operational metrics, with safe process-local fallbacks where designed.
-- **Automated quality gates** — pytest, frontend coverage thresholds, lint/build checks, Playwright + axe browser tests, real local-stack integration, deterministic performance budgets, API-contract drift checks, database migration verification, security audits, and production smoke checks run through GitHub Actions.
+- **Automated quality gates** — pytest, frontend coverage thresholds, StrykerJS mutation testing, lint/build checks, Playwright + axe browser tests, real local-stack integration, deterministic performance budgets, API-contract drift checks, database migration verification, security audits, and post-deploy production verification run through GitHub Actions.
 - **Privacy-conscious observability** — structured logs and performance metrics avoid PDF text, bearer tokens, user IDs, Redis keys, raw provider errors, and default IP-bearing Uvicorn access logs.
 
 ---
@@ -125,7 +125,7 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 | Caching / rate limiting / coordination | Redis |
 | Frontend deployment | Vercel |
 | Backend deployment | Render + Docker |
-| Testing | pytest, Node test runner + coverage, Playwright, axe |
+| Testing | pytest, Node test runner + coverage, StrykerJS, Playwright, axe |
 | CI / DevOps | GitHub Actions, Docker, Docker Compose, Supabase CLI |
 
 ---
@@ -251,17 +251,19 @@ The `--no-access-log` flag disables Uvicorn's default IP-bearing access log whil
 
 ## Testing and CI
 
-QuizForge uses several verification layers. Workflows are **path-sensitive**: a pull request or push starts the PR workflow, while the backend, frontend, and Playwright jobs run or intentionally skip according to the files changed. The final **Required PR gate** accepts only successful relevant jobs or intentional skips.
+QuizForge uses several verification layers. Workflows are **path-sensitive**: a pull request or push starts CI, while backend, frontend, browser, integration, security, migration, and mutation jobs run or intentionally skip according to the files changed. The stable **Required PR gate** accepts successful relevant CI jobs or intentional skips without requiring every leaf job individually.
 
 | Layer | Workflow / job | What it protects |
 | --- | --- | --- |
 | Backend | **CI → Backend tests** | API behavior, auth enforcement, PDF/OCR validation, Redis behavior, metrics, AI review normalization, generated-quiz validation, deterministic performance budgets, API-contract drift, Docker build, real OCR container smoke |
 | Frontend | **CI → Frontend checks** | domain logic tests, coverage thresholds, grading, numeric units, history consistency, fallback logic, document identity, analytics/mastery, pagination, lint and production build |
+| Mutation quality | **Mutation testing → Frontend StrykerJS** | Whether frontend business-logic tests actually detect deliberate behavioral mutations rather than only executing covered lines |
 | Browser | **CI → Playwright E2E** | authentication UI, upload/generate/score flows, source retrieval, history, weak-area practice, keyboard behavior, and automated axe WCAG A/AA scans |
-| Real local stack | **Local stack integration** | Browser + local Supabase + FastAPI + Redis, RLS isolation, migrations, document cache behavior |
+| Real local stack | **Local stack integration** | Browser + local Supabase + FastAPI + Redis, authenticated backend boundary, RLS isolation, migrations, and document cache behavior |
 | Database | **Database migrations** | Rebuilds local Supabase from zero and verifies schema/security reproducibility |
 | Dependencies | **Security checks** | `pip-audit` and npm dependency audits on dependency changes plus scheduled/manual runs |
-| Production | **Deployment smoke** | Scheduled/manual read-only checks of deployed Vercel/Render wiring, health, headers, CORS, and unauthenticated admin protection |
+| Production public boundary | **Deployment smoke** | Read-only deployed Vercel/Render wiring, health, headers, CORS, and unauthenticated admin protection |
+| Production authenticated boundary | **Authenticated deployment canary** | Deployed Vercel login + real Supabase browser session + protected Render token/CORS acceptance without PDF upload, OpenAI use, or quiz-history writes |
 
 ### Backend tests
 
@@ -296,6 +298,26 @@ Functions: 90%
 
 Dependency auditing is owned by the separate **Security checks** workflow rather than duplicated in normal frontend CI.
 
+### Mutation testing
+
+QuizForge uses **StrykerJS** against the frontend's pure TypeScript business-logic modules. Stryker makes temporary code mutations and runs the existing frontend tests against them; a failing test kills the mutant, while a surviving mutant identifies behavior the current tests did not distinguish.
+
+The permanent workflow is `.github/workflows/mutation-testing.yml`. It runs:
+
+- manually through `workflow_dispatch`
+- weekly on its schedule
+- on pull requests that change the mutation setup or `frontend/src/lib/*.ts`
+
+The Stryker configuration uses the existing `npm test` command, mutates the selected `src/lib` logic modules, and uploads HTML and JSON reports for individual mutant inspection. Its configured score bands are informational (`high: 80`, `low: 60`); there is currently no mutation-score `break` threshold, so the workflow is used to expose meaningful surviving mutants rather than encourage artificial tests solely to reach a number.
+
+Run it locally with:
+
+```bash
+cd frontend
+npm ci
+npm run test:mutation
+```
+
 ### Playwright E2E
 
 The standard browser suite currently includes:
@@ -307,11 +329,27 @@ The standard browser suite currently includes:
 
 Standard Playwright tests mock external services at the browser network layer so CI stays deterministic and does not spend OpenAI credits.
 
-A separate integration Playwright configuration runs against local Supabase, FastAPI, and Redis for real cross-service verification.
+A separate integration Playwright configuration runs against local Supabase, FastAPI, and Redis for real cross-service verification. The deployed canary uses its own Playwright configuration and dedicated production canary credentials.
 
-### Production smoke testing
+### Post-merge production verification
 
-`.github/workflows/deployment-smoke.yml` runs a scheduled and manually dispatchable **read-only** production smoke check. It deliberately avoids authentication, database writes, PDF uploads, Redis mutations, and OpenAI calls. It verifies:
+Normal production verification is chained automatically after a successful merge to `main`:
+
+```text
+Pull request checks
+      ↓
+merge to main
+      ↓
+CI on main
+      ↓
+60-second deployment settle window
+      ↓
+Deployment smoke
+      ↓
+Authenticated deployment canary
+```
+
+`.github/workflows/deployment-smoke.yml` can also run daily or be dispatched manually. Its **read-only** checks deliberately avoid authentication, database writes, PDF uploads, Redis mutations, and OpenAI calls. It verifies:
 
 - Vercel frontend reachability and deployed JS bundle wiring
 - Render backend health/root contracts
@@ -319,7 +357,11 @@ A separate integration Playwright configuration runs against local Supabase, Fas
 - unauthenticated denial of `/api/admin/metrics`
 - production frontend-origin CORS preflight
 
-Deterministic CI stays reproducible, while the scheduled smoke checks public deployment wiring without mutating production state.
+When `Deployment smoke` is started automatically by a successful `CI` run on `main`, it waits 60 seconds for Vercel/Render deployments to settle. A successful automatic smoke run then triggers `.github/workflows/authenticated-canary.yml`.
+
+The authenticated canary signs in through the deployed frontend, obtains a real Supabase browser session, and calls a protected FastAPI endpoint from the production frontend origin. It deliberately requests a nonexistent valid document SHA and expects the protected expired/unavailable-document response. This verifies Vercel → Supabase Auth → Render authentication and CORS without uploading a PDF, calling OpenAI, writing history, or mutating application data.
+
+Scheduled or manually dispatched smoke runs do **not** automatically launch the authenticated canary; the canary itself remains manually dispatchable for ad-hoc verification.
 
 ### Run the main checks locally
 
@@ -337,6 +379,7 @@ npm ci
 npm run test:coverage
 npm run lint
 npm run build
+npm run test:mutation
 
 # Standard E2E (repository root)
 npm ci --prefix e2e
@@ -499,7 +542,7 @@ Render builds the committed backend Docker image so the deployed service include
 uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
 ```
 
-Render is configured to deploy after checks pass. Production secrets remain external to the repository.
+Render is configured to deploy after checks pass. Production secrets remain external to the repository. After successful `main` CI, GitHub Actions waits for deployments to settle, runs the read-only production smoke check, and then runs the authenticated deployment canary when that automatic smoke succeeds.
 
 > The free Render web service can cold-start after inactivity, so the first backend request may take longer than subsequent requests.
 
@@ -521,13 +564,13 @@ Render is configured to deploy after checks pass. Production secrets remain exte
 ```text
 QuizForge-AI/
 ├── backend/              FastAPI API, PDF/OCR processing, Redis integration, tests
-├── frontend/             React + TypeScript application
-├── e2e/                  Playwright standard + local-stack integration tests
+├── frontend/             React + TypeScript app, unit/coverage + Stryker mutation tests
+├── e2e/                  Playwright mocked E2E, local-stack integration, deployed canary
 ├── docs/screenshots/     README product screenshots
 ├── scripts/              Read-only production smoke tooling
 ├── supabase/migrations/  Database/RLS migrations
 ├── supabase/tests/       Schema/security reproducibility checks
-├── .github/workflows/    CI, integration, migration, security, smoke workflows
+├── .github/workflows/    CI, integration, mutation, migration, security, smoke/canary workflows
 ├── docker-compose.yml    Local full-stack development
 └── render.yaml           Render production configuration
 ```
