@@ -14,13 +14,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "backend/**"
-      - "frontend/**"
-      - "e2e/**"
-      - ".python-version"
-      - "render.yaml"
-      - ".github/workflows/ci.yml"
 
 permissions:
   contents: read
@@ -226,3 +219,47 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 7
+
+  required-pr-gate:
+    name: Required PR gate
+    needs:
+      - changes
+      - backend-tests
+      - frontend-checks
+      - playwright-e2e
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify relevant CI jobs
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
+          PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+        run: |
+          set -euo pipefail
+
+          echo "Change detection: ${CHANGES_RESULT}"
+          echo "Backend tests:   ${BACKEND_RESULT}"
+          echo "Frontend checks: ${FRONTEND_RESULT}"
+          echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
+
+          if [[ "${CHANGES_RESULT}" != "success" ]]; then
+            echo "Change detection did not succeed."
+            exit 1
+          fi
+
+          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+            case "${result}" in
+              success|skipped)
+                ;;
+              *)
+                echo "A relevant CI job did not succeed."
+                exit 1
+                ;;
+            esac
+          done
+
+          echo "All relevant CI jobs passed or were intentionally skipped."
