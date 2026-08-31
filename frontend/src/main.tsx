@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 import './index.css'
 import AuthGate from './AuthGate'
+import './accessibility.css'
 
 createRoot(
   document.getElementById('root')!,
