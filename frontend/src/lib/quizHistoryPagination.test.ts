@@ -101,6 +101,10 @@ const quizHistorySource = readFileSync(
   new URL('./quizHistory.ts', import.meta.url),
   'utf8',
 )
+const quizHistoryControllerSource = readFileSync(
+  new URL('../hooks/useQuizHistoryData.ts', import.meta.url),
+  'utf8',
+)
 const quizHistoryComponentSource = readFileSync(
   new URL('../QuizHistory.tsx', import.meta.url),
   'utf8',
@@ -117,12 +121,16 @@ assert.equal(
   false,
 )
 assert.match(
-  quizHistoryComponentSource,
+  quizHistoryControllerSource,
   /useState<QuizHistoryCursor \| null>/,
 )
 assert.match(
-  quizHistoryComponentSource,
+  quizHistoryControllerSource,
   /cursor: nextHistoryCursor/,
+)
+assert.match(
+  quizHistoryComponentSource,
+  /useQuizHistoryData/,
 )
 
 console.log(
