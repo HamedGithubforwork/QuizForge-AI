@@ -1,0 +1,55 @@
+name: Mutation testing
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 13 * * 0"
+  pull_request:
+    paths:
+      - .github/workflows/mutation-testing.yml
+      - frontend/stryker.config.json
+      - frontend/package.json
+      - frontend/package-lock.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-mutation:
+    name: Frontend StrykerJS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run StrykerJS mutation testing
+        working-directory: frontend
+        run: npm run test:mutation
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stryker-mutation-report
+          path: |
+            frontend/reports/mutation.html
+            frontend/reports/mutation.json
+          if-no-files-found: warn
+          retention-days: 14
