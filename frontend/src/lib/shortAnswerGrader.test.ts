@@ -57,6 +57,25 @@ function conceptQuestion(
 }
 
 
+function singleConceptQuestion(
+  alias: string,
+): ShortAnswerQuestion {
+  return {
+    correct_answer: alias,
+    accepted_answers: [alias],
+    grading: {
+      grading_version: 2,
+      grading_mode: 'concepts',
+      answer_groups: [[alias]],
+      required_group_count: 1,
+      numeric_value: 0,
+      numeric_tolerance: 0,
+      numeric_unit: '',
+    },
+  }
+}
+
+
 const treatmentQuestion =
   conceptQuestion()
 
@@ -134,6 +153,41 @@ assertEqual(
   true,
 )
 
+// Fuzzy concept matching has deliberate length boundaries: short
+// words are not typo-corrected, six-to-eight-character tokens allow
+// one edit, and tokens of nine or more characters allow two edits.
+assertEqual(
+  gradeShortAnswer(
+    singleConceptQuestion('brain'),
+    'braim',
+  ).correct,
+  false,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    singleConceptQuestion('memory'),
+    'memoru',
+  ).correct,
+  true,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    singleConceptQuestion('learning'),
+    'lxarninx',
+  ).correct,
+  false,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    singleConceptQuestion('knowledge'),
+    'kzowledxe',
+  ).correct,
+  true,
+)
+
 const numericQuestion: ShortAnswerQuestion = {
   correct_answer: '84.2%',
   accepted_answers: [
@@ -167,6 +221,56 @@ assertEqual(
   false,
 )
 
+assertEqual(
+  gradeShortAnswer(
+    numericQuestion,
+    'not a number',
+  ).feedback,
+  'No numeric value was detected in the answer.',
+)
+
+assertEqual(
+  gradeShortAnswer(
+    numericQuestion,
+    '84.2',
+  ).feedback,
+  'Include the expected unit (%).',
+)
+
+assertEqual(
+  gradeShortAnswer(
+    numericQuestion,
+    '84.2 kg',
+  ).feedback,
+  'The supplied unit is not compatible with the expected unit (%).',
+)
+
+assertEqual(
+  gradeShortAnswer(
+    numericQuestion,
+    '90%',
+  ).feedback,
+  'Numeric answer is outside the accepted value or tolerance.',
+)
+
+const unitlessNumericQuestion: ShortAnswerQuestion = {
+  ...numericQuestion,
+  correct_answer: '84.2',
+  accepted_answers: ['84.2'],
+  grading: {
+    ...numericQuestion.grading!,
+    numeric_unit: '',
+  },
+}
+
+assertEqual(
+  gradeShortAnswer(
+    unitlessNumericQuestion,
+    '84.2 kg',
+  ).feedback,
+  'This answer is expected to be unitless.',
+)
+
 const exactQuestion: ShortAnswerQuestion = {
   correct_answer: 'HTTP 404',
   accepted_answers: [
@@ -191,6 +295,14 @@ assertEqual(
   true,
 )
 
+assertEqual(
+  gradeShortAnswer(
+    exactQuestion,
+    'status 404 not found',
+  ).correct,
+  false,
+)
+
 const legacyQuestion: ShortAnswerQuestion = {
   correct_answer: 'Playwright',
   accepted_answers: [
@@ -201,6 +313,88 @@ const legacyQuestion: ShortAnswerQuestion = {
 assertEqual(
   gradeShortAnswer(
     legacyQuestion,
+    'I used Playwright',
+  ).correct,
+  true,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    {
+      correct_answer: 'models',
+      accepted_answers: [],
+    },
+    'model',
+  ).correct,
+  true,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    {
+      correct_answer: 'code',
+      accepted_answers: [],
+    },
+    'I used code here',
+  ).correct,
+  true,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    {
+      correct_answer: 'cat',
+      accepted_answers: [],
+    },
+    'the cat appears here',
+  ).correct,
+  false,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    {
+      correct_answer: '42',
+      accepted_answers: [],
+    },
+    'the answer is 42 exactly',
+  ).correct,
+  true,
+)
+
+// Explicit legacy modes must continue to route through the legacy
+// matcher rather than concept/exact grading.
+const legacyModeQuestion: ShortAnswerQuestion = {
+  correct_answer: 'Playwright',
+  accepted_answers: ['playwright'],
+  grading: {
+    grading_version: 2,
+    grading_mode: 'none',
+    answer_groups: [],
+    required_group_count: 0,
+    numeric_value: 0,
+    numeric_tolerance: 0,
+    numeric_unit: '',
+  },
+}
+
+assertEqual(
+  gradeShortAnswer(
+    legacyModeQuestion,
+    'I used Playwright',
+  ).correct,
+  true,
+)
+
+assertEqual(
+  gradeShortAnswer(
+    {
+      ...legacyModeQuestion,
+      grading: {
+        ...legacyModeQuestion.grading!,
+        grading_version: 1,
+      },
+    },
     'I used Playwright',
   ).correct,
   true,
