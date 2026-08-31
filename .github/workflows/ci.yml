@@ -73,7 +73,7 @@ jobs:
                 frontend=true
                 playwright=true
                 ;;
-              e2e/tests/*|e2e/playwright.config.ts|e2e/package.json|e2e/package-lock.json)
+              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.integration.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json)
                 playwright=true
                 ;;
               .github/workflows/ci.yml)
@@ -211,6 +211,12 @@ jobs:
 
       - name: Run Playwright E2E tests
         run: npm --prefix e2e test
+
+      - name: Validate deployed canary test discovery
+        run: >-
+          npx --prefix e2e playwright test
+          --config=playwright.canary.config.ts
+          --list
 
       - name: Upload Playwright report on failure
         if: failure()
