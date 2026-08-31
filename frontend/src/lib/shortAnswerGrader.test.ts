@@ -389,13 +389,13 @@ assertEqual(
 assertEqual(
   gradeShortAnswer(
     {
-      ...exactQuestion,
+      ...legacyModeQuestion,
       grading: {
-        ...exactQuestion.grading!,
+        ...legacyModeQuestion.grading!,
         grading_version: 1,
       },
     },
-    'the result was HTTP 404',
+    'I used Playwright',
   ).correct,
   true,
 )
