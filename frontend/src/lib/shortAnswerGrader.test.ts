@@ -234,7 +234,7 @@ assertEqual(
     numericQuestion,
     '84.2',
   ).feedback,
-  'Include the expected unit (percent).',
+  'Include the expected unit (%).',
 )
 
 assertEqual(
@@ -242,7 +242,7 @@ assertEqual(
     numericQuestion,
     '84.2 kg',
   ).feedback,
-  'The supplied unit is not compatible with the expected unit (percent).',
+  'The supplied unit is not compatible with the expected unit (%).',
 )
 
 assertEqual(
