@@ -13,6 +13,13 @@ EXPECTED_WORDS = {
     "7391",
 }
 
+OCR_FIXTURE_TEXT = (
+    "QuizForge scanned OCR verification 7391. "
+    "This image-only study page contains enough repeated readable text to "
+    "clear the application's minimum study-material threshold after OCR. "
+    "QuizForge scanned OCR verification 7391."
+)
+
 
 def build_scanned_pdf():
     source = pymupdf.open()
@@ -22,8 +29,8 @@ def build_scanned_pdf():
         source_page = source.new_page()
         source_page.insert_textbox(
             pymupdf.Rect(72, 72, 540, 500),
-            "QuizForge scanned OCR verification 7391",
-            fontsize=24,
+            OCR_FIXTURE_TEXT,
+            fontsize=20,
         )
         pixmap = source_page.get_pixmap(
             matrix=pymupdf.Matrix(2, 2),
@@ -64,6 +71,11 @@ def main():
         raise SystemExit(
             "OCR runtime verification failed; missing expected tokens: "
             + ", ".join(sorted(missing))
+        )
+
+    if len(recognized) < 100:
+        raise SystemExit(
+            "OCR runtime verification failed; recognized text was too short."
         )
 
     print("OCR runtime verification passed.")
