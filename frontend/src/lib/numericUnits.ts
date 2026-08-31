@@ -186,7 +186,7 @@ function normalizeUnitText(value: string) {
     .toLowerCase()
     .replace(/[μµ]/g, 'u')
     .replace(/[º]/g, '°')
-    .replace(/[.,;:!?()\[\]{}]/g, ' ')
+    .replace(/[.,;:!?()[\]{}]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
