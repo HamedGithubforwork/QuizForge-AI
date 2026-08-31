@@ -92,8 +92,9 @@ def extract_pdf_pages_with_ocr(contents: bytes):
     finally:
         document.close()
 
+    analysis = analyze_extracted_text(pages)
+
     if attempted_pages:
-        analysis = analyze_extracted_text(pages)
         log_event(
             "pdf_ocr_completed",
             attempted_page_count=attempted_pages,
@@ -105,6 +106,15 @@ def extract_pdf_pages_with_ocr(contents: bytes):
             duration_ms=round(
                 (time.perf_counter() - started_at) * 1000,
                 3,
+            ),
+        )
+
+    if analysis["scanned_likely"]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Very little readable text could be extracted, even after OCR. "
+                "Try a clearer scan or a text-based PDF."
             ),
         )
 
