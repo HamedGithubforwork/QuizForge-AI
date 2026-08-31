@@ -139,7 +139,7 @@ jobs:
         run: python -m pytest -q
 
       - name: Run deterministic backend benchmark
-        run: python scripts/benchmark_backend.py
+        run: python scripts/benchmark_backend.py --check
 
       - name: Verify generated API contract
         run: python scripts/generate_api_contract.py --check
