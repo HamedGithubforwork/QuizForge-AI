@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test \"src/lib/*.test.ts\"",
-    "test:coverage": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-exclude=\"src/lib/*.test.ts\" \"src/lib/*.test.ts\"",
+    "test:coverage": "node --experimental-strip-types --test --experimental-test-coverage --test-coverage-exclude=\"src/lib/*.test.ts\" --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=90 \"src/lib/*.test.ts\"",
     "preview": "vite preview"
   },
   "dependencies": {
