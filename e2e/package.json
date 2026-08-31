@@ -8,6 +8,7 @@
     "test:integration": "playwright test --config=playwright.integration.config.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.62.1"
   }
 }
