@@ -36,7 +36,7 @@ export type QuizHistoryRow = {
 
 type SaveQuizHistoryInput = {
   quizTitle: string
-  sourceFilename: string
+  sourceFilename: string | null
   difficulty: string
   questionType: string
   questionCount: number
@@ -119,15 +119,18 @@ export async function saveQuizHistory(
     )
   }
 
+  const sourceFilename =
+    input.sourceFilename ?? 'Uploaded PDF'
+
   const documentSha256 =
     getCurrentDocumentSha256(
-      input.sourceFilename,
+      sourceFilename,
     )
 
   const payload = {
     user_id: userData.user.id,
     quiz_title: input.quizTitle,
-    source_filename: input.sourceFilename,
+    source_filename: sourceFilename,
     difficulty: input.difficulty,
     question_type: input.questionType,
     question_count: input.questionCount,

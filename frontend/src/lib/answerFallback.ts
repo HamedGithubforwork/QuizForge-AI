@@ -1,3 +1,7 @@
+import type {
+  AnswerReviewCase as ApiAnswerReviewCase,
+  AnswerReviewDecision as ApiAnswerReviewDecision,
+} from '../types/api.generated.ts'
 import {
   normalizeShortAnswer,
   type ShortAnswerGrade,
@@ -12,26 +16,11 @@ export type AiAnswerReviewQuestion = {
   grading?: ShortAnswerGradingSpec
 }
 
-export type AiAnswerReviewDecision = {
-  question_index: number
-  verdict:
-    | 'correct'
-    | 'incorrect'
-    | 'uncertain'
-  confidence: number
-  reason: string
-}
+export type AiAnswerReviewDecision =
+  ApiAnswerReviewDecision
 
-export type AiAnswerReviewCase = {
-  question_index: number
-  question: string
-  correct_answer: string
-  accepted_answers: string[]
-  answer_groups: string[][]
-  required_group_count: number
-  student_answer: string
-  explanation: string
-}
+export type AiAnswerReviewCase =
+  ApiAnswerReviewCase
 
 function meaningfulTokens(
   value: string,
