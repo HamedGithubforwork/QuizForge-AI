@@ -15,34 +15,20 @@ import QuizSession from './components/quiz/QuizSession.tsx'
 import QuizSettingsPanel from './components/quiz/QuizSettingsPanel.tsx'
 import UploadPanel from './components/quiz/UploadPanel.tsx'
 import {
-  saveQuizHistory,
-} from './lib/quizHistory'
+  useQuizAttempt,
+} from './hooks/useQuizAttempt.ts'
 import {
   apiFetch,
-} from './lib/api'
-import {
-  gradeShortAnswer,
-} from './lib/shortAnswerGrader'
-import {
-  buildAiAnswerReviewCase,
-  buildAiAnswerReviewKey,
-  shouldRequestAiAnswerReview,
-  type AiAnswerReviewDecision,
-} from './lib/answerFallback'
-import {
-  isQuestionAnswered,
-} from './lib/quizPresentation'
+} from './lib/api.ts'
 import type {
-  AnswerValue,
   GeneratedSettings,
   MasteryContext,
   PracticeFocus,
   QuestionMode,
   QuestionType,
-  QuizQuestion,
   QuizResult,
   UploadResult,
-} from './types/quiz'
+} from './types/quiz.ts'
 
 function App() {
   const fileInputRef =
@@ -50,188 +36,53 @@ function App() {
 
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null)
-
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
-
   const [quiz, setQuiz] =
     useState<QuizResult | null>(null)
-
   const [
     generatedSettings,
     setGeneratedSettings,
-  ] =
-    useState<GeneratedSettings | null>(
-      null,
-    )
-
+  ] = useState<GeneratedSettings | null>(null)
   const [questionCount, setQuestionCount] =
     useState(5)
-
   const [difficulty, setDifficulty] =
     useState('medium')
-
   const [questionType, setQuestionType] =
-    useState<QuestionMode>(
-      'multiple_choice',
-    )
-
-  const [
-    selectedAnswers,
-    setSelectedAnswers,
-  ] =
-    useState<Record<number, AnswerValue>>(
-      {},
-    )
-
-  const [showResults, setShowResults] =
-    useState(false)
-
+    useState<QuestionMode>('multiple_choice')
   const [isProcessing, setIsProcessing] =
     useState(false)
-
   const [isGenerating, setIsGenerating] =
     useState(false)
-
-  const [
-    generationStage,
-    setGenerationStage,
-  ] =
+  const [generationStage, setGenerationStage] =
     useState('')
-
-  const [
-    retryQuestionIndexes,
-    setRetryQuestionIndexes,
-  ] =
-    useState<number[] | null>(null)
-
-  const [
-    openSourceQuestionIndex,
-    setOpenSourceQuestionIndex,
-  ] =
-    useState<number | null>(null)
-
-  const [
-    attentionQuestionIndex,
-    setAttentionQuestionIndex,
-  ] =
-    useState<number | null>(null)
-
-  const [error, setError] =
-    useState('')
-
-  const [
-    isSavingHistory,
-    setIsSavingHistory,
-  ] =
-    useState(false)
-
-  const [resultSaved, setResultSaved] =
-    useState(false)
-
+  const [error, setError] = useState('')
   const [
     historyRefreshKey,
     setHistoryRefreshKey,
-  ] =
-    useState(0)
-
-  const [saveMessage, setSaveMessage] =
-    useState('')
-
-  const [
-    aiGradeReviews,
-    setAiGradeReviews,
-  ] = useState<
-    Record<string, AiAnswerReviewDecision>
-  >({})
-
-  const [
-    isReviewingAnswers,
-    setIsReviewingAnswers,
-  ] = useState(false)
-
+  ] = useState(0)
   const [
     isWeakPracticeGenerating,
     setIsWeakPracticeGenerating,
-  ] =
+  ] = useState(false)
+  const [practiceMode, setPracticeMode] =
     useState(false)
+  const [practiceFocus, setPracticeFocus] =
+    useState<PracticeFocus | null>(null)
+  const [masteryContext, setMasteryContext] =
+    useState<MasteryContext | null>(null)
 
-  const [
-    practiceMode,
-    setPracticeMode,
-  ] =
-    useState(false)
-
-  const [
-    practiceFocus,
-    setPracticeFocus,
-  ] =
-    useState<PracticeFocus | null>(
-      null,
-    )
-
-  const [
-    masteryContext,
-    setMasteryContext,
-  ] =
-    useState<MasteryContext | null>(
-      null,
-    )
-
-  function isShortAnswerCorrect(
-    question: QuizQuestion,
-    answer: string,
-  ) {
-    return gradeShortAnswer(
-      question,
-      answer,
-    ).correct
-  }
-
-  function isQuestionCorrect(
-    question: QuizQuestion,
-    answer:
-      | AnswerValue
-      | undefined,
-  ) {
-    if (
-      question.question_type ===
-      'short_answer'
-    ) {
-      if (
-        typeof answer !== 'string'
-      ) {
-        return false
-      }
-
-      if (
-        isShortAnswerCorrect(
-          question,
-          answer,
-        )
-      ) {
-        return true
-      }
-
-      const review =
-        aiGradeReviews[
-          buildAiAnswerReviewKey(
-            question,
-            answer,
-          )
-        ]
-
-      return (
-        review?.verdict === 'correct'
+  const attempt = useQuizAttempt({
+    quiz,
+    documentResult,
+    generatedSettings,
+    setError,
+    onHistorySaved: () => {
+      setHistoryRefreshKey(
+        (previous) => previous + 1,
       )
-    }
-
-    return (
-      typeof answer === 'number' &&
-      answer ===
-        question.correct_index
-    )
-  }
+    },
+  })
 
   function resetPracticeMode() {
     setPracticeMode(false)
@@ -239,131 +90,48 @@ function App() {
     setMasteryContext(null)
   }
 
-  function scrollToQuestion(
-    questionIndex: number,
-    focusInput = false,
-  ) {
-    const questionElement =
-      document.getElementById(
-        `question-${questionIndex}`,
-      )
-
-    questionElement?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'center',
-    })
-
-    if (focusInput) {
-      setTimeout(() => {
-        const input =
-          questionElement
-            ?.querySelector<HTMLInputElement>(
-              'input:not(:disabled)',
-            )
-
-        input?.focus({
-          preventScroll: true,
-        })
-      }, 350)
-    }
-  }
-
-  function handleToggleSource(
-    questionIndex: number,
-  ) {
-    setOpenSourceQuestionIndex(
-      (current) =>
-        current === questionIndex
-          ? null
-          : questionIndex,
-    )
-  }
-
   function handleFileChange(
-    event:
-      ChangeEvent<HTMLInputElement>,
+    event: ChangeEvent<HTMLInputElement>,
   ) {
     const file =
-      event.target.files?.[0] ??
-      null
+      event.target.files?.[0] ?? null
 
     setSelectedFile(file)
-
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
-
-    setSelectedAnswers({})
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-    setOpenSourceQuestionIndex(
-      null,
-    )
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
+    attempt.resetAttempt()
     resetPracticeMode()
-
     setGenerationStage('')
     setError('')
   }
 
   async function handleProcessPdf() {
     if (!selectedFile) {
-      setError(
-        'Please choose a PDF first.',
-      )
+      setError('Please choose a PDF first.')
       return
     }
 
     setIsProcessing(true)
     setError('')
-
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
-
-    setSelectedAnswers({})
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-    setOpenSourceQuestionIndex(
-      null,
-    )
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
+    attempt.resetAttempt()
     resetPracticeMode()
 
     try {
-      const formData =
-        new FormData()
+      const formData = new FormData()
+      formData.append('file', selectedFile)
 
-      formData.append(
-        'file',
-        selectedFile,
+      const response = await apiFetch(
+        '/api/documents/upload',
+        {
+          method: 'POST',
+          body: formData,
+        },
       )
-
-      const response =
-        await apiFetch(
-          '/api/documents/upload',
-          {
-            method: 'POST',
-            body: formData,
-          },
-        )
-
-      const data =
-        await response.json()
+      const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
@@ -373,10 +141,10 @@ function App() {
       }
 
       setDocumentResult(data)
-    } catch (err) {
+    } catch (caughtError) {
       setError(
-        err instanceof Error
-          ? err.message
+        caughtError instanceof Error
+          ? caughtError.message
           : 'Something went wrong while processing the PDF.',
       )
     } finally {
@@ -386,9 +154,7 @@ function App() {
 
   async function handleGenerateQuiz() {
     if (!selectedFile) {
-      setError(
-        'Please choose a PDF first.',
-      )
+      setError('Please choose a PDF first.')
       return
     }
 
@@ -399,9 +165,7 @@ function App() {
       return
     }
 
-    if (
-      documentResult.scanned_likely
-    ) {
+    if (documentResult.scanned_likely) {
       setError(
         documentResult.warning ||
           'This PDF does not contain enough selectable text.',
@@ -420,26 +184,11 @@ function App() {
     setGenerationStage(
       'Analyzing document...',
     )
-
     setError('')
-    setSelectedAnswers({})
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-    setOpenSourceQuestionIndex(
-      null,
-    )
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
+    attempt.resetAttempt()
     resetPracticeMode()
 
-    const stageTimers:
-      number[] = []
+    const stageTimers: number[] = []
 
     stageTimers.push(
       window.setTimeout(() => {
@@ -448,7 +197,6 @@ function App() {
         )
       }, 1000),
     )
-
     stageTimers.push(
       window.setTimeout(() => {
         setGenerationStage(
@@ -458,40 +206,29 @@ function App() {
     )
 
     try {
-      const formData =
-        new FormData()
-
-      formData.append(
-        'file',
-        selectedFile,
-      )
-
+      const formData = new FormData()
+      formData.append('file', selectedFile)
       formData.append(
         'question_count',
         questionCount.toString(),
       )
-
       formData.append(
         'difficulty',
         difficulty,
       )
-
       formData.append(
         'question_type',
         questionType,
       )
 
-      const response =
-        await apiFetch(
-          '/api/quizzes/generate',
-          {
-            method: 'POST',
-            body: formData,
-          },
-        )
-
-      const data =
-        await response.json()
+      const response = await apiFetch(
+        '/api/quizzes/generate',
+        {
+          method: 'POST',
+          body: formData,
+        },
+      )
+      const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
@@ -500,433 +237,74 @@ function App() {
         )
       }
 
-      setGenerationStage(
-        'Quiz ready!',
-      )
-
+      setGenerationStage('Quiz ready!')
       setQuiz(data)
-
       setGeneratedSettings(
         settingsForRequest,
       )
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         document
-          .getElementById(
-            'quiz-start',
-          )
+          .getElementById('quiz-start')
           ?.scrollIntoView({
             behavior: 'smooth',
             block: 'start',
           })
       }, 150)
-    } catch (err) {
+    } catch (caughtError) {
       setGenerationStage('')
-
       setError(
-        err instanceof Error
-          ? err.message
+        caughtError instanceof Error
+          ? caughtError.message
           : 'Something went wrong while generating the quiz.',
       )
     } finally {
-      stageTimers.forEach(
-        (timer) =>
-          window.clearTimeout(
-            timer,
-          ),
+      stageTimers.forEach((timer) =>
+        window.clearTimeout(timer),
       )
-
       setIsGenerating(false)
-
       window.setTimeout(() => {
         setGenerationStage('')
       }, 900)
     }
   }
 
-  function handleAnswerChange(
-    questionIndex: number,
-    answer: AnswerValue,
-  ) {
-    setSelectedAnswers(
-      (previous) => ({
-        ...previous,
-        [questionIndex]: answer,
-      }),
-    )
-
-    if (
-      attentionQuestionIndex ===
-      questionIndex
-    ) {
-      setAttentionQuestionIndex(
-        null,
-      )
-    }
-
-    setError('')
-  }
-
-  async function handleCheckAnswers() {
-    if (!quiz || isReviewingAnswers) {
-      return
-    }
-
-    const indexesToCheck =
-      retryQuestionIndexes ??
-      quiz.questions.map(
-        (_, index) => index,
-      )
-
-    const firstUnansweredIndex =
-      indexesToCheck.find(
-        (questionIndex) =>
-          !isQuestionAnswered(
-            quiz.questions[
-              questionIndex
-            ],
-            selectedAnswers[
-              questionIndex
-            ],
-          ),
-      )
-
-    if (
-      firstUnansweredIndex !==
-      undefined
-    ) {
-      setAttentionQuestionIndex(
-        firstUnansweredIndex,
-      )
-
-      setError(
-        `Question ${
-          firstUnansweredIndex + 1
-        } still needs an answer.`,
-      )
-
-      scrollToQuestion(
-        firstUnansweredIndex,
-        true,
-      )
-      return
-    }
-
-    setAttentionQuestionIndex(null)
-    setOpenSourceQuestionIndex(null)
-    setError('')
-    setSaveMessage('')
-
-    const reviewCases =
-      indexesToCheck.flatMap(
-        (questionIndex) => {
-          const question =
-            quiz.questions[
-              questionIndex
-            ]
-          const answer =
-            selectedAnswers[
-              questionIndex
-            ]
-
-          if (
-            question.question_type !==
-              'short_answer' ||
-            typeof answer !== 'string'
-          ) {
-            return []
-          }
-
-          const deterministicGrade =
-            gradeShortAnswer(
-              question,
-              answer,
-            )
-
-          if (
-            !shouldRequestAiAnswerReview(
-              question,
-              answer,
-              deterministicGrade,
-            )
-          ) {
-            return []
-          }
-
-          const reviewCase =
-            buildAiAnswerReviewCase(
-              questionIndex,
-              question,
-              answer,
-            )
-
-          return reviewCase
-            ? [reviewCase]
-            : []
-        },
-      )
-
-    if (reviewCases.length > 0) {
-      setIsReviewingAnswers(true)
-
-      try {
-        const response = await apiFetch(
-          '/api/answers/review',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-            body: JSON.stringify({
-              cases: reviewCases,
-            }),
-          },
-        )
-
-        const data =
-          await response.json() as {
-            detail?: string
-            decisions?:
-              AiAnswerReviewDecision[]
-          }
-
-        if (!response.ok) {
-          throw new Error(
-            data.detail ||
-              'Semantic answer review failed.',
-          )
-        }
-
-        const decisions =
-          data.decisions ?? []
-
-        const casesByIndex =
-          new Map(
-            reviewCases.map(
-              (item) => [
-                item.question_index,
-                item,
-              ],
-            ),
-          )
-
-        setAiGradeReviews(
-          (previous) => {
-            const next = {
-              ...previous,
-            }
-
-            decisions.forEach(
-              (decision) => {
-                const reviewCase =
-                  casesByIndex.get(
-                    decision.question_index,
-                  )
-
-                const question =
-                  quiz.questions[
-                    decision.question_index
-                  ]
-
-                if (
-                  !reviewCase ||
-                  !question
-                ) {
-                  return
-                }
-
-                next[
-                  buildAiAnswerReviewKey(
-                    question,
-                    reviewCase.student_answer,
-                  )
-                ] = decision
-              },
-            )
-
-            return next
-          },
-        )
-
-        setSaveMessage(
-          `${decisions.length} borderline short ${
-            decisions.length === 1
-              ? 'answer received'
-              : 'answers received'
-          } a semantic second review.`,
-        )
-      } catch {
-        setSaveMessage(
-          'Semantic second review was unavailable; deterministic grading was used.',
-        )
-      } finally {
-        setIsReviewingAnswers(false)
-      }
-    }
-
-    setShowResults(true)
-    setResultSaved(false)
-
-    setTimeout(() => {
-      document
-        .getElementById(
-          'quiz-results',
-        )
-        ?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-        })
-    }, 100)
-  }
-
-  function handleTryAgain() {
-    setSelectedAnswers({})
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-
-    setOpenSourceQuestionIndex(
-      null,
-    )
-
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
-    setError('')
-
-    setTimeout(() => {
-      document
-        .getElementById(
-          'quiz-start',
-        )
-        ?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        })
-    }, 50)
-  }
-
-  function handleRetryIncorrect() {
-    if (!quiz) {
-      return
-    }
-
-    const incorrectIndexes =
-      quiz.questions
-        .map(
-          (_, index) => index,
-        )
-        .filter(
-          (index) =>
-            !isQuestionCorrect(
-              quiz.questions[
-                index
-              ],
-              selectedAnswers[
-                index
-              ],
-            ),
-        )
-
-    if (
-      incorrectIndexes.length ===
-      0
-    ) {
-      return
-    }
-
-    setRetryQuestionIndexes(
-      incorrectIndexes,
-    )
-
-    setSelectedAnswers(
-      (previous) => {
-        const next = {
-          ...previous,
-        }
-
-        incorrectIndexes.forEach(
-          (index) => {
-            delete next[index]
-          },
-        )
-
-        return next
-      },
-    )
-
-    setShowResults(false)
-
-    setOpenSourceQuestionIndex(
-      null,
-    )
-
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
-    setError('')
-
-    setTimeout(() => {
-      scrollToQuestion(
-        incorrectIndexes[0],
-        true,
-      )
-    }, 100)
-  }
-
   async function handlePracticeWeakAreas() {
     if (
       !quiz ||
       !selectedFile ||
-      !showResults
+      !attempt.showResults
     ) {
       return
     }
 
     const incorrectIndexes =
       quiz.questions
-        .map(
-          (_, index) => index,
-        )
+        .map((_, index) => index)
         .filter(
           (index) =>
-            !isQuestionCorrect(
+            !attempt.isQuestionCorrect(
               quiz.questions[index],
-              selectedAnswers[index],
+              attempt.selectedAnswers[index],
             ),
         )
 
-    if (
-      incorrectIndexes.length ===
-      0
-    ) {
+    if (incorrectIndexes.length === 0) {
       setError(
         'You did not miss any questions.',
       )
       return
     }
 
-    const weakPages =
-      Array.from(
-        new Set(
-          incorrectIndexes.flatMap(
-            (index) =>
-              quiz.questions[index]
-                .source_pages,
-          ),
+    const weakPages = Array.from(
+      new Set(
+        incorrectIndexes.flatMap(
+          (index) =>
+            quiz.questions[index]
+              .source_pages,
         ),
-      ).sort(
-        (a, b) => a - b,
-      )
+      ),
+    ).sort((a, b) => a - b)
 
     const typeCounts:
       Record<QuestionType, number> = {
@@ -935,41 +313,34 @@ function App() {
         short_answer: 0,
       }
 
-    incorrectIndexes.forEach(
-      (index) => {
-        const type =
-          quiz.questions[index]
-            .question_type
+    incorrectIndexes.forEach((index) => {
+      typeCounts[
+        quiz.questions[index].question_type
+      ] += 1
+    })
 
-        typeCounts[type] += 1
-      },
-    )
-
-    const weakQuestionType =
-      (
-        Object.entries(
-          typeCounts,
-        ) as [
-          QuestionType,
-          number,
-        ][]
-      ).sort(
-        (a, b) =>
-          b[1] - a[1],
-      )[0][0]
+    const weakQuestionType = (
+      Object.entries(typeCounts) as [
+        QuestionType,
+        number,
+      ][]
+    ).sort(
+      (first, second) =>
+        second[1] - first[1],
+    )[0][0]
 
     const missedQuestionText =
       incorrectIndexes.map(
         (index) =>
-          quiz.questions[index]
-            .question,
+          quiz.questions[index].question,
       )
 
     const baselineQuestions =
       quiz.questions
         .map((question, index) => ({
           question,
-          answer: selectedAnswers[index],
+          answer:
+            attempt.selectedAnswers[index],
         }))
         .filter(
           (item) =>
@@ -978,17 +349,14 @@ function App() {
         )
 
     const baselineScore =
-      baselineQuestions.filter(
-        (item) =>
-          isQuestionCorrect(
-            item.question,
-            item.answer,
-          ),
+      baselineQuestions.filter((item) =>
+        attempt.isQuestionCorrect(
+          item.question,
+          item.answer,
+        ),
       ).length
-
     const baselineQuestionCount =
       baselineQuestions.length
-
     const baselinePercent =
       baselineQuestionCount > 0
         ? Math.round(
@@ -998,53 +366,34 @@ function App() {
             ) * 100,
           )
         : 0
-
     const practiceDifficulty =
-      generatedSettings
-        ?.difficulty ??
+      generatedSettings?.difficulty ??
       difficulty
 
-    setIsWeakPracticeGenerating(
-      true,
-    )
-
+    setIsWeakPracticeGenerating(true)
     setError('')
-    setSaveMessage('')
+    attempt.clearSaveMessage()
 
     try {
-      const formData =
-        new FormData()
-
-      formData.append(
-        'file',
-        selectedFile,
-      )
-
-      formData.append(
-        'question_count',
-        '5',
-      )
-
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('question_count', '5')
       formData.append(
         'difficulty',
         practiceDifficulty,
       )
-
       formData.append(
         'question_type',
         weakQuestionType,
       )
-
       formData.append(
         'focus_pages',
         weakPages.join(','),
       )
-
       formData.append(
         'focus_question_types',
         weakQuestionType,
       )
-
       formData.append(
         'avoid_questions',
         JSON.stringify(
@@ -1052,17 +401,14 @@ function App() {
         ),
       )
 
-      const response =
-        await apiFetch(
-          '/api/quizzes/generate',
-          {
-            method: 'POST',
-            body: formData,
-          },
-        )
-
-      const data =
-        await response.json()
+      const response = await apiFetch(
+        '/api/quizzes/generate',
+        {
+          method: 'POST',
+          body: formData,
+        },
+      )
+      const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
@@ -1072,50 +418,25 @@ function App() {
       }
 
       setQuiz(data)
-
       setGeneratedSettings({
         questionCount:
           data.questions.length,
-
         difficulty:
           practiceDifficulty,
-
         questionType:
           weakQuestionType,
       })
-
-      setSelectedAnswers({})
-
-      setShowResults(false)
-
-      setRetryQuestionIndexes(
-        null,
-      )
-
-      setOpenSourceQuestionIndex(
-        null,
-      )
-
-      setAttentionQuestionIndex(
-        null,
-      )
-
-      setResultSaved(false)
-      setSaveMessage('')
-
+      attempt.resetAttempt()
       setPracticeMode(true)
-
       setPracticeFocus({
         pages: weakPages,
         questionType:
           weakQuestionType,
       })
-
       setMasteryContext({
         baselinePercent,
         baselineQuestionCount,
-        source:
-          'current_quiz',
+        source: 'current_quiz',
         pages: weakPages,
         questionType:
           weakQuestionType,
@@ -1123,43 +444,34 @@ function App() {
 
       window.setTimeout(() => {
         document
-          .getElementById(
-            'quiz-start',
-          )
+          .getElementById('quiz-start')
           ?.scrollIntoView({
             behavior: 'smooth',
             block: 'start',
           })
       }, 150)
-    } catch (err) {
+    } catch (caughtError) {
       setError(
-        err instanceof Error
-          ? err.message
+        caughtError instanceof Error
+          ? caughtError.message
           : 'Could not generate weak-area practice.',
       )
     } finally {
-      setIsWeakPracticeGenerating(
-        false,
-      )
+      setIsWeakPracticeGenerating(false)
     }
   }
 
   async function handleHistoryPracticeWeakAreas(
     focus: HistoryPracticeFocus,
   ) {
-    if (
-      !selectedFile ||
-      !documentResult
-    ) {
+    if (!selectedFile || !documentResult) {
       setError(
         'Upload and process this PDF before generating history-based practice.',
       )
       return
     }
 
-    if (
-      documentResult.scanned_likely
-    ) {
+    if (documentResult.scanned_likely) {
       setError(
         documentResult.warning ||
           'This PDF does not contain enough selectable text.',
@@ -1168,51 +480,33 @@ function App() {
     }
 
     const practiceDifficulty =
-      generatedSettings
-        ?.difficulty ??
+      generatedSettings?.difficulty ??
       difficulty
 
-    setIsWeakPracticeGenerating(
-      true,
-    )
-
+    setIsWeakPracticeGenerating(true)
     setError('')
-    setSaveMessage('')
+    attempt.clearSaveMessage()
 
     try {
-      const formData =
-        new FormData()
-
-      formData.append(
-        'file',
-        selectedFile,
-      )
-
-      formData.append(
-        'question_count',
-        '5',
-      )
-
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('question_count', '5')
       formData.append(
         'difficulty',
         practiceDifficulty,
       )
-
       formData.append(
         'question_type',
         focus.questionType,
       )
-
       formData.append(
         'focus_pages',
         focus.pages.join(','),
       )
-
       formData.append(
         'focus_question_types',
         focus.questionType,
       )
-
       formData.append(
         'avoid_questions',
         JSON.stringify(
@@ -1220,17 +514,14 @@ function App() {
         ),
       )
 
-      const response =
-        await apiFetch(
-          '/api/quizzes/generate',
-          {
-            method: 'POST',
-            body: formData,
-          },
-        )
-
-      const data =
-        await response.json()
+      const response = await apiFetch(
+        '/api/quizzes/generate',
+        {
+          method: 'POST',
+          body: formData,
+        },
+      )
+      const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
@@ -1240,7 +531,6 @@ function App() {
       }
 
       setQuiz(data)
-
       setGeneratedSettings({
         questionCount:
           data.questions.length,
@@ -1249,33 +539,13 @@ function App() {
         questionType:
           focus.questionType,
       })
-
-      setSelectedAnswers({})
-      setShowResults(false)
-
-      setRetryQuestionIndexes(
-        null,
-      )
-
-      setOpenSourceQuestionIndex(
-        null,
-      )
-
-      setAttentionQuestionIndex(
-        null,
-      )
-
-      setResultSaved(false)
-      setSaveMessage('')
-
+      attempt.resetAttempt()
       setPracticeMode(true)
-
       setPracticeFocus({
         pages: focus.pages,
         questionType:
           focus.questionType,
       })
-
       setMasteryContext({
         baselinePercent:
           focus.baselinePercent,
@@ -1289,94 +559,44 @@ function App() {
 
       window.setTimeout(() => {
         document
-          .getElementById(
-            'quiz-start',
-          )
+          .getElementById('quiz-start')
           ?.scrollIntoView({
             behavior: 'smooth',
             block: 'start',
           })
       }, 150)
-    } catch (err) {
+    } catch (caughtError) {
       setError(
-        err instanceof Error
-          ? err.message
+        caughtError instanceof Error
+          ? caughtError.message
           : 'Could not generate history-based weak-area practice.',
       )
     } finally {
-      setIsWeakPracticeGenerating(
-        false,
-      )
+      setIsWeakPracticeGenerating(false)
     }
   }
 
   async function handleGenerateNewQuiz() {
     setError('')
-
-    setSelectedAnswers({})
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-
-    setOpenSourceQuestionIndex(
-      null,
-    )
-
-    setAttentionQuestionIndex(
-      null,
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
     setQuiz(null)
-
     await handleGenerateQuiz()
   }
 
   function handleUploadNewPdf() {
     setSelectedFile(null)
-
     setDocumentResult(null)
     setQuiz(null)
-
     setGeneratedSettings(null)
-
-    setSelectedAnswers({})
-
-    setShowResults(false)
-
-    setRetryQuestionIndexes(null)
-
-    setOpenSourceQuestionIndex(
-      null,
-    )
-
-    setAttentionQuestionIndex(
-      null,
-    )
-
+    attempt.resetAttempt()
     setQuestionCount(5)
-
     setDifficulty('medium')
-
-    setQuestionType(
-      'multiple_choice',
-    )
-
-    setResultSaved(false)
-    setSaveMessage('')
-
+    setQuestionType('multiple_choice')
     resetPracticeMode()
-
     setGenerationStage('')
     setError('')
 
-    if (
-      fileInputRef.current
-    ) {
-      fileInputRef.current.value =
-        ''
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
     }
 
     window.scrollTo({
@@ -1385,270 +605,19 @@ function App() {
     })
   }
 
-  function calculateScore() {
-    if (!quiz) {
-      return 0
-    }
-
-    return quiz.questions.reduce(
-      (
-        currentScore,
-        question,
-        index,
-      ) => {
-        if (
-          isQuestionCorrect(
-            question,
-            selectedAnswers[
-              index
-            ],
-          )
-        ) {
-          return (
-            currentScore + 1
-          )
-        }
-
-        return currentScore
-      },
-      0,
-    )
-  }
-
-  function getTypeScore(
-    type: QuestionType,
-  ) {
-    if (!quiz) {
-      return {
-        correct: 0,
-        total: 0,
-      }
-    }
-
-    const matchingQuestions =
-      quiz.questions
-        .map(
-          (
-            question,
-            index,
-          ) => ({
-            question,
-            answer:
-              selectedAnswers[
-                index
-              ],
-          }),
-        )
-        .filter(
-          (item) =>
-            item.question
-              .question_type ===
-            type,
-        )
-
-    const correct =
-      matchingQuestions.filter(
-        (item) =>
-          isQuestionCorrect(
-            item.question,
-            item.answer,
-          ),
-      ).length
-
-    return {
-      correct,
-      total:
-        matchingQuestions.length,
-    }
-  }
-
-  const activeQuestionIndexes =
-    quiz
-      ? (
-          retryQuestionIndexes ??
-          quiz.questions.map(
-            (_, index) =>
-              index,
-          )
-        )
-      : []
-
-  const answeredCount =
-    quiz
-      ? activeQuestionIndexes.filter(
-          (questionIndex) =>
-            isQuestionAnswered(
-              quiz.questions[
-                questionIndex
-              ],
-              selectedAnswers[
-                questionIndex
-              ],
-            ),
-        ).length
-      : 0
-
-  const score =
-    calculateScore()
-
-  const percentage =
-    quiz &&
-    quiz.questions.length > 0
-      ? Math.round(
-          (
-            score /
-            quiz.questions.length
-          ) * 100,
-        )
-      : 0
-
   const masteryDelta =
     masteryContext
-      ? percentage -
+      ? attempt.percentage -
         masteryContext.baselinePercent
       : 0
-
-  const multipleChoiceScore =
-    getTypeScore(
-      'multiple_choice',
-    )
-
-  const trueFalseScore =
-    getTypeScore(
-      'true_false',
-    )
-
-  const shortAnswerScore =
-    getTypeScore(
-      'short_answer',
-    )
-
-  async function handleSaveResult() {
-    if (
-      !quiz ||
-      !documentResult ||
-      !generatedSettings ||
-      !showResults
-    ) {
-      return
-    }
-
-    setIsSavingHistory(true)
-    setSaveMessage('')
-
-    const quizDataForHistory = {
-      ...quiz,
-      questions:
-        quiz.questions.map(
-          (
-            question,
-            questionIndex,
-          ) => {
-            const answer =
-              selectedAnswers[
-                questionIndex
-              ]
-
-            if (
-              question.question_type !==
-                'short_answer' ||
-              typeof answer !== 'string'
-            ) {
-              return question
-            }
-
-            const review =
-              aiGradeReviews[
-                buildAiAnswerReviewKey(
-                  question,
-                  answer,
-                )
-              ]
-
-            if (
-              review?.verdict !==
-              'correct'
-            ) {
-              return question
-            }
-
-            return {
-              ...question,
-              ai_accepted_answers:
-                Array.from(
-                  new Set([
-                    ...(
-                      question
-                        .ai_accepted_answers ??
-                      []
-                    ),
-                    answer,
-                  ]),
-                ),
-            }
-          },
-        ),
-    }
-
-    try {
-      await saveQuizHistory({
-        quizTitle:
-          quiz.title,
-
-        sourceFilename:
-          documentResult.filename,
-
-        difficulty:
-          generatedSettings.difficulty,
-
-        questionType:
-          generatedSettings.questionType,
-
-        questionCount:
-          quiz.questions.length,
-
-        score,
-
-        percentage,
-
-        quizData:
-          quizDataForHistory,
-
-        selectedAnswers,
-      })
-
-      setResultSaved(true)
-
-      setSaveMessage(
-        'Quiz result saved to your history.',
-      )
-
-      setHistoryRefreshKey(
-        (previous) =>
-          previous + 1,
-      )
-    } catch (err) {
-      setSaveMessage(
-        err instanceof Error
-          ? err.message
-          : 'Could not save quiz result.',
-      )
-    } finally {
-      setIsSavingHistory(false)
-    }
-  }
 
   return (
     <main className="app-shell">
       <div className="app-container">
         <header className="app-header">
-          <div className="logo">
-            QF
-          </div>
-
+          <div className="logo">QF</div>
           <div>
             <h1>QuizForge AI</h1>
-
             <p className="subtitle">
               Turn your study material
               into an AI-generated
@@ -1673,7 +642,6 @@ function App() {
             <strong>
               Something went wrong
             </strong>
-
             <span>{error}</span>
           </div>
         )}
@@ -1687,9 +655,7 @@ function App() {
             />
 
             <QuizSettingsPanel
-              questionCount={
-                questionCount
-              }
+              questionCount={questionCount}
               difficulty={difficulty}
               questionType={questionType}
               hasQuiz={Boolean(quiz)}
@@ -1698,8 +664,7 @@ function App() {
                 isWeakPracticeGenerating
               }
               scannedLikely={
-                documentResult
-                  .scanned_likely
+                documentResult.scanned_likely
               }
               generationStage={
                 generationStage
@@ -1728,96 +693,87 @@ function App() {
                   generatedSettings
                 }
                 selectedAnswers={
-                  selectedAnswers
+                  attempt.selectedAnswers
                 }
-                showResults={showResults}
+                showResults={
+                  attempt.showResults
+                }
                 retryQuestionIndexes={
-                  retryQuestionIndexes
+                  attempt.retryQuestionIndexes
                 }
                 attentionQuestionIndex={
-                  attentionQuestionIndex
+                  attempt.attentionQuestionIndex
                 }
                 openSourceQuestionIndex={
-                  openSourceQuestionIndex
+                  attempt.openSourceQuestionIndex
                 }
-                practiceMode={
-                  practiceMode
-                }
-                practiceFocus={
-                  practiceFocus
-                }
+                practiceMode={practiceMode}
+                practiceFocus={practiceFocus}
                 activeQuestionIndexes={
-                  activeQuestionIndexes
+                  attempt.activeQuestionIndexes
                 }
                 answeredCount={
-                  answeredCount
+                  attempt.answeredCount
                 }
-                score={score}
-                percentage={percentage}
+                score={attempt.score}
+                percentage={
+                  attempt.percentage
+                }
                 masteryContext={
                   masteryContext
                 }
-                masteryDelta={
-                  masteryDelta
-                }
+                masteryDelta={masteryDelta}
                 multipleChoiceScore={
-                  multipleChoiceScore
+                  attempt.multipleChoiceScore
                 }
                 trueFalseScore={
-                  trueFalseScore
+                  attempt.trueFalseScore
                 }
                 shortAnswerScore={
-                  shortAnswerScore
+                  attempt.shortAnswerScore
                 }
                 isReviewingAnswers={
-                  isReviewingAnswers
+                  attempt.isReviewingAnswers
                 }
                 isSavingHistory={
-                  isSavingHistory
+                  attempt.isSavingHistory
                 }
                 resultSaved={
-                  resultSaved
+                  attempt.resultSaved
                 }
                 isWeakPracticeGenerating={
                   isWeakPracticeGenerating
                 }
-                isGenerating={
-                  isGenerating
-                }
+                isGenerating={isGenerating}
                 saveMessage={
-                  saveMessage
+                  attempt.saveMessage
                 }
                 isQuestionCorrect={
-                  isQuestionCorrect
+                  attempt.isQuestionCorrect
                 }
                 onJumpQuestion={
-                  (questionIndex) => {
-                    scrollToQuestion(
-                      questionIndex,
-                      true,
-                    )
-                  }
+                  attempt.jumpToQuestion
                 }
                 onAnswerChange={
-                  handleAnswerChange
+                  attempt.handleAnswerChange
                 }
                 onToggleSource={
-                  handleToggleSource
+                  attempt.handleToggleSource
                 }
                 onCheckAnswers={
-                  handleCheckAnswers
+                  attempt.handleCheckAnswers
                 }
                 onSaveResult={
-                  handleSaveResult
+                  attempt.handleSaveResult
                 }
                 onRetryIncorrect={
-                  handleRetryIncorrect
+                  attempt.handleRetryIncorrect
                 }
                 onPracticeWeakAreas={
                   handlePracticeWeakAreas
                 }
                 onTryAgain={
-                  handleTryAgain
+                  attempt.handleTryAgain
                 }
                 onGenerateNewQuiz={
                   handleGenerateNewQuiz
@@ -1837,9 +793,7 @@ function App() {
         )}
 
         <QuizHistory
-          refreshKey={
-            historyRefreshKey
-          }
+          refreshKey={historyRefreshKey}
           currentFilename={
             selectedFile?.name ?? null
           }
