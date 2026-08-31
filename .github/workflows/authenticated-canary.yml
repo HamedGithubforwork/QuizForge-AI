@@ -1,0 +1,65 @@
+name: Authenticated deployment canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authenticated-deployment-canary
+  cancel-in-progress: true
+
+jobs:
+  authenticated-canary:
+    name: Vercel + Supabase + Render authenticated canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CANARY_FRONTEND_URL: https://quiz-forge-ai-nine.vercel.app
+      CANARY_BACKEND_URL: https://quizforge-ai-api.onrender.com
+      QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+      QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Verify canary credentials are configured
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${QUIZFORGE_CANARY_EMAIL}" || -z "${QUIZFORGE_CANARY_PASSWORD}" ]]; then
+            echo "::error::Configure QUIZFORGE_CANARY_EMAIL and QUIZFORGE_CANARY_PASSWORD as GitHub Actions repository secrets before running this workflow."
+            exit 1
+          fi
+
+      - name: Install browser-test dependencies
+        run: npm ci --prefix e2e
+
+      - name: Install Chromium
+        run: npx --prefix e2e playwright install --with-deps chromium
+
+      - name: Run authenticated deployment canary
+        run: >-
+          npx --prefix e2e playwright test
+          --config=e2e/playwright.canary.config.ts
+
+      - name: Upload canary diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-deployment-canary-diagnostics
+          path: |
+            e2e/playwright-canary-report/
+            e2e/test-results/
+          retention-days: 7
