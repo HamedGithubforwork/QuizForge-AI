@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "17 12 * * *"
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,6 +22,9 @@ concurrency:
 jobs:
   production-smoke:
     name: Vercel + Render read-only smoke
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -26,6 +36,10 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+
+      - name: Allow production deploys to settle
+        if: github.event_name == 'workflow_run'
+        run: sleep 60
 
       - name: Run read-only production smoke checks
         env:

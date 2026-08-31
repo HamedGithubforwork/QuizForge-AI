@@ -2,6 +2,13 @@ name: Authenticated deployment canary
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Deployment smoke
+    types:
+      - completed
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -13,6 +20,13 @@ concurrency:
 jobs:
   authenticated-canary:
     name: Vercel + Supabase + Render authenticated canary
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'workflow_run'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
