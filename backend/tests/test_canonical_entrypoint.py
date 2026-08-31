@@ -21,8 +21,17 @@ def test_main_is_the_single_supported_app_instance():
 
 
 def test_main_composes_ocr_aware_pdf_extraction():
-    assert (
+    timed_extractor = (
         application.extract_pdf_pages_off_event_loop
+    )
+
+    assert getattr(
+        timed_extractor,
+        "_quizforge_timing_name",
+        None,
+    ) == "pdf_extraction_latency_ms"
+    assert (
+        timed_extractor.__wrapped__
         is pdf_ocr.extract_pdf_pages_off_event_loop
     )
 
