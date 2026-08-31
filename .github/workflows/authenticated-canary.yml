@@ -52,7 +52,7 @@ jobs:
       - name: Run authenticated deployment canary
         run: >-
           npx --prefix e2e playwright test
-          --config=playwright.canary.config.ts
+          --config=e2e/playwright.canary.config.ts
 
       - name: Upload canary diagnostics on failure
         if: failure()
