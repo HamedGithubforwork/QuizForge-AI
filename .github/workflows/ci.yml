@@ -11,6 +11,8 @@ on:
       - ".python-version"
       - "render.yaml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/deployment-smoke.yml"
+      - ".github/workflows/authenticated-canary.yml"
   pull_request:
     branches:
       - main
@@ -73,7 +75,7 @@ jobs:
                 frontend=true
                 playwright=true
                 ;;
-              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.integration.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/local-stack-integration.yml)
+              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.integration.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/deployment-smoke.yml|.github/workflows/local-stack-integration.yml)
                 playwright=true
                 ;;
               .github/workflows/ci.yml)
