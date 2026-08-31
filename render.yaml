@@ -1,12 +1,13 @@
 services:
   - type: web
     name: quizforge-ai-api
-    runtime: python
+    runtime: docker
     plan: free
     region: ohio
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --no-access-log
     autoDeployTrigger: checksPass
     envVars:
       - key: PYTHON_VERSION
@@ -34,4 +35,4 @@ services:
       - key: DOCUMENT_CACHE_MAX_BYTES
         value: "1500000"
       - key: DOCUMENT_CACHE_VERSION
-        value: "v1"
+        value: "v2"
