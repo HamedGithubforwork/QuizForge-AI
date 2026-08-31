@@ -1,49 +1,29 @@
 import {
-  useEffect,
-  useMemo,
   useState,
 } from 'react'
 
 import MasteryAnalyticsPanel from './MasteryAnalyticsPanel.tsx'
 import {
-  deleteQuizHistory,
-  getQuizHistoryForDocument,
-  getQuizHistoryPage,
-  type QuizHistoryRow,
-} from './lib/quizHistory'
+  useQuizHistoryData,
+} from './hooks/useQuizHistoryData.ts'
 import {
-  getCurrentDocumentSha256,
-} from './lib/documentIdentity'
+  buildCurrentDocumentSummary,
+  buildHistoryAnalytics,
+  getDisplayFilename,
+  getQuestionTypeLabel,
+  getTypePercentage,
+  type HistoryPracticeFocus,
+  type HistoryQuestionType,
+} from './lib/quizHistoryAnalytics.ts'
 import {
-  isHistoryQuestionCorrect,
-} from './lib/historyQuestionGrader'
-import {
-  analyzeWeakAreas,
-  type WeakAreaAttempt,
-} from './lib/weakAreaAnalytics'
-import {
-  appendUniqueHistoryRows,
   DOCUMENT_HISTORY_ANALYSIS_LIMIT,
-  type QuizHistoryCursor,
-} from './lib/quizHistoryPagination'
-import type {
-  ShortAnswerGradingSpec,
-} from './lib/shortAnswerGrader'
+} from './lib/quizHistoryPagination.ts'
 
 import './QuizHistory.css'
 
-export type HistoryQuestionType =
-  | 'multiple_choice'
-  | 'true_false'
-  | 'short_answer'
-
-export type HistoryPracticeFocus = {
-  pages: number[]
-  questionType: HistoryQuestionType
-  avoidQuestions: string[]
-  baselinePercent: number
-  baselineQuestionCount: number
-}
+export type {
+  HistoryPracticeFocus,
+} from './lib/quizHistoryAnalytics.ts'
 
 type QuizHistoryProps = {
   refreshKey: number
@@ -53,147 +33,6 @@ type QuizHistoryProps = {
   onPracticeWeakAreas?: (
     focus: HistoryPracticeFocus,
   ) => void | Promise<void>
-}
-
-type StoredQuestion = {
-  question_type: HistoryQuestionType
-  question: string
-  choices: string[]
-  correct_index: number
-  correct_answer: string
-  accepted_answers: string[]
-  grading?: ShortAnswerGradingSpec
-  explanation: string
-  source_pages: number[]
-}
-
-type StoredQuiz = {
-  title: string
-  questions: StoredQuestion[]
-}
-
-type StoredAnswers =
-  Record<string, number | string>
-
-type TypeScore = {
-  correct: number
-  total: number
-}
-
-type TypePerformance = {
-  multiple_choice: TypeScore
-  true_false: TypeScore
-  short_answer: TypeScore
-}
-
-type DocumentWeakness = {
-  questionType: HistoryQuestionType
-  pages: number[]
-  avoidQuestions: string[]
-  missedQuestions: number
-  baselinePercent: number
-  baselineQuestionCount: number
-  baselineAttemptCount: number
-  baselineReliable: boolean
-}
-
-type CurrentDocumentSummary = {
-  attemptCount: number
-  weakness: DocumentWeakness | null
-}
-
-function getDisplayFilename(name: string) {
-  try {
-    return decodeURIComponent(name)
-  } catch {
-    return name
-  }
-}
-
-function getQuestionTypeLabel(type: string) {
-  if (type === 'multiple_choice') {
-    return 'Multiple Choice'
-  }
-
-  if (type === 'true_false') {
-    return 'True / False'
-  }
-
-  if (type === 'short_answer') {
-    return 'Short Answer'
-  }
-
-  if (type === 'mixed') {
-    return 'Mixed'
-  }
-
-  return type
-}
-
-function isStoredQuestion(
-  value: unknown,
-): value is StoredQuestion {
-  if (
-    typeof value !== 'object' ||
-    value === null
-  ) {
-    return false
-  }
-
-  const question =
-    value as Partial<StoredQuestion>
-
-  return (
-    (
-      question.question_type ===
-        'multiple_choice' ||
-      question.question_type ===
-        'true_false' ||
-      question.question_type ===
-        'short_answer'
-    ) &&
-    typeof question.question === 'string' &&
-    Array.isArray(question.choices) &&
-    typeof question.correct_index === 'number' &&
-    typeof question.correct_answer === 'string' &&
-    Array.isArray(question.accepted_answers) &&
-    typeof question.explanation === 'string' &&
-    Array.isArray(question.source_pages)
-  )
-}
-
-function isStoredQuiz(
-  value: unknown,
-): value is StoredQuiz {
-  if (
-    typeof value !== 'object' ||
-    value === null
-  ) {
-    return false
-  }
-
-  const possibleQuiz = value as {
-    title?: unknown
-    questions?: unknown
-  }
-
-  return (
-    typeof possibleQuiz.title === 'string' &&
-    Array.isArray(possibleQuiz.questions) &&
-    possibleQuiz.questions.every(
-      isStoredQuestion,
-    )
-  )
-}
-
-function isStoredAnswers(
-  value: unknown,
-): value is StoredAnswers {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value)
-  )
 }
 
 function formatDate(dateString: string) {
@@ -206,33 +45,6 @@ function formatDate(dateString: string) {
   )
 }
 
-function createTypePerformance(): TypePerformance {
-  return {
-    multiple_choice: {
-      correct: 0,
-      total: 0,
-    },
-    true_false: {
-      correct: 0,
-      total: 0,
-    },
-    short_answer: {
-      correct: 0,
-      total: 0,
-    },
-  }
-}
-
-function getTypePercentage(score: TypeScore) {
-  if (score.total === 0) {
-    return 0
-  }
-
-  return Math.round(
-    (score.correct / score.total) * 100,
-  )
-}
-
 function QuizHistory({
   refreshKey,
   currentFilename = null,
@@ -240,393 +52,45 @@ function QuizHistory({
   isPracticeGenerating = false,
   onPracticeWeakAreas,
 }: QuizHistoryProps) {
-  const [history, setHistory] =
-    useState<QuizHistoryRow[]>([])
-  const [documentHistory, setDocumentHistory] =
-    useState<QuizHistoryRow[]>([])
-  const [totalHistoryCount, setTotalHistoryCount] =
-    useState(0)
-  const [hasMoreHistory, setHasMoreHistory] =
-    useState(false)
-  const [
-    nextHistoryCursor,
-    setNextHistoryCursor,
-  ] = useState<QuizHistoryCursor | null>(null)
-  const [loading, setLoading] =
-    useState(true)
-  const [loadingMore, setLoadingMore] =
-    useState(false)
-  const [error, setError] =
-    useState('')
-  const [loadMoreError, setLoadMoreError] =
-    useState('')
   const [expanded, setExpanded] =
-    useState(false)
-  const [historyEnabled, setHistoryEnabled] =
-    useState(false)
-  const [historyLoaded, setHistoryLoaded] =
     useState(false)
   const [
     isHistoryPracticeGenerating,
     setIsHistoryPracticeGenerating,
   ] = useState(false)
-  const [
-    practiceReadyFilename,
-    setPracticeReadyFilename,
-  ] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (
-      canPracticeCurrentDocument &&
-      currentFilename
-    ) {
-      setPracticeReadyFilename(
-        currentFilename,
-      )
-      return
-    }
-
-    if (!currentFilename) {
-      setPracticeReadyFilename(null)
-      return
-    }
-
-    if (
-      practiceReadyFilename &&
-      practiceReadyFilename !== currentFilename
-    ) {
-      setPracticeReadyFilename(null)
-    }
-  }, [
-    canPracticeCurrentDocument,
-    currentFilename,
-    practiceReadyFilename,
-  ])
-
-  const canPracticeHistory = Boolean(
-    currentFilename &&
-      practiceReadyFilename === currentFilename,
-  )
-
-  const currentDocumentSha256 =
-    canPracticeCurrentDocument
-      ? getCurrentDocumentSha256(
-          currentFilename,
-        )
-      : null
-
-  useEffect(() => {
-    if (!historyEnabled) {
-      return
-    }
-
-    let cancelled = false
-
-    async function loadFirstPage() {
-      setLoading(true)
-      setError('')
-      setLoadMoreError('')
-      setHasMoreHistory(false)
-      setNextHistoryCursor(null)
-
-      try {
-        const page =
-          await getQuizHistoryPage()
-
-        if (cancelled) {
-          return
-        }
-
-        setHistory(page.items)
-        if (page.totalCount !== null) {
-          setTotalHistoryCount(
-            page.totalCount,
-          )
-        }
-        setHasMoreHistory(page.hasMore)
-        setNextHistoryCursor(
-          page.nextCursor,
-        )
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : 'Could not load quiz history.',
-          )
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-          setHistoryLoaded(true)
-        }
-      }
-    }
-
-    void loadFirstPage()
-
-    return () => {
-      cancelled = true
-    }
-  }, [historyEnabled, refreshKey])
-
-  useEffect(() => {
-    if (!historyEnabled) {
-      return
-    }
-
-    let cancelled = false
-
-    async function loadCurrentDocumentHistory() {
-      if (!currentFilename) {
-        setDocumentHistory([])
-        return
-      }
-
-      try {
-        const rows =
-          await getQuizHistoryForDocument({
-            sourceFilename: currentFilename,
-            documentSha256:
-              currentDocumentSha256,
-            limit:
-              DOCUMENT_HISTORY_ANALYSIS_LIMIT,
-          })
-
-        if (!cancelled) {
-          setDocumentHistory(rows)
-        }
-      } catch {
-        if (!cancelled) {
-          setDocumentHistory([])
-        }
-      }
-    }
-
-    void loadCurrentDocumentHistory()
-
-    return () => {
-      cancelled = true
-    }
-  }, [
+  const {
+    history,
+    documentHistory,
+    totalHistoryCount,
+    hasMoreHistory,
+    loading,
+    loadingMore,
+    error,
+    loadMoreError,
+    historyLoaded,
+    canPracticeHistory,
     currentDocumentSha256,
-    currentFilename,
-    historyEnabled,
+    enableHistory,
+    loadMore,
+    removeHistoryItem,
+  } = useQuizHistoryData({
     refreshKey,
-  ])
+    currentFilename,
+    canPracticeCurrentDocument,
+  })
 
-  async function handleLoadMore() {
-    if (
-      loadingMore ||
-      !hasMoreHistory ||
-      !nextHistoryCursor
-    ) {
-      return
-    }
-
-    setLoadingMore(true)
-    setLoadMoreError('')
-
-    try {
-      const page =
-        await getQuizHistoryPage({
-          cursor: nextHistoryCursor,
-        })
-
-      setHistory((previous) =>
-        appendUniqueHistoryRows(
-          previous,
-          page.items,
-        ),
-      )
-      setHasMoreHistory(page.hasMore)
-      setNextHistoryCursor(
-        page.nextCursor,
-      )
-    } catch (err) {
-      setLoadMoreError(
-        err instanceof Error
-          ? err.message
-          : 'Could not load more saved quizzes.',
-      )
-    } finally {
-      setLoadingMore(false)
-    }
-  }
-
-  async function handleDelete(id: string) {
-    try {
-      await deleteQuizHistory(id)
-      setHistory((previous) =>
-        previous.filter(
-          (item) => item.id !== id,
-        ),
-      )
-      setDocumentHistory((previous) =>
-        previous.filter(
-          (item) => item.id !== id,
-        ),
-      )
-      setTotalHistoryCount(
-        (previous) =>
-          Math.max(0, previous - 1),
-      )
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Could not delete quiz.',
-      )
-    }
-  }
-
-  const analytics = useMemo(() => {
-    const loadedQuizCount = history.length
-    const totalQuestions = history.reduce(
-      (total, item) =>
-        total + item.question_count,
-      0,
+  const analytics =
+    buildHistoryAnalytics(
+      history,
+      totalHistoryCount,
     )
-    const averageScore =
-      loadedQuizCount > 0
-        ? Math.round(
-            history.reduce(
-              (total, item) =>
-                total + item.percentage,
-              0,
-            ) / loadedQuizCount,
-          )
-        : 0
-    const bestScore =
-      loadedQuizCount > 0
-        ? Math.max(
-            ...history.map(
-              (item) => item.percentage,
-            ),
-          )
-        : 0
-    const latestScore =
-      loadedQuizCount > 0
-        ? history[0].percentage
-        : 0
-    const typePerformance =
-      createTypePerformance()
 
-    history.forEach((item) => {
-      if (
-        !isStoredQuiz(item.quiz_data) ||
-        !isStoredAnswers(
-          item.selected_answers,
-        )
-      ) {
-        return
-      }
-
-      item.quiz_data.questions.forEach(
-        (question, questionIndex) => {
-          const type =
-            question.question_type
-          typePerformance[type].total += 1
-          const answer =
-            item.selected_answers[
-              String(questionIndex)
-            ]
-
-          if (
-            isHistoryQuestionCorrect(
-              question,
-              answer,
-            )
-          ) {
-            typePerformance[type].correct += 1
-          }
-        },
-      )
-    })
-
-    return {
-      loadedQuizCount,
-      quizzesCompleted: totalHistoryCount,
-      totalQuestions,
-      averageScore,
-      bestScore,
-      latestScore,
-      typePerformance,
-    }
-  }, [history, totalHistoryCount])
-
-  const currentDocumentSummary:
-    CurrentDocumentSummary | null =
-    useMemo(() => {
-      if (!currentFilename) {
-        return null
-      }
-
-      const attempts: WeakAreaAttempt[] =
-        documentHistory.flatMap((item) => {
-          if (
-            !isStoredQuiz(item.quiz_data) ||
-            !isStoredAnswers(
-              item.selected_answers,
-            )
-          ) {
-            return []
-          }
-
-          return [
-            {
-              questions:
-                item.quiz_data.questions.map(
-                  (question, questionIndex) => ({
-                    questionType:
-                      question.question_type,
-                    question:
-                      question.question,
-                    sourcePages:
-                      question.source_pages,
-                    correct:
-                      isHistoryQuestionCorrect(
-                        question,
-                        item.selected_answers[
-                          String(questionIndex)
-                        ],
-                      ),
-                  }),
-                ),
-            },
-          ]
-        })
-
-      const weakness =
-        analyzeWeakAreas(attempts)
-
-      return {
-        attemptCount:
-          documentHistory.length,
-        weakness: weakness
-          ? {
-              questionType:
-                weakness.questionType,
-              pages: weakness.pages,
-              avoidQuestions:
-                weakness.avoidQuestions,
-              missedQuestions:
-                weakness.missedQuestions,
-              baselinePercent:
-                weakness.baselinePercent,
-              baselineQuestionCount:
-                weakness.baselineQuestionCount,
-              baselineAttemptCount:
-                weakness.baselineAttemptCount,
-              baselineReliable:
-                weakness.baselineReliable,
-            }
-          : null,
-      }
-    }, [
+  const currentDocumentSummary =
+    buildCurrentDocumentSummary(
       currentFilename,
       documentHistory,
-    ])
+    )
 
   const recentHistory =
     history.slice(0, 5)
@@ -670,7 +134,7 @@ function QuizHistory({
         className="history-toggle"
         type="button"
         onClick={() => {
-          setHistoryEnabled(true)
+          enableHistory()
           setExpanded(
             (previous) => !previous,
           )
@@ -1137,7 +601,9 @@ function QuizHistory({
                         className="history-delete"
                         type="button"
                         onClick={() =>
-                          handleDelete(item.id)
+                          void removeHistoryItem(
+                            item.id,
+                          )
                         }
                       >
                         Delete
@@ -1156,7 +622,9 @@ function QuizHistory({
                   <button
                     className="history-practice-button"
                     type="button"
-                    onClick={handleLoadMore}
+                    onClick={() =>
+                      void loadMore()
+                    }
                     disabled={loadingMore}
                   >
                     {loadingMore
