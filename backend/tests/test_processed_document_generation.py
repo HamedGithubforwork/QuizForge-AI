@@ -169,7 +169,9 @@ def test_generation_uses_processed_pages_without_pdf_upload(
     )
 
     assert result.title == "Handle quiz"
-    assert generated_pages == [PAGES]
+    assert len(generated_pages) == 1
+    assert len(generated_pages[0]) == 1
+    assert list(generated_pages[0]) == PAGES
 
 
 def test_expired_processed_document_requires_reprocessing(
@@ -238,4 +240,107 @@ def test_same_hash_cannot_access_another_users_document(
     else:
         raise AssertionError(
             "another user's handle must not resolve"
+        )
+
+
+def test_generation_rejects_citation_outside_selected_context(
+    monkeypatch,
+):
+    large_pages = [
+        {
+            "page_number": page_number,
+            "text": (
+                f"Page {page_number} study material. "
+                + "x" * 6_000
+            ),
+        }
+        for page_number in range(1, 31)
+    ]
+
+    patch_generation_dependencies(
+        monkeypatch,
+        processed_document={
+            "pdf_sha256": DOCUMENT_SHA256,
+            "pages": large_pages,
+        },
+    )
+
+    async def fake_generation(**kwargs):
+        generation_pages = kwargs["pages"]
+        omitted_page = next(
+            page_number
+            for page_number in range(1, 31)
+            if page_number
+            not in generation_pages.source_pages
+        )
+
+        return application.Quiz.model_validate(
+            {
+                "title": "Ungrounded quiz",
+                "questions": [
+                    {
+                        "question_type": "multiple_choice",
+                        "question": "Ungrounded question?",
+                        "choices": [
+                            "Correct",
+                            "Wrong A",
+                            "Wrong B",
+                            "Wrong C",
+                        ],
+                        "correct_index": 0,
+                        "correct_answer": "Correct",
+                        "accepted_answers": [
+                            "Correct"
+                        ],
+                        "grading": {
+                            "grading_version": 2,
+                            "grading_mode": "none",
+                            "answer_groups": [],
+                            "required_group_count": 0,
+                            "numeric_value": 0,
+                            "numeric_tolerance": 0,
+                            "numeric_unit": "",
+                        },
+                        "explanation": "Test explanation.",
+                        "source_pages": [
+                            omitted_page
+                        ],
+                    }
+                ],
+            }
+        )
+
+    async def fail_cache_quiz(
+        _cache_key,
+        _quiz,
+    ):
+        raise AssertionError(
+            "ungrounded quiz must not be cached"
+        )
+
+    monkeypatch.setattr(
+        application,
+        "generate_quiz_from_pages",
+        fake_generation,
+    )
+    monkeypatch.setattr(
+        application,
+        "cache_quiz",
+        fail_cache_quiz,
+    )
+
+    try:
+        call_generation(
+            "owner-user"
+        )
+    except HTTPException as error:
+        assert error.status_code == 502
+        assert error.detail == (
+            "The AI cited source material that was not included "
+            "in the selected document context. Please try "
+            "generating the quiz again."
+        )
+    else:
+        raise AssertionError(
+            "ungrounded source citation must be rejected"
         )
