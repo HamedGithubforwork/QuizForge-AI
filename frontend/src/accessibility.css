@@ -1,0 +1,8 @@
+/* Keep secondary text above WCAG AA contrast on light surfaces. */
+.auth-brand p,
+.auth-tab,
+.auth-heading p,
+.auth-switch,
+.history-toggle span {
+  color: #666d80;
+}

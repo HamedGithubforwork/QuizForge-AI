@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright'
 import {
   expect,
   test,
@@ -8,6 +9,14 @@ const TEST_EMAIL = 'student@example.com'
 const TEST_PASSWORD = 'correct-password'
 const TEST_USER_ID = 'accessibility-user-id'
 const ACCESS_TOKEN = 'accessibility-access-token'
+
+const WCAG_TAGS = [
+  'wcag2a',
+  'wcag2aa',
+  'wcag21a',
+  'wcag21aa',
+  'wcag22aa',
+]
 
 function buildUser() {
   const now = new Date().toISOString()
@@ -70,6 +79,37 @@ async function mockLogin(page: Page) {
   )
 }
 
+async function expectNoWcagViolations(
+  page: Page,
+) {
+  const results = await new AxeBuilder({
+    page,
+  })
+    .withTags(WCAG_TAGS)
+    .analyze()
+
+  const violations =
+    results.violations.map(
+      (violation) => ({
+        id: violation.id,
+        impact: violation.impact,
+        help: violation.help,
+        nodes: violation.nodes.map(
+          (node) => ({
+            target: node.target,
+            failureSummary:
+              node.failureSummary,
+          }),
+        ),
+      }),
+    )
+
+  expect(
+    violations,
+    'Expected no WCAG A/AA accessibility violations.',
+  ).toEqual([])
+}
+
 test(
   'auth controls expose labels and live error feedback',
   async ({ page }) => {
@@ -107,6 +147,8 @@ test(
     await expect(
       page.getByRole('alert'),
     ).toHaveText('Enter your email address.')
+
+    await expectNoWcagViolations(page)
   },
 )
 
@@ -137,5 +179,7 @@ test(
     await expect(
       page.getByLabel('Study material PDF'),
     ).toBeVisible()
+
+    await expectNoWcagViolations(page)
   },
 )
