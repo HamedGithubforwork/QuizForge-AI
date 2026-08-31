@@ -3,6 +3,7 @@ from pathlib import Path
 
 import application
 import main
+import pdf_ocr
 import quiz_service
 import redis_integration
 
@@ -17,6 +18,22 @@ def test_main_is_the_single_supported_app_instance():
         / "backend"
         / "main_redis.py"
     ).exists()
+
+
+def test_main_composes_ocr_aware_pdf_extraction():
+    timed_extractor = (
+        application.extract_pdf_pages_off_event_loop
+    )
+
+    assert getattr(
+        timed_extractor,
+        "_quizforge_timing_name",
+        None,
+    ) == "pdf_extraction_latency_ms"
+    assert (
+        timed_extractor.__wrapped__
+        is pdf_ocr.extract_pdf_pages_off_event_loop
+    )
 
 
 def test_removed_legacy_surfaces_stay_removed():
@@ -87,3 +104,8 @@ def test_runtime_configs_use_canonical_main_entrypoint():
     assert "main_redis:app" not in dockerfile
     assert "main_redis:app" not in render_config
     assert "main_redis:app" not in local_stack
+
+    assert "tesseract-ocr" in dockerfile
+    assert "runtime: docker" in render_config
+    assert "--no-access-log" in dockerfile
+    assert "--no-access-log" in render_config

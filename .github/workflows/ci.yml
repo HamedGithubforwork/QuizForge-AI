@@ -147,6 +147,9 @@ jobs:
       - name: Build backend Docker image
         run: docker build -t quizforge-backend-ci .
 
+      - name: Verify OCR runtime in backend Docker image
+        run: docker run --rm quizforge-backend-ci python scripts/verify_ocr_runtime.py
+
   frontend-checks:
     name: Frontend checks
     needs: changes
