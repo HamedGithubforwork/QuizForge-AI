@@ -54,6 +54,34 @@ class ContextSelection:
         return len(self.study_material)
 
 
+class GenerationPageSequence:
+    """Iterate selected pages while preserving the original PDF page count."""
+
+    def __init__(
+        self,
+        *,
+        selected_pages: list[dict[str, int | str]],
+        original_page_count: int,
+        selection: ContextSelection,
+    ):
+        self._selected_pages = tuple(
+            selected_pages
+        )
+        self.original_page_count = (
+            original_page_count
+        )
+        self.selection = selection
+        self.source_pages = (
+            selection.source_pages
+        )
+
+    def __len__(self) -> int:
+        return self.original_page_count
+
+    def __iter__(self):
+        return iter(self._selected_pages)
+
+
 def _hard_split_text(
     text: str,
     max_characters: int,
@@ -407,4 +435,52 @@ def select_document_context(
         truncated=(
             len(selected_chunks) < len(chunks)
         ),
+    )
+
+
+def build_generation_pages(
+    pages,
+    *,
+    focus_page_numbers: list[int] | None = None,
+    query_texts: list[str] | None = None,
+    max_context_characters: int = DEFAULT_CONTEXT_CHARACTERS,
+    max_chunk_characters: int = DEFAULT_CHUNK_CHARACTERS,
+) -> GenerationPageSequence:
+    original_page_count = len(pages)
+    selection = select_document_context(
+        pages,
+        focus_page_numbers=focus_page_numbers,
+        query_texts=query_texts,
+        max_context_characters=(
+            max_context_characters
+        ),
+        max_chunk_characters=(
+            max_chunk_characters
+        ),
+    )
+
+    page_parts: dict[int, list[str]] = {}
+
+    for chunk in selection.chunks:
+        page_parts.setdefault(
+            chunk.page_number,
+            [],
+        ).append(chunk.text)
+
+    selected_pages = [
+        {
+            "page_number": page_number,
+            "text": "\n\n".join(
+                page_parts[page_number]
+            ),
+        }
+        for page_number in sorted(page_parts)
+    ]
+
+    return GenerationPageSequence(
+        selected_pages=selected_pages,
+        original_page_count=(
+            original_page_count
+        ),
+        selection=selection,
     )
