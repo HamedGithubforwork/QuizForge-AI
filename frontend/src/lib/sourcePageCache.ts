@@ -1,3 +1,6 @@
+import type {
+  SourcePageResponse,
+} from '../types/api.generated.ts'
 import {
   apiFetch,
 } from './api'
@@ -169,9 +172,10 @@ async function fetchSourcePageText(
   )
 
   const data =
-    await response.json() as {
+    await response.json() as Partial<
+      SourcePageResponse
+    > & {
       detail?: string
-      text?: string
     }
 
   if (!response.ok) {
