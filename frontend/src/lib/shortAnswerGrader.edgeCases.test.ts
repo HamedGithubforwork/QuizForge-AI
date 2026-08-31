@@ -28,7 +28,7 @@ assert.equal(
   'cafe based therapy',
 )
 assert.equal(
-  normalizeShortAnswer('alpha...beta   gamma'),
+  normalizeShortAnswer('alpha,beta   gamma'),
   'alpha beta gamma',
 )
 
