@@ -17,6 +17,7 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 ### Engineering highlights
 
 - **Grounded AI generation** — questions, answers, explanations, and source pages must be supported by the uploaded PDF.
+- **Bounded large-document retrieval** — full extracted PDFs remain cached for source access while generation selects a deterministic page-grounded context within the AI input budget.
 - **Structured validation** — FastAPI/Pydantic schemas and deterministic validators reject malformed generated quizzes and grading rubrics before they reach the browser.
 - **Stable document identity** — SHA-256 document identity keeps history associated with the same PDF even when a file is renamed.
 - **Adaptive practice** — saved attempts are analyzed by question type and source page to create new weak-area quizzes rather than simply repeating missed questions.
@@ -60,6 +61,7 @@ QuizForge AI started as a PDF-to-quiz application and grew into a production-ori
 
 - PDF upload and text extraction
 - Scanned/image-based PDF detection
+- Bounded context retrieval for large text PDFs while preserving original source-page numbers
 - 5, 10, or 15 questions
 - Easy, Medium, and Hard difficulty
 - Multiple Choice, True / False, Short Answer, or Mixed modes
@@ -215,7 +217,7 @@ QuizForge treats authentication, AI output, uploaded documents, external provide
 | Secret handling | OpenAI and other server-only credentials remain in backend environment variables. Example environment files contain placeholders only. |
 | CORS / browser boundary | Backend CORS uses an explicit environment-controlled allowlist and restricted methods/headers. |
 | Security headers | Production responses are checked for anti-sniffing, referrer, framing, permissions, and transport-security headers. |
-| PDF / request validation | Uploads must be PDFs, are capped at 15 MB, and are parsed by PyMuPDF. Quiz generation validates text volume, question settings, focus pages, weak-area inputs, and processed-document identity. |
+| PDF / request validation | Uploads must be PDFs, are capped at 15 MB, and are parsed by PyMuPDF. Quiz generation validates question settings, focus pages, weak-area inputs, processed-document identity, bounded context selection, and returned source-page grounding. |
 | AI trust boundary | PDF text is treated as data, not instructions. OpenAI output must satisfy Pydantic schemas and deterministic structural/grading/source-page validation before reaching the client. |
 | Abuse protection | Quiz generation and semantic answer review are independently rate-limited; distributed Redis enforcement has bounded in-memory fallback behavior. |
 | Cache isolation | Cache/document identities are scoped by authenticated user plus document/request identity. |
@@ -497,7 +499,7 @@ Render is configured to deploy after checks pass. Production secrets remain exte
 ## Current limitations
 
 - Image-only/scanned PDFs are detected but OCR is not implemented yet.
-- Quiz generation rejects documents whose extracted text exceeds the current AI-input limit.
+- Large text PDFs are supported through a bounded 100,000-character generation context, so one quiz may sample only part of a document whose extracted text exceeds that budget.
 - AI generation requires an external provider request on cache miss/bypass.
 - Processed-document/cache data is intentionally temporary and can expire, requiring the PDF to be processed again.
 - The free backend tier may cold-start after inactivity.
