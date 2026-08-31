@@ -4,8 +4,12 @@ import type {
 } from '../types/quiz'
 
 export function getDisplayFilename(
-  name: string,
+  name: string | null,
 ) {
+  if (!name) {
+    return 'Uploaded PDF'
+  }
+
   try {
     return decodeURIComponent(name)
   } catch {
