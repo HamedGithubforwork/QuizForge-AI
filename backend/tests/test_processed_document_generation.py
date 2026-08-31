@@ -169,7 +169,9 @@ def test_generation_uses_processed_pages_without_pdf_upload(
     )
 
     assert result.title == "Handle quiz"
-    assert generated_pages == [PAGES]
+    assert len(generated_pages) == 1
+    assert len(generated_pages[0]) == 1
+    assert list(generated_pages[0]) == PAGES
 
 
 def test_expired_processed_document_requires_reprocessing(
