@@ -11,12 +11,19 @@ import argparse
 import difflib
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
-from main import app
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = BACKEND_ROOT.parent
+
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+from main import app  # noqa: E402
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_PATH = (
     REPOSITORY_ROOT
     / "frontend"
