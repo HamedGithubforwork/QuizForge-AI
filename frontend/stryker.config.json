@@ -1,11 +1,10 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "testRunner": "tap",
-  "tap": {
-    "testFiles": ["src/lib/*.test.ts"],
-    "nodeArgs": ["--experimental-strip-types"],
-    "forceBail": true
+  "testRunner": "command",
+  "commandRunner": {
+    "command": "npm test"
   },
+  "coverageAnalysis": "off",
   "mutate": [
     "src/lib/answerFallback.ts",
     "src/lib/documentIdentity.ts",
