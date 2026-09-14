@@ -1,0 +1,96 @@
+name: Backend ECR image
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ecr.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ecr.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ecr-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ECR_REPOSITORY: quizforge-api
+
+jobs:
+  build:
+    name: Build backend image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build production backend image
+        run: docker build --tag quizforge-api:ci ./backend
+
+  push:
+    name: Push backend image to ECR
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main'
+    needs:
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve immutable image tag
+        id: image
+        shell: bash
+        run: |
+          image_uri="${{ steps.ecr-login.outputs.registry }}/${ECR_REPOSITORY}:${GITHUB_SHA}"
+          echo "uri=${image_uri}" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether image already exists
+        id: existing
+        shell: bash
+        run: |
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=${GITHUB_SHA}" \
+            >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build immutable production image
+        if: steps.existing.outputs.exists != 'true'
+        run: docker build --tag "${{ steps.image.outputs.uri }}" ./backend
+
+      - name: Push immutable production image
+        if: steps.existing.outputs.exists != 'true'
+        run: docker push "${{ steps.image.outputs.uri }}"
+
+      - name: Confirm image reference
+        run: echo "Backend image ${{ steps.image.outputs.uri }} is available in ECR."
