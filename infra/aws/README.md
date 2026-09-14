@@ -50,3 +50,14 @@ S3 lock-file state locking is enabled by the GitHub Actions workflow.
 Pull requests that change this directory run formatting and validation only; they do not authenticate to AWS and cannot change infrastructure.
 
 After a reviewed change reaches `main`, the workflow authenticates to AWS through OIDC, initializes the remote S3 backend, creates a saved Terraform plan, and applies that exact plan.
+
+## Backend container publishing
+
+`.github/workflows/backend-ecr.yml` is the first application-delivery step toward ECS.
+
+- pull requests that change `backend/**` build the production Docker image but do not authenticate to AWS or push anything
+- changes reaching `main` authenticate through the existing GitHub OIDC role and push the backend image to the `quizforge-api` ECR repository
+- images use the full Git commit SHA as an immutable tag
+- rerunning the workflow for a commit reuses the existing image instead of attempting to overwrite the immutable tag
+
+Publishing an image to ECR does not move production traffic. Render remains the live FastAPI host until the later ECS service and load-balancer migration is validated.
