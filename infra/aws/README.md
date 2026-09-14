@@ -1,6 +1,6 @@
 # QuizForge AWS foundation
 
-This directory defines the first Terraform-managed AWS resources for QuizForge AI.
+This directory defines the Terraform-managed AWS resources for the staged QuizForge AI migration.
 
 ## Bootstrap resources created manually
 
@@ -19,7 +19,7 @@ No long-lived AWS access key is stored in GitHub. The workflow uses GitHub OIDC 
 
 ## Foundation resources
 
-The first apply creates only low-complexity shared infrastructure:
+The foundation includes:
 
 - ECR repository for the FastAPI backend image
 - CloudWatch API log group with bounded retention
@@ -27,11 +27,54 @@ The first apply creates only low-complexity shared infrastructure:
 - two public subnets
 - two private subnets
 - internet gateway and public routing
-- security groups reserved for the future ALB, ECS service, RDS, and Redis layers
+- security groups reserved for the ALB, ECS service, RDS, and Redis layers
 
-A NAT Gateway is intentionally **not** created in this phase because it has hourly and data-processing charges. Private-service outbound networking will be designed when the ECS migration begins.
+A NAT Gateway is intentionally **not** created yet because it has hourly and data-processing charges.
 
-The application remains deployed on Vercel / Render / Supabase during this phase. No production traffic is cut over by this Terraform configuration.
+## Backend container publishing
+
+`.github/workflows/backend-ecr.yml` builds the production FastAPI Docker image and publishes immutable commit-tagged images to the `quizforge-api` ECR repository after changes reach `main`.
+
+Publishing an image to ECR does not move production traffic. Render remains the live FastAPI host until the ECS path is validated and a later cutover is performed.
+
+## ECS bootstrap
+
+The ECS bootstrap creates the pieces needed to run the current FastAPI container on Fargate without creating a continuously running service yet:
+
+- ECS cluster
+- Fargate task definition using 0.25 vCPU and 512 MiB memory
+- ECS task execution IAM role
+- access from the execution role to `/quizforge/prod/*` Parameter Store values
+- CloudWatch logging through the existing `/quizforge/api` log group
+- a container health check against `/api/health`
+
+The task definition injects these existing Parameter Store entries at runtime:
+
+- `/quizforge/prod/OPENAI_API_KEY`
+- `/quizforge/prod/SUPABASE_URL`
+- `/quizforge/prod/SUPABASE_PUBLISHABLE_KEY`
+- `/quizforge/prod/REDIS_URL`
+- `/quizforge/prod/ALLOWED_ORIGINS`
+
+The most recently pushed immutable ECR image is selected when Terraform creates a task-definition revision.
+
+No ECS service or Application Load Balancer is created by this bootstrap. That avoids leaving a Fargate task running continuously before the AWS backend has been smoke-tested.
+
+## One-off Fargate smoke test
+
+`.github/workflows/ecs-smoke.yml` is manual (`workflow_dispatch`) and intentionally does not run on every commit.
+
+When invoked from `main`, it:
+
+1. authenticates to AWS through GitHub OIDC
+2. reads the ECS cluster/task-definition and network IDs from Terraform state
+3. starts one Fargate task in a public subnet with a public IP for outbound internet access
+4. keeps inbound traffic blocked by the application security group
+5. waits for the container health check to report `HEALTHY`
+6. shows recent CloudWatch logs if the task fails
+7. stops the task after the smoke test
+
+This gives us a short-lived proof that the application can start on Fargate without creating a continuously running workload. The smoke test consumes a small amount of AWS Free Plan credits only while the task is running.
 
 ## Remote state
 
@@ -47,17 +90,6 @@ S3 lock-file state locking is enabled by the GitHub Actions workflow.
 
 ## Workflow behavior
 
-Pull requests that change this directory run formatting and validation only; they do not authenticate to AWS and cannot change infrastructure.
+Pull requests that change `infra/aws/**` run formatting and validation only; they do not authenticate to AWS and cannot change infrastructure.
 
-After a reviewed change reaches `main`, the workflow authenticates to AWS through OIDC, initializes the remote S3 backend, creates a saved Terraform plan, and applies that exact plan.
-
-## Backend container publishing
-
-`.github/workflows/backend-ecr.yml` is the first application-delivery step toward ECS.
-
-- pull requests that change `backend/**` build the production Docker image but do not authenticate to AWS or push anything
-- changes reaching `main` authenticate through the existing GitHub OIDC role and push the backend image to the `quizforge-api` ECR repository
-- images use the full Git commit SHA as an immutable tag
-- rerunning the workflow for a commit reuses the existing image instead of attempting to overwrite the immutable tag
-
-Publishing an image to ECR does not move production traffic. Render remains the live FastAPI host until the later ECS service and load-balancer migration is validated.
+After a reviewed infrastructure change reaches `main`, the Terraform workflow authenticates to AWS through OIDC, initializes the remote S3 backend, creates a saved Terraform plan, and applies that exact plan.
