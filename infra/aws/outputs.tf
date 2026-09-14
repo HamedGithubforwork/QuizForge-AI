@@ -37,3 +37,18 @@ output "api_log_group_name" {
   description = "CloudWatch log group reserved for the API service."
   value       = aws_cloudwatch_log_group.api.name
 }
+
+output "ecs_cluster_name" {
+  description = "ECS cluster used for the QuizForge API bootstrap."
+  value       = aws_ecs_cluster.api.name
+}
+
+output "ecs_task_definition_arn" {
+  description = "Current ECS Fargate task definition for the QuizForge API."
+  value       = aws_ecs_task_definition.api.arn
+}
+
+output "ecs_bootstrap_image_uri" {
+  description = "Immutable ECR image URI pinned into the current ECS task definition."
+  value       = data.aws_ecr_image.api.image_uri
+}
