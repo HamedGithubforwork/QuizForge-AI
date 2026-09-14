@@ -14,6 +14,16 @@ e2e/node_modules/
 e2e/playwright-report/
 e2e/test-results/
 
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+.terraformrc
+terraform.rc
+
 # Secrets
 .env
 .env.*
