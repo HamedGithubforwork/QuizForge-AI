@@ -19,12 +19,12 @@ output "private_subnet_ids" {
 }
 
 output "alb_security_group_id" {
-  description = "Security group reserved for the future application load balancer."
+  description = "Security group used by the application load balancer."
   value       = aws_security_group.alb.id
 }
 
 output "app_security_group_id" {
-  description = "Security group reserved for the future ECS/FastAPI service."
+  description = "Security group used by the ECS/FastAPI service."
   value       = aws_security_group.app.id
 }
 
@@ -34,12 +34,12 @@ output "data_security_group_id" {
 }
 
 output "api_log_group_name" {
-  description = "CloudWatch log group reserved for the API service."
+  description = "CloudWatch log group used by the API service."
   value       = aws_cloudwatch_log_group.api.name
 }
 
 output "ecs_cluster_name" {
-  description = "ECS cluster used for the QuizForge API bootstrap."
+  description = "ECS cluster used for the QuizForge API."
   value       = aws_ecs_cluster.api.name
 }
 
@@ -51,4 +51,19 @@ output "ecs_task_definition_arn" {
 output "ecs_bootstrap_image_uri" {
   description = "Immutable ECR image URI pinned into the current ECS task definition."
   value       = data.aws_ecr_image.api.image_uri
+}
+
+output "ecs_service_name" {
+  description = "Persistent ECS service name for the QuizForge API."
+  value       = aws_ecs_service.api.name
+}
+
+output "api_alb_dns_name" {
+  description = "Public DNS name of the QuizForge API application load balancer."
+  value       = aws_lb.api.dns_name
+}
+
+output "api_http_url" {
+  description = "Temporary HTTP URL used to validate the AWS-hosted API before HTTPS cutover."
+  value       = "http://${aws_lb.api.dns_name}"
 }
