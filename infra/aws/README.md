@@ -27,7 +27,7 @@ The foundation includes:
 - two public subnets
 - two private subnets
 - internet gateway and public routing
-- security groups reserved for the ALB, ECS service, RDS, and Redis layers
+- security groups for the ALB, ECS service, RDS, and Redis layers
 
 A NAT Gateway is intentionally **not** created yet because it has hourly and data-processing charges.
 
@@ -39,7 +39,7 @@ Publishing an image to ECR does not move production traffic. Render remains the 
 
 ## ECS bootstrap
 
-The ECS bootstrap creates the pieces needed to run the current FastAPI container on Fargate without creating a continuously running service yet:
+The ECS bootstrap creates the pieces needed to run the current FastAPI container on Fargate:
 
 - ECS cluster
 - Fargate task definition using 0.25 vCPU and 512 MiB memory
@@ -58,8 +58,6 @@ The task definition injects these existing Parameter Store entries at runtime:
 
 The most recently pushed immutable ECR image is selected when Terraform creates a task-definition revision.
 
-No ECS service or Application Load Balancer is created by this bootstrap. That avoids leaving a Fargate task running continuously before the AWS backend has been smoke-tested.
-
 ## One-off Fargate smoke test
 
 `.github/workflows/ecs-smoke.yml` is manual (`workflow_dispatch`) and intentionally does not run on every commit.
@@ -74,7 +72,30 @@ When invoked from `main`, it:
 6. shows recent CloudWatch logs if the task fails
 7. stops the task after the smoke test
 
-This gives us a short-lived proof that the application can start on Fargate without creating a continuously running workload. The smoke test consumes a small amount of AWS Free Plan credits only while the task is running.
+The first smoke test completed successfully, proving that the image can be pulled from ECR, runtime values can be loaded from Parameter Store, the FastAPI process can start on Fargate, and the container health check can pass.
+
+## ECS service and Application Load Balancer staging
+
+The next staging phase adds a continuously running ECS service and an internet-facing Application Load Balancer so the AWS-hosted backend can be exercised through a stable endpoint.
+
+The ECS service:
+
+- keeps one Fargate task running
+- uses the existing FastAPI task definition
+- runs in the public subnets with a public IP because there is still no NAT Gateway
+- only accepts inbound application traffic from the ALB security group
+- uses the ECS deployment circuit breaker with automatic rollback
+
+The ALB:
+
+- spans both public subnets
+- forwards HTTP port 80 to container port 8000
+- checks `/api/health` before considering a task healthy
+- exposes a temporary AWS DNS name for staging validation
+
+The HTTP listener is temporary and is **not** a production cutover. Before browser traffic is moved from Render to AWS, the plan is to add a custom API domain, an ACM certificate, HTTPS on port 443, and an HTTP-to-HTTPS redirect.
+
+This phase creates continuously running ALB and Fargate resources and therefore consumes AWS Free Plan credits while deployed. The pull request itself does not create those resources; they are created only after the change is merged into `main` and Terraform applies it.
 
 ## Remote state
 
