@@ -1,0 +1,166 @@
+name: AWS staging environment
+
+on:
+  pull_request:
+    paths:
+      - "infra/aws/staging/**"
+      - ".github/workflows/aws-staging.yml"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Start or stop the temporary AWS staging environment"
+        required: true
+        type: choice
+        options:
+          - start
+          - stop
+  schedule:
+    # Safety shutdown so a forgotten staging environment does not run indefinitely.
+    - cron: "0 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quizforge-aws-staging
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  validate:
+    name: Validate staging Terraform
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws/staging
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialize without remote backend
+        run: terraform init -backend=false
+
+      - name: Validate configuration
+        run: terraform validate
+
+  operate:
+    name: Operate temporary staging
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    needs:
+      - validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra/aws/staging
+    env:
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Require main for manual operations
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Run staging operations from the main branch only."
+            exit 1
+          fi
+
+      - name: Resolve requested operation
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "OPERATION=stop" >> "$GITHUB_ENV"
+            echo "Nightly staging safety shutdown selected."
+          else
+            echo "OPERATION=${{ inputs.operation }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+
+      - name: Initialize staging state
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=quizforge/staging/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Start staging
+        if: env.OPERATION == 'start'
+        run: terraform apply -auto-approve
+
+      - name: Wait for staging API
+        if: env.OPERATION == 'start'
+        shell: bash
+        run: |
+          cluster="$(terraform output -raw ecs_cluster_name)"
+          service="$(terraform output -raw ecs_service_name)"
+          url="$(terraform output -raw api_http_url)"
+
+          aws ecs wait services-stable \
+            --cluster "$cluster" \
+            --services "$service"
+
+          for attempt in $(seq 1 36); do
+            if curl --fail --silent --show-error \
+              --max-time 5 "$url/api/health" >/dev/null; then
+              echo "QuizForge staging is healthy: $url"
+              echo "STAGING_URL=$url" >> "$GITHUB_ENV"
+              exit 0
+            fi
+
+            echo "Waiting for $url (attempt $attempt/36)..."
+            sleep 5
+          done
+
+          echo "The staging API did not become reachable in time."
+          exit 1
+
+      - name: Show recent API logs on failed start
+        if: failure() && env.OPERATION == 'start'
+        run: aws logs tail /quizforge/api --since 15m --format short || true
+
+      - name: Clean up failed start
+        if: failure() && env.OPERATION == 'start'
+        run: terraform destroy -auto-approve || true
+
+      - name: Stop staging
+        if: env.OPERATION == 'stop'
+        run: terraform destroy -auto-approve
+
+      - name: Confirm result
+        if: success()
+        shell: bash
+        run: |
+          if [ "$OPERATION" = "start" ]; then
+            echo "Staging is running at ${STAGING_URL}."
+            echo "Run this workflow with operation=stop when you finish."
+          else
+            echo "Staging is stopped. ALB and ECS service resources are no longer running."
+          fi
