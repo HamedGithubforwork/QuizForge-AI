@@ -15,7 +15,7 @@ The repository-level GitHub Actions variables provide their environment-specific
 - `AWS_REGION`
 - `TF_STATE_BUCKET`
 
-No long-lived AWS access key is stored in GitHub. The workflow uses GitHub OIDC to receive temporary AWS credentials.
+No long-lived AWS access key is stored in GitHub. The workflows use GitHub OIDC to receive temporary AWS credentials.
 
 ## Foundation resources
 
@@ -27,7 +27,8 @@ The foundation includes:
 - two public subnets
 - two private subnets
 - internet gateway and public routing
-- security groups for the ALB, ECS service, RDS, and Redis layers
+- security groups reserved for the ALB, ECS service, RDS, and Redis layers
+- ECS cluster and Fargate task definition
 
 A NAT Gateway is intentionally **not** created yet because it has hourly and data-processing charges.
 
@@ -39,7 +40,7 @@ Publishing an image to ECR does not move production traffic. Render remains the 
 
 ## ECS bootstrap
 
-The ECS bootstrap creates the pieces needed to run the current FastAPI container on Fargate:
+The foundation contains the reusable pieces needed to run the current FastAPI container on Fargate without leaving an application service running continuously:
 
 - ECS cluster
 - Fargate task definition using 0.25 vCPU and 512 MiB memory
@@ -62,55 +63,50 @@ The most recently pushed immutable ECR image is selected when Terraform creates 
 
 `.github/workflows/ecs-smoke.yml` is manual (`workflow_dispatch`) and intentionally does not run on every commit.
 
-When invoked from `main`, it:
-
-1. authenticates to AWS through GitHub OIDC
-2. reads the ECS cluster/task-definition and network IDs from Terraform state
-3. starts one Fargate task in a public subnet with a public IP for outbound internet access
-4. keeps inbound traffic blocked by the application security group
-5. waits for the container health check to report `HEALTHY`
-6. shows recent CloudWatch logs if the task fails
-7. stops the task after the smoke test
+When invoked from `main`, it starts one temporary Fargate task, waits for the container health check to report `HEALTHY`, shows recent CloudWatch logs if the task fails, and stops the task after the test.
 
 The first smoke test completed successfully, proving that the image can be pulled from ECR, runtime values can be loaded from Parameter Store, the FastAPI process can start on Fargate, and the container health check can pass.
 
-## ECS service and Application Load Balancer staging
+## On-demand ALB + ECS staging
 
-The next staging phase adds a continuously running ECS service and an internet-facing Application Load Balancer so the AWS-hosted backend can be exercised through a stable endpoint.
+`infra/aws/staging/` is a separate Terraform root with its own remote state key:
 
-The ECS service:
+```text
+quizforge/staging/terraform.tfstate
+```
 
-- keeps one Fargate task running
-- uses the existing FastAPI task definition
-- runs in the public subnets with a public IP because there is still no NAT Gateway
-- only accepts inbound application traffic from the ALB security group
-- uses the ECS deployment circuit breaker with automatic rollback
+It reads the shared VPC, security groups, ECS cluster, and task definition from the foundation state. The staging resources are **not** created by the normal foundation apply.
 
-The ALB:
+`.github/workflows/aws-staging.yml` provides manual `start` and `stop` operations. Starting staging creates:
 
-- spans both public subnets
-- forwards HTTP port 80 to container port 8000
-- checks `/api/health` before considering a task healthy
-- exposes a temporary AWS DNS name for staging validation
+- one internet-facing Application Load Balancer across both public subnets
+- one ECS service with a single FastAPI task
+- Fargate Spot capacity to reduce compute cost while staging is disposable
+- `/api/health` target health checks
+- an ECS deployment circuit breaker with automatic rollback
 
-The HTTP listener is temporary and is **not** a production cutover. Before browser traffic is moved from Render to AWS, the plan is to add a custom API domain, an ACM certificate, HTTPS on port 443, and an HTTP-to-HTTPS redirect.
+The task remains in the public subnets with a public IP because QuizForge still needs outbound access to OpenAI and Supabase and there is intentionally no NAT Gateway yet. Port 8000 is reachable only from the ALB security group.
 
-This phase creates continuously running ALB and Fargate resources and therefore consumes AWS Free Plan credits while deployed. The pull request itself does not create those resources; they are created only after the change is merged into `main` and Terraform applies it.
+Stopping staging destroys the ALB and ECS service so their hourly charges stop. A scheduled safety shutdown runs daily at 08:00 UTC in case the environment is accidentally left running. A failed start also attempts to destroy partially created staging resources automatically.
+
+The staging ALB uses temporary HTTP on port 80. It is **not** a production cutover. Before browser traffic moves from Render to AWS, the plan is to add a custom API domain, ACM certificate, HTTPS on port 443, and an HTTP-to-HTTPS redirect.
 
 ## Remote state
 
-The S3 backend is configured at workflow runtime so the globally unique state-bucket name is not hard-coded into the repository.
+The foundation S3 backend is configured at workflow runtime so the globally unique state-bucket name is not hard-coded into the repository.
 
-State key:
+Foundation state key:
 
 ```text
 quizforge/foundation/terraform.tfstate
 ```
 
-S3 lock-file state locking is enabled by the GitHub Actions workflow.
+S3 lock-file state locking is enabled by the GitHub Actions workflows.
 
 ## Workflow behavior
 
-Pull requests that change `infra/aws/**` run formatting and validation only; they do not authenticate to AWS and cannot change infrastructure.
+Pull requests validate Terraform without applying AWS resources.
 
-After a reviewed infrastructure change reaches `main`, the Terraform workflow authenticates to AWS through OIDC, initializes the remote S3 backend, creates a saved Terraform plan, and applies that exact plan.
+After a reviewed foundation change reaches `main`, the Terraform workflow authenticates to AWS through OIDC, initializes the foundation state, creates a saved Terraform plan, and applies that exact plan.
+
+The staging ALB and ECS service are different: merging their Terraform definition does not start them. They are created only when the `AWS staging environment` workflow is manually dispatched with `operation=start`, and destroyed with `operation=stop` or by the scheduled safety shutdown.
