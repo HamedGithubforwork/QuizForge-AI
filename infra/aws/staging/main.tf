@@ -12,29 +12,36 @@ resource "aws_vpc_security_group_ingress_rule" "valkey_from_app" {
   security_group_id            = aws_security_group.valkey.id
   referenced_security_group_id = local.foundation.app_security_group_id
   from_port                    = 6379
-  to_port                      = 6380
+  to_port                      = 6379
   ip_protocol                  = "tcp"
-  description                  = "Valkey Serverless from the ECS application tier"
+  description                  = "Valkey from the ECS application tier"
 }
 
-resource "aws_elasticache_serverless_cache" "valkey" {
-  engine      = "valkey"
-  name        = "${var.project_name}-staging-valkey"
-  description = "Ephemeral QuizForge staging cache"
+resource "aws_elasticache_subnet_group" "valkey" {
+  name       = "${var.project_name}-staging-valkey"
+  subnet_ids = local.foundation.private_subnet_ids
+}
 
-  cache_usage_limits {
-    data_storage {
-      maximum = 1
-      unit    = "GB"
-    }
+resource "aws_elasticache_replication_group" "valkey" {
+  replication_group_id = "${var.project_name}-staging-valkey"
+  description          = "Ephemeral QuizForge staging cache"
+  engine               = "valkey"
+  node_type            = "cache.t4g.micro"
+  num_cache_clusters   = 1
+  cluster_mode         = "disabled"
+  port                 = 6379
 
-    ecpu_per_second {
-      maximum = 1000
-    }
-  }
-
+  subnet_group_name  = aws_elasticache_subnet_group.valkey.name
   security_group_ids = [aws_security_group.valkey.id]
-  subnet_ids         = local.foundation.private_subnet_ids
+
+  transit_encryption_enabled = true
+  transit_encryption_mode    = "required"
+  at_rest_encryption_enabled = true
+
+  automatic_failover_enabled = false
+  multi_az_enabled            = false
+  snapshot_retention_limit    = 0
+  apply_immediately           = true
 
   tags = {
     Name = "${var.project_name}-staging-valkey"
@@ -75,7 +82,7 @@ resource "aws_ecs_task_definition" "api" {
         },
         {
           name  = "REDIS_URL"
-          value = "rediss://${aws_elasticache_serverless_cache.valkey.endpoint[0].address}:${aws_elasticache_serverless_cache.valkey.endpoint[0].port}/0"
+          value = "rediss://${aws_elasticache_replication_group.valkey.primary_endpoint_address}:6379/0"
         }
       ]
 
