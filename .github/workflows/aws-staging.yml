@@ -5,6 +5,8 @@ on:
     paths:
       - "infra/aws/staging/**"
       - ".github/workflows/aws-staging.yml"
+      - "scripts/aws_staging_*.py"
+      - "scripts/tests/test_aws_staging_functional.py"
   workflow_dispatch:
     inputs:
       operation:
@@ -14,6 +16,10 @@ on:
         options:
           - start
           - stop
+      functional_validation:
+        description: "Run full backend validation (one quiz + one answer review), then automatically stop staging"
+        type: boolean
+        default: false
   schedule:
     # Safety shutdown so a forgotten staging environment does not run indefinitely.
     - cron: "0 8 * * *"
@@ -53,13 +59,17 @@ jobs:
       - name: Validate configuration
         run: terraform validate
 
+      - name: Test staging validation guardrails
+        working-directory: .
+        run: python -m unittest discover -s scripts/tests -p 'test_aws_staging_functional.py' -v
+
   operate:
     name: Operate temporary staging
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     needs:
       - validate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
       id-token: write
@@ -303,6 +313,13 @@ jobs:
 
           echo "Managed staging Valkey smoke passed."
 
+      - name: Run full AWS backend functional validation
+        if: env.OPERATION == 'start' && inputs.functional_validation
+        env:
+          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+        run: python ../../../scripts/aws_staging_functional.py
+
       - name: Show recent API logs on failed start
         if: failure() && env.OPERATION == 'start'
         run: aws logs tail /quizforge/api --since 15m --format short || true
@@ -312,14 +329,14 @@ jobs:
         run: terraform destroy -auto-approve || true
 
       - name: Stop staging
-        if: env.OPERATION == 'stop'
+        if: always() && (env.OPERATION == 'stop' || (env.OPERATION == 'start' && inputs.functional_validation))
         run: terraform destroy -auto-approve
 
       - name: Confirm result
         if: success()
         shell: bash
         run: |
-          if [ "$OPERATION" = "start" ]; then
+          if [ "$OPERATION" = "start" ] && [ "${{ inputs.functional_validation }}" != "true" ]; then
             echo "Staging is running at ${STAGING_URL}."
             echo "Health, authenticated, and managed Valkey canaries all passed."
             echo "Run this workflow with operation=stop when you finish."
