@@ -59,6 +59,7 @@ resource "aws_db_parameter_group" "tls" {
     apply_method = "pending-reboot"
   }
 }
+# Disposable Free-plan rehearsal: keep automated backups enabled for one day.
 resource "aws_db_instance" "source" {
   identifier                   = local.name
   engine                       = "postgres"
@@ -76,7 +77,7 @@ resource "aws_db_instance" "source" {
   parameter_group_name         = aws_db_parameter_group.tls.name
   publicly_accessible          = false
   multi_az                     = false
-  backup_retention_period      = 7
+  backup_retention_period      = 1
   copy_tags_to_snapshot        = true
   auto_minor_version_upgrade   = true
   performance_insights_enabled = false
@@ -103,7 +104,7 @@ resource "aws_db_instance" "restored" {
   parameter_group_name         = aws_db_parameter_group.tls.name
   publicly_accessible          = false
   multi_az                     = false
-  backup_retention_period      = 7
+  backup_retention_period      = 1
   storage_encrypted            = true
   storage_type                 = "gp3"
   auto_minor_version_upgrade   = true

@@ -29,7 +29,7 @@ def check_database(identifier, values):
     db = aws("rds", "describe-db-instances", "--db-instance-identifier", identifier)["DBInstances"][0]
     assert db["DBInstanceStatus"] == "available"
     assert not db["PubliclyAccessible"] and db["StorageEncrypted"]
-    assert db["BackupRetentionPeriod"] == 7 and db["DBInstanceClass"] == "db.t4g.micro"
+    assert db["BackupRetentionPeriod"] == 1 and db["DBInstanceClass"] == "db.t4g.micro"
     assert db["Engine"] == "postgres" and db["EngineVersion"].startswith("17.") and not db["MultiAZ"]
     assert {s["VpcSecurityGroupId"] for s in db["VpcSecurityGroups"]} == {values["database_group"]}
     assert {s["SubnetIdentifier"] for s in db["DBSubnetGroup"]["Subnets"]} == set(values["private_subnets"])
