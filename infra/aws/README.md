@@ -85,9 +85,13 @@ It reads the shared VPC, security groups, ECS cluster, and task definition from 
 - `/api/health` target health checks
 - an ECS deployment circuit breaker with automatic rollback
 
+After the public health check succeeds, the same start workflow performs an authenticated boundary canary using the dedicated canary account. It signs in through Supabase Auth, sends the returned bearer token through the staging ALB to a protected FastAPI route, and expects the normal `410` response for a deliberately nonexistent document. This verifies the staging ALB, ECS task, Parameter Store configuration, outbound access to Supabase, and backend token validation without uploading a PDF or generating a quiz.
+
+The authenticated staging canary runs from the GitHub runner rather than from the production Vercel page because the temporary staging endpoint is HTTP-only; browsers would block an HTTPS page from calling it as active mixed content. Browser-level CORS validation will be added after the staging API has HTTPS.
+
 The task remains in the public subnets with a public IP because QuizForge still needs outbound access to OpenAI and Supabase and there is intentionally no NAT Gateway yet. Port 8000 is reachable only from the ALB security group.
 
-Stopping staging destroys the ALB and ECS service so their hourly charges stop. A scheduled safety shutdown runs daily at 08:00 UTC in case the environment is accidentally left running. A failed start also attempts to destroy partially created staging resources automatically.
+Stopping staging destroys the ALB and ECS service so their hourly charges stop. A scheduled safety shutdown runs daily at 08:00 UTC in case the environment is accidentally left running. A failed health or authenticated-canary start also attempts to destroy partially created staging resources automatically.
 
 The staging ALB uses temporary HTTP on port 80. It is **not** a production cutover. Before browser traffic moves from Render to AWS, the plan is to add a custom API domain, ACM certificate, HTTPS on port 443, and an HTTP-to-HTTPS redirect.
 
