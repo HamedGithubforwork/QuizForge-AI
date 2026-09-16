@@ -64,7 +64,7 @@ resource "aws_ecs_task_definition" "api" {
   container_definitions = jsonencode([
     {
       name      = "api"
-      image     = local.foundation.ecs_bootstrap_image_uri
+      image     = var.backend_image_uri != "" ? var.backend_image_uri : local.foundation.ecs_bootstrap_image_uri
       essential = true
 
       portMappings = [

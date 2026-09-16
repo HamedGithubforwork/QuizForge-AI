@@ -6,7 +6,7 @@ on:
       - "infra/aws/staging/**"
       - ".github/workflows/aws-staging.yml"
       - "scripts/aws_staging_*.py"
-      - "scripts/tests/test_aws_staging_functional.py"
+      - "scripts/tests/test_aws_staging_*.py"
   workflow_dispatch:
     inputs:
       operation:
@@ -18,6 +18,14 @@ on:
           - stop
       functional_validation:
         description: "Run full backend validation (one quiz + one answer review), then automatically stop staging"
+        type: boolean
+        default: false
+      backend_pr:
+        description: "Optional same-repository PR number with passing CI (staging only)"
+        type: string
+        default: ""
+      history_validation:
+        description: "Run read-only history checks, then automatically stop staging"
         type: boolean
         default: false
   schedule:
@@ -61,13 +69,53 @@ jobs:
 
       - name: Test staging validation guardrails
         working-directory: .
-        run: python -m unittest discover -s scripts/tests -p 'test_aws_staging_functional.py' -v
+        run: python -m unittest discover -s scripts/tests -p 'test_aws_staging_*.py' -v
+
+  preview-image:
+    name: Build tested PR preview
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'start' && inputs.backend_pr != ''
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.preview.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify exact PR commit and required CI
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_PR: ${{ inputs.backend_pr }}
+        run: python scripts/aws_staging_preview.py
+      - name: Check out tested application source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.preview.outputs.sha }}
+          path: preview-source
+          persist-credentials: false
+      - name: Build without AWS credentials
+        run: |
+          docker build --tag quizforge-preview:tested preview-source/backend
+          docker save --output /tmp/quizforge-preview.tar quizforge-preview:tested
+      - name: Transfer image to deployment runner
+        uses: actions/upload-artifact@v7
+        with:
+          name: tested-preview-image
+          path: /tmp/quizforge-preview.tar
+          compression-level: 0
+          retention-days: 1
 
   operate:
     name: Operate temporary staging
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: always() && needs.validate.result == 'success' && (needs.preview-image.result == 'success' || needs.preview-image.result == 'skipped') && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
     needs:
       - validate
+      - preview-image
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -103,11 +151,44 @@ jobs:
             echo "OPERATION=${{ inputs.operation }}" >> "$GITHUB_ENV"
           fi
 
+      - name: Require automatic cleanup for PR previews
+        if: env.OPERATION == 'start' && inputs.backend_pr != ''
+        env:
+          AUTO_CLEANUP: ${{ inputs.functional_validation || inputs.history_validation }}
+        run: test "$AUTO_CLEANUP" = "true"
+
+      - name: Download tested image
+        if: env.OPERATION == 'start' && inputs.backend_pr != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: tested-preview-image
+          path: /tmp/quizforge-preview
+
       - name: Configure temporary AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Push tested image under a staging tag
+        if: env.OPERATION == 'start' && inputs.backend_pr != ''
+        working-directory: .
+        env:
+          PREVIEW_SHA: ${{ needs.preview-image.outputs.sha }}
+        run: |
+          set -euo pipefail
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          registry="${account}.dkr.ecr.ca-central-1.amazonaws.com"
+          tag="staging-${PREVIEW_SHA}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          if ! aws ecr describe-images --repository-name quizforge-api --image-ids "imageTag=$tag" >/dev/null 2>&1; then
+            docker load --input /tmp/quizforge-preview/quizforge-preview.tar
+            docker tag quizforge-preview:tested "$registry/quizforge-api:$tag"
+            docker push "$registry/quizforge-api:$tag"
+          fi
+          digest="$(aws ecr describe-images --repository-name quizforge-api --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)"
+          echo "TF_VAR_backend_image_uri=$registry/quizforge-api@$digest" >> "$GITHUB_ENV"
+          echo "Staging preview pinned to PR commit $PREVIEW_SHA and image digest $digest."
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -320,6 +401,13 @@ jobs:
           QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
         run: python -u ../../../scripts/aws_staging_functional.py
 
+      - name: Validate history without production database writes
+        if: env.OPERATION == 'start' && inputs.history_validation
+        env:
+          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+        run: python -u ../../../scripts/aws_staging_history.py
+
       - name: Show recent API logs on failed start
         if: failure() && env.OPERATION == 'start'
         run: aws logs tail /quizforge/api --since 15m --format short || true
@@ -329,14 +417,14 @@ jobs:
         run: terraform destroy -auto-approve || true
 
       - name: Stop staging
-        if: always() && (env.OPERATION == 'stop' || (env.OPERATION == 'start' && inputs.functional_validation))
+        if: always() && (env.OPERATION == 'stop' || (env.OPERATION == 'start' && (inputs.functional_validation || inputs.history_validation)))
         run: terraform destroy -auto-approve
 
       - name: Confirm result
         if: success()
         shell: bash
         run: |
-          if [ "$OPERATION" = "start" ] && [ "${{ inputs.functional_validation }}" != "true" ]; then
+          if [ "$OPERATION" = "start" ] && [ "${{ inputs.functional_validation || inputs.history_validation }}" != "true" ]; then
             echo "Staging is running at ${STAGING_URL}."
             echo "Health, authenticated, and managed Valkey canaries all passed."
             echo "Run this workflow with operation=stop when you finish."
