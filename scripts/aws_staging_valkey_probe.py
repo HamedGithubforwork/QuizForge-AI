@@ -53,11 +53,16 @@ async def main():
         print("PASS: application-created document, source-page and quiz caches are persisted in private Valkey")
 
         for metric, minimum in {"document_cache_hits_total": 1, "document_cache_misses_total": 1,
-                                "quiz_cache_hits_total": 1, "quiz_cache_misses_total": 1}.items():
+                                "quiz_cache_hits_total": 1, "quiz_cache_misses_total": 9,
+                                "quiz_requests_total": 10}.items():
             count = int(await first.get("quizforge:metrics:" + metric) or 0)
             assert count >= minimum, metric
-            if metric == "quiz_cache_misses_total":
-                assert count == 1, "Only one representative quiz should be generated"
+            # Eight invalid-settings requests are recorded as misses by the
+            # application's rejection handler; the eleventh, limited request
+            # is rejected before that handler. Only the first valid request
+            # generates, and the second valid request must be a cache hit.
+            if metric.startswith("quiz_"):
+                assert count == minimum, f"Unexpected workload accounting: {metric}"
         for metric in ("http_latency_ms", "auth_latency_ms", "pdf_extraction_latency_ms",
                        "openai_generation_latency_ms", "quiz_cache_lookup_latency_ms"):
             samples = await second.lrange("quizforge:metrics:timing:" + metric, 0, -1)
