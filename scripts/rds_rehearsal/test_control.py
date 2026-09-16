@@ -12,11 +12,25 @@ class LifecycleTests(unittest.TestCase):
             if args[1] == "reboot-db-instance":
                 reboots.append(args)
                 return {}
+            if args[1] == "describe-db-parameters":
+                return {"Parameters": [{"ParameterName": "rds.force_ssl", "ParameterValue": "1"}]}
             status, applied = next(states)
-            return {"DBInstances": [{"DBInstanceStatus": status, "DBParameterGroups": [{"ParameterApplyStatus": applied}]}]}
+            return {"DBInstances": [{"DBInstanceStatus": status, "DBParameterGroups": [
+                {"ParameterApplyStatus": applied, "DBParameterGroupName": control.NAME}]}]}
         with patch.object(control, "aws", side_effect=aws), patch.object(control.time, "sleep"):
             control.ensure_parameters_active(control.NAME)
         self.assertEqual(len(reboots), 1)
+
+    def test_ready_database_rejects_disabled_or_missing_forced_tls(self):
+        for parameters in ([], [{"ParameterName": "rds.force_ssl", "ParameterValue": "0"}]):
+            with self.subTest(parameters=parameters):
+                def aws(*args, **kwargs):
+                    if args[1] == "describe-db-parameters": return {"Parameters": parameters}
+                    return {"DBInstances": [{"DBInstanceStatus": "available", "DBParameterGroups": [
+                        {"ParameterApplyStatus": "in-sync", "DBParameterGroupName": control.NAME}]}]}
+                with patch.object(control, "aws", side_effect=aws):
+                    with self.assertRaisesRegex(AssertionError, "RDS must require TLS"):
+                        control.ensure_parameters_active(control.NAME)
 
     def test_cleanup_waits_for_automated_backup_metadata(self):
         counts = [0]
