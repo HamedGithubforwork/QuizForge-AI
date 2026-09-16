@@ -15,6 +15,18 @@ variable "restore_validation" {
   type    = bool
   default = false
 }
+variable "api_validation" {
+  type    = bool
+  default = false
+}
+variable "api_backend_image" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.api_backend_image == "" || can(regex("^[0-9]{12}\\.dkr\\.ecr\\.ca-central-1\\.amazonaws\\.com/quizforge-api@sha256:[0-9a-f]{64}$", var.api_backend_image))
+    error_message = "API validation requires a tested Canada Central ECR image digest."
+  }
+}
 provider "aws" {
   region = var.aws_region
   default_tags {
@@ -140,17 +152,22 @@ resource "aws_ecs_task_definition" "probe" {
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = aws_iam_role.probe_execution.arn
+  task_role_arn            = var.api_validation ? aws_iam_role.api_setup[0].arn : null
   container_definitions = jsonencode([{
     name                   = "probe", essential = true
     image                  = var.rehearsal_image != "" ? var.rehearsal_image : local.foundation.ecs_bootstrap_image_uri
     readonlyRootFilesystem = true
     user                   = "10001:10001"
     linuxParameters        = { capabilities = { drop = ["ALL"] } }
-    environment = [
+    environment = concat([
       { name = "PGHOST", value = aws_db_instance.source.address },
       { name = "PGDATABASE", value = "quizforge_rehearsal" },
       { name = "PGSSLROOTCERT", value = "/app/rds-ca.pem" }
-    ]
+      ], var.api_validation ? [
+      { name = "RDS_APP_SECRET_ARN", value = aws_secretsmanager_secret.api_application[0].arn },
+      { name = "RDS_SESSION_SECRET_ARN", value = aws_secretsmanager_secret.api_session[0].arn },
+      { name = "AWS_DEFAULT_REGION", value = var.aws_region }
+    ] : [])
     secrets = [
       { name = "PGUSER", valueFrom = "${aws_db_instance.source.master_user_secret[0].secret_arn}:username::" },
       { name = "PGPASSWORD", valueFrom = "${aws_db_instance.source.master_user_secret[0].secret_arn}:password::" }
@@ -160,7 +177,7 @@ resource "aws_ecs_task_definition" "probe" {
       awslogs-stream-prefix = "rds-rehearsal"
     } }
   }])
-  depends_on = [aws_iam_role_policy.probe_execution]
+  depends_on = [aws_iam_role_policy.probe_execution, aws_iam_role_policy.api_setup]
 }
 output "probe" {
   value = {
@@ -173,5 +190,7 @@ output "probe" {
     restored_host   = try(aws_db_instance.restored[0].address, "")
     database_group  = aws_security_group.database.id
     private_subnets = local.foundation.private_subnet_ids
+    api_task        = try(aws_ecs_task_definition.api[0].arn, "")
+    session_secret  = try(aws_secretsmanager_secret.api_session[0].arn, "")
   }
 }
