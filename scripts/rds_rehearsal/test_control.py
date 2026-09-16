@@ -13,7 +13,10 @@ class LifecycleTests(unittest.TestCase):
                 reboots.append(args)
                 return {}
             if args[1] == "describe-db-parameters":
-                return {"Parameters": [{"ParameterName": "rds.force_ssl", "ParameterValue": "1"}]}
+                parameters = [{"ParameterName": "rds.force_ssl", "ParameterValue": "1", "Source": "engine-default"}]
+                if "--source" in args:
+                    parameters = [p for p in parameters if p["Source"] == args[args.index("--source") + 1]]
+                return {"Parameters": parameters}
             status, applied = next(states)
             return {"DBInstances": [{"DBInstanceStatus": status, "DBParameterGroups": [
                 {"ParameterApplyStatus": applied, "DBParameterGroupName": control.NAME}]}]}

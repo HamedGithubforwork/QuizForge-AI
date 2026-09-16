@@ -65,6 +65,9 @@ It checks `rds.force_ssl=1` through the RDS parameter API and waits until that
 parameter group is active. RDS does not expose this control-plane parameter to
 PostgreSQL `SHOW`; the SQL probe separately checks `SHOW ssl`, verified TLS on
 its connections, and explicit rejection of an unencrypted connection.
+The API query includes engine defaults as well as user-modified parameters;
+PostgreSQL 17 defaults to forced TLS, so a user-source-only query can omit it.
+The effective value must still be exactly `1`, and missing or disabled values fail.
 
 Cleanup deletes both instances, the synthetic snapshot, automated backups,
 temporary task definition, execution role/policy, DB subnet/parameter groups and
