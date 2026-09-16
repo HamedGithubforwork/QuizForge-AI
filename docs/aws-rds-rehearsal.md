@@ -17,7 +17,7 @@ also destroy this dedicated state. Always verify the cleanup job succeeds.
 - Port 5432 admitted only from the existing application security group.
 - TLS required by the DB parameter group and verified against the AWS regional
   CA bundle with hostname verification by the probe.
-- Seven-day automated backup retention while running; encrypted manual snapshot
+- One-day automated backup retention while running; encrypted manual snapshot
   restored into a second temporary instance after import checks pass.
 - RDS generates and manages the owner password in Secrets Manager. Terraform
   handles only its ARN. ECS injects it into the isolated migration probe using a
@@ -33,6 +33,15 @@ also destroy this dedicated state. Always verify the cleanup job succeeds.
 The restored PostgreSQL instance inherits the source snapshot's owner password;
 the probe uses the source managed secret during this short rehearsal. No database
 password is written to workflow output, artifacts, Terraform variables or state.
+
+The first AWS run rejected seven-day retention with `FreeTierRestrictionError`
+before creating the database. This disposable rehearsal uses one day, the
+[RDS API default](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_WorkingWithAutomatedBackups.BackupRetention.html),
+to keep automated backups enabled within the account's plan constraints. Zero
+retention is rejected by the live configuration check. The encrypted snapshot,
+restore, checksum and ownership checks are still mandatory. This is not the
+production retention policy; production requires its separately reviewed
+retention and recovery plan. No account-plan upgrade is performed.
 
 ## Acceptance checks
 
