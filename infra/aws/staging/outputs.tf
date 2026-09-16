@@ -25,7 +25,7 @@ output "app_security_group_id" {
 
 output "valkey_endpoint" {
   description = "Private TLS endpoint for the ephemeral staging Valkey cache."
-  value       = aws_elasticache_serverless_cache.valkey.endpoint[0].address
+  value       = aws_elasticache_replication_group.valkey.primary_endpoint_address
 }
 
 output "api_alb_dns_name" {
