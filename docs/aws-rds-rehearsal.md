@@ -2,7 +2,8 @@
 
 This workflow rehearses synthetic quiz-history migration and snapshot recovery.
 It does not change the running application, Supabase, Render, or Vercel. The
-FastAPI PostgreSQL adapter and any production export remain separate later work.
+optional API mode tests a reviewed FastAPI PostgreSQL adapter PR without merging
+or deploying it to production. Any production export remains separate later work.
 
 Run **AWS private RDS rehearsal** from **main**, operation **run**. All resources
 use the isolated S3 state key `quizforge/rds-rehearsal/terraform.tfstate` and the
@@ -22,13 +23,51 @@ also destroy this dedicated state. Always verify the cleanup job succeeds.
 - RDS generates and manages the owner password in Secrets Manager. Terraform
   handles only its ARN. ECS injects it into the isolated migration probe using a
   dedicated execution role limited to this secret, image pulls and log writes.
-- The probe has no AWS task role, runs as a non-root user, drops Linux capabilities
+- The default snapshot probe has no AWS task role, runs as a non-root user, drops Linux capabilities
   and uses a read-only root filesystem. Its public-subnet ENI permits AWS image
   and secret retrieval without a NAT Gateway; the databases remain private.
 - Application SQL uses a separate `quizforge_app` login with no superuser,
   database creation, role creation, schema creation or RLS bypass. Its random
   rehearsal password exists only in process memory and database authentication
-  storage. It receives no owner credential or AWS permission.
+storage in snapshot mode. It receives no owner credential or AWS permission.
+
+## Authenticated API mode
+
+Set **backend_pr** to an open same-repository PR number targeting main. The exact
+commit must pass the normal required checks, **PostgreSQL history API security**
+and **Backend dependency audit**. A separate runner without AWS credentials builds
+the PR image. The trusted main workflow publishes it under `rds-api-<commit>` and
+pins the task to its digest; PR scripts never run on the credentialed runner.
+
+This mode creates only the source database and seeds the same eight synthetic
+history rows. It then logs in the existing dedicated Supabase canary and stores
+the verified session in a disposable encrypted Secrets Manager secret. It does
+not read or write Supabase quiz history, modify Auth settings or call OpenAI.
+
+A trusted owner setup task maps that verified issuer/subject to a third internal
+UUID, rotates the restricted application password and writes a separate temporary
+application secret. Only this setup/verification task receives a narrowly scoped
+AWS task role: read the session secret and write the application secret.
+
+The reviewed API and trusted HTTP canary share a temporary Fargate task with no
+AWS task role. The API receives only its application password and existing
+Supabase URL/publishable key; the canary receives only the session bundle. Neither
+receives the database owner password. Containers are non-root, read-only and drop
+all Linux capabilities. The API listens on loopback within the task; no ALB or
+public API listener is created. RDS remains private and TLS hostname verification
+is mandatory. The API uses a one-connection pool to exercise identity reuse.
+
+Real HTTP checks cover missing/invalid tokens, rejected forged ownership,
+create/list/cursor/document access, foreign-row deletion denial, CORS and own-row
+deletion. A separate trusted owner probe then proves all eight foreign fixture
+rows retain their original checksum and the canary left no history rows. This
+mode does not repeat snapshot restoration, which remains mandatory in the
+default migration/restore mode and has its own passing AWS run.
+
+The always-run cleanup also destroys both temporary secrets, setup/execution
+roles and API task definition. AWS API checks must confirm the secrets are
+absent along with databases, snapshots, backups and running tasks. The same
+manual **stop** and daily shutdown cover either mode.
 
 The restored PostgreSQL instance inherits the source snapshot's owner password;
 the probe uses the source managed secret during this short rehearsal. No database
@@ -102,11 +141,11 @@ Sources: [regional RDS price list](https://pricing.us-east-1.amazonaws.com/offer
 ## Image isolation
 
 Main backend workflows publish immutable 40-character commit tags. Staging and
-RDS probes use explicit `staging-` and `rds-rehearsal-` tags. Foundation Terraform
+RDS probes use explicit `staging-`, `rds-rehearsal-` and `rds-api-` tags. Foundation Terraform
 now requires a main commit tag selected by the main deployment workflow; it no
 longer selects the newest image regardless of purpose. This prevents test images
 from becoming the default backend image.
 
-After this rehearsal: implement the PostgreSQL repository behind the FastAPI
-history contract, validate authenticated HTTP CRUD against private RDS, then
-rehearse an authorized production-data export/import and rollback before cutover.
+After the API rehearsal: rehearse an authorized production-data export/import
+and rollback before cutover. Application PRs remain draft/unmerged while merging
+main would automatically deploy to the current production services.

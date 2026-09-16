@@ -3,9 +3,13 @@
 Never retrieves database passwords. ECS resolves Secrets Manager references.
 """
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import time
+from urllib.request import Request, urlopen
+from uuid import UUID
 
 NAME = "quizforge-rds-rehearsal"
 
@@ -13,7 +17,7 @@ NAME = "quizforge-rds-rehearsal"
 def aws(*args, absent=False):
     result = subprocess.run(["aws", *args, "--output", "json"], capture_output=True, text=True, timeout=90)
     if result.returncode:
-        if absent and ("DBInstanceNotFound" in result.stderr or "DBSnapshotNotFound" in result.stderr):
+        if absent and any(code in result.stderr for code in ("DBInstanceNotFound", "DBSnapshotNotFound", "ResourceNotFoundException")):
             return None
         raise RuntimeError(f"AWS {args[0]} {args[1]} failed")
     return json.loads(result.stdout or "{}")
@@ -73,17 +77,23 @@ def ensure_parameters_active(identifier):
 
 def run_probe(phase):
     values = outputs()
-    identifier = NAME if phase == "seed" else NAME + "-restore"
+    identifier = NAME + "-restore" if phase == "verify-restored" else NAME
     ensure_parameters_active(identifier)
     check_database(identifier, values)
     if phase == "verify-restored":
         snapshot = aws("rds", "describe-db-snapshots", "--db-snapshot-identifier", NAME + "-verified-seed")["DBSnapshots"][0]
         assert snapshot["Status"] == "available" and snapshot["Encrypted"]
         assert snapshot["DBInstanceIdentifier"] == NAME
-    overrides = {"containerOverrides": [{"name": "probe", "command": ["python", "probe.py", phase],
-                  "environment": [{"name": "PGHOST", "value": values["source_host" if phase == "seed" else "restored_host"]}]}]}
+    script = "api_profile.py" if phase in ("prepare-api", "verify-api") else "probe.py"
+    host = values["restored_host" if phase == "verify-restored" else "source_host"]
+    overrides = {"containerOverrides": [{"name": "probe", "command": ["python", script, phase],
+                  "environment": [{"name": "PGHOST", "value": host}]}]}
+    run_task(values, values["task_definition"], overrides, container="probe", prefix="rds-rehearsal")
+
+
+def run_task(values, definition, overrides, *, container, prefix):
     response = aws("ecs", "run-task", "--cluster", values["cluster"], "--launch-type", "FARGATE",
-                   "--task-definition", values["task_definition"], "--started-by", NAME,
+                   "--task-definition", definition, "--started-by", NAME,
                    "--network-configuration", json.dumps({"awsvpcConfiguration": {
                        "subnets": values["subnets"], "securityGroups": [values["security_group"]], "assignPublicIp": "ENABLED"}}),
                    "--overrides", json.dumps(overrides))
@@ -95,18 +105,56 @@ def run_probe(phase):
         while time.monotonic() < deadline:
             task = aws("ecs", "describe-tasks", "--cluster", values["cluster"], "--tasks", arn)["tasks"][0]
             if task["lastStatus"] == "STOPPED":
-                stream = "rds-rehearsal/probe/" + arn.rsplit("/", 1)[-1]
+                stream = prefix + "/" + container + "/" + arn.rsplit("/", 1)[-1]
                 events = aws("logs", "get-log-events", "--log-group-name", values["log_group"],
                              "--log-stream-name", stream, "--start-from-head")["events"]
                 for event in events:
                     if event["message"].startswith(("PASS:", "ERROR:")):
                         print(event["message"])
-                assert task["containers"][0].get("exitCode") == 0, "Private PostgreSQL probe failed"
+                tested = [item for item in task["containers"] if item["name"] == container]
+                assert len(tested) == 1 and tested[0].get("exitCode") == 0, "Private PostgreSQL probe failed"
                 return
             time.sleep(10)
         raise RuntimeError("VPC rehearsal probe exceeded ten minutes")
     finally:
         aws("ecs", "stop-task", "--cluster", values["cluster"], "--task", arn, "--reason", "Rehearsal probe finished")
+
+
+def prepare_session():
+    values = outputs()
+    assert values["session_secret"], "API validation was not provisioned"
+    url = aws("ssm", "get-parameter", "--name", "/quizforge/prod/SUPABASE_URL")["Parameter"]["Value"].rstrip("/")
+    key = aws("ssm", "get-parameter", "--name", "/quizforge/prod/SUPABASE_PUBLISHABLE_KEY",
+              "--with-decryption")["Parameter"]["Value"]
+    assert url.startswith("https://") and "?" not in url and "#" not in url
+    email, password = os.environ["QUIZFORGE_CANARY_EMAIL"], os.environ["QUIZFORGE_CANARY_PASSWORD"]
+    assert email and password, "Dedicated Supabase canary credentials are required"
+    login = Request(url + "/auth/v1/token?grant_type=password", method="POST",
+                    data=json.dumps({"email": email, "password": password}).encode(),
+                    headers={"apikey": key, "Content-Type": "application/json"})
+    with urlopen(login, timeout=20) as response:
+        token = json.load(response)["access_token"]
+    verified = Request(url + "/auth/v1/user", headers={"apikey": key, "Authorization": "Bearer " + token})
+    with urlopen(verified, timeout=20) as response:
+        subject = str(UUID(json.load(response)["id"]))
+    session = {"access_token": token, "user_id": subject, "issuer": url + "/auth/v1"}
+    # A 0600 temporary file keeps the token out of process arguments and logs.
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as payload:
+        json.dump({"SecretId": values["session_secret"], "SecretString": json.dumps(session)}, payload)
+        payload.flush()
+        aws("secretsmanager", "put-secret-value", "--cli-input-json", "file://" + payload.name)
+    print("PASS: verified dedicated Supabase session stored in a disposable encrypted secret")
+
+
+def run_api():
+    values = outputs()
+    assert values["api_task"], "API validation was not provisioned"
+    definition = aws("ecs", "describe-task-definition", "--task-definition", values["api_task"])["taskDefinition"]
+    assert not definition.get("taskRoleArn"), "API/canary must have no AWS task credentials"
+    api = next(c for c in definition["containerDefinitions"] if c["name"] == "api")
+    assert {s["name"] for s in api["secrets"]} == {"HISTORY_DB_PASSWORD", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"}
+    assert all(s["name"] not in ("PGUSER", "PGPASSWORD") for s in api.get("environment", []))
+    run_task(values, values["api_task"], {}, container="canary", prefix="rds-api")
 
 
 def stop_tasks():
@@ -127,8 +175,11 @@ def confirm_absent():
         tasks = aws("ecs", "list-tasks", "--cluster", "quizforge-api", "--started-by", NAME)["taskArns"]
         backups = aws("rds", "describe-db-instance-automated-backups")["DBInstanceAutomatedBackups"]
         retained = [b for b in backups if b.get("DBInstanceIdentifier") in (NAME, NAME + "-restore")]
-        if not any(databases) and snapshot is None and not tasks and not retained:
+        secrets = [aws("secretsmanager", "describe-secret", "--secret-id", NAME + suffix, absent=True)
+                   for suffix in ("-api-application", "-api-session")]
+        if not any(databases) and snapshot is None and not tasks and not retained and not any(secrets):
             print("PASS: source database, restored database, test snapshot, automated backups and rehearsal tasks are absent")
+            print("PASS: temporary application credential and Supabase session secrets are absent")
             return
         print("Waiting for AWS to finish deleting rehearsal resources and backup metadata")
         time.sleep(30)
@@ -138,10 +189,12 @@ def confirm_absent():
 if __name__ == "__main__":
     try:
         action = sys.argv[1]
-        if action in ("seed", "verify-restored"): run_probe(action)
+        if action in ("seed", "verify-restored", "prepare-api", "verify-api"): run_probe(action)
+        elif action == "prepare-session": prepare_session()
+        elif action == "api": run_api()
         elif action == "stop-tasks": stop_tasks()
         elif action == "confirm-absent": confirm_absent()
         else: raise ValueError("Unknown rehearsal operation")
     except Exception as error:
-        print(f"::error::RDS rehearsal failed: {type(error).__name__}: {error}")
+        print(f"::error::RDS rehearsal failed: {type(error).__name__}")
         sys.exit(1)

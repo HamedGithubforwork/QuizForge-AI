@@ -13,7 +13,7 @@ REQUIRED = {"Required PR gate", "Backend tests", "Frontend checks", "Playwright 
             "Browser + Supabase + FastAPI + Redis", "Build backend image"}
 
 
-def resolve(pr, checks):
+def resolve(pr, checks, *, additional_required=()):
     if (pr.get("state") != "open" or pr.get("base", {}).get("ref") != "main"
             or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY):
         raise ValueError("Preview requires an open same-repository PR targeting main.")
@@ -27,7 +27,7 @@ def resolve(pr, checks):
         name = check["name"]
         if name not in latest or check["id"] > latest[name]["id"]:
             latest[name] = check
-    for name in REQUIRED:
+    for name in REQUIRED | set(additional_required):
         check = latest.get(name, {})
         if check.get("status") != "completed" or check.get("conclusion") != "success":
             raise ValueError(f"Preview requires a successful {name} on the exact PR commit.")
@@ -54,7 +54,8 @@ if __name__ == "__main__":
         checks.extend(batch)
         if len(batch) < 100:
             break
-    sha = resolve(pr, checks)
+    extra = {"PostgreSQL history API security", "Backend dependency audit"} if os.getenv("REQUIRE_POSTGRES_HISTORY") == "1" else set()
+    sha = resolve(pr, checks, additional_required=extra)
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"sha={sha}\n")
     print(f"Validated PR #{number} at {sha}; required CI passed.")

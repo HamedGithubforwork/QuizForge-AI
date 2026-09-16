@@ -39,5 +39,13 @@ class PreviewGuardTests(unittest.TestCase):
         check = {**self.checks[0], "id": 100, "conclusion": None, "status": "in_progress"}
         with self.assertRaises(ValueError): resolve(self.pr, self.checks + [check])
 
+    def test_postgres_preview_requires_its_additional_security_checks(self):
+        required = {"PostgreSQL history API security", "Backend dependency audit"}
+        with self.assertRaises(ValueError): resolve(self.pr, self.checks, additional_required=required)
+        extra = [{**self.checks[0], "name": name, "id": 200 + i} for i, name in enumerate(required)]
+        self.assertEqual(resolve(self.pr, self.checks + extra, additional_required=required), self.sha)
+        extra[0]["conclusion"] = "failure"
+        with self.assertRaises(ValueError): resolve(self.pr, self.checks + extra, additional_required=required)
+
 
 if __name__ == "__main__": unittest.main()
