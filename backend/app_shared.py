@@ -273,6 +273,7 @@ def create_app():
         allow_methods=[
             "GET",
             "POST",
+            "DELETE",
         ],
         allow_headers=[
             "Authorization",
