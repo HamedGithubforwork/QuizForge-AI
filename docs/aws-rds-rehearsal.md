@@ -61,6 +61,10 @@ Only after source checks pass does Terraform snapshot and restore. The restored
 database must match the same checksum and pass the same security checks. The
 controller separately verifies actual AWS private networking, security-group
 rules, encryption, instance size, backup settings and snapshot state.
+It checks `rds.force_ssl=1` through the RDS parameter API and waits until that
+parameter group is active. RDS does not expose this control-plane parameter to
+PostgreSQL `SHOW`; the SQL probe separately checks `SHOW ssl`, verified TLS on
+its connections, and explicit rejection of an unencrypted connection.
 
 Cleanup deletes both instances, the synthetic snapshot, automated backups,
 temporary task definition, execution role/policy, DB subnet/parameter groups and

@@ -50,7 +50,14 @@ def ensure_parameters_active(identifier):
         db = aws("rds", "describe-db-instances", "--db-instance-identifier", identifier)["DBInstances"][0]
         statuses = {group["ParameterApplyStatus"] for group in db["DBParameterGroups"]}
         if db["DBInstanceStatus"] == "available" and statuses == {"in-sync"}:
+            groups = db["DBParameterGroups"]
+            assert len(groups) == 1 and groups[0]["DBParameterGroupName"] == NAME
+            parameters = aws("rds", "describe-db-parameters", "--db-parameter-group-name", NAME,
+                             "--source", "user")["Parameters"]
+            force_ssl = [p for p in parameters if p["ParameterName"] == "rds.force_ssl"]
+            assert len(force_ssl) == 1 and force_ssl[0]["ParameterValue"] == "1", "RDS must require TLS"
             print(f"PASS: {identifier} parameter group is active")
+            print("PASS: RDS parameter API confirms rds.force_ssl=1")
             return
         if db["DBInstanceStatus"] == "available" and "pending-reboot" in statuses and not rebooted:
             aws("rds", "reboot-db-instance", "--db-instance-identifier", identifier)

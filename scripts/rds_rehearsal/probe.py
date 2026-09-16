@@ -135,7 +135,9 @@ def main(phase):
     options, local = connection_options()
     with psycopg.connect(**options, user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"]) as owner:
         if not local:
-            assert str(owner.execute("SHOW rds.force_ssl").fetchone()["rds.force_ssl"]).lower() in ("on", "1", "true")
+            # rds.force_ssl is an RDS parameter, checked through its API by control.py.
+            # PostgreSQL's own SSL support and actual connection enforcement are checked here.
+            assert owner.execute("SHOW ssl").fetchone()["ssl"] == "on"
             assert owner.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
             try:
                 with psycopg.connect(**{**options, "sslmode": "disable"},
