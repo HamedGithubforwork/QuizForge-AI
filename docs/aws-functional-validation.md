@@ -49,3 +49,21 @@ The frontend/backend application and production configuration are unchanged by
 the validation tooling. In particular, this is not the quiz-history migration:
 that change needs a separate tested PR and a deployment decision because Render
 currently deploys backend changes from `main` when checks pass.
+
+## Test an unmerged application PR
+
+Dispatch `AWS staging environment` from `main` with `operation=start`,
+`backend_pr=85` (or another same-repository PR), and `history_validation=true`.
+The PR must target main and have successful backend, frontend, browser,
+local-stack, container-build, and required-gate checks on its exact commit.
+The build runs without AWS credentials; a separate main-branch OIDC job pushes
+that artifact under a staging tag and pins its digest only in staging state.
+Production image selection and Render/Vercel deployment settings are unchanged.
+
+PR previews require an automatic-cleanup validation mode. The history mode
+checks authenticated reads, ownership, cursor behavior when data exists,
+invalid input, and CORS through the AWS ALB. It performs no history database
+writes and makes no OpenAI requests. Save/delete behavior and cross-user RLS
+are exercised against isolated Supabase by the required local-stack check.
+The workflow destroys staging after success or failure. The ordinary `main` /
+`stop` operation and daily safety shutdown still use the same staging state.
