@@ -24,7 +24,11 @@ def request(method, path, token=None, payload=None, headers=None):
     try:
         with urlopen(message, timeout=20) as response:
             body = response.read()
-            return response.status, json.loads(body) if body else None, dict(response.headers)
+            headers = {key.lower(): value for key, value in response.headers.items()}
+            content_type = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+            # CORS preflight is text/plain ("OK"); history responses remain JSON.
+            parsed = None if not body else json.loads(body) if content_type == "application/json" else body.decode()
+            return response.status, parsed, headers
     except HTTPError as error:
         # A failed response may contain private values; retain only its status.
         return error.code, None, dict(error.headers)
@@ -77,7 +81,10 @@ def main():
     print("PASS: real Supabase authentication, internal identity mapping, create/list/cursor/document queries and foreign deletion checks")
     preflight = {"Origin": "https://rds-rehearsal.invalid", "Access-Control-Request-Method": "DELETE",
                  "Access-Control-Request-Headers": "authorization"}
-    assert request("OPTIONS", "/api/quiz-history/" + rows[0]["id"], headers=preflight)[0] == 200
+    status, body, headers = request("OPTIONS", "/api/quiz-history/" + rows[0]["id"], headers=preflight)
+    assert status == 200 and body == "OK"
+    assert headers["access-control-allow-origin"] == preflight["Origin"]
+    assert "DELETE" in headers["access-control-allow-methods"].split(", ")
     assert request("OPTIONS", "/api/quiz-history/" + rows[0]["id"],
                    headers={**preflight, "Origin": "https://untrusted.invalid"})[0] == 400
     for row in rows:
