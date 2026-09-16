@@ -1,3 +1,126 @@
+resource "aws_security_group" "valkey" {
+  name        = "${var.project_name}-staging-valkey"
+  description = "Ephemeral staging Valkey access from the QuizForge application tier"
+  vpc_id      = local.foundation.vpc_id
+
+  tags = {
+    Name = "${var.project_name}-staging-valkey"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "valkey_from_app" {
+  security_group_id            = aws_security_group.valkey.id
+  referenced_security_group_id = local.foundation.app_security_group_id
+  from_port                    = 6379
+  to_port                      = 6380
+  ip_protocol                  = "tcp"
+  description                  = "Valkey Serverless from the ECS application tier"
+}
+
+resource "aws_elasticache_serverless_cache" "valkey" {
+  engine      = "valkey"
+  name        = "${var.project_name}-staging-valkey"
+  description = "Ephemeral QuizForge staging cache"
+
+  cache_usage_limits {
+    data_storage {
+      maximum = 1
+      unit    = "GB"
+    }
+
+    ecpu_per_second {
+      maximum = 1000
+    }
+  }
+
+  security_group_ids = [aws_security_group.valkey.id]
+  subnet_ids         = local.foundation.private_subnet_ids
+
+  tags = {
+    Name = "${var.project_name}-staging-valkey"
+  }
+}
+
+resource "aws_ecs_task_definition" "api" {
+  family                   = "${var.project_name}-api-staging"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = data.aws_iam_role.ecs_task_execution.arn
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
+  container_definitions = jsonencode([
+    {
+      name      = "api"
+      image     = local.foundation.ecs_bootstrap_image_uri
+      essential = true
+
+      portMappings = [
+        {
+          containerPort = 8000
+          hostPort      = 8000
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "LOG_LEVEL"
+          value = "INFO"
+        },
+        {
+          name  = "REDIS_URL"
+          value = "rediss://${aws_elasticache_serverless_cache.valkey.endpoint[0].address}:${aws_elasticache_serverless_cache.valkey.endpoint[0].port}/0"
+        }
+      ]
+
+      secrets = [
+        {
+          name      = "OPENAI_API_KEY"
+          valueFrom = "${local.parameter_store_prefix}/OPENAI_API_KEY"
+        },
+        {
+          name      = "SUPABASE_URL"
+          valueFrom = "${local.parameter_store_prefix}/SUPABASE_URL"
+        },
+        {
+          name      = "SUPABASE_PUBLISHABLE_KEY"
+          valueFrom = "${local.parameter_store_prefix}/SUPABASE_PUBLISHABLE_KEY"
+        },
+        {
+          name      = "ALLOWED_ORIGINS"
+          valueFrom = "${local.parameter_store_prefix}/ALLOWED_ORIGINS"
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = local.foundation.api_log_group_name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs-staging"
+        }
+      }
+
+      healthCheck = {
+        command = [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()\"",
+        ]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 30
+      }
+    }
+  ])
+}
+
 resource "aws_lb" "api" {
   name               = "${var.project_name}-staging-api"
   internal           = false
@@ -47,7 +170,7 @@ resource "aws_lb_listener" "api_http" {
 resource "aws_ecs_service" "api" {
   name            = "${var.project_name}-api-staging"
   cluster         = local.foundation.ecs_cluster_name
-  task_definition = local.foundation.ecs_task_definition_arn
+  task_definition = aws_ecs_task_definition.api.arn
   desired_count   = 1
 
   capacity_provider_strategy {
