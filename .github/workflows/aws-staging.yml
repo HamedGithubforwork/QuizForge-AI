@@ -59,7 +59,7 @@ jobs:
     needs:
       - validate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -218,6 +218,91 @@ jobs:
 
           echo "Authenticated staging canary passed through ALB -> ECS -> FastAPI -> Supabase Auth."
 
+      - name: Run managed Valkey smoke test
+        if: env.OPERATION == 'start'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cluster="$(terraform output -raw ecs_cluster_name)"
+          task_definition="$(terraform output -raw ecs_task_definition_arn)"
+          security_group="$(terraform output -raw app_security_group_id)"
+          subnets="$(terraform output -json public_subnet_ids | jq -r 'join(",")')"
+
+          python_code="$(cat <<'PY'
+          import os
+          import uuid
+          from redis import Redis
+
+          client = Redis.from_url(
+              os.environ["REDIS_URL"],
+              encoding="utf-8",
+              decode_responses=True,
+              socket_connect_timeout=5,
+              socket_timeout=5,
+          )
+
+          assert client.ping() is True
+
+          prefix = f"quizforge:staging:valkey-smoke:{uuid.uuid4().hex}"
+          value_key = f"{prefix}:value"
+          counter_key = f"{prefix}:counter"
+
+          client.set(value_key, "ok", ex=60)
+          assert client.get(value_key) == "ok"
+
+          script = """
+          local current = redis.call('INCR', KEYS[1])
+          if current == 1 then
+              redis.call('EXPIRE', KEYS[1], ARGV[1])
+          end
+          return current
+          """
+          assert int(client.eval(script, 1, counter_key, 60)) == 1
+
+          client.delete(value_key, counter_key)
+          client.close()
+          print("Valkey runtime smoke passed.")
+          PY
+          )"
+
+          overrides="$(jq -cn --arg code "$python_code" \
+            '{containerOverrides:[{name:"api",command:["python","-c",$code]}]}')"
+
+          response="$(aws ecs run-task \
+            --cluster "$cluster" \
+            --launch-type FARGATE \
+            --task-definition "$task_definition" \
+            --count 1 \
+            --network-configuration "awsvpcConfiguration={subnets=[$subnets],securityGroups=[$security_group],assignPublicIp=ENABLED}" \
+            --overrides "$overrides")"
+
+          task_arn="$(printf '%s' "$response" | jq -r '.tasks[0].taskArn // empty')"
+
+          if [ -z "$task_arn" ]; then
+            printf '%s\n' "$response"
+            echo "ECS did not return a task ARN for the Valkey smoke test."
+            exit 1
+          fi
+
+          aws ecs wait tasks-stopped \
+            --cluster "$cluster" \
+            --tasks "$task_arn"
+
+          description="$(aws ecs describe-tasks \
+            --cluster "$cluster" \
+            --tasks "$task_arn")"
+          exit_code="$(printf '%s' "$description" | jq -r '.tasks[0].containers[0].exitCode // 1')"
+
+          if [ "$exit_code" != "0" ]; then
+            printf '%s\n' "$description"
+            aws logs tail /quizforge/api --since 10m --format short || true
+            echo "Managed Valkey smoke test failed."
+            exit 1
+          fi
+
+          echo "Managed staging Valkey smoke passed."
+
       - name: Show recent API logs on failed start
         if: failure() && env.OPERATION == 'start'
         run: aws logs tail /quizforge/api --since 15m --format short || true
@@ -236,8 +321,8 @@ jobs:
         run: |
           if [ "$OPERATION" = "start" ]; then
             echo "Staging is running at ${STAGING_URL}."
-            echo "Health and authenticated staging canaries both passed."
+            echo "Health, authenticated, and managed Valkey canaries all passed."
             echo "Run this workflow with operation=stop when you finish."
           else
-            echo "Staging is stopped. ALB and ECS service resources are no longer running."
+            echo "Staging is stopped. ALB, ECS service, and ephemeral Valkey resources are no longer running."
           fi
