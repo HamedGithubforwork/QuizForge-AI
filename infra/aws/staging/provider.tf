@@ -23,6 +23,6 @@ data "terraform_remote_state" "foundation" {
 }
 
 locals {
-  foundation = data.terraform_remote_state.foundation.outputs
+  foundation              = data.terraform_remote_state.foundation.outputs
   parameter_store_prefix = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/quizforge/prod"
 }
