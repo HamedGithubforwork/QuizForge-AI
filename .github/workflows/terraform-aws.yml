@@ -88,6 +88,15 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
 
+      - name: Select the latest main-workflow image only
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(aws ecr describe-images --repository-name quizforge-api --output json |
+            jq -r '[.imageDetails[] | . as $image | (.imageTags // [])[] | select(test("^[0-9a-f]{40}$")) | {tag: ., pushed: $image.imagePushedAt}] | sort_by(.pushed) | last | .tag // empty')"
+          test -n "$tag"
+          echo "TF_VAR_backend_image_tag=$tag" >> "$GITHUB_ENV"
+
       - name: Create Terraform plan
         run: terraform plan -out=tfplan -var="aws_region=${{ vars.AWS_REGION }}"
 

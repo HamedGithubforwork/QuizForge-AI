@@ -1,0 +1,165 @@
+name: AWS private RDS rehearsal
+
+on:
+  pull_request:
+    paths:
+      - "infra/aws/rds-rehearsal/**"
+      - "scripts/rds_rehearsal/**"
+      - ".github/workflows/aws-rds-rehearsal.yml"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Run the synthetic migration/restore rehearsal, or destroy leftovers"
+        required: true
+        type: choice
+        options: [run, stop]
+  schedule:
+    - cron: "5 8 * * *"
+
+permissions:
+  contents: read
+concurrency:
+  group: quizforge-rds-rehearsal
+  cancel-in-progress: false
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  validate:
+    name: RDS Terraform and real PostgreSQL security tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-rehearsal-only
+          POSTGRES_DB: quizforge_rehearsal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
+      - name: Validate private rehearsal Terraform
+        run: |
+          terraform -chdir=infra/aws/rds-rehearsal fmt -check
+          terraform -chdir=infra/aws/rds-rehearsal init -backend=false
+          terraform -chdir=infra/aws/rds-rehearsal validate
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked PostgreSQL driver
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Exercise migration, least privilege and RLS on real PostgreSQL
+        env:
+          PGHOST: 127.0.0.1
+          PGDATABASE: quizforge_rehearsal
+          PGUSER: postgres
+          PGPASSWORD: local-rehearsal-only
+          RDS_REHEARSAL_LOCAL: "1"
+        run: |
+          python scripts/rds_rehearsal/probe.py seed
+          python scripts/rds_rehearsal/probe.py verify-restored
+      - name: Build non-root read-only probe image
+        run: docker build -t quizforge-rds-rehearsal:ci scripts/rds_rehearsal
+
+  rehearse:
+    name: Rehearse private RDS migration and restore
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+    defaults:
+      run:
+        working-directory: infra/aws/rds-rehearsal
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the trusted rehearsal image before AWS authentication
+        working-directory: .
+        run: docker build -t quizforge-rds-rehearsal:tested scripts/rds_rehearsal
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Confirm small PostgreSQL 17 instances are available
+        run: |
+          set -euo pipefail
+          aws rds describe-orderable-db-instance-options --engine postgres --db-instance-class db.t4g.micro --output json |
+            jq -e '[.OrderableDBInstanceOptions[] | select(.EngineVersion | startswith("17."))] | length > 0'
+          echo "Rehearsal uses up to two temporary db.t4g.micro instances, 20 GiB gp3 each, one snapshot, and one managed owner secret."
+          echo "Published Canada Central rates checked 2026-09-16: USD 0.018/instance-hour, 0.127/GB-month gp3, 0.105/GB-month excess backup storage."
+          echo "Expected short rehearsal cost is below USD 1; this is an estimate, not a billing cap. Cleanup always follows."
+      - name: Publish a dedicated rehearsal image tag
+        run: |
+          set -euo pipefail
+          account="$(aws sts get-caller-identity --query Account --output text)"
+          registry="${account}.dkr.ecr.ca-central-1.amazonaws.com"
+          tag="rds-rehearsal-${GITHUB_SHA}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+          if ! aws ecr describe-images --repository-name quizforge-api --image-ids "imageTag=$tag" >/dev/null 2>&1; then
+            docker tag quizforge-rds-rehearsal:tested "$registry/quizforge-api:$tag"
+            docker push "$registry/quizforge-api:$tag"
+          fi
+          digest="$(aws ecr describe-images --repository-name quizforge-api --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)"
+          echo "TF_VAR_rehearsal_image=$registry/quizforge-api@$digest" >> "$GITHUB_ENV"
+      - uses: hashicorp/setup-terraform@v4
+      - name: Initialize isolated rehearsal state
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=quizforge/rds-rehearsal/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Create private encrypted source database
+        run: terraform apply -auto-approve
+      - name: Import synthetic history and verify real application privileges
+        run: python -u ../../../scripts/rds_rehearsal/control.py seed
+      - name: Snapshot verified data and restore to a separate private database
+        run: terraform apply -auto-approve -var=restore_validation=true
+      - name: Verify restored checksums, TLS, ownership and privileges
+        run: python -u ../../../scripts/rds_rehearsal/control.py verify-restored
+
+  cleanup:
+    name: Destroy all RDS rehearsal resources
+    needs: [validate, rehearse]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+      TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+    defaults:
+      run:
+        working-directory: infra/aws/rds-rehearsal
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v4
+      - name: Initialize isolated rehearsal state
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=quizforge/rds-rehearsal/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION }}" \
+            -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Stop any remaining probe tasks
+        run: python -u ../../../scripts/rds_rehearsal/control.py stop-tasks
+      - name: Destroy databases, snapshot, roles and networking
+        if: always()
+        run: terraform destroy -auto-approve
+      - name: Confirm no rehearsal databases, backups or tasks remain
+        run: python -u ../../../scripts/rds_rehearsal/control.py confirm-absent
