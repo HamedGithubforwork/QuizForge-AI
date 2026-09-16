@@ -52,9 +52,13 @@ def ensure_parameters_active(identifier):
         if db["DBInstanceStatus"] == "available" and statuses == {"in-sync"}:
             groups = db["DBParameterGroups"]
             assert len(groups) == 1 and groups[0]["DBParameterGroupName"] == NAME
-            parameters = aws("rds", "describe-db-parameters", "--db-parameter-group-name", NAME,
-                             "--source", "user")["Parameters"]
+            # Include engine defaults: RDS can retain Source=engine-default when
+            # the explicitly configured value already equals the engine default.
+            parameters = aws("rds", "describe-db-parameters", "--db-parameter-group-name", NAME)["Parameters"]
             force_ssl = [p for p in parameters if p["ParameterName"] == "rds.force_ssl"]
+            # This allowlisted non-secret metadata helps diagnose API differences.
+            print("RDS forced-TLS parameter: " + json.dumps([
+                {key: p.get(key) for key in ("ParameterName", "ParameterValue", "Source")} for p in force_ssl]))
             assert len(force_ssl) == 1 and force_ssl[0]["ParameterValue"] == "1", "RDS must require TLS"
             print(f"PASS: {identifier} parameter group is active")
             print("PASS: RDS parameter API confirms rds.force_ssl=1")
