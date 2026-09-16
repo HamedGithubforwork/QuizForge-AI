@@ -39,9 +39,9 @@ resource "aws_elasticache_replication_group" "valkey" {
   at_rest_encryption_enabled = true
 
   automatic_failover_enabled = false
-  multi_az_enabled            = false
-  snapshot_retention_limit    = 0
-  apply_immediately           = true
+  multi_az_enabled           = false
+  snapshot_retention_limit   = 0
+  apply_immediately          = true
 
   tags = {
     Name = "${var.project_name}-staging-valkey"
