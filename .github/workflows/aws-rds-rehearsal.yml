@@ -52,6 +52,8 @@ jobs:
           python-version: "3.11.16"
       - name: Install locked PostgreSQL driver
         run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Test asynchronous lifecycle guards
+        run: python -m unittest discover -s scripts/rds_rehearsal -p 'test_*.py' -v
       - name: Exercise migration, least privilege and RLS on real PostgreSQL
         env:
           PGHOST: 127.0.0.1

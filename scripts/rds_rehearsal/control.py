@@ -43,9 +43,27 @@ def check_database(identifier, values):
     print(f"PASS: {identifier} is private, encrypted, backed up, and reachable only from the app security group")
 
 
+def ensure_parameters_active(identifier):
+    deadline = time.monotonic() + 900
+    rebooted = False
+    while time.monotonic() < deadline:
+        db = aws("rds", "describe-db-instances", "--db-instance-identifier", identifier)["DBInstances"][0]
+        statuses = {group["ParameterApplyStatus"] for group in db["DBParameterGroups"]}
+        if db["DBInstanceStatus"] == "available" and statuses == {"in-sync"}:
+            print(f"PASS: {identifier} parameter group is active")
+            return
+        if db["DBInstanceStatus"] == "available" and "pending-reboot" in statuses and not rebooted:
+            aws("rds", "reboot-db-instance", "--db-instance-identifier", identifier)
+            rebooted = True
+            print(f"Waiting for {identifier} to activate its static TLS parameter")
+        time.sleep(15)
+    raise RuntimeError("Database parameters did not become active within fifteen minutes")
+
+
 def run_probe(phase):
     values = outputs()
     identifier = NAME if phase == "seed" else NAME + "-restore"
+    ensure_parameters_active(identifier)
     check_database(identifier, values)
     if phase == "verify-restored":
         snapshot = aws("rds", "describe-db-snapshots", "--db-snapshot-identifier", NAME + "-verified-seed")["DBSnapshots"][0]
@@ -90,13 +108,20 @@ def stop_tasks():
 
 
 def confirm_absent():
-    for identifier in (NAME, NAME + "-restore"):
-        assert aws("rds", "describe-db-instances", "--db-instance-identifier", identifier, absent=True) is None
-    assert aws("rds", "describe-db-snapshots", "--db-snapshot-identifier", NAME + "-verified-seed", absent=True) is None
-    assert not aws("ecs", "list-tasks", "--cluster", "quizforge-api", "--started-by", NAME)["taskArns"]
-    backups = aws("rds", "describe-db-instance-automated-backups")["DBInstanceAutomatedBackups"]
-    assert not [b for b in backups if b.get("DBInstanceIdentifier") in (NAME, NAME + "-restore")]
-    print("PASS: source database, restored database, test snapshot, automated backups and rehearsal tasks are absent")
+    deadline = time.monotonic() + 900
+    while time.monotonic() < deadline:
+        databases = [aws("rds", "describe-db-instances", "--db-instance-identifier", name, absent=True)
+                     for name in (NAME, NAME + "-restore")]
+        snapshot = aws("rds", "describe-db-snapshots", "--db-snapshot-identifier", NAME + "-verified-seed", absent=True)
+        tasks = aws("ecs", "list-tasks", "--cluster", "quizforge-api", "--started-by", NAME)["taskArns"]
+        backups = aws("rds", "describe-db-instance-automated-backups")["DBInstanceAutomatedBackups"]
+        retained = [b for b in backups if b.get("DBInstanceIdentifier") in (NAME, NAME + "-restore")]
+        if not any(databases) and snapshot is None and not tasks and not retained:
+            print("PASS: source database, restored database, test snapshot, automated backups and rehearsal tasks are absent")
+            return
+        print("Waiting for AWS to finish deleting rehearsal resources and backup metadata")
+        time.sleep(30)
+    raise RuntimeError("Rehearsal cleanup was not confirmed within fifteen minutes")
 
 
 if __name__ == "__main__":

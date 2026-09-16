@@ -14,7 +14,6 @@ import sys
 import uuid
 
 import psycopg
-from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
@@ -59,9 +58,10 @@ def connection_options():
 
 def insert(conn, row):
     values = [Jsonb(row[key]) if key in ("quiz_data", "selected_answers") else row[key] for key in COLUMNS]
-    conn.execute(sql.SQL("INSERT INTO app.quiz_history ({}) VALUES ({})").format(
-        sql.SQL(",").join(map(sql.Identifier, COLUMNS)),
-        sql.SQL(",").join(sql.Placeholder() for _ in COLUMNS)), values)
+    conn.execute("""INSERT INTO app.quiz_history
+        (id,user_id,quiz_title,source_filename,document_sha256,difficulty,question_type,
+         question_count,score,percentage,quiz_data,selected_answers,created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", values)
 
 
 @contextmanager
@@ -137,6 +137,15 @@ def main(phase):
         if not local:
             assert str(owner.execute("SHOW rds.force_ssl").fetchone()["rds.force_ssl"]).lower() in ("on", "1", "true")
             assert owner.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
+            try:
+                with psycopg.connect(**{**options, "sslmode": "disable"},
+                                     user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"]):
+                    pass
+            except psycopg.OperationalError as error:
+                assert any(message in str(error).lower() for message in ("no encryption", "ssl off")), "Unexpected non-TLS failure"
+            else:
+                raise AssertionError("Database accepted an unencrypted connection")
+            print("PASS: verified TLS connection and explicit rejection of non-TLS access")
         if phase == "seed":
             with owner.transaction():
                 owner.execute(Path(__file__).with_name("schema.sql").read_text())
@@ -152,7 +161,10 @@ def main(phase):
         assert owner.execute("SELECT count(*) AS n FROM app.user_identities").fetchone()["n"] == 2
         print(f"PASS: {phase} reconciled 8 rows, 2 users, identities, UUIDs, timestamps, hashes and JSON checksum {expected}")
         password = secrets.token_urlsafe(32)
-        owner.execute(sql.SQL("ALTER ROLE quizforge_app PASSWORD {}").format(sql.Literal(password)))
+        # PostgreSQL utility statements need client-side parameter binding.
+        # Psycopg's ClientCursor quotes the value; no SQL text is interpolated here.
+        with psycopg.ClientCursor(owner) as cursor:
+            cursor.execute("ALTER ROLE quizforge_app PASSWORD %s", (password,))
         with psycopg.connect(**options, user="quizforge_app", password=password) as app:
             verify_application_role(app, owner, local)
         assert fingerprint(owner.execute("SELECT * FROM app.quiz_history").fetchall()) == expected
