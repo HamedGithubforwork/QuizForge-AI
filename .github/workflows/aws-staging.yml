@@ -142,6 +142,82 @@ jobs:
           echo "The staging API did not become reachable in time."
           exit 1
 
+      - name: Verify staging canary credentials
+        if: env.OPERATION == 'start'
+        shell: bash
+        env:
+          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+        run: |
+          if [ -z "$QUIZFORGE_CANARY_EMAIL" ] || [ -z "$QUIZFORGE_CANARY_PASSWORD" ]; then
+            echo "::error::Configure QUIZFORGE_CANARY_EMAIL and QUIZFORGE_CANARY_PASSWORD before starting AWS staging."
+            exit 1
+          fi
+
+      - name: Run authenticated staging canary
+        if: env.OPERATION == 'start'
+        shell: bash
+        env:
+          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          supabase_url="$(aws ssm get-parameter \
+            --name /quizforge/prod/SUPABASE_URL \
+            --query 'Parameter.Value' \
+            --output text)"
+          supabase_key="$(aws ssm get-parameter \
+            --name /quizforge/prod/SUPABASE_PUBLISHABLE_KEY \
+            --with-decryption \
+            --query 'Parameter.Value' \
+            --output text)"
+
+          auth_payload="$(jq -n \
+            --arg email "$QUIZFORGE_CANARY_EMAIL" \
+            --arg password "$QUIZFORGE_CANARY_PASSWORD" \
+            '{email: $email, password: $password}')"
+
+          auth_response="$(curl --fail --silent --show-error \
+            --max-time 15 \
+            --request POST \
+            --header "apikey: $supabase_key" \
+            --header "Content-Type: application/json" \
+            --data "$auth_payload" \
+            "$supabase_url/auth/v1/token?grant_type=password")"
+
+          access_token="$(printf '%s' "$auth_response" | jq -r '.access_token // empty')"
+
+          if [ -z "$access_token" ]; then
+            echo "The dedicated Supabase canary account did not return an access token."
+            exit 1
+          fi
+
+          missing_document_sha="$(printf '0%.0s' {1..64})"
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          status="$(curl --silent --show-error \
+            --max-time 15 \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $access_token" \
+            "$STAGING_URL/api/documents/$missing_document_sha/pages/1")"
+
+          if [ "$status" != "410" ]; then
+            echo "Expected the protected staging endpoint to return 410 after authentication; received $status."
+            exit 1
+          fi
+
+          if ! jq -e \
+            '.detail | type == "string" and contains("Processed document expired or is unavailable.")' \
+            "$response_file" >/dev/null; then
+            echo "The protected staging endpoint returned an unexpected response body."
+            exit 1
+          fi
+
+          echo "Authenticated staging canary passed through ALB -> ECS -> FastAPI -> Supabase Auth."
+
       - name: Show recent API logs on failed start
         if: failure() && env.OPERATION == 'start'
         run: aws logs tail /quizforge/api --since 15m --format short || true
@@ -160,6 +236,7 @@ jobs:
         run: |
           if [ "$OPERATION" = "start" ]; then
             echo "Staging is running at ${STAGING_URL}."
+            echo "Health and authenticated staging canaries both passed."
             echo "Run this workflow with operation=stop when you finish."
           else
             echo "Staging is stopped. ALB and ECS service resources are no longer running."
