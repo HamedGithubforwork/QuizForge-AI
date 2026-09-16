@@ -24,3 +24,12 @@ locals {
     Repository  = "HamedGithubforwork/QuizForge-AI"
   }
 }
+
+variable "backend_image_tag" {
+  description = "Immutable main-workflow commit tag; excludes staging/rehearsal images."
+  type        = string
+  validation {
+    condition     = can(regex("^[0-9a-f]{40}$", var.backend_image_tag))
+    error_message = "Foundation requires a full main-workflow commit image tag."
+  }
+}

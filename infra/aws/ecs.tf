@@ -2,7 +2,7 @@ data "aws_caller_identity" "current" {}
 
 data "aws_ecr_image" "api" {
   repository_name = aws_ecr_repository.api.name
-  most_recent     = true
+  image_tag       = var.backend_image_tag
 }
 
 data "aws_iam_policy_document" "ecs_task_execution_assume" {
