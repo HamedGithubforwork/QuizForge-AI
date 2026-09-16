@@ -318,7 +318,7 @@ jobs:
         env:
           QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
           QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
-        run: python ../../../scripts/aws_staging_functional.py
+        run: python -u ../../../scripts/aws_staging_functional.py
 
       - name: Show recent API logs on failed start
         if: failure() && env.OPERATION == 'start'
