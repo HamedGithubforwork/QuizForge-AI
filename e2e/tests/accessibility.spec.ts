@@ -65,7 +65,7 @@ async function mockLogin(page: Page) {
   )
 
   await page.route(
-    '**/supabase-mock/rest/v1/quiz_history**',
+    '**/api-mock/api/quiz-history**',
     async (route) => {
       await route.fulfill({
         status: 200,
@@ -73,7 +73,7 @@ async function mockLogin(page: Page) {
         headers: {
           'Content-Range': '0-0/0',
         },
-        body: '[]',
+        body: JSON.stringify({ items: [], totalCount: 0, hasMore: false, nextCursor: null }),
       })
     },
   )
