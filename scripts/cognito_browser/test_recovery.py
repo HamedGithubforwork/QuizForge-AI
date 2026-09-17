@@ -191,6 +191,28 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             recovery.rejected(lambda: deny("TooManyRequestsException"), {"CodeMismatchException"})
 
+    def test_documented_anonymous_responses_still_require_reset_rejection(self):
+        for mode in ("simulated", "InvalidParameterException"):
+            client = Mock()
+            client.forgot_password.return_value = {"CodeDeliveryDetails": {"DeliveryMedium": "EMAIL"}}
+            if mode != "simulated": client.forgot_password.side_effect = lambda **args: deny("InvalidParameterException")
+            client.confirm_forgot_password.side_effect = lambda **args: deny("CodeMismatchException")
+            with self.subTest(mode=mode), contextlib.redirect_stdout(io.StringIO()):
+                recovery.anonymous_recovery(client, "public-client", "unknown@example.invalid")
+                client.confirm_forgot_password.assert_called_once()
+                client.confirm_forgot_password.side_effect = None
+                with self.assertRaises(AssertionError): recovery.anonymous_recovery(client, "public-client", "unknown@example.invalid")
+
+    def test_anonymous_probe_rejects_disclosure_throttling_and_tokens(self):
+        for defect in ("UserNotFoundException", "TooManyRequestsException", "tokens", "empty"):
+            client = Mock()
+            if defect == "tokens": client.forgot_password.return_value = {"AuthenticationResult": {"AccessToken": "private"}}
+            elif defect == "empty": client.forgot_password.return_value = {}
+            else: client.forgot_password.side_effect = lambda **args: deny(defect)
+            with self.subTest(defect=defect), self.assertRaises(AssertionError):
+                recovery.anonymous_recovery(client, "public-client", "unknown@example.invalid")
+            client.confirm_forgot_password.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

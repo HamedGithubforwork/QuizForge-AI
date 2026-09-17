@@ -240,9 +240,12 @@ if __name__ == "__main__":
         else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
     except Exception as error:
-        frame = traceback.extract_tb(error.__traceback__)[-1]
+        frames = traceback.extract_tb(error.__traceback__)
+        frame = next((f for f in reversed(frames) if Path(f.filename).parent == Path(__file__).parent), frames[-1])
         print(f"ERROR: Cognito browser rehearsal failed ({type(error).__name__}, phase {sys.argv[1]}, file {Path(frame.filename).name}, line {frame.lineno})")
         if isinstance(error, ClientError):
             code = error.response.get("Error", {}).get("Code", "")
             if code.isalnum() and len(code) < 100: print("AWS error code: " + code)
+            operation = error.operation_name
+            if operation.isalnum() and len(operation) < 100: print("AWS operation: " + operation)
         sys.exit(1)

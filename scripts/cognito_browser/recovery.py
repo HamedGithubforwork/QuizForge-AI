@@ -52,6 +52,22 @@ def live_state(v):
     assert datetime.now(timezone.utc) < datetime.fromisoformat(v["deadline"].replace("Z", "+00:00")), "Recovery window expired"
 
 
+def anonymous_recovery(client, client_id, username):
+    # Cognito documents alternating simulated delivery and InvalidParameter
+    # responses for anonymous recovery, even with existence prevention enabled.
+    # Never accept UserNotFound, throttling, credentials or an actual reset.
+    try:
+        result = client.forgot_password(ClientId=client_id, Username=username)
+    except ClientError as error:
+        assert error.response["Error"]["Code"] == "InvalidParameterException", "Recovery disclosed an account or failed unexpectedly"
+        print("PASS: anonymous ForgotPassword returned the documented InvalidParameterException response")
+    else:
+        assert set(result) <= {"CodeDeliveryDetails", "ResponseMetadata"} and result.get("CodeDeliveryDetails")
+        print("PASS: anonymous ForgotPassword returned simulated delivery metadata without authentication data")
+    rejected(client.confirm_forgot_password, {"CodeMismatchException", "ExpiredCodeException"},
+             ClientId=client_id, Username=username, ConfirmationCode="000000", Password="Qf9!" + secrets.token_urlsafe(28))
+
+
 def load(v, receipt):
     live_state(v)
     assert set(receipt) == {"run_id", "code"} and receipt["run_id"] == v["recovery_run"], "Receipt belongs to another run"
@@ -77,14 +93,13 @@ def start():
     # a separate email-start/verify-stop test; no recovery code is intercepted.
     client.admin_update_user_attributes(UserPoolId=v["pool"], Username=user["subject"],
         UserAttributes=[{"Name": "email", "Value": email}, {"Name": "email_verified", "Value": "true"}])
+    print("PASS: disposable verified-email recovery fixture configured")
     fixture = {**v, **{k: user[k] for k in ("password", "totp", "subject", "enrolled_at")}, "email": email}
     save(fixture, user["fixture_refresh"])
+    print("PASS: temporary recovery fixture encrypted in Standard SecureStrings")
     for name in ("qf-browser-unknown@example.invalid", bundle["users"]["unverified"]["email"]):
-        simulated = client.forgot_password(ClientId=v["client"], Username=name)
-        assert simulated.get("CodeDeliveryDetails") and "AuthenticationResult" not in simulated
-        rejected(client.confirm_forgot_password, {"CodeMismatchException", "ExpiredCodeException"},
-                 ClientId=v["client"], Username=name, ConfirmationCode="000000", Password="Qf9!" + secrets.token_urlsafe(28))
-    print("PASS: unknown and unverified accounts receive simulated recovery responses and cannot reset with an invalid code")
+        anonymous_recovery(client, v["client"], name)
+    print("PASS: unknown and unverified accounts cannot reset with an invalid code; existence prevention remains enabled")
     result = client.forgot_password(ClientId=v["client"], Username=email)
     assert result["CodeDeliveryDetails"]["DeliveryMedium"] == "EMAIL" and "AuthenticationResult" not in result
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
