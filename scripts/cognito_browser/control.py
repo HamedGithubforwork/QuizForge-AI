@@ -45,13 +45,20 @@ def rehearsal_email():
 
 def configure():
     email_mode = os.environ["OPERATION"] == "email-start"
+    recovery_run = ""
+    if os.environ["OPERATION"] == "recovery-start":
+        import recovery
+        rehearsal_email()
+        recovery.empty()
+        recovery_run = os.environ["GITHUB_RUN_ID"]
+        assert recovery_run.isdigit()
     digest = hashlib.sha256(rehearsal_email().encode()).hexdigest() if email_mode else ""
     deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with open(os.environ["GITHUB_ENV"], "a") as out:
-        out.write(f"TF_VAR_email_sha256={digest}\nTF_VAR_deadline={deadline}\n")
+        out.write(f"TF_VAR_email_sha256={digest}\nTF_VAR_deadline={deadline}\nTF_VAR_recovery_run={recovery_run}\n")
     if values():
         raise RuntimeError("An earlier rehearsal still exists. Run stop before starting another.")
-    print("PASS: isolated state is empty; maximum manual email lease is 30 minutes")
+    print("PASS: isolated state is empty; manual inbox deadline is 30 minutes (scheduled cleanup can be delayed)")
 
 
 def configuration(client, v):
@@ -61,6 +68,8 @@ def configuration(client, v):
     assert not pool["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"]
     assert pool["EmailConfiguration"]["EmailSendingAccount"] == "COGNITO_DEFAULT"
     assert not pool.get("SmsConfiguration") and pool.get("UserPoolAddOns", {}).get("AdvancedSecurityMode", "OFF") == "OFF"
+    assert pool["AccountRecoverySetting"]["RecoveryMechanisms"] == [{"Priority": 1, "Name": "verified_email"}]
+    assert client.get_user_pool_mfa_config(UserPoolId=v["pool"])["SoftwareTokenMfaConfiguration"]["Enabled"]
     assert set(pool["LambdaConfig"]) == {"PreSignUp"}
     policy = pool["Policies"]["PasswordPolicy"]
     assert policy["MinimumLength"] >= 14 and all(policy[k] for k in ("RequireLowercase","RequireUppercase","RequireNumbers","RequireSymbols"))
@@ -68,6 +77,7 @@ def configuration(client, v):
     assert not app.get("ClientSecret") and app["AllowedOAuthFlows"] == ["code"]
     assert app["CallbackURLs"] == ["http://localhost:4174/auth/callback"] and app["LogoutURLs"] == ["http://localhost:4174/"]
     assert app["EnableTokenRevocation"] and app["ExplicitAuthFlows"] == ["ALLOW_REFRESH_TOKEN_AUTH"]
+    assert app["PreventUserExistenceErrors"] == "ENABLED"
     assert app["AccessTokenValidity"] == 5 and app["TokenValidityUnits"]["AccessToken"] == "minutes"
     print("PASS: live Cognito configuration requires PKCE-compatible code flow, email verification, strong passwords and TOTP")
 
@@ -112,7 +122,7 @@ def prepare():
         client.admin_set_user_mfa_preference(UserPoolId=v["pool"], Username=email,
             SoftwareTokenMfaSettings={"Enabled":True,"PreferredMfa":True})
         users[name] = {"email":email,"password":password,"totp":secret,"subject":subject,
-                       "fixture_access":result["AccessToken"],"enrolled_at":int(time.time())}
+                       "fixture_access":result["AccessToken"],"fixture_refresh":result["RefreshToken"],"enrolled_at":int(time.time())}
     # Public signup is denied before delivery in automated mode, including for
     # synthetic names that are only permitted through IAM AdminCreateUser.
     try:
@@ -199,6 +209,8 @@ def cleanup_due():
 
 
 def absent():
+    import recovery
+    recovery.empty()
     client = boto3.client("cognito-idp", region_name="ca-central-1")
     for page in client.get_paginator("list_user_pools").paginate(MaxResults=60):
         assert all(pool["Name"] != NAME for pool in page["UserPools"])
@@ -219,7 +231,10 @@ def absent():
 if __name__ == "__main__":
     try:
         action = sys.argv[1]
-        if action == "database-verify": database(True)
+        if action.startswith("recovery-"):
+            import recovery
+            {"recovery-start": recovery.start, "recovery-finish": recovery.finish, "recovery-cleanup": recovery.cleanup}[action]()
+        elif action == "database-verify": database(True)
         else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
     except Exception as error:

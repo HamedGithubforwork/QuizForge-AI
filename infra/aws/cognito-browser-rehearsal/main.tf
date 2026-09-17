@@ -16,6 +16,14 @@ variable "deadline" {
   type    = string
   default = "1970-01-01T00:00:00Z"
 }
+variable "recovery_run" {
+  type    = string
+  default = ""
+  validation {
+    condition     = var.recovery_run == "" || can(regex("^[0-9]+$", var.recovery_run))
+    error_message = "Recovery must be bound to a GitHub Actions run ID."
+  }
+}
 variable "email_sha256" {
   type      = string
   default   = ""
@@ -73,6 +81,8 @@ resource "aws_cognito_user_pool" "browser" {
     default_email_option  = "CONFIRM_WITH_LINK"
     email_subject_by_link = "Verify your temporary QuizForge AWS test account"
     email_message_by_link = "This is the disposable QuizForge AWS migration rehearsal. {##Verify your test email##}. The temporary account will be deleted after validation."
+    email_subject         = "Reset your temporary QuizForge AWS test password"
+    email_message         = "Your disposable QuizForge recovery test code is {####}. This applies only to the temporary AWS rehearsal account. Never paste this code in chat or workflow inputs."
   }
   user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
   lambda_config { pre_sign_up = aws_lambda_function.guard.arn }
@@ -149,6 +159,6 @@ output "rehearsal" {
   value = {
     pool           = aws_cognito_user_pool.browser.id, client = aws_cognito_user_pool_client.browser.id,
     fixture_client = aws_cognito_user_pool_client.fixture.id,
-    domain         = local.domain, deadline = var.deadline
+    domain         = local.domain, deadline = var.deadline, recovery_run = var.recovery_run
   }
 }

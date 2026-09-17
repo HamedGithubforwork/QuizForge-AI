@@ -24,8 +24,22 @@ After confirming the real email, immediately run **email-verify-stop**. It requi
 
 The manual window expires after 30 minutes. A 15-minute scheduled cleanup checks its deadline as a fallback; GitHub can delay scheduled jobs, so this is not a billing guarantee or a replacement for explicit stop. A second start refuses nonempty state.
 
+## Real email password recovery
+
+**recovery-start** creates the same isolated Lite pool with public signup closed. It seeds disposable accounts through the IAM-only fixture client, enrolls required TOTP, and sets the dedicated recovery fixture's email to `COGNITO_REHEARSAL_EMAIL` as an already-verified account. This is fixture preparation, not a claim of signup verification; the separate inbox-confirmation rehearsal covers that proof. Production accounts are never used. Unknown and unverified accounts must receive simulated recovery responses and reject an invalid code, as documented in [Cognito user-existence error prevention](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pool-managing-errors.html).
+
+One public `ForgotPassword` call sends a real code titled **Reset your temporary QuizForge AWS test password**. Read only the newest email from this run. Transfer its code through the temporary **encrypted repository Actions secret** `COGNITO_RECOVERY_RECEIPT`, with JSON keys `run_id` (the start run ID as a string) and `code`. Never put the code in chat, workflow inputs, command arguments, logs, artifacts or commits. Run **recovery-finish-stop**, then delete the receipt secret. The receipt is rejected if it belongs to another run or the 30-minute deadline has expired.
+
+Two Standard SSM SecureStrings under `/quizforge/cognito-browser-rehearsal/recovery/` hold the temporary fixture and refresh token between jobs, encrypted with the AWS-managed key. They are outside Terraform state, cannot overwrite existing parameters, and are bound to the exact pool, clients, run and deadline. Every manual stop, failure cleanup and expired-window cleanup deletes both exact names and verifies absence, including partial writes. Cleanup still destroys Cognito if the recovery test fails. Stop immediately if the inbox handoff cannot be completed; the scheduled fallback can be delayed.
+
+The finish probe requires wrong-code and weak-password rejection, real `ConfirmForgotPassword`, no tokens issued by reset, old-password rejection, revocation of working access/refresh sessions, and one-use reset codes. It refreshes and verifies the old session immediately before reset to prevent ordinary token expiry producing a false pass. It then requires the new password to demand the existing TOTP, rejects a wrong TOTP, and verifies successful MFA preserves the subject and verified email. IAM is used for fixture login because the public browser client remains OAuth-only; the reset APIs themselves use the public client. This is an API recovery test, not a claim of browser recovery UX or public password-auth support.
+
+Password recovery must not bypass a lost authenticator. Lost-MFA support requires a separately reviewed identity-proof process before production. No MFA removal, administrator password-reset bypass, code interception, custom email-sender hook, extra paid Cognito tier or brute-force load test is used here.
+
 ## Costs and remaining gates
 
 Few Cognito Lite test users and short 128 MB Lambda invocations should fit available free allowances; eligibility and shared usage determine actual charges. Temporary CloudWatch logs, Terraform S3 state and GitHub Actions minutes/artifacts may be billable. No paid Cognito Plus features, SMS or permanently running AWS compute are enabled. See [Cognito pricing](https://aws.amazon.com/cognito/pricing/) and [Lambda pricing](https://aws.amazon.com/lambda/pricing/).
 
-Browser email confirmation, custom HTTPS domains, production migration/rollback, recovery flows, and production security hardening remain separate gates. Passing this rehearsal authorizes no production cutover.
+Standard SecureString storage adds no advanced-parameter subscription; API/KMS requests and shared account quotas can still affect charges. Both temporary parameters are deleted on stop.
+
+Live inbox confirmation and recovery require their explicit operations above. Hosted recovery UX, lost-MFA support, custom HTTPS domains, production migration/rollback and production security hardening remain separate gates. Passing this rehearsal authorizes no production cutover.
