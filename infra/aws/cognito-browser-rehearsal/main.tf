@@ -58,11 +58,11 @@ resource "aws_lambda_function" "guard" {
   function_name    = local.name
   role             = aws_iam_role.guard.arn
   runtime          = "python3.13"
-  handler          = "pre_signup.handler"
+  handler          = "identity_triggers.handler"
   filename         = "${path.module}/pre_signup.zip"
   source_code_hash = filebase64sha256("${path.module}/pre_signup.zip")
   memory_size      = 128
-  timeout          = 3
+  timeout          = 5
   environment { variables = { ALLOWED_EMAIL_SHA256 = var.email_sha256 } }
   depends_on = [aws_iam_role_policy.guard]
 }
@@ -85,7 +85,10 @@ resource "aws_cognito_user_pool" "browser" {
     email_message         = "Your disposable QuizForge recovery test code is {####}. This applies only to the temporary AWS rehearsal account. Never paste this code in chat or workflow inputs."
   }
   user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
-  lambda_config { pre_sign_up = aws_lambda_function.guard.arn }
+  lambda_config {
+    pre_sign_up       = aws_lambda_function.guard.arn
+    post_confirmation = aws_lambda_function.guard.arn
+  }
   password_policy {
     minimum_length                   = 14
     require_lowercase                = true
@@ -100,6 +103,13 @@ resource "aws_cognito_user_pool" "browser" {
       priority = 1
     }
   }
+}
+resource "aws_iam_role_policy" "recovery_revocation" {
+  role = aws_iam_role.guard.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect   = "Allow", Action = ["cognito-idp:AdminUserGlobalSignOut"],
+    Resource = aws_cognito_user_pool.browser.arn
+  }] })
 }
 resource "aws_lambda_permission" "cognito" {
   action         = "lambda:InvokeFunction"

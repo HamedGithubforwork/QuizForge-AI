@@ -139,11 +139,13 @@ def verify(client, fixture, refresh, code):
     print("PASS: real inbox code completed public ConfirmForgotPassword without issuing tokens")
     rejected(client.admin_initiate_auth, {"NotAuthorizedException"}, UserPoolId=fixture["pool"], ClientId=fixture["fixture_client"],
              AuthFlow="ADMIN_USER_PASSWORD_AUTH", AuthParameters={"USERNAME": fixture["subject"], "PASSWORD": fixture["password"]})
+    print("PASS: old password rejected after reset")
     rejected(client.get_user, {"NotAuthorizedException"}, AccessToken=access)
+    print("PASS: freshly validated pre-reset access token rejected")
     rejected(client.initiate_auth, {"NotAuthorizedException"}, ClientId=fixture["fixture_client"], AuthFlow="REFRESH_TOKEN_AUTH",
              AuthParameters={"REFRESH_TOKEN": refresh})
     assert time.monotonic() - reset_at < 120, "Session check could be hidden by expiry"
-    print("PASS: old password, freshly validated access token and refresh token rejected after reset")
+    print("PASS: pre-reset refresh token rejected before ordinary access-token expiry")
     rejected(client.confirm_forgot_password, {"ExpiredCodeException", "CodeMismatchException", "NotAuthorizedException"},
              **args, ConfirmationCode=code, Password="Qf9!" + secrets.token_urlsafe(32))
     challenge = login_challenge(client, fixture, password)

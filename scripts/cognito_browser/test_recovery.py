@@ -172,7 +172,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_full_probe_passes_without_secret_output(self):
         output = self.probe(RecoveryProvider())
-        self.assertEqual(output.count("PASS:"), 4)
+        self.assertEqual(output.count("PASS:"), 6)
         for private in ("654321", "123456", "private", "inbox@", "pre-reset-access", "post-reset-access"):
             self.assertNotIn(private, output)
 
