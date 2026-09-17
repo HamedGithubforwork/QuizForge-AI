@@ -33,7 +33,7 @@ case "${1:?}" in
       redis:7-alpine redis-server --save '' --appendonly no >/dev/null
     ;;
   run)
-    docker load --input /tmp/quizforge-browser-images/images.tar >/dev/null
+    if test "${QUIZFORGE_PREFLIGHT:-}" != 1; then docker load --input /tmp/quizforge-browser-images/images.tar >/dev/null; fi
     for service in api identity; do
       if test "$service" = api; then role=quizforge_app; port=8000; app=main:app; factory=();
       else role=quizforge_identity; port=8001; app=identity_app:create_identity_app; factory=(--factory); fi
@@ -47,7 +47,26 @@ case "${1:?}" in
       --read-only --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
       --tmpfs /tmp:rw,nosuid,nodev,size=512m --shm-size 256m \
       --mount "type=bind,source=$RUNNER_TEMP/cognito-browser-bundle.json,target=/run/fixture.json,readonly" \
+      --env "QUIZFORGE_PREFLIGHT=${QUIZFORGE_PREFLIGHT:-0}" \
       quizforge-browser-driver:tested
+    ;;
+  diagnose)
+    # Only the credentialless, provider-free boot test may print startup logs.
+    test "${QUIZFORGE_PREFLIGHT:-}" = 1
+    python - <<'PY'
+import os, pathlib, subprocess
+root = pathlib.Path(os.environ['RUNNER_TEMP'])
+secrets = [os.environ.get('PGPASSWORD','')]
+for name in ('quizforge_app.env','quizforge_identity.env'):
+    path = root/name
+    if path.exists(): secrets += [line.split('=',1)[1] for line in path.read_text().splitlines() if '_PASSWORD=' in line]
+for service in ('api','identity'):
+    result = subprocess.run(['docker','logs','qf-browser-'+service],capture_output=True,text=True)
+    log = (result.stdout+result.stderr)[-12000:]
+    for secret in secrets:
+        if secret: log=log.replace(secret,'[redacted]')
+    print(service+' offline startup:',log)
+PY
     ;;
   cleanup)
     docker rm -f qf-browser-driver qf-browser-api qf-browser-identity qf-browser-redis >/dev/null 2>&1 || true

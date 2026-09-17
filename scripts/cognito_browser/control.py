@@ -75,6 +75,13 @@ def private_file(name, content):
     return path
 
 
+def offline_fixture():
+    private_file("cognito-browser-bundle.json", json.dumps({
+        "pool":"ca-central-1_Offline", "client":"offline123", "domain":"quizforge-offline",
+        "users":{"mapped":{"subject":str(UUID(int=3))}}}))
+    print("PASS: offline boot fixture contains no real provider credentials")
+
+
 def prepare():
     v = values()
     client = boto3.client("cognito-idp", region_name="ca-central-1")
@@ -208,7 +215,7 @@ if __name__ == "__main__":
     try:
         action = sys.argv[1]
         if action == "database-verify": database(True)
-        else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,
+        else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
     except Exception as error:
         line = traceback.extract_tb(error.__traceback__)[-1].lineno

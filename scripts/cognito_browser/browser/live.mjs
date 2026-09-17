@@ -3,14 +3,21 @@ import { createHash, createHmac } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest } from 'node:http'
+import { setDefaultResultOrder } from 'node:dns'
 import { chromium } from '@playwright/test'
 
 const bundle = JSON.parse(await readFile('/run/fixture.json','utf8'))
+// Docker's localhost IPv6 entry can disagree with Node's connect-family choice.
+// Bind only IPv4 loopback and resolve localhost consistently; OAuth still uses localhost.
+setDefaultResultOrder('ipv4first')
 const base = 'http://localhost:4174'
 const api = 'http://localhost:4175'
 const domain = `https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
 const wait = ms => new Promise(resolve => setTimeout(resolve,ms))
 let phase = 'boot', browser, server, gateway, page
+let startupLog = ''
+const preflight = process.env.QUIZFORGE_PREFLIGHT === '1'
+const watchdog = setTimeout(()=>{ console.error('ERROR: rehearsal exceeded five minutes in '+phase); process.exit(1) },300000)
 
 function totp(secret) {
   let bits = ''
@@ -27,6 +34,7 @@ async function login(name) {
   phase = name + ': login page'
   const user = bundle.users[name]
   const context = await browser.newContext()
+  context.setDefaultTimeout(30000)
   page = await context.newPage()
   let authorization, exchange, tokens
   page.on('request',r => {
@@ -76,16 +84,32 @@ try {
     upstream.on('error',()=>{ if(!outgoing.headersSent) outgoing.writeHead(502); outgoing.end() })
     incoming.pipe(upstream)
   })
-  await new Promise(resolve=>gateway.listen(4175,'localhost',resolve))
+  await new Promise(resolve=>gateway.listen(4175,'127.0.0.1',resolve))
   server = spawn(process.execPath,['/app/frontend/node_modules/vite/bin/vite.js','--configLoader','runner','--config','/app/frontend/.rehearsal-vite.config.mjs'],{
-    stdio:'ignore',env:{...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
+    stdio:['ignore','pipe','pipe'],env:{...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
       VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:api,VITE_IDENTITY_API_URL:api,
       VITE_SUPABASE_URL:'',VITE_SUPABASE_PUBLISHABLE_KEY:''}})
-  for(let n=0;n<60;n++) {
-    try { if((await fetch(base+'/api/health')).ok) break } catch {}
-    await wait(2000); if(n===59) throw new Error('Readiness failed')
+  for(const stream of [server.stdout,server.stderr]) stream.on('data',chunk=>{ if(phase==='boot') startupLog=(startupLog+chunk.toString()).slice(-12000) })
+  const deadline = Date.now()+120000
+  let ready=false, frontendStatus=0, apiStatus=0, frontendError='', apiError=''
+  while(Date.now()<deadline) {
+    if(server.exitCode!==null) throw new Error('Frontend exited')
+    try { frontendStatus=(await fetch(base,{signal:AbortSignal.timeout(5000)})).status } catch(e) { frontendError=e.cause?.code||e.name }
+    try { apiStatus=(await fetch(api+'/api/health',{signal:AbortSignal.timeout(5000)})).status } catch(e) { apiError=e.cause?.code||e.name }
+    if(frontendStatus===200&&apiStatus===200) { ready=true; break }
+    await wait(2000)
   }
+  console.log(`Readiness: frontend HTTP ${frontendStatus}; API HTTP ${apiStatus}; frontend exit ${server.exitCode}; connection codes ${frontendError}/${apiError}`)
+  assert(ready)
   browser = await chromium.launch({headless:true})
+  if(preflight) {
+    phase='offline sign-in screen'
+    const context=await browser.newContext(); context.setDefaultTimeout(30000)
+    page=await context.newPage(); await page.goto(base)
+    await page.getByRole('button',{name:'Sign in or create account'}).waitFor()
+    assert.equal((await request(context,'/identity/session')).status(),401)
+    console.log('PASS: read-only non-root frontend, API, TLS history database and enrollment broker boot without AWS or provider requests')
+  } else {
   const mapped = await login('mapped')
   phase = 'mapped: real protected history'
   await mapped.page.getByRole('button',{name:'My Quiz History',exact:false}).click()
@@ -124,11 +148,13 @@ try {
   assert.equal((await request(fresh.context,'/api/quiz-history',fresh.tokens.access_token)).status(),401)
   console.log('PASS: unverified email denied; hosted logout revokes the previously used access session')
   console.log('PASS: live Cognito browser rehearsal complete; no OpenAI requests or production services used')
+  }
 } catch(error) {
   // Playwright exceptions can contain entered values/URLs. Never emit them or a trace.
   console.error(`ERROR: live browser rehearsal failed in ${phase} (${error.constructor.name})`)
+  if(preflight&&phase==='boot') console.error('Offline frontend startup:',startupLog)
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
   process.exitCode=1
 } finally {
-  await browser?.close(); server?.kill('SIGTERM'); gateway?.close()
+  clearTimeout(watchdog); await browser?.close(); server?.kill('SIGTERM'); gateway?.close()
 }
