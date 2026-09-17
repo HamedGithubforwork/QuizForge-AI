@@ -4,6 +4,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -78,6 +80,22 @@ class RecoveryTests(unittest.TestCase):
     def parameters(self):
         return {"Parameters": [{"Name": name, "Type": "SecureString", "Value": value}
                 for name, value in zip(recovery.PARAMETERS, (json.dumps(self.fixture), "private-refresh-token"))]}
+
+    def test_real_cli_loads_its_own_controller_before_rds_helpers(self):
+        # Unit imports populate sys.modules and used to hide a CLI-only name
+        # collision with scripts/rds_rehearsal/control.py. Empty state stops
+        # before any AWS call, but must reach recovery's explicit state guard.
+        with tempfile.TemporaryDirectory() as tmp:
+            terraform = Path(tmp) / "terraform"
+            terraform.write_text("#!/bin/sh\nprintf '{}'")
+            terraform.chmod(0o700)
+            result = subprocess.run([sys.executable, str(Path(control.__file__)), "recovery-start"],
+                env={**os.environ, "PATH": tmp + os.pathsep + os.environ["PATH"], "AWS_EC2_METADATA_DISABLED": "true"},
+                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("AssertionError, phase recovery-start, file recovery.py", result.stdout)
+        self.assertNotIn("AttributeError", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
 
     def test_valid_binding_decrypts_only_exact_temporary_parameters(self):
         with patch.object(recovery, "ssm") as ssm:
