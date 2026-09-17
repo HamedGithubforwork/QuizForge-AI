@@ -200,7 +200,7 @@ jobs:
             -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Restrict signup and establish cleanup deadline
         env:
-          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
         run: python scripts/cognito_browser/control.py configure
       - name: Create temporary Lite pool and signup guard
         run: terraform -chdir=infra/aws/cognito-browser-rehearsal apply -auto-approve
@@ -226,7 +226,7 @@ jobs:
       - name: Sign up dedicated inbox and request real verification email
         if: inputs.operation == 'email-start'
         env:
-          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
         run: python scripts/cognito_browser/control.py email-start
       - name: Remove runner containers and temporary credential files
         if: always()
@@ -273,7 +273,7 @@ jobs:
       - name: Verify real dedicated-inbox email confirmation
         if: inputs.operation == 'email-verify-stop'
         env:
-          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
         run: python scripts/cognito_browser/control.py verify-email
       - name: Destroy even after failed validation
         if: always() && steps.lease.outputs.due == 'true'
