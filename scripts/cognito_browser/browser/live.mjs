@@ -3,9 +3,13 @@ import { createHash, createHmac } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest } from 'node:http'
+import { setDefaultResultOrder } from 'node:dns'
 import { chromium } from '@playwright/test'
 
 const bundle = JSON.parse(await readFile('/run/fixture.json','utf8'))
+// Docker's localhost IPv6 entry can disagree with Node's connect-family choice.
+// Bind only IPv4 loopback and resolve localhost consistently; OAuth still uses localhost.
+setDefaultResultOrder('ipv4first')
 const base = 'http://localhost:4174'
 const api = 'http://localhost:4175'
 const domain = `https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
@@ -80,22 +84,22 @@ try {
     upstream.on('error',()=>{ if(!outgoing.headersSent) outgoing.writeHead(502); outgoing.end() })
     incoming.pipe(upstream)
   })
-  await new Promise(resolve=>gateway.listen(4175,'localhost',resolve))
+  await new Promise(resolve=>gateway.listen(4175,'127.0.0.1',resolve))
   server = spawn(process.execPath,['/app/frontend/node_modules/vite/bin/vite.js','--configLoader','runner','--config','/app/frontend/.rehearsal-vite.config.mjs'],{
     stdio:['ignore','pipe','pipe'],env:{...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
       VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:api,VITE_IDENTITY_API_URL:api,
       VITE_SUPABASE_URL:'',VITE_SUPABASE_PUBLISHABLE_KEY:''}})
   for(const stream of [server.stdout,server.stderr]) stream.on('data',chunk=>{ if(phase==='boot') startupLog=(startupLog+chunk.toString()).slice(-12000) })
   const deadline = Date.now()+120000
-  let ready=false, frontendStatus=0, apiStatus=0
+  let ready=false, frontendStatus=0, apiStatus=0, frontendError='', apiError=''
   while(Date.now()<deadline) {
     if(server.exitCode!==null) throw new Error('Frontend exited')
-    try { frontendStatus=(await fetch(base,{signal:AbortSignal.timeout(5000)})).status } catch {}
-    try { apiStatus=(await fetch(api+'/api/health',{signal:AbortSignal.timeout(5000)})).status } catch {}
+    try { frontendStatus=(await fetch(base,{signal:AbortSignal.timeout(5000)})).status } catch(e) { frontendError=e.cause?.code||e.name }
+    try { apiStatus=(await fetch(api+'/api/health',{signal:AbortSignal.timeout(5000)})).status } catch(e) { apiError=e.cause?.code||e.name }
     if(frontendStatus===200&&apiStatus===200) { ready=true; break }
     await wait(2000)
   }
-  console.log(`Readiness: frontend HTTP ${frontendStatus}; API HTTP ${apiStatus}; frontend exit ${server.exitCode}`)
+  console.log(`Readiness: frontend HTTP ${frontendStatus}; API HTTP ${apiStatus}; frontend exit ${server.exitCode}; connection codes ${frontendError}/${apiError}`)
   assert(ready)
   browser = await chromium.launch({headless:true})
   if(preflight) {
