@@ -18,7 +18,9 @@ import psycopg
 from psycopg.rows import dict_row
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts/rds_rehearsal"))
+# Keep this script's directory first: both rehearsal directories have a
+# control.py, and recovery must import this controller when invoked as a CLI.
+sys.path.insert(1, str(ROOT / "scripts/rds_rehearsal"))
 from cognito_profile import totp
 from probe import fixtures, fingerprint, insert
 
@@ -238,8 +240,8 @@ if __name__ == "__main__":
         else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
     except Exception as error:
-        line = traceback.extract_tb(error.__traceback__)[-1].lineno
-        print(f"ERROR: Cognito browser rehearsal failed ({type(error).__name__}, phase {sys.argv[1]}, line {line})")
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        print(f"ERROR: Cognito browser rehearsal failed ({type(error).__name__}, phase {sys.argv[1]}, file {Path(frame.filename).name}, line {frame.lineno})")
         if isinstance(error, ClientError):
             code = error.response.get("Error", {}).get("Code", "")
             if code.isalnum() and len(code) < 100: print("AWS error code: " + code)
