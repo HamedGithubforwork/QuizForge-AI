@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import './AuthGate.css'
 import { identityRequest, initialize, manager, session, signIn, signOut } from './lib/cognitoBrowser'
+import { secureEndpoint } from './lib/authConfig'
 
 export default function CognitoAuthGate() {
   const [account, setAccount] = useState<{ email: string; enrolled: boolean } | null>(null)
@@ -49,7 +50,7 @@ export default function CognitoAuthGate() {
       if (mode === 'enroll') return requestConfirmation()
       if (!linkingAvailable) throw new Error('Existing-account linking is not configured for this staging build.')
       // A separate, non-persistent client never changes the production browser session.
-      const client = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      const client = createClient(secureEndpoint(import.meta.env.VITE_SUPABASE_URL), import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false,
           storageKey: 'quizforge-staging-link-proof' } })
       const result = await client.auth.signInWithPassword({ email: email.trim(), password })
@@ -74,7 +75,7 @@ export default function CognitoAuthGate() {
     })
   }
   if (loading) return <p role="status">Checking account…</p>
-  const logout = <button type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
+  const logout = <button className="sign-out-button" type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
   if (account?.enrolled) return <>
     <div className="account-bar"><div className="account-bar-inner"><span>Signed in as {account.email}</span>{logout}</div></div>
     {error && <p role="alert">{error}</p>}<App />
@@ -84,7 +85,7 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}
     {!account ? <>
       <p>Sign in or create an account. Cognito will guide you through email verification and your authenticator setup.</p>
-      <button disabled={busy} onClick={() => void run(signIn)}>Sign in or create account</button>
+      <button className="auth-submit" disabled={busy} onClick={() => void run(signIn)}>Sign in or create account</button>
       {error && logout}
     </> : <>
       <p>Signed in as {account.email}</p>
@@ -92,28 +93,29 @@ export default function CognitoAuthGate() {
       {confirmation ? <>
         <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
           : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
-        <button disabled={busy} onClick={() => void run(async () => {
+        <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
           await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token)
           setConfirmation(null); await load()
         })}>Confirm account setup</button>
         <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
-      </> : legacy ? <form onSubmit={verifyMfa}>
+      </> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
         <label>Existing-account authenticator code<input autoComplete="one-time-code" inputMode="numeric" required
           pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
-        <button disabled={busy}>Verify authenticator</button>
-      </form> : <form onSubmit={begin}>
-        <label>Account setup<select value={mode} disabled={busy} onChange={e => {
+        <button className="auth-submit" disabled={busy}>Verify authenticator</button>
+      </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
+        <label htmlFor="account-setup">Account setup</label>
+        <select id="account-setup" value={mode} disabled={busy} onChange={e => {
           setMode(e.target.value as 'enroll' | 'link'); setPassword(''); setError('')
         }}>
           <option value="link">Link my existing account</option><option value="enroll">Create an empty account</option>
-        </select></label>
+        </select>
         {mode === 'link' ? <>
           <p>Sign in to your existing QuizForge account to prove ownership. Email addresses alone cannot link accounts.</p>
           {!linkingAvailable && <p>Existing-account linking is unavailable in this staging build.</p>}
           <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
           <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
         </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}
-        <button disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
+        <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
       </form>}
       {logout}
     </>}

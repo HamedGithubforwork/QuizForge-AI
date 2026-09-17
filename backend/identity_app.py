@@ -35,8 +35,10 @@ def settings():
         raise RuntimeError("Enrollment requires one exact HTTPS or local test origin")
     url = os.getenv("IDENTITY_SUPABASE_URL", "").rstrip("/")
     key = os.getenv("IDENTITY_SUPABASE_PUBLISHABLE_KEY", "")
-    if url and (not url.startswith("https://") or not key):
-        raise RuntimeError("Legacy proof requires HTTPS and a publishable key")
+    legacy = urlparse(url)
+    if url and (legacy.scheme != "https" or not legacy.hostname or legacy.username or legacy.password
+                or legacy.path or legacy.query or legacy.fragment or not key):
+        raise RuntimeError("Legacy proof requires an exact HTTPS origin and a publishable key")
     return origin, url, key
 
 
