@@ -58,6 +58,10 @@ jobs:
           python-version: "3.11.16"
       - name: Install locked PostgreSQL driver
         run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Audit locked rehearsal dependencies
+        run: |
+          python -m pip install pip-audit==2.10.1
+          python -m pip_audit --no-deps --disable-pip -r scripts/rds_rehearsal/requirements.lock
       - name: Test asynchronous lifecycle guards
         run: |
           python -m unittest discover -s scripts/rds_rehearsal -p 'test_*.py' -v
@@ -70,6 +74,7 @@ jobs:
           PGPASSWORD: local-rehearsal-only
           RDS_REHEARSAL_LOCAL: "1"
         run: |
+          python scripts/rds_rehearsal/transfer_rehearsal.py
           python scripts/rds_rehearsal/probe.py seed
           python scripts/rds_rehearsal/probe.py verify-restored
       - name: Build non-root read-only probe image
@@ -194,6 +199,8 @@ jobs:
             -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Create private encrypted source database
         run: terraform apply -auto-approve
+      - name: Rehearse encrypted export, import, reconciliation and rollback
+        run: python -u ../../../scripts/rds_rehearsal/control.py transfer
       - name: Import synthetic history and verify real application privileges
         run: python -u ../../../scripts/rds_rehearsal/control.py seed
       - name: Snapshot verified data and restore to a separate private database
