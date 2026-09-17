@@ -36,12 +36,16 @@ def package():
         archive.write(Path(__file__).with_name("pre_signup.py"), "pre_signup.py")
 
 
+def rehearsal_email():
+    email = os.getenv("COGNITO_REHEARSAL_EMAIL", "").strip().lower()
+    if not email or "@" not in email or any(c in email for c in "\r\n"):
+        raise RuntimeError("Configure COGNITO_REHEARSAL_EMAIL with an accessible verification inbox")
+    return email
+
+
 def configure():
-    email = os.getenv("QUIZFORGE_CANARY_EMAIL", "").strip().lower()
     email_mode = os.environ["OPERATION"] == "email-start"
-    if email_mode and (not email or "@" not in email or any(c in email for c in "\r\n")):
-        raise RuntimeError("A dedicated canary inbox must be configured before email-start")
-    digest = hashlib.sha256(email.encode()).hexdigest() if email_mode else ""
+    digest = hashlib.sha256(rehearsal_email().encode()).hexdigest() if email_mode else ""
     deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
     with open(os.environ["GITHUB_ENV"], "a") as out:
         out.write(f"TF_VAR_email_sha256={digest}\nTF_VAR_deadline={deadline}\n")
@@ -159,7 +163,7 @@ def email_start():
     v = values()
     client = boto3.client("cognito-idp", region_name="ca-central-1")
     configuration(client, v)
-    email = os.environ["QUIZFORGE_CANARY_EMAIL"].strip().lower()
+    email = rehearsal_email()
     # An unrelated random password is never persisted, displayed or reused.
     # This account exists only to prove real signup and inbox confirmation.
     result = client.sign_up(ClientId=v["client"], Username=email, Password="Qf9!"+secrets.token_urlsafe(32),
@@ -171,17 +175,18 @@ def email_start():
     assert user["UserStatus"] == "UNCONFIRMED" and attrs.get("email_verified", "false") == "false"
     with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
         out.write(f"Email verification window ends at {v['deadline']} (UTC).\n\n")
-        out.write("Cognito accepted signup and requested email delivery to the configured dedicated canary inbox. Open the verification link in the email titled 'Verify your temporary QuizForge AWS test account'. Do not paste the link or codes into chat or workflow inputs. Run email-verify-stop after confirmation; stop also works without a completed test.\n")
+        out.write("Cognito accepted signup and requested email delivery to the configured verification inbox. Open the verification link in the email titled 'Verify your temporary QuizForge AWS test account'. Do not paste the link or codes into chat or workflow inputs. Run email-verify-stop after confirmation; stop also works without a completed test.\n")
     print("PASS: real signup accepted, email delivery requested, account remains unconfirmed; inbox delivery and confirmation are not yet claimed")
 
 
 def verify_email():
     v = values()
     client = boto3.client("cognito-idp", region_name="ca-central-1")
-    user = client.admin_get_user(UserPoolId=v["pool"], Username=os.environ["QUIZFORGE_CANARY_EMAIL"].strip().lower())
+    email = rehearsal_email()
+    user = client.admin_get_user(UserPoolId=v["pool"], Username=email)
     attrs = {a["Name"]:a["Value"] for a in user["UserAttributes"]}
     assert user["UserStatus"] == "CONFIRMED" and attrs.get("email_verified") == "true"
-    assert attrs["email"].lower() == os.environ["QUIZFORGE_CANARY_EMAIL"].strip().lower()
+    assert attrs["email"].lower() == email
     assert not attrs["email"].endswith("@example.invalid")
     print("PASS: dedicated-inbox signup reached CONFIRMED with email_verified=true; real email confirmation completed")
 
