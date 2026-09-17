@@ -157,3 +157,49 @@ from becoming the default backend image.
 After the API rehearsal: rehearse an authorized production-data export/import
 and rollback before cutover. Application PRs remain draft/unmerged while merging
 main would automatically deploy to the current production services.
+# Optional Cognito authentication rehearsal
+
+The `AWS private RDS rehearsal` workflow now accepts `auth_provider=cognito`
+with a required `backend_pr` whose exact commit has passed all existing preview
+checks, including PostgreSQL history security and dependency audit. Default
+`supabase` behavior is unchanged. Use the draft Cognito application PR; never
+merge it to deploy Render/Vercel while the production freeze remains active.
+
+Cognito mode creates two additional temporary Terraform resources in the same
+isolated RDS rehearsal state: a ca-central-1 Lite user pool and secretless
+headless-test client. It requires TOTP MFA, a 14-character mixed-class password,
+five-minute access tokens, token revocation and user-existence protection.
+Self-service signup/recovery remain closed. Four synthetic users are created
+only in that pool with notifications suppressed. There is no password export,
+Supabase account change, email/SMS delivery, Plus tier, paid advanced-security
+add-on, identity pool, NAT or new public database exposure.
+
+The trusted OIDC runner verifies live pool settings, weak-password rejection,
+MFA setup/login, incorrect-MFA rejection and password-attempt lockout. Tokens
+and MFA secrets are never logged or put in process arguments or Terraform state.
+Only temporary session tokens go into the existing encrypted rehearsal secret.
+The API task receives its application DB password and non-secret pool/client
+IDs, not AWS credentials or Supabase runtime values. Its trusted canary refreshes
+short-lived user tokens through unsigned, user-authorized Cognito API calls.
+
+The existing private RDS/ECS HTTP test additionally rejects ID tokens, a valid
+but unmapped same-email subject and an unverified-email account. It performs
+authenticated history CRUD/owner isolation, then revokes the refresh token and
+requires FastAPI to reject the already-used access token. Only the primary
+synthetic subject is explicitly mapped to the synthetic internal owner by the
+trusted setup task. This is not automatic or production account linking.
+
+The separate `always()` cleanup destroys the pool/client/users along with RDS,
+Fargate task definitions, temporary secrets and related test resources. Absence
+checks now refuse success while the named Cognito pool still exists. Manual
+`operation=stop` and the daily stop also cover Cognito leftovers.
+
+Expected short rehearsal cost remains below US$1, not a billing cap. Cognito
+Lite direct-user usage may fit its current account/organization-wide 10,000-MAU
+allowance; don't assume eligibility or remaining allowance. No charged SMS,
+email sender setup, advanced security or quota add-ons are enabled. Existing
+ECR/log/state storage can still bill. See [Cognito pricing](https://aws.amazon.com/cognito/pricing/).
+
+Still required before production: real signup/email delivery verification,
+controlled new-user provisioning, recent dual-account proof for migration
+links, browser authorization-code/PKCE, recovery, and separately approved cutover.

@@ -63,19 +63,24 @@ resource "aws_ecs_task_definition" "api" {
       readonlyRootFilesystem = true, user = "10001:10001"
       linuxParameters        = { capabilities = { drop = ["ALL"] } }
       command                = ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000", "--no-access-log"]
-      environment = [
+      environment = concat([
         { name = "HISTORY_BACKEND", value = "postgres" },
         { name = "HISTORY_DB_HOST", value = aws_db_instance.source.address },
         { name = "HISTORY_DB_NAME", value = "quizforge_rehearsal" },
         { name = "HISTORY_DB_USER", value = "quizforge_app" },
         { name = "HISTORY_DB_POOL_SIZE", value = "1" },
         { name = "ALLOWED_ORIGINS", value = "https://rds-rehearsal.invalid" }
-      ]
-      secrets = [
-        { name = "HISTORY_DB_PASSWORD", valueFrom = "${aws_secretsmanager_secret.api_application[0].arn}:password::" },
+        ], var.cognito_validation ? [
+        { name = "AUTH_PROVIDER", value = "cognito" },
+        { name = "COGNITO_USER_POOL_ID", value = aws_cognito_user_pool.rehearsal[0].id },
+        { name = "COGNITO_CLIENT_ID", value = aws_cognito_user_pool_client.rehearsal[0].id }
+      ] : [])
+      secrets = concat([
+        { name = "HISTORY_DB_PASSWORD", valueFrom = "${aws_secretsmanager_secret.api_application[0].arn}:password::" }
+        ], var.cognito_validation ? [] : [
         { name = "SUPABASE_URL", valueFrom = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/quizforge/prod/SUPABASE_URL" },
         { name = "SUPABASE_PUBLISHABLE_KEY", valueFrom = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/quizforge/prod/SUPABASE_PUBLISHABLE_KEY" }
-      ]
+      ])
       logConfiguration = { logDriver = "awslogs", options = {
         awslogs-group = local.foundation.api_log_group_name, awslogs-region = var.aws_region, awslogs-stream-prefix = "rds-api"
       } }

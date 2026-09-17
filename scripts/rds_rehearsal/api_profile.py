@@ -1,6 +1,7 @@
 """Trusted VPC setup/verification only; never part of the application image."""
 import json
 import os
+import re
 import secrets
 import sys
 import traceback
@@ -22,7 +23,10 @@ def main(phase):
     session = json.loads(manager.get_secret_value(SecretId=os.environ["RDS_SESSION_SECRET_ARN"])["SecretString"])
     subject = str(uuid.UUID(session["user_id"]))
     issuer = session["issuer"]
-    assert issuer.startswith("https://") and issuer.endswith("/auth/v1")
+    if session.get("provider") == "cognito":
+        assert re.fullmatch(r"https://cognito-idp\.ca-central-1\.amazonaws\.com/ca-central-1_[A-Za-z0-9]+", issuer)
+    else:
+        assert issuer.startswith("https://") and issuer.endswith("/auth/v1")
     assert subject not in {str(uuid.UUID(int=i)) for i in (1, 2, 3)}
     with psycopg.connect(**options, user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"]) as owner:
         assert fingerprint(owner.execute("SELECT * FROM app.quiz_history").fetchall()) == fingerprint(fixtures())

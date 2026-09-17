@@ -152,7 +152,9 @@ def run_api():
     definition = aws("ecs", "describe-task-definition", "--task-definition", values["api_task"])["taskDefinition"]
     assert not definition.get("taskRoleArn"), "API/canary must have no AWS task credentials"
     api = next(c for c in definition["containerDefinitions"] if c["name"] == "api")
-    assert {s["name"] for s in api["secrets"]} == {"HISTORY_DB_PASSWORD", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"}
+    expected = {"HISTORY_DB_PASSWORD"} if values.get("cognito_pool") else {
+        "HISTORY_DB_PASSWORD", "SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY"}
+    assert {s["name"] for s in api["secrets"]} == expected
     assert all(s["name"] not in ("PGUSER", "PGPASSWORD") for s in api.get("environment", []))
     run_task(values, values["api_task"], {}, container="canary", prefix="rds-api")
 
@@ -177,9 +179,12 @@ def confirm_absent():
         retained = [b for b in backups if b.get("DBInstanceIdentifier") in (NAME, NAME + "-restore")]
         secrets = [aws("secretsmanager", "describe-secret", "--secret-id", NAME + suffix, absent=True)
                    for suffix in ("-api-application", "-api-session")]
-        if not any(databases) and snapshot is None and not tasks and not retained and not any(secrets):
+        pools = aws("cognito-idp", "list-user-pools", "--max-results", "60")["UserPools"]
+        pools = [p for p in pools if p["Name"] == "quizforge-cognito-rehearsal"]
+        if not any(databases) and snapshot is None and not tasks and not retained and not any(secrets) and not pools:
             print("PASS: source database, restored database, test snapshot, automated backups and rehearsal tasks are absent")
             print("PASS: temporary application credential and Supabase session secrets are absent")
+            print("PASS: disposable Cognito pool, its users and app client are absent")
             return
         print("Waiting for AWS to finish deleting rehearsal resources and backup metadata")
         time.sleep(30)
@@ -191,6 +196,9 @@ if __name__ == "__main__":
         action = sys.argv[1]
         if action in ("seed", "verify-restored", "prepare-api", "verify-api", "transfer"): run_probe(action)
         elif action == "prepare-session": prepare_session()
+        elif action == "prepare-cognito":
+            from cognito_profile import prepare
+            prepare(outputs())
         elif action == "api": run_api()
         elif action == "stop-tasks": stop_tasks()
         elif action == "confirm-absent": confirm_absent()
