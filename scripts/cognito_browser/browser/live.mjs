@@ -52,7 +52,7 @@ async function login(name) {
   await page.locator('input[name="password"]:visible').fill(user.password)
   await page.locator('input[name="signInSubmitButton"]:visible,button[name="signInSubmitButton"]:visible').click()
   phase = name + ': mandatory TOTP'
-  const code = page.locator('input[name="totpCode"]:visible')
+  const code = page.locator('input[name="authentication_code"][id="totpCodeInput"]:visible')
   await code.waitFor({state:'visible',timeout:30000})
   // Never reuse the setup OTP or submit at the end of a 30-second period.
   if (Math.floor(Date.now()/30000) <= Math.floor(user.enrolled_at/30) || Date.now()%30000 > 25000)
