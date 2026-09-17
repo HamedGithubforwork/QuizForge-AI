@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Run and destroy, open a 30-minute inbox verification window, verify and destroy, or stop"
+        description: "Run, start inbox verification/recovery, finish and destroy, or stop"
         type: choice
         required: true
-        options: [run, email-start, email-verify-stop, stop]
+        options: [run, email-start, email-verify-stop, recovery-start, recovery-finish-stop, stop]
       application_pr:
         description: "Same-repository application PR with passing required checks (run only)"
         type: string
@@ -33,7 +33,7 @@ env:
 jobs:
   validate:
     name: Cognito browser infrastructure and signup guards
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'run' || inputs.operation == 'email-start'))
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["run", "email-start", "recovery-start"]'), inputs.operation))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -146,7 +146,7 @@ jobs:
   rehearse:
     name: Live hosted OAuth and browser enrollment
     needs: [validate, images]
-    if: always() && needs.validate.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (inputs.operation == 'run' || inputs.operation == 'email-start')
+    if: always() && needs.validate.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "email-start", "recovery-start"]'), inputs.operation)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -228,6 +228,11 @@ jobs:
         env:
           COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
         run: python scripts/cognito_browser/control.py email-start
+      - name: Seed disposable MFA account and request real recovery email
+        if: inputs.operation == 'recovery-start'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py recovery-start
       - name: Remove runner containers and temporary credential files
         if: always()
         env:
@@ -235,9 +240,9 @@ jobs:
         run: bash scripts/cognito_browser/runner.sh cleanup
 
   cleanup:
-    name: Verify email when requested and destroy temporary Cognito
+    name: Verify inbox result when requested and destroy temporary Cognito
     needs: [validate, images, rehearse]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(inputs.operation == 'email-start' && needs.rehearse.result == 'success')
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(contains(fromJSON('["email-start", "recovery-start"]'), inputs.operation) && needs.rehearse.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -275,6 +280,15 @@ jobs:
         env:
           COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
         run: python scripts/cognito_browser/control.py verify-email
+      - name: Verify real password recovery, revocation and preserved MFA
+        if: inputs.operation == 'recovery-finish-stop'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+          COGNITO_RECOVERY_RECEIPT: ${{ secrets.COGNITO_RECOVERY_RECEIPT }}
+        run: python scripts/cognito_browser/control.py recovery-finish
+      - name: Remove temporary encrypted recovery fixture even after failure
+        if: always() && steps.lease.outputs.due == 'true'
+        run: python scripts/cognito_browser/control.py recovery-cleanup
       - name: Destroy even after failed validation
         if: always() && steps.lease.outputs.due == 'true'
         run: terraform -chdir=infra/aws/cognito-browser-rehearsal destroy -auto-approve
