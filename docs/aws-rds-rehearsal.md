@@ -31,6 +31,14 @@ also destroy this dedicated state. Always verify the cleanup job succeeds.
   rehearsal password exists only in process memory and database authentication
 storage in snapshot mode. It receives no owner credential or AWS permission.
 
+Before either validation mode, the workflow now runs the
+[encrypted history transfer and rollback rehearsal](history-data-transfer.md).
+It uses synthetic Supabase-shaped source tables, preserves all user IDs and
+history values, tests atomic import and rollback with source-drift rejection,
+and removes its SQL fixtures before the normal seed/security checks. It runs the
+same code in real PostgreSQL CI and a short private-RDS Fargate probe. No real
+production export, extra persistent AWS resource or OpenAI call is added.
+
 ## Authenticated API mode
 
 Set **backend_pr** to an open same-repository PR number targeting main. The exact

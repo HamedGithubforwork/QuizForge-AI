@@ -84,7 +84,7 @@ def run_probe(phase):
         snapshot = aws("rds", "describe-db-snapshots", "--db-snapshot-identifier", NAME + "-verified-seed")["DBSnapshots"][0]
         assert snapshot["Status"] == "available" and snapshot["Encrypted"]
         assert snapshot["DBInstanceIdentifier"] == NAME
-    script = "api_profile.py" if phase in ("prepare-api", "verify-api") else "probe.py"
+    script = "transfer_rehearsal.py" if phase == "transfer" else "api_profile.py" if phase in ("prepare-api", "verify-api") else "probe.py"
     host = values["restored_host" if phase == "verify-restored" else "source_host"]
     overrides = {"containerOverrides": [{"name": "probe", "command": ["python", script, phase],
                   "environment": [{"name": "PGHOST", "value": host}]}]}
@@ -189,7 +189,7 @@ def confirm_absent():
 if __name__ == "__main__":
     try:
         action = sys.argv[1]
-        if action in ("seed", "verify-restored", "prepare-api", "verify-api"): run_probe(action)
+        if action in ("seed", "verify-restored", "prepare-api", "verify-api", "transfer"): run_probe(action)
         elif action == "prepare-session": prepare_session()
         elif action == "api": run_api()
         elif action == "stop-tasks": stop_tasks()
