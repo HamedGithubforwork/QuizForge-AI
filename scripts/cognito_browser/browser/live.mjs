@@ -2,13 +2,15 @@ import assert from 'node:assert/strict'
 import { createHash, createHmac } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
+import { createServer, request as httpRequest } from 'node:http'
 import { chromium } from '@playwright/test'
 
 const bundle = JSON.parse(await readFile('/run/fixture.json','utf8'))
 const base = 'http://localhost:4174'
+const api = 'http://localhost:4175'
 const domain = `https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
 const wait = ms => new Promise(resolve => setTimeout(resolve,ms))
-let phase = 'boot', browser, server, page
+let phase = 'boot', browser, server, gateway, page
 
 function totp(secret) {
   let bits = ''
@@ -19,7 +21,7 @@ function totp(secret) {
   return String((digest.readUInt32BE(offset)&0x7fffffff)%1000000).padStart(6,'0')
 }
 async function request(context,path,token,method='GET',data) {
-  return context.request.fetch(base+path,{method,headers:{Origin:base,...(token?{Authorization:'Bearer '+token}:{})},data})
+  return context.request.fetch(api+path,{method,headers:{Origin:base,...(token?{Authorization:'Bearer '+token}:{})},data})
 }
 async function login(name) {
   phase = name + ': login page'
@@ -62,9 +64,22 @@ const entry = {quiz_title:'Live Cognito browser rehearsal',source_filename:'synt
   difficulty:'easy',question_type:'multiple_choice',question_count:5,score:4,percentage:80,quiz_data:{questions:[]},selected_answers:{'0':1}}
 try {
   for(const key of ['AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','ACTIONS_ID_TOKEN_REQUEST_TOKEN','PGPASSWORD']) assert(!process.env[key])
+  // A separate origin preserves real browser CORS/Origin behavior. Never inject
+  // an Origin header: the identity broker must validate what the browser sends.
+  gateway = createServer((incoming,outgoing) => {
+    const identity = incoming.url.startsWith('/identity/')
+    if(!identity && !incoming.url.startsWith('/api/')) { outgoing.writeHead(404); outgoing.end(); return }
+    const upstream = httpRequest({hostname:identity?'identity':'api',port:identity?8001:8000,
+      path:incoming.url,method:incoming.method,headers:incoming.headers},response => {
+      outgoing.writeHead(response.statusCode,response.headers); response.pipe(outgoing)
+    })
+    upstream.on('error',()=>{ if(!outgoing.headersSent) outgoing.writeHead(502); outgoing.end() })
+    incoming.pipe(upstream)
+  })
+  await new Promise(resolve=>gateway.listen(4175,'localhost',resolve))
   server = spawn(process.execPath,['/app/frontend/node_modules/vite/bin/vite.js','--configLoader','runner','--config','/app/frontend/.rehearsal-vite.config.mjs'],{
     stdio:'ignore',env:{...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
-      VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:base,VITE_IDENTITY_API_URL:base,
+      VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:api,VITE_IDENTITY_API_URL:api,
       VITE_SUPABASE_URL:'',VITE_SUPABASE_PUBLISHABLE_KEY:''}})
   for(let n=0;n<60;n++) {
     try { if((await fetch(base+'/api/health')).ok) break } catch {}
@@ -115,5 +130,5 @@ try {
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
   process.exitCode=1
 } finally {
-  await browser?.close(); server?.kill('SIGTERM')
+  await browser?.close(); server?.kill('SIGTERM'); gateway?.close()
 }

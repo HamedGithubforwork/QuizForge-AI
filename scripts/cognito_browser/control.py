@@ -213,4 +213,7 @@ if __name__ == "__main__":
     except Exception as error:
         line = traceback.extract_tb(error.__traceback__)[-1].lineno
         print(f"ERROR: Cognito browser rehearsal failed ({type(error).__name__}, phase {sys.argv[1]}, line {line})")
+        if isinstance(error, ClientError):
+            code = error.response.get("Error", {}).get("Code", "")
+            if code.isalnum() and len(code) < 100: print("AWS error code: " + code)
         sys.exit(1)
