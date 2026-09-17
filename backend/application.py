@@ -39,6 +39,7 @@ from processed_documents import (
     remember_processed_document,
 )
 import quiz_service
+from quiz_history import router as quiz_history_router
 from quiz_service import (
     Quiz,
     generate_quiz_from_pages,
@@ -62,6 +63,7 @@ from redis_integration import (
 
 
 app = create_app()
+app.include_router(quiz_history_router)
 
 QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0
 QUIZ_GENERATION_POLL_JITTER_RATIO = 0.2

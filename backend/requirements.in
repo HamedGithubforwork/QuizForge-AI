@@ -6,3 +6,6 @@ openai
 python-dotenv
 httpx
 redis>=5.0,<7.0
+psycopg[binary]==3.3.5
+psycopg-pool==3.3.1
+PyJWT[crypto]==2.14.0

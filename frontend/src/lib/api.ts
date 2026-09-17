@@ -1,6 +1,4 @@
-import {
-  supabase,
-} from './supabase'
+import { authSession } from './authSession'
 import {
   rememberCurrentDocumentIdentity,
 } from './documentIdentity'
@@ -17,23 +15,14 @@ export const API_URL = (
 ).replace(/\/+$/, '')
 
 async function getAccessToken() {
-  const {
-    data,
-    error,
-  } =
-    await supabase.auth.getSession()
-
-  if (error) {
-    throw error
-  }
-
-  if (!data.session) {
+  const session = await authSession()
+  if (!session) {
     throw new Error(
       'Your session has expired. Please sign in again.',
     )
   }
 
-  return data.session.access_token
+  return session.accessToken
 }
 
 async function sendAuthenticatedRequest(
@@ -107,16 +96,8 @@ export async function apiFetch(
     return response
   }
 
-  const {
-    data,
-    error,
-  } =
-    await supabase.auth.refreshSession()
-
-  if (
-    error ||
-    !data.session
-  ) {
+  const session = await authSession(true).catch(() => null)
+  if (!session) {
     return response
   }
 
@@ -124,7 +105,7 @@ export async function apiFetch(
     await sendAuthenticatedRequest(
       path,
       preparedInit,
-      data.session.access_token,
+      session.accessToken,
     )
 
   await captureDocumentIdentity(

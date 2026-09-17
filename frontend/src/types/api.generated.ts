@@ -27,6 +27,53 @@ export type AnswerReviewResponse = {
   "decisions": AnswerReviewDecision[]
 }
 
+export type HistoryCreate = {
+  "quiz_title": string
+  "source_filename": string
+  "document_sha256"?: string | null
+  "difficulty": "easy" | "medium" | "hard"
+  "question_type": "multiple_choice" | "true_false" | "short_answer" | "mixed"
+  "question_count": number
+  "score": number
+  "percentage": number
+  "quiz_data": {
+  [key: string]: unknown
+}
+  "selected_answers": {
+  [key: string]: number | string
+}
+}
+
+export type HistoryRow = {
+  "id": string
+  "user_id": string
+  "quiz_title": string
+  "source_filename": string
+  "document_sha256"?: string | null
+  "difficulty": string
+  "question_type": string
+  "question_count": number
+  "score": number
+  "percentage": number
+  "quiz_data": unknown
+  "selected_answers": {
+  [key: string]: number | string
+}
+  "created_at": string
+}
+
+export type HistoryCursor = {
+  "createdAt": string
+  "id": string
+}
+
+export type HistoryPage = {
+  "items": HistoryRow[]
+  "totalCount": number | null
+  "hasMore": boolean
+  "nextCursor": HistoryCursor | null
+}
+
 export type Quiz = {
   "title": string
   "questions": QuizQuestion[]
@@ -78,12 +125,16 @@ export type UploadResponse = {
 }
 
 export const API_ROUTES = [
+  "DELETE /api/quiz-history/{entry_id}",
   "GET /",
   "GET /api/admin/metrics",
   "GET /api/documents/{document_sha256}/pages/{page_number}",
   "GET /api/health",
+  "GET /api/quiz-history",
+  "GET /api/quiz-history/document",
   "POST /api/answers/review",
   "POST /api/documents/upload",
+  "POST /api/quiz-history",
   "POST /api/quizzes/generate",
 ] as const
 
