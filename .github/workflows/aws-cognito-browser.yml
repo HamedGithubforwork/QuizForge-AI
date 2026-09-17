@@ -121,7 +121,6 @@ jobs:
       PGDATABASE: quizforge_rehearsal
       PGUSER: postgres
       PGPASSWORD: local-browser-rehearsal-only
-      POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -163,12 +162,16 @@ jobs:
         run: python scripts/cognito_browser/control.py prepare
       - name: Prepare isolated TLS database and Redis
         if: inputs.operation == 'run'
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh prepare
       - name: Apply reviewed enrollment schema with separate least-privilege roles
         if: inputs.operation == 'run'
         run: python scripts/cognito_browser/control.py database
       - name: Verify real hosted OAuth, protected API, enrollment and revocation
         if: inputs.operation == 'run'
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh run
       - name: Verify fixture integrity and consumed confirmation
         if: inputs.operation == 'run'
@@ -178,6 +181,8 @@ jobs:
         run: python scripts/cognito_browser/control.py email-link
       - name: Remove runner containers and temporary credential files
         if: always()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh cleanup
 
   cleanup:
