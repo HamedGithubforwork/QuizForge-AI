@@ -148,19 +148,24 @@ def database(verify=False):
     print("PASS: runner-only TLS PostgreSQL seeded with separate history/enrollment credentials")
 
 
-def email_link():
+def email_start():
     v = values()
-    configuration(boto3.client("cognito-idp", region_name="ca-central-1"), v)
-    from urllib.parse import urlencode
-    link = "https://"+v["domain"]+".auth.ca-central-1.amazoncognito.com/signup?"+urlencode({
-        "client_id":v["client"],"response_type":"code","scope":"openid email aws.cognito.signin.user.admin",
-        "redirect_uri":"http://localhost:4174/auth/callback"})
-    # This URL is for email-confirmation handoff only. No resulting auth code is
-    # exchanged or accepted without the actual application's PKCE/state flow.
+    client = boto3.client("cognito-idp", region_name="ca-central-1")
+    configuration(client, v)
+    email = os.environ["QUIZFORGE_CANARY_EMAIL"].strip().lower()
+    # An unrelated random password is never persisted, displayed or reused.
+    # This account exists only to prove real signup and inbox confirmation.
+    result = client.sign_up(ClientId=v["client"], Username=email, Password="Qf9!"+secrets.token_urlsafe(32),
+                            UserAttributes=[{"Name":"email","Value":email}])
+    assert not result["UserConfirmed"]
+    assert result["CodeDeliveryDetails"]["DeliveryMedium"] == "EMAIL"
+    user = client.admin_get_user(UserPoolId=v["pool"], Username=email)
+    attrs = {a["Name"]:a["Value"] for a in user["UserAttributes"]}
+    assert user["UserStatus"] == "UNCONFIRMED" and attrs.get("email_verified", "false") == "false"
     with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
-        out.write(f"Email verification window ends at {v['deadline']} (UTC).\n\n[Open disposable signup]({link})\n\n")
-        out.write("Use only the configured dedicated canary inbox. Do not paste passwords or email codes into workflow inputs or chat. Run email-verify-stop after confirmation; stop also works without a completed test.\n")
-    print("PASS: dedicated-inbox signup window prepared; verification is not yet claimed")
+        out.write(f"Email verification window ends at {v['deadline']} (UTC).\n\n")
+        out.write("Cognito accepted signup and requested email delivery to the configured dedicated canary inbox. Open the verification link in the email titled 'Verify your temporary QuizForge AWS test account'. Do not paste the link or codes into chat or workflow inputs. Run email-verify-stop after confirmation; stop also works without a completed test.\n")
+    print("PASS: real signup accepted, email delivery requested, account remains unconfirmed; inbox delivery and confirmation are not yet claimed")
 
 
 def verify_email():
@@ -203,7 +208,7 @@ if __name__ == "__main__":
     try:
         action = sys.argv[1]
         if action == "database-verify": database(True)
-        else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-link":email_link,
+        else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
     except Exception as error:
         line = traceback.extract_tb(error.__traceback__)[-1].lineno

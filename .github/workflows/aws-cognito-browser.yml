@@ -176,9 +176,11 @@ jobs:
       - name: Verify fixture integrity and consumed confirmation
         if: inputs.operation == 'run'
         run: python scripts/cognito_browser/control.py database-verify
-      - name: Publish dedicated inbox verification handoff
+      - name: Sign up dedicated inbox and request real verification email
         if: inputs.operation == 'email-start'
-        run: python scripts/cognito_browser/control.py email-link
+        env:
+          QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+        run: python scripts/cognito_browser/control.py email-start
       - name: Remove runner containers and temporary credential files
         if: always()
         env:

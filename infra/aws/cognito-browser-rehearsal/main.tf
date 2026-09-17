@@ -69,7 +69,11 @@ resource "aws_cognito_user_pool" "browser" {
   admin_create_user_config { allow_admin_create_user_only = false }
   software_token_mfa_configuration { enabled = true }
   email_configuration { email_sending_account = "COGNITO_DEFAULT" }
-  verification_message_template { default_email_option = "CONFIRM_WITH_CODE" }
+  verification_message_template {
+    default_email_option  = "CONFIRM_WITH_LINK"
+    email_subject_by_link = "Verify your temporary QuizForge AWS test account"
+    email_message_by_link = "This is the disposable QuizForge AWS migration rehearsal. {##Verify your test email##}. The temporary account will be deleted after validation."
+  }
   user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
   lambda_config { pre_sign_up = aws_lambda_function.guard.arn }
   password_policy {

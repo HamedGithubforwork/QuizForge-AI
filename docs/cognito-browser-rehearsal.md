@@ -14,7 +14,9 @@ Every automated run has an independent always-run cleanup job, including after v
 
 The automated run suppresses email delivery and rejects public signup. It does **not** prove delivery to a real inbox.
 
-**email-start** enables signup only for the existing dedicated `QUIZFORGE_CANARY_EMAIL` GitHub secret. Terraform and Lambda receive only a SHA-256 allowlist digest; the controller never prints the address. The signup guard never auto-confirms users or auto-verifies email. A run-summary link opens the actual Cognito signup page. Enter credentials and the received code only on that page, using a secure browser handoff; never place them in chat, workflow inputs, logs or artifacts. This link is solely an email-confirmation handoff: it does not exchange or accept a code, and is not the application's PKCE login flow.
+**email-start** enables signup only for the existing dedicated `QUIZFORGE_CANARY_EMAIL` GitHub secret. Terraform and Lambda receive only a SHA-256 allowlist digest; the controller never prints the address. It signs up that disposable user with a random password that is never persisted, displayed or reused. Cognito sends a verification link titled **Verify your temporary QuizForge AWS test account**. The controller first checks the account remains unconfirmed and email unverified. The signup guard never auto-confirms users or auto-verifies email.
+
+Open the link only from the dedicated inbox; never place verification links or codes in chat, workflow inputs, logs or artifacts. This proves inbox confirmation only and does not sign in or exchange OAuth codes. Cognito accepting a send request does not itself prove inbox delivery; that is claimed only after confirmation. See [AWS email verification templates](https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pool-settings-message-customizations.html).
 
 After confirming the real email, immediately run **email-verify-stop**. It requires the dedicated account to be `CONFIRMED` with `email_verified=true`, and always destroys resources even if verification fails. If the handoff cannot be completed, run **stop** immediately. There is no AdminConfirmSignUp bypass.
 
