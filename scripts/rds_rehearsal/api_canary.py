@@ -40,10 +40,25 @@ def entry(title="RDS API validation"):
             "score": 4, "percentage": 80, "quiz_data": {"questions": []}, "selected_answers": {"0": 1}}
 
 
+def refresh_cognito(session):
+    import boto3
+    from botocore import UNSIGNED
+    from botocore.config import Config
+    # User-token operations only: no task IAM credentials, no EC2 metadata lookup.
+    client = boto3.client("cognito-idp", region_name="ca-central-1",
+                          config=Config(signature_version=UNSIGNED, connect_timeout=10, read_timeout=20))
+    for user in (session, session["unmapped"], session["unverified"]):
+        fresh = client.initiate_auth(ClientId=session["client_id"], AuthFlow="REFRESH_TOKEN_AUTH",
+                                     AuthParameters={"REFRESH_TOKEN": user["refresh_token"]})["AuthenticationResult"]
+        user["access_token"], user["id_token"] = fresh["AccessToken"], fresh["IdToken"]
+    return client
+
+
 def main():
     assert not any(os.getenv(key) for key in ("PGUSER", "PGPASSWORD", "HISTORY_DB_PASSWORD",
                                              "AWS_ACCESS_KEY_ID", "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"))
     session = json.loads(os.environ["CANARY_SESSION"])
+    cognito = refresh_cognito(session) if session.get("provider") == "cognito" else None
     token = session["access_token"]
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
@@ -60,6 +75,11 @@ def main():
         for rejected in (None, "invalid-token"):
             assert request(method, path, rejected, entry() if method == "POST" else None)[0] == 401
     print("PASS: real API rejects missing and invalid bearer tokens on every history route")
+    if cognito:
+        assert request("GET", "/api/quiz-history", session["id_token"])[0] == 401
+        assert request("GET", "/api/quiz-history", session["unmapped"]["access_token"])[0] == 403
+        assert request("GET", "/api/quiz-history", session["unverified"]["access_token"])[0] == 403
+        print("PASS: real Cognito ID token, unmapped same-email account and unverified-email account cannot access history")
     status, initial, _ = request("GET", "/api/quiz-history", token)
     assert status == 200 and initial["totalCount"] == 0 and initial["items"] == []
     assert request("POST", "/api/quiz-history", token, {**entry(), "user_id": str(UUID(int=1))})[0] == 422
@@ -78,7 +98,7 @@ def main():
         "source_filename": "rds-api-validation.pdf", "document_sha256": "a" * 64}), token)
     assert status == 200 and {r["id"] for r in documents} == {r["id"] for r in rows}
     assert request("DELETE", "/api/quiz-history/" + str(UUID(int=100)), token)[0] == 204
-    print("PASS: real Supabase authentication, internal identity mapping, create/list/cursor/document queries and foreign deletion checks")
+    print("PASS: real provider authentication, internal identity mapping, create/list/cursor/document queries and foreign deletion checks")
     preflight = {"Origin": "https://rds-rehearsal.invalid", "Access-Control-Request-Method": "DELETE",
                  "Access-Control-Request-Headers": "authorization"}
     status, body, headers = request("OPTIONS", "/api/quiz-history/" + rows[0]["id"], headers=preflight)
@@ -92,6 +112,10 @@ def main():
     status, final, _ = request("GET", "/api/quiz-history", token)
     assert status == 200 and final["items"] == [] and final["totalCount"] == 0
     print("PASS: trusted CORS preflight, untrusted-origin rejection and own-row deletion; no OpenAI calls")
+    if cognito:
+        cognito.revoke_token(ClientId=session["client_id"], Token=session["refresh_token"])
+        assert request("GET", "/api/quiz-history", token)[0] == 401
+        print("PASS: real revoked Cognito access token rejected by FastAPI despite a previously cached signing key")
 
 
 if __name__ == "__main__":

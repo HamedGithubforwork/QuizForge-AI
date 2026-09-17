@@ -192,5 +192,7 @@ output "probe" {
     private_subnets = local.foundation.private_subnet_ids
     api_task        = try(aws_ecs_task_definition.api[0].arn, "")
     session_secret  = try(aws_secretsmanager_secret.api_session[0].arn, "")
+    cognito_pool    = try(aws_cognito_user_pool.rehearsal[0].id, "")
+    cognito_client  = try(aws_cognito_user_pool_client.rehearsal[0].id, "")
   }
 }

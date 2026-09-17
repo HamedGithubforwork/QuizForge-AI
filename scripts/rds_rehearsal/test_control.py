@@ -44,6 +44,7 @@ class LifecycleTests(unittest.TestCase):
         def aws(*args, **kwargs):
             if args[1] in ("describe-db-instances", "describe-db-snapshots", "describe-secret"): return None
             if args[1] == "list-tasks": return {"taskArns": []}
+            if args[1] == "list-user-pools": return {"UserPools": []}
             counts[0] += 1
             return {"DBInstanceAutomatedBackups": [{"DBInstanceIdentifier": control.NAME}] if counts[0] == 1 else []}
         with patch.object(control, "aws", side_effect=aws), patch.object(control.time, "sleep") as sleep:
@@ -56,6 +57,7 @@ class LifecycleTests(unittest.TestCase):
             if args[1] == "describe-db-instances": return {"DBInstances": [{}]}
             if args[1] in ("describe-db-snapshots", "describe-secret"): return None
             if args[1] == "list-tasks": return {"taskArns": []}
+            if args[1] == "list-user-pools": return {"UserPools": []}
             return {"DBInstanceAutomatedBackups": []}
         with patch.object(control, "aws", side_effect=aws), patch.object(control.time, "sleep"), \
              patch.object(control.time, "monotonic", side_effect=[0, 0, 901]):
@@ -66,6 +68,7 @@ class LifecycleTests(unittest.TestCase):
             if args[1] in ("describe-db-instances", "describe-db-snapshots"): return None
             if args[1] == "describe-secret": return {"ARN": "still-present"}
             if args[1] == "list-tasks": return {"taskArns": []}
+            if args[1] == "list-user-pools": return {"UserPools": []}
             return {"DBInstanceAutomatedBackups": []}
         with patch.object(control, "aws", side_effect=aws), patch.object(control.time, "sleep"), \
              patch.object(control.time, "monotonic", side_effect=[0, 0, 901]):
@@ -90,6 +93,16 @@ class LifecycleTests(unittest.TestCase):
                     else:
                         control.run_task(values, "task-definition", {}, container="canary", prefix="rds-api")
                 self.assertEqual(len(stopped), 1)
+
+    def test_cleanup_does_not_pass_when_cognito_pool_remains(self):
+        def aws(*args, **kwargs):
+            if args[1] in ("describe-db-instances", "describe-db-snapshots", "describe-secret"): return None
+            if args[1] == "list-tasks": return {"taskArns": []}
+            if args[1] == "list-user-pools": return {"UserPools": [{"Name": "quizforge-cognito-rehearsal"}]}
+            return {"DBInstanceAutomatedBackups": []}
+        with patch.object(control, "aws", side_effect=aws), patch.object(control.time, "sleep"), \
+             patch.object(control.time, "monotonic", side_effect=[0, 0, 901]):
+            with self.assertRaises(RuntimeError): control.confirm_absent()
 
     def test_canary_session_uses_private_temporary_file_without_logging_token(self):
         token, paths = "test-token-never-log", []
