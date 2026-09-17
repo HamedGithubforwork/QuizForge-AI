@@ -129,7 +129,7 @@ def test_app_lifespan_records_snapshot_without_blocking_shutdown(monkeypatch):
     )
 
     async def run_lifespan():
-        async with app_shared.app_lifespan(None):
+        async with app_shared.app_lifespan(app_shared.create_app()):
             events.append("yield")
 
     asyncio.run(run_lifespan())
