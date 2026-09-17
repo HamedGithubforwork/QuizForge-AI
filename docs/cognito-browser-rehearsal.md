@@ -36,6 +36,10 @@ The finish probe requires wrong-code and weak-password rejection, real `ConfirmF
 
 Password recovery must not bypass a lost authenticator. Lost-MFA support requires a separately reviewed identity-proof process before production. No MFA removal, administrator password-reset bypass, code interception, custom email-sender hook, extra paid Cognito tier or brute-force load test is used here.
 
+The pool's post-confirmation trigger handles `PostConfirmation_ConfirmForgotPassword` by calling `AdminUserGlobalSignOut` before returning. Its only additional IAM action is restricted to this exact disposable pool. Failure to revoke fails the confirmation response; the trigger does not change passwords, MFA or identity attributes and ignores client-supplied targeting metadata. Signup still uses the existing fail-closed guard. This is a pool security behavior exercised by the probe, not a controller sign-out inserted to manufacture a pass. The probe continues to require working pre-reset access/refresh tokens to be rejected after the real reset. See [Cognito post-confirmation triggers](https://docs.aws.amazon.com/cognito/latest/developerguide/user-pool-lambda-post-confirmation.html) and [AdminUserGlobalSignOut](https://docs.aws.amazon.com/cognito-user-identity-pools/latest/APIReference/API_AdminUserGlobalSignOut.html).
+
+Global sign-out does not clear Cognito's hosted-login cookie. Browser recovery must explicitly clear the hosted session through the logout endpoint; this remains a browser UX gate. Backend JWT signature checks alone do not detect revocation; the reviewed application uses an online GetUser check.
+
 ## Costs and remaining gates
 
 Few Cognito Lite test users and short 128 MB Lambda invocations should fit available free allowances; eligibility and shared usage determine actual charges. Temporary CloudWatch logs, Terraform S3 state and GitHub Actions minutes/artifacts may be billable. No paid Cognito Plus features, SMS or permanently running AWS compute are enabled. See [Cognito pricing](https://aws.amazon.com/cognito/pricing/) and [Lambda pricing](https://aws.amazon.com/lambda/pricing/).

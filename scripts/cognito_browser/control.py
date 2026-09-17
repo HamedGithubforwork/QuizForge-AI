@@ -35,7 +35,8 @@ def values():
 
 def package():
     with zipfile.ZipFile(TF / "pre_signup.zip", "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.write(Path(__file__).with_name("pre_signup.py"), "pre_signup.py")
+        for name in ("pre_signup.py", "identity_triggers.py"):
+            archive.write(Path(__file__).with_name(name), name)
 
 
 def rehearsal_email():
@@ -72,7 +73,8 @@ def configuration(client, v):
     assert not pool.get("SmsConfiguration") and pool.get("UserPoolAddOns", {}).get("AdvancedSecurityMode", "OFF") == "OFF"
     assert pool["AccountRecoverySetting"]["RecoveryMechanisms"] == [{"Priority": 1, "Name": "verified_email"}]
     assert client.get_user_pool_mfa_config(UserPoolId=v["pool"])["SoftwareTokenMfaConfiguration"]["Enabled"]
-    assert set(pool["LambdaConfig"]) == {"PreSignUp"}
+    assert set(pool["LambdaConfig"]) == {"PreSignUp", "PostConfirmation"}
+    assert pool["LambdaConfig"]["PreSignUp"] == pool["LambdaConfig"]["PostConfirmation"]
     policy = pool["Policies"]["PasswordPolicy"]
     assert policy["MinimumLength"] >= 14 and all(policy[k] for k in ("RequireLowercase","RequireUppercase","RequireNumbers","RequireSymbols"))
     app = client.describe_user_pool_client(UserPoolId=v["pool"], ClientId=v["client"])["UserPoolClient"]
