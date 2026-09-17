@@ -26,6 +26,11 @@ async def check_identity_role(conn):
         has_table_privilege(current_user,'app.identity_challenges','DELETE,TRUNCATE') AS challenges""")).fetchone()
     if any(forbidden.values()):
         raise RuntimeError("Enrollment role has excessive privileges")
+    writable = await (await conn.execute("""SELECT column_name FROM information_schema.columns
+        WHERE table_schema='app' AND table_name='identity_challenges' AND column_name <> 'used_at'
+        AND has_column_privilege(current_user,'app.identity_challenges',column_name,'UPDATE')""")).fetchall()
+    if writable:
+        raise RuntimeError("Enrollment role has excessive challenge update privileges")
 
 
 class IdentityRepository:

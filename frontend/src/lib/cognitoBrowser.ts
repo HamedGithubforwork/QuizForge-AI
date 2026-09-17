@@ -26,6 +26,7 @@ export function initialize() {
       const callback = window.location.href
       // Remove authorization codes/errors before network requests or rendering.
       window.history.replaceState({}, '', '/')
+      await manager.clearStaleState()
       try { await manager.signinRedirectCallback(callback) }
       catch { await manager.removeUser(); throw new Error('Sign-in could not be verified. Please start again.') }
     }
@@ -75,5 +76,12 @@ export async function identityRequest(path: string, body?: object, legacyToken?:
     const value = await response.json().catch(() => ({}))
     throw new Error(typeof value.detail === 'string' ? value.detail : 'Account enrollment could not be completed.')
   }
-  return response.status === 204 ? null : response.json()
+  if (response.status === 204) return null
+  const result = await response.json()
+  if (path === '/identity/session' && (result.id !== current.userId || typeof result.email !== 'string'
+      || typeof result.enrolled !== 'boolean')) {
+    await manager.removeUser()
+    throw new Error('Account identity could not be verified. Please sign in again.')
+  }
+  return result
 }

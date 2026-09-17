@@ -6,7 +6,7 @@ const subject = '00000000-0000-0000-0000-000000000101'
 const jwt = (claims: object) => [Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url'),
   Buffer.from(JSON.stringify(claims)).toString('base64url'), 'test-signature'].join('.')
 
-async function setup(page: Page, options: { badNonce?: boolean; badState?: boolean; enrolled?: boolean; unverified?: boolean; revokeFails?: boolean } = {}) {
+async function setup(page: Page, options: { badNonce?: boolean; badState?: boolean; staleState?: boolean; wrongIdentity?: boolean; enrolled?: boolean; unverified?: boolean; revokeFails?: boolean } = {}) {
   let authorize: URL
   let tokenCalls = 0
   let refreshCalls = 0
@@ -16,6 +16,16 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
   let confirmationCount = 0
   let mode = ''
   let historyCalls = 0
+  const authenticatedAt = Math.floor(Date.now() / 1000)
+  if (options.staleState) await page.addInitScript(() => {
+    if (location.pathname === '/auth/callback') for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith('quizforge.cognito.state.')) {
+        const state = JSON.parse(sessionStorage.getItem(key)!)
+        state.created = Math.floor(Date.now() / 1000) - 660
+        sessionStorage.setItem(key, JSON.stringify(state))
+      }
+    }
+  })
   await page.route(domain + '/oauth2/authorize**', async route => {
     authorize = new URL(route.request().url())
     expect(authorize.searchParams.get('response_type')).toBe('code')
@@ -46,7 +56,7 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     await route.fulfill({ json: { access_token: refreshCalls ? 'synthetic-refreshed-access' : 'synthetic-access',
       refresh_token: 'synthetic-refresh', token_type: 'Bearer', expires_in: 300,
       id_token: jwt({ sub: subject, email: 'cognito@example.invalid', iss: 'https://cognito-idp.ca-central-1.amazonaws.com/ca-central-1_BrowserTest',
-        aud: 'browserclient123', exp: now + 300, iat: now, auth_time: now,
+        aud: 'browserclient123', exp: now + 300, iat: now, auth_time: authenticatedAt,
         nonce: options.badNonce ? 'wrong' : authorize.searchParams.get('nonce') }) },
       headers: { 'access-control-allow-origin': '*' } })
   })
@@ -65,7 +75,7 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     expect(route.request().headers().authorization).toMatch(/^Bearer synthetic-/)
     const path = new URL(route.request().url()).pathname
     if (options.unverified) return route.fulfill({ status: 403, json: { detail: 'A verified email address is required.' } })
-    if (path.endsWith('/session')) return route.fulfill({ json: { enrolled, id: `cognito:ca-central-1_BrowserTest:${subject}`, email: 'cognito@example.invalid' } })
+    if (path.endsWith('/session')) return route.fulfill({ json: { enrolled, id: options.wrongIdentity ? 'other-user' : `cognito:ca-central-1_BrowserTest:${subject}`, email: 'cognito@example.invalid' } })
     const data = route.request().postDataJSON()
     expect(data.user_id).toBeUndefined()
     if (path.endsWith('/challenge')) {
@@ -110,7 +120,9 @@ test('PKCE callback enrolls only after confirmation, refreshes bearer and revoke
   expect(state.counts().confirmationCount).toBe(0)
   await page.getByRole('button', { name: 'Confirm account setup' }).click()
   await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
+  await page.getByRole('button', { name: 'My Quiz History', exact: false }).click()
   await expect.poll(() => state.counts().historyCalls).toBeGreaterThan(0)
+  await expect(page.getByText('No saved quizzes yet')).toBeVisible()
   expect(state.counts().refreshCalls).toBe(1)
   const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(JSON.stringify(storage)).not.toMatch(/synthetic-(access|refresh|legacy)|code_verifier|synthetic-code/)
@@ -133,7 +145,7 @@ test('existing history linking sends fresh dual proof without storing legacy ses
   expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([])
 })
 
-for (const option of ['badState', 'badNonce', 'unverified'] as const) {
+for (const option of ['badState', 'badNonce', 'staleState', 'wrongIdentity', 'unverified'] as const) {
   test(`rejects ${option} before account enrollment`, async ({ page }) => {
     const state = await setup(page, { [option]: true })
     await login(page)
@@ -141,7 +153,7 @@ for (const option of ['badState', 'badNonce', 'unverified'] as const) {
     await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toHaveCount(0)
     expect(state.counts().challengeCount).toBe(0)
     expect(page.url()).not.toContain('code=')
-    if (option === 'badState') expect(state.counts().tokenCalls).toBe(0)
+    if (option === 'badState' || option === 'staleState') expect(state.counts().tokenCalls).toBe(0)
   })
 }
 
