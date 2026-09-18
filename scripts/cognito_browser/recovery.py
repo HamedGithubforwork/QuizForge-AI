@@ -13,6 +13,8 @@ import control
 
 PREFIX = "/quizforge/cognito-browser-rehearsal/recovery/"
 PARAMETERS = [PREFIX + name for name in ("fixture", "refresh")]
+HOSTED_PARAMETERS = [PREFIX + f"hosted-{i}" for i in range(4)]
+ALL_PARAMETERS = PARAMETERS + HOSTED_PARAMETERS
 
 
 def ssm():
@@ -20,14 +22,14 @@ def ssm():
 
 
 def empty():
-    assert not ssm().get_parameters(Names=PARAMETERS, WithDecryption=False)["Parameters"], "Recovery fixture still exists; run stop"
+    assert not ssm().get_parameters(Names=ALL_PARAMETERS, WithDecryption=False)["Parameters"], "Recovery fixture still exists; run stop"
 
 
 def cleanup():
     # Exact isolated names only; also handles a partially written fixture.
-    ssm().delete_parameters(Names=PARAMETERS)
+    ssm().delete_parameters(Names=ALL_PARAMETERS)
     empty()
-    print("PASS: both temporary recovery SecureStrings are absent")
+    print("PASS: all temporary API and hosted recovery SecureStrings are absent")
 
 
 def save(fixture, refresh):

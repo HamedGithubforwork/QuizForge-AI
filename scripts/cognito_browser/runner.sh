@@ -33,6 +33,7 @@ case "${1:?}" in
       redis:7-alpine redis-server --save '' --appendonly no >/dev/null
     ;;
   run)
+    mkdir -m 700 -p "$RUNNER_TEMP/hosted-handoff"
     if test "${QUIZFORGE_PREFLIGHT:-}" != 1; then docker load --input /tmp/quizforge-browser-images/images.tar >/dev/null; fi
     for service in api identity; do
       if test "$service" = api; then role=quizforge_app; port=8000; app=main:app; factory=();
@@ -47,6 +48,7 @@ case "${1:?}" in
       --read-only --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
       --tmpfs /tmp:rw,nosuid,nodev,size=512m --shm-size 256m \
       --mount "type=bind,source=$RUNNER_TEMP/cognito-browser-bundle.json,target=/run/fixture.json,readonly" \
+      --mount "type=bind,source=$RUNNER_TEMP/hosted-handoff,target=/run/handoff" \
       --env "QUIZFORGE_PREFLIGHT=${QUIZFORGE_PREFLIGHT:-0}" \
       quizforge-browser-driver:tested
     ;;
@@ -73,6 +75,8 @@ PY
     docker network disconnect "$network" "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
     rm -f "$RUNNER_TEMP/cognito-browser-bundle.json" "$RUNNER_TEMP/quizforge_app.env" "$RUNNER_TEMP/quizforge_identity.env" "$RUNNER_TEMP/browser-server.key" "$RUNNER_TEMP/browser-server.crt"
+    rm -f "$RUNNER_TEMP/hosted-handoff/continuation.json"
+    rmdir "$RUNNER_TEMP/hosted-handoff" 2>/dev/null || true
     ;;
   *) exit 2 ;;
 esac

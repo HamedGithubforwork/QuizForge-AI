@@ -13,9 +13,9 @@ on:
         description: "Run, start inbox verification/recovery, finish and destroy, or stop"
         type: choice
         required: true
-        options: [run, email-start, email-verify-stop, recovery-start, recovery-finish-stop, stop]
+        options: [run, email-start, email-verify-stop, recovery-start, recovery-finish-stop, hosted-recovery-start, hosted-recovery-finish-stop, stop]
       application_pr:
-        description: "Same-repository application PR with passing required checks (run only)"
+        description: "Application PR with passing required checks (run or hosted-recovery-start)"
         type: string
         default: "97"
   schedule:
@@ -33,7 +33,7 @@ env:
 jobs:
   validate:
     name: Cognito browser infrastructure and signup guards
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["run", "email-start", "recovery-start"]'), inputs.operation))
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["run", "email-start", "recovery-start", "hosted-recovery-start"]'), inputs.operation))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -62,7 +62,7 @@ jobs:
   images:
     name: Build reviewed browser and API without AWS credentials
     needs: validate
-    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run')
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -146,7 +146,7 @@ jobs:
   rehearse:
     name: Live hosted OAuth and browser enrollment
     needs: [validate, images]
-    if: always() && needs.validate.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "email-start", "recovery-start"]'), inputs.operation)
+    if: always() && needs.validate.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "email-start", "recovery-start", "hosted-recovery-start"]'), inputs.operation)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -178,7 +178,7 @@ jobs:
       - name: Install trusted locked controller dependencies before OIDC
         run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
       - name: Download reviewed images
-        if: inputs.operation == 'run'
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
         uses: actions/download-artifact@v8
         with:
           name: cognito-browser-images
@@ -207,19 +207,27 @@ jobs:
       - name: Prepare synthetic identities with mandatory TOTP
         if: inputs.operation == 'run'
         run: python scripts/cognito_browser/control.py prepare
+      - name: Prepare hosted recovery fixture with dedicated verified inbox
+        if: inputs.operation == 'hosted-recovery-start'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py hosted-prepare
       - name: Prepare isolated TLS database and Redis
-        if: inputs.operation == 'run'
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh prepare
       - name: Apply reviewed enrollment schema with separate least-privilege roles
-        if: inputs.operation == 'run'
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
         run: python scripts/cognito_browser/control.py database
       - name: Verify real hosted OAuth, protected API, enrollment and revocation
-        if: inputs.operation == 'run'
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh run
+      - name: Encrypt bounded hosted confirmation continuation
+        if: inputs.operation == 'hosted-recovery-start'
+        run: python scripts/cognito_browser/control.py hosted-save
       - name: Verify fixture integrity and consumed confirmation
         if: inputs.operation == 'run'
         run: python scripts/cognito_browser/control.py database-verify
@@ -239,10 +247,85 @@ jobs:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: bash scripts/cognito_browser/runner.sh cleanup
 
+  hosted_finish:
+    name: Complete real hosted recovery and verify browser logout
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'hosted-recovery-finish-stop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-browser-rehearsal-only
+          POSTGRES_DB: quizforge_rehearsal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGDATABASE: quizforge_rehearsal
+      PGUSER: postgres
+      PGPASSWORD: local-browser-rehearsal-only
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked trusted controller before OIDC
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Initialize existing isolated state
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          terraform -chdir=infra/aws/cognito-browser-rehearsal init -reconfigure \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=quizforge/cognito-browser-rehearsal/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Validate receipt and decrypt bounded continuation
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+          COGNITO_RECOVERY_RECEIPT: ${{ secrets.COGNITO_RECOVERY_RECEIPT }}
+        run: python scripts/cognito_browser/control.py hosted-load
+      - name: Download the original reviewed images from the bound start run
+        uses: actions/download-artifact@v8
+        with:
+          name: cognito-browser-images
+          path: /tmp/quizforge-browser-images
+          run-id: ${{ env.HOSTED_IMAGE_RUN }}
+          github-token: ${{ github.token }}
+      - name: Prepare runner-only TLS database and Redis
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh prepare
+      - name: Prepare least-privilege history and identity roles
+        run: python scripts/cognito_browser/control.py database
+      - name: Require hosted reset, old-session rejection, preserved MFA and cookie logout
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh run
+      - name: Remove runner containers and private handoff files
+        if: always()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh cleanup
+
   cleanup:
     name: Verify inbox result when requested and destroy temporary Cognito
-    needs: [validate, images, rehearse]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(contains(fromJSON('["email-start", "recovery-start"]'), inputs.operation) && needs.rehearse.result == 'success')
+    needs: [validate, images, rehearse, hosted_finish]
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(contains(fromJSON('["email-start", "recovery-start", "hosted-recovery-start"]'), inputs.operation) && needs.rehearse.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
