@@ -240,7 +240,7 @@ if __name__ == "__main__":
             {"recovery-start": recovery.start, "recovery-finish": recovery.finish, "recovery-cleanup": recovery.cleanup}[action]()
         elif action.startswith("hosted-"):
             import hosted
-            {"hosted-prepare": hosted.prepare, "hosted-save": hosted.save, "hosted-load": hosted.load}[action]()
+            {"hosted-prepare": hosted.prepare, "hosted-accept": hosted.accept, "hosted-deliver": hosted.deliver}[action]()
         elif action == "database-verify": database(True)
         else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()

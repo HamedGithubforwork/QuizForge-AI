@@ -44,11 +44,16 @@ case "${1:?}" in
         --mount "type=bind,source=$RUNNER_TEMP/browser-server.crt,target=/run/test-ca.pem,readonly" \
         quizforge-browser-api:tested uvicorn "$app" "${factory[@]}" --host 0.0.0.0 --port "$port" --no-access-log >/dev/null
     done
+    if test "${OPERATION:-}" = hosted-recovery-start; then
+      python scripts/cognito_browser/control.py hosted-deliver &
+      handoff_pid=$!
+      trap 'kill "$handoff_pid" 2>/dev/null || true; wait "$handoff_pid" 2>/dev/null || true' EXIT
+    fi
     docker run --name qf-browser-driver --network "$network" \
       --read-only --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
       --tmpfs /tmp:rw,nosuid,nodev,size=512m --shm-size 256m \
       --mount "type=bind,source=$RUNNER_TEMP/cognito-browser-bundle.json,target=/run/fixture.json,readonly" \
-      --mount "type=bind,source=$RUNNER_TEMP/hosted-handoff,target=/run/handoff" \
+      --mount "type=bind,source=$RUNNER_TEMP/hosted-handoff,target=/run/handoff,readonly" \
       --env "QUIZFORGE_PREFLIGHT=${QUIZFORGE_PREFLIGHT:-0}" \
       quizforge-browser-driver:tested
     ;;
@@ -75,7 +80,7 @@ PY
     docker network disconnect "$network" "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
     rm -f "$RUNNER_TEMP/cognito-browser-bundle.json" "$RUNNER_TEMP/quizforge_app.env" "$RUNNER_TEMP/quizforge_identity.env" "$RUNNER_TEMP/browser-server.key" "$RUNNER_TEMP/browser-server.crt"
-    rm -f "$RUNNER_TEMP/hosted-handoff/continuation.json"
+    rm -f "$RUNNER_TEMP/hosted-handoff/continuation.json" "$RUNNER_TEMP/hosted-handoff/receipt.json" "$RUNNER_TEMP/hosted-handoff/receipt.tmp"
     rmdir "$RUNNER_TEMP/hosted-handoff" 2>/dev/null || true
     ;;
   *) exit 2 ;;

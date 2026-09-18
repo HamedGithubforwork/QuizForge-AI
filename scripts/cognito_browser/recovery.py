@@ -14,7 +14,8 @@ import control
 PREFIX = "/quizforge/cognito-browser-rehearsal/recovery/"
 PARAMETERS = [PREFIX + name for name in ("fixture", "refresh")]
 HOSTED_PARAMETERS = [PREFIX + f"hosted-{i}" for i in range(4)]
-ALL_PARAMETERS = PARAMETERS + HOSTED_PARAMETERS
+HOSTED_RECEIPT = PREFIX + "hosted-receipt"
+ALL_PARAMETERS = PARAMETERS + HOSTED_PARAMETERS + [HOSTED_RECEIPT]
 
 
 def ssm():
