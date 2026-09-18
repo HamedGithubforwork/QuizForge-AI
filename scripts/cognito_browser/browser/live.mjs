@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, createHmac, randomBytes } from 'node:crypto'
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest } from 'node:http'
 import { setDefaultResultOrder } from 'node:dns'
@@ -105,40 +105,45 @@ async function logout(session, user) {
 
 async function hostedRecovery() {
   const user = bundle.users.mapped
-  if(bundle.recovery.mode==='start') {
-    phase='hosted recovery email request'
-    const context=await browser.newContext(); context.setDefaultTimeout(30000)
-    page=await context.newPage()
-    await page.goto(base)
-    await page.getByRole('button',{name:'Sign in or create account'}).click()
-    await page.getByRole('link',{name:/forgot.*password/i}).click()
-    await page.locator('input[name="username"]:visible').fill(user.email)
-    await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
-    await page.locator('input[type="password"]:visible').nth(1).waitFor()
-    const url = new URL(page.url())
-    assert.equal(url.origin,domain)
-    assert.equal(url.pathname,'/confirmForgotPassword')
-    await writeFile('/run/handoff/continuation.json',JSON.stringify({url:page.url(),cookies:await context.cookies(domain)}),{mode:0o600,flag:'wx'})
-    console.log('PASS: real hosted Forgot password form requested email and reached code/new-password confirmation; delivery and reset await finish')
-    return
+  assert.equal(bundle.recovery.mode,'live')
+  phase='hosted recovery email request'
+  const context=await browser.newContext(); context.setDefaultTimeout(30000)
+  page=await context.newPage()
+  await page.goto(base)
+  await page.getByRole('button',{name:'Sign in or create account'}).click()
+  await page.getByRole('link',{name:/forgot.*password/i}).click()
+  await page.locator('input[name="username"]:visible').fill(user.email)
+  await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
+  await page.locator('input[type="password"]:visible').nth(1).waitFor()
+  const resetUrl = new URL(page.url())
+  assert.equal(resetUrl.origin,domain)
+  assert.equal(resetUrl.pathname,'/confirmForgotPassword')
+  console.log('PASS: real hosted Forgot password form requested email; waiting at most three minutes for the run-bound receipt')
+  const recoveryPage=page
+  const receiptDeadline=Date.now()+180000
+  let receipt
+  while(Date.now()<receiptDeadline) {
+    try { receipt=JSON.parse(await readFile('/run/handoff/receipt.json','utf8')); break }
+    catch(error) { if(error.code!=='ENOENT') throw error }
+    await wait(1000)
   }
-  assert.equal(bundle.recovery.mode,'finish')
+  assert(receipt&&Object.keys(receipt).length===1&&/^[0-9]{6}$/.test(receipt.code))
+  // Create an unexpired pre-reset session only after inbox delivery. Keep the
+  // original live reset form open; never restore an internal provider URL.
   const before = await login('mapped')
   unexpired(before.tokens.access_token)
   assert.equal((await request(before.context,'/api/quiz-history',before.tokens.access_token)).status(),200)
   const originalSubject = JSON.parse(Buffer.from(before.tokens.id_token.split('.')[1],'base64url')).sub
   assert.equal(originalSubject,user.subject)
-  phase='hosted recovery confirmation'
-  const context=await browser.newContext(); context.setDefaultTimeout(30000)
-  await context.addCookies(bundle.continuation.cookies)
-  page=await context.newPage()
-  await page.goto(bundle.continuation.url)
+  phase='hosted recovery code entry'
+  page=recoveryPage
   const password='Qf9!'+randomBytes(32).toString('base64url')
-  await page.locator('input[name="code"]:visible,input[name="confirmation_code"]:visible').fill(bundle.recovery.code)
+  await page.locator('input[name="code"]:visible,input[name="confirmation_code"]:visible').fill(receipt.code)
   const passwords=page.locator('input[type="password"]:visible')
   assert.equal(await passwords.count(),2)
   await passwords.nth(0).fill(password)
   await passwords.nth(1).fill(password)
+  phase='hosted recovery submit and return to sign-in'
   await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
   await page.locator('input[name="username"]:visible').waitFor()
   assert.equal(new URL(page.url()).origin,domain)
@@ -248,6 +253,12 @@ try {
 } catch(error) {
   // Playwright exceptions can contain entered values/URLs. Never emit them or a trace.
   console.error(`ERROR: live browser rehearsal failed in ${phase} (${error.constructor.name})`)
+  if(page) {
+    const path=new URL(page.url()).pathname
+    const known=['/login','/forgotPassword','/confirmForgotPassword','/error','/mfa','/']
+    const body=await page.locator('body').innerText().catch(()=>'')
+    console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body),passwordChanged:/password.{0,30}(changed|reset)|successfully/i.test(body)}))
+  }
   if(preflight&&phase==='boot') console.error('Offline frontend startup:',startupLog)
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
   process.exitCode=1
