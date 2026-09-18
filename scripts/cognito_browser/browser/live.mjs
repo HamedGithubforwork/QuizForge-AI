@@ -114,7 +114,7 @@ async function hostedRecovery() {
   await page.getByRole('link',{name:/forgot.*password/i}).click()
   await page.locator('input[name="username"]:visible').fill(user.email)
   await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
-  await page.locator('input[type="password"]:visible').nth(1).waitFor()
+  await page.locator('input[name="confirmPassword"]:visible').waitFor()
   const resetUrl = new URL(page.url())
   assert.equal(resetUrl.origin,domain)
   assert.equal(resetUrl.pathname,'/confirmForgotPassword')
@@ -139,10 +139,12 @@ async function hostedRecovery() {
   page=recoveryPage
   const password='Qf9!'+randomBytes(32).toString('base64url')
   await page.locator('input[name="code"]:visible,input[name="confirmation_code"]:visible').fill(receipt.code)
-  const passwords=page.locator('input[type="password"]:visible')
+  // Cognito also masks the recovery code with type=password. Select the two
+  // replacement-password fields by their observed names, never by input type.
+  const passwords=page.locator('input[name="password"]:visible,input[name="confirmPassword"]:visible')
   assert.equal(await passwords.count(),2)
-  await passwords.nth(0).fill(password)
-  await passwords.nth(1).fill(password)
+  await page.locator('input[name="password"]:visible').fill(password)
+  await page.locator('input[name="confirmPassword"]:visible').fill(password)
   phase='hosted recovery submit and return to sign-in'
   await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
   await page.locator('input[name="username"]:visible').waitFor()
@@ -257,7 +259,7 @@ try {
     const path=new URL(page.url()).pathname
     const known=['/login','/forgotPassword','/confirmForgotPassword','/error','/mfa','/']
     const body=await page.locator('body').innerText().catch(()=>'')
-    console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body),passwordChanged:/password.{0,30}(changed|reset)|successfully/i.test(body)}))
+    console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body)}))
   }
   if(preflight&&phase==='boot') console.error('Offline frontend startup:',startupLog)
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
