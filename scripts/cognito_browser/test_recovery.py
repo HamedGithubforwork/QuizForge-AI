@@ -144,8 +144,8 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(recovery, "ssm") as ssm, contextlib.redirect_stdout(io.StringIO()):
             ssm.return_value.get_parameters.return_value = {"Parameters": []}
             recovery.cleanup()
-            ssm.return_value.delete_parameters.assert_called_once_with(Names=recovery.PARAMETERS)
-            ssm.return_value.get_parameters.assert_called_once_with(Names=recovery.PARAMETERS, WithDecryption=False)
+            ssm.return_value.delete_parameters.assert_called_once_with(Names=recovery.ALL_PARAMETERS)
+            ssm.return_value.get_parameters.assert_called_once_with(Names=recovery.ALL_PARAMETERS, WithDecryption=False)
             ssm.return_value.get_parameters.return_value = self.parameters()
             with self.assertRaises(AssertionError): recovery.cleanup()
 

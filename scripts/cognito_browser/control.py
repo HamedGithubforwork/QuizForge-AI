@@ -49,7 +49,7 @@ def rehearsal_email():
 def configure():
     email_mode = os.environ["OPERATION"] == "email-start"
     recovery_run = ""
-    if os.environ["OPERATION"] == "recovery-start":
+    if os.environ["OPERATION"] in ("recovery-start", "hosted-recovery-start"):
         import recovery
         rehearsal_email()
         recovery.empty()
@@ -238,6 +238,9 @@ if __name__ == "__main__":
         if action.startswith("recovery-"):
             import recovery
             {"recovery-start": recovery.start, "recovery-finish": recovery.finish, "recovery-cleanup": recovery.cleanup}[action]()
+        elif action.startswith("hosted-"):
+            import hosted
+            {"hosted-prepare": hosted.prepare, "hosted-save": hosted.save, "hosted-load": hosted.load}[action]()
         elif action == "database-verify": database(True)
         else: {"package":package,"configure":configure,"prepare":prepare,"database":database,"email-start":email_start,"offline-fixture":offline_fixture,
                "verify-email":verify_email,"cleanup-due":cleanup_due,"absent":absent}[action]()
