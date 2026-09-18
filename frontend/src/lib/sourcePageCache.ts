@@ -4,9 +4,7 @@ import type {
 import {
   apiFetch,
 } from './api'
-import {
-  supabase,
-} from './supabase'
+import { authSession } from './authSession'
 
 
 type SourcePageCacheEntry = {
@@ -140,16 +138,7 @@ function rememberSourcePage(
 
 
 async function getCurrentUserId() {
-  const {
-    data,
-    error,
-  } = await supabase.auth.getSession()
-
-  if (error) {
-    throw error
-  }
-
-  const userId = data.session?.user.id
+  const userId = (await authSession())?.userId
 
   if (!userId) {
     throw new Error(

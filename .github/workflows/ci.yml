@@ -8,6 +8,7 @@ on:
       - "backend/**"
       - "frontend/**"
       - "e2e/**"
+      - "scripts/rds_rehearsal/identity_schema.sql"
       - ".python-version"
       - "render.yaml"
       - ".github/workflows/ci.yml"
@@ -68,14 +69,14 @@ jobs:
 
           while IFS= read -r file; do
             case "${file}" in
-              backend/*|.python-version|render.yaml)
+              backend/*|scripts/rds_rehearsal/identity_schema.sql|.python-version|render.yaml)
                 backend=true
                 ;;
               frontend/*)
                 frontend=true
                 playwright=true
                 ;;
-              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.integration.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/deployment-smoke.yml|.github/workflows/local-stack-integration.yml)
+              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/cognito-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.integration.config.ts|e2e/playwright.canary.config.ts|e2e/playwright.cognito.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/deployment-smoke.yml|.github/workflows/local-stack-integration.yml)
                 playwright=true
                 ;;
               .github/workflows/ci.yml)
@@ -152,6 +153,42 @@ jobs:
       - name: Verify OCR runtime in backend Docker image
         run: docker run --rm quizforge-backend-ci python scripts/verify_ocr_runtime.py
 
+  postgres-history:
+    name: PostgreSQL history API security
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-rehearsal-only
+          POSTGRES_DB: quizforge_rehearsal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGDATABASE: quizforge_rehearsal
+      PGUSER: postgres
+      PGPASSWORD: local-rehearsal-only
+      TEST_HISTORY_POSTGRES: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Require TLS with hostname verification in the test database
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash backend/scripts/prepare_test_postgres_tls.sh
+      - name: Install locked application and test dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+      - name: Test actual PostgreSQL history API and identity isolation
+        working-directory: backend
+        run: python -m pytest -q tests/test_postgres_history_integration.py
+
   frontend-checks:
     name: Frontend checks
     needs: changes
@@ -214,6 +251,9 @@ jobs:
       - name: Run Playwright E2E tests
         run: npm --prefix e2e test
 
+      - name: Test Cognito PKCE and enrollment browser flow
+        run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
+
       - name: Validate deployed canary test discovery
         run: >-
           npx --prefix e2e playwright test
@@ -233,6 +273,7 @@ jobs:
     needs:
       - changes
       - backend-tests
+      - postgres-history
       - frontend-checks
       - playwright-e2e
     if: always()
@@ -244,6 +285,7 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          POSTGRES_RESULT: ${{ needs.postgres-history.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
         run: |
@@ -251,6 +293,7 @@ jobs:
 
           echo "Change detection: ${CHANGES_RESULT}"
           echo "Backend tests:   ${BACKEND_RESULT}"
+          echo "PostgreSQL API:  ${POSTGRES_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
 
@@ -259,7 +302,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
