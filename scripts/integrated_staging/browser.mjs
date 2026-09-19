@@ -128,10 +128,12 @@ async function fullQuiz(session) {
     document=data
     await page.getByRole('heading',{name:'PDF processed successfully'}).waitFor()
   }
+  phase='selecting quiz settings'
+  // These wrapping labels also contain all option text. Use the same scoped
+  // select locators as the application's existing end-to-end tests.
+  for(const [label,value] of [['Number of questions','5'],['Difficulty','easy'],['Question type','multiple_choice']])
+    await page.locator('.setting-group').filter({hasText:label}).locator('select').selectOption(value)
   phase='bounded real quiz generation'
-  await page.getByLabel('Number of questions',{exact:true}).selectOption('5')
-  await page.getByLabel('Difficulty',{exact:true}).selectOption('easy')
-  await page.getByLabel('Question type',{exact:true}).selectOption('multiple_choice')
   const generation=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/quizzes/generate'&&r.request().method()==='POST',{timeout:240000})
   await page.getByRole('button',{name:'Generate Quiz',exact:true}).click()
   const response=await generation
@@ -140,7 +142,7 @@ async function fullQuiz(session) {
   assert.equal(quiz.questions.length,5)
   await page.getByRole('heading',{name:quiz.title,exact:true}).waitFor()
   phase='answering, grading and source-page retrieval'
-  const cards=page.locator('.question-card')
+  const cards=page.locator('.question-card'), answers={}
   await expect(cards).toHaveCount(5)
   for(const [index,question] of quiz.questions.entries()) {
     assert.equal(question.question_type,'multiple_choice')
@@ -149,6 +151,7 @@ async function fullQuiz(session) {
     assert.deepEqual(question.source_pages,[1])
     // One deliberately wrong choice verifies both sides of deterministic grading.
     const choice=index===0?(question.correct_index+1)%4:question.correct_index
+    answers[String(index)]=choice
     await cards.nth(index).getByText(question.choices[choice],{exact:true}).click()
   }
   await page.getByRole('button',{name:'Check Answers',exact:true}).click()
@@ -165,7 +168,8 @@ async function fullQuiz(session) {
   const saved=(await (await request(session.context,'/api/quiz-history',session.tokens.access_token)).json()).items[0]
   assert.equal(saved.user_id,'00000000-0000-0000-0000-000000000003')
   assert.equal(saved.document_sha256,sha); assert.equal(saved.score,4); assert.equal(saved.percentage,80)
-  assert.deepEqual(saved.quiz_data,quiz)
+  assert.deepEqual(saved.quiz_data,{...quiz,document_sha256:sha})
+  assert.deepEqual(saved.selected_answers,answers)
   phase='quiz cache and normal API rate limit'
   async function generate(count) {
     return page.evaluate(async ({api,token,sha,count})=>{
@@ -271,6 +275,7 @@ try {
   // Playwright errors may contain entered values, tokens, or OAuth URLs.
   console.error('ERROR: integrated browser failed in '+phase+' ('+error.constructor.name+')')
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
+  if(page) console.error('Visible select schema:',JSON.stringify(await page.locator('select:visible').evaluateAll(nodes=>nodes.map(n=>({label:n.closest('label')?.querySelector('span')?.textContent,options:[...n.options].map(o=>o.value),disabled:n.disabled}))).catch(()=>[])))
   process.exitCode=1
 } finally {
   clearTimeout(watchdog)
