@@ -3,14 +3,15 @@
 This disposable environment joins the previously validated AWS components into a
 single browser journey: private S3 and CloudFront, Cognito hosted code/PKCE login
 with mandatory TOTP, the dedicated staging HTTPS ALB, separate API and account
-setup Fargate tasks, and private forced-TLS RDS PostgreSQL.
+setup Fargate tasks, private forced-TLS RDS PostgreSQL, and private TLS Valkey.
 
 Run **AWS integrated browser staging** on `main`, operation `run`, application PR
 `97`. The controller requires the existing checks to pass on that exact application
 commit before building it. The application PR remains draft and unmerged.
 
-The workflow validates real browser CORS/CSP, login/nonce/PKCE, history save/list/UI
-render/delete, explicit account enrollment, ownership isolation, invalid and
+The workflow validates real browser CORS/CSP, login/nonce/PKCE, PDF upload, a real
+five-question multiple-choice quiz, 4/5 grading, source retrieval, history save
+and reopening after a fresh login, deletion, explicit account enrollment, ownership isolation, invalid and
 unverified identity rejection, and hosted logout with fresh token revocation and
 password/TOTP required on the next login. A separate private database probe checks
 that the eight original synthetic history fixtures remain unchanged.
@@ -24,13 +25,13 @@ that the eight original synthetic history fixtures remain unchanged.
 - Application tasks have separate database credentials and no AWS task role. The API cannot read the enrollment role's credential.
 - Synthetic user passwords and TOTP seeds stay in one temporary encrypted fixture secret. The browser receives a private temporary file, no AWS environment or Docker socket, and no database credentials.
 - The private setup probe alone receives the RDS owner password. Its task role can read the fixture secret and write the two restricted application credentials.
-- Production Vercel, Render and Supabase services are not modified or queried. No OpenAI requests, production users, paid email/SMS delivery or data migration are included.
+- Production Vercel, Render and Supabase services are not modified or queried. A small authorized OpenAI generation uses the existing SSM key only in a trusted loopback sidecar. Production users, paid email/SMS delivery and data migration are excluded.
 
 ## Cleanup and limits
 
 An always-running cleanup job stops only the exact integration task families,
 destroys this isolated state, then queries AWS to confirm absence of the frontend,
-database/backups, tasks/services, load balancer/targets, Cognito pool/domain,
+database/backups, Valkey nodes/subnet group/snapshots, tasks/services, load balancer/targets, Cognito pool/domain,
 temporary secrets, roles, logs, security groups and staging DNS alias. The reusable
 foundation, certificate, zone and reviewed ECR images are retained. Existing ECR
 lifecycle rules manage stored images.
@@ -38,12 +39,31 @@ lifecycle rules manage stored images.
 An hourly scheduled cleanup and a manual `stop` operation provide recovery after
 an interrupted run. CloudFront independently stops serving the app after its
 two-hour lease. The lease does not stop AWS billing: cleanup must finish and its
-absence checks must pass. Temporary RDS, ALB, Fargate and public IP resources incur
+absence checks must pass. Temporary RDS, Valkey, ALB, Fargate and public IP resources incur
 normal AWS charges while present.
 
-This test covers the integrated authentication and history path. Generation,
-managed cache, recovery email and production rollout retain their separate gates.
-CI builds and mocked Terraform plans are prerequisites; the live evidence follows.
+The generation guard allows at most **two upstream attempts per disposable
+rehearsal**, including SDK retries and validation retries. It caps each at **4,096
+output tokens** and **32,768 bytes for the incoming request body**, permits only
+the application model and text input, disables response storage, and rejects
+expired leases. Only the guard has the real key; the unmodified reviewed API uses
+a placeholder key and loopback `OPENAI_BASE_URL`. Atomic private Valkey reservations
+survive task replacement; missing or unavailable budget state fails closed.
+This is a request/token bound, not an AWS account spending limit.
+
+The browser repeats the upload and quiz request, requires an identical cached quiz,
+then sends eight invalid settings requests and checks the normal eleventh request
+returns 429 with `Retry-After`. Invalid settings never reach the model. The private
+probe checks application-created document/source-page/quiz cache entries and TTLs,
+the shared rate counter, exact cache metrics, one generation pipeline and the actual
+upstream attempt count. Multiple-choice grading makes no answer-review model calls.
+The saved-result UI lists the score and quiz metadata; this rehearsal does not add
+a UI feature to reload old questions into a new attempt.
+
+Credentialless CI tests atomic reservations with 16 concurrent connections to a
+real disposable Valkey instance, boundary guards, immutable image builds and mocked
+Terraform plans. Recovery email and production rollout remain separate gates.
+The earlier live evidence below predates generation/cache integration.
 
 ## Verified browser checkpoint — 2026-09-19
 

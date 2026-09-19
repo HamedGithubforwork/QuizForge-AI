@@ -289,6 +289,7 @@ resource "aws_ecs_task_definition" "probe" {
     readonlyRootFilesystem = true, user = "10001:10001", linuxParameters = { capabilities = { drop = ["ALL"] } },
     environment = [
       { name = "PGHOST", value = aws_db_instance.db.address },
+      { name = "REDIS_URL", value = local.redis_url },
       { name = "PGDATABASE", value = "quizforge_rehearsal" },
       { name = "PGSSLROOTCERT", value = "/app/rds-ca.pem" },
       { name = "FIXTURE_SECRET", value = aws_secretsmanager_secret.fixture.arn },
@@ -313,8 +314,8 @@ resource "aws_ecs_task_definition" "app" {
   cpu                      = "256"
   memory                   = "512"
   execution_role_arn       = aws_iam_role.execution[each.key].arn
-  # No task role and no production credentials in either application process.
-  container_definitions = jsonencode([{
+  # No task role; only the loopback guard receives the existing generation key.
+  container_definitions = jsonencode(concat([{
     name                   = each.key, essential = true, image = var.api_image != "" ? var.api_image : local.foundation.ecs_bootstrap_image_uri,
     readonlyRootFilesystem = true, user = "10001:10001", linuxParameters = { capabilities = { drop = ["ALL"] } },
     portMappings           = [{ containerPort = each.key == "api" ? 8000 : 8001, protocol = "tcp" }],
@@ -325,12 +326,27 @@ resource "aws_ecs_task_definition" "app" {
       { name = each.key == "api" ? "HISTORY_DB_USER" : "IDENTITY_DB_USER", value = each.key == "api" ? "quizforge_app" : "quizforge_identity" },
       { name = each.key == "api" ? "HISTORY_DB_POOL_SIZE" : "IDENTITY_DB_POOL_SIZE", value = "1" }
       ], each.key == "api" ? [
-      { name = "HISTORY_BACKEND", value = "postgres" }, { name = "ALLOWED_ORIGINS", value = local.origin }
+      { name = "HISTORY_BACKEND", value = "postgres" }, { name = "ALLOWED_ORIGINS", value = local.origin },
+      { name = "REDIS_URL", value = local.redis_url },
+      { name = "OPENAI_API_KEY", value = "staging-budget-guard" },
+      { name = "OPENAI_BASE_URL", value = "http://127.0.0.1:8002/v1" }
     ] : [{ name = "IDENTITY_STAGING_ENABLED", value = "true" }, { name = "IDENTITY_ALLOWED_ORIGIN", value = local.origin }]),
     secrets          = [{ name = each.key == "api" ? "HISTORY_DB_PASSWORD" : "IDENTITY_DB_PASSWORD", valueFrom = "${each.key == "api" ? aws_secretsmanager_secret.application.arn : aws_secretsmanager_secret.identity.arn}:password::" }],
     logConfiguration = local.logs
-  }])
-  depends_on = [aws_iam_role_policy.execution]
+    }], each.key == "api" ? [{
+    name                   = "generation-guard", essential = true,
+    image                  = var.probe_image != "" ? var.probe_image : local.foundation.ecs_bootstrap_image_uri,
+    readonlyRootFilesystem = true, user = "10001:10001", linuxParameters = { capabilities = { drop = ["ALL"] } },
+    command                = ["python", "generation_guard.py"],
+    environment = [
+      { name = "REDIS_URL", value = local.redis_url },
+      { name = "STAGING_DEADLINE", value = var.deadline },
+      { name = "AWS_EC2_METADATA_DISABLED", value = "true" }
+    ],
+    secrets          = [{ name = "OPENAI_API_KEY", valueFrom = local.openai_parameter_arn }],
+    logConfiguration = local.logs
+  }] : []))
+  depends_on = [aws_iam_role_policy.execution, aws_iam_role_policy.generation_secret]
 }
 resource "aws_lb" "api" {
   name                       = local.name
@@ -447,16 +463,17 @@ resource "aws_ecs_service" "app" {
 }
 output "integration" {
   value = {
-    name           = local.name, deadline = var.deadline,
-    bucket         = aws_s3_bucket.site.id, origin = aws_s3_bucket.site.bucket_regional_domain_name,
-    distribution   = aws_cloudfront_distribution.site.id, domain = aws_cloudfront_distribution.site.domain_name,
-    pool           = aws_cognito_user_pool.browser.id, client = aws_cognito_user_pool_client.browser.id,
-    fixture_client = aws_cognito_user_pool_client.fixture.id, auth_domain = local.domain,
-    api_url        = "https://${var.hostname}", alb_url = "http://${aws_lb.api.dns_name}", csp = local.csp,
-    cluster        = local.foundation.ecs_cluster_name, subnets = local.foundation.public_subnet_ids,
-    security_group = aws_security_group.app.id, db_security_group = aws_security_group.database.id,
-    probe_task     = aws_ecs_task_definition.probe.arn, log_group = aws_cloudwatch_log_group.app.name,
-    fixture_secret = aws_secretsmanager_secret.fixture.arn,
-    api_image      = var.api_image, probe_image = var.probe_image, db_host = aws_db_instance.db.address
+    name                 = local.name, deadline = var.deadline,
+    bucket               = aws_s3_bucket.site.id, origin = aws_s3_bucket.site.bucket_regional_domain_name,
+    distribution         = aws_cloudfront_distribution.site.id, domain = aws_cloudfront_distribution.site.domain_name,
+    pool                 = aws_cognito_user_pool.browser.id, client = aws_cognito_user_pool_client.browser.id,
+    fixture_client       = aws_cognito_user_pool_client.fixture.id, auth_domain = local.domain,
+    api_url              = "https://${var.hostname}", alb_url = "http://${aws_lb.api.dns_name}", csp = local.csp,
+    cluster              = local.foundation.ecs_cluster_name, subnets = local.foundation.public_subnet_ids,
+    security_group       = aws_security_group.app.id, db_security_group = aws_security_group.database.id,
+    probe_task           = aws_ecs_task_definition.probe.arn, log_group = aws_cloudwatch_log_group.app.name,
+    fixture_secret       = aws_secretsmanager_secret.fixture.arn,
+    cache_security_group = aws_security_group.cache.id, redis_url = local.redis_url,
+    api_image            = var.api_image, probe_image = var.probe_image, db_host = aws_db_instance.db.address
   }
 }

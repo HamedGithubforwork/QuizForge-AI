@@ -36,13 +36,14 @@ def permitted_state(addresses):
         "aws_cognito_user_pool.browser", "aws_cognito_user_pool_client.browser",
         "aws_cognito_user_pool_client.fixture", "aws_cognito_user_pool_domain.browser",
         "aws_iam_role.setup", "aws_iam_role_policy.setup", "aws_ecs_task_definition.probe",
+        "aws_elasticache_subnet_group.cache", "aws_elasticache_replication_group.cache", "aws_iam_role_policy.generation_secret",
         "aws_lb.api", "aws_lb_listener.http", "aws_lb_listener.https", "aws_route53_record.api",
     }
-    for name in ("alb", "app", "database"):
+    for name in ("alb", "app", "database", "cache"):
         allowed.add("aws_security_group." + name)
-    for name in ("alb_app", "app_https", "app_database"):
+    for name in ("alb_app", "app_https", "app_database", "app_cache"):
         allowed.add("aws_vpc_security_group_egress_rule." + name)
-    for name in ("app_alb", "database_app"):
+    for name in ("app_alb", "database_app", "cache_app"):
         allowed.add("aws_vpc_security_group_ingress_rule." + name)
     for port in ("80", "443"):
         allowed.add(f'aws_vpc_security_group_ingress_rule.public["{port}"]')

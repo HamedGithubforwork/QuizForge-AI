@@ -43,6 +43,11 @@ jobs:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'run')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      valkey:
+        image: valkey/valkey:8.1.3
+        ports: ["6379:6379"]
+        options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,8 +56,10 @@ jobs:
         with:
           python-version: "3.11.16"
       - name: Install locked trusted controller dependencies
-        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock -r scripts/integrated_staging/redis.lock
       - name: Validate artifacts, cleanup scope and browser syntax
+        env:
+          INTEGRATED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
         run: |
           python -m unittest discover -s scripts/integrated_staging -p 'test_*.py' -v
           python -m compileall -q scripts/integrated_staging
