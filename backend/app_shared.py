@@ -246,17 +246,17 @@ async def get_current_user(
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
     await start_outbound_clients()
-
+    from history_database import start_history_database, close_history_database
     from redis_integration import redis_client
-
-    await log_startup_performance_snapshot(
-        redis_client
-    )
-
     try:
+        await start_history_database(_app)
+        await log_startup_performance_snapshot(redis_client)
         yield
     finally:
-        await close_outbound_clients()
+        try:
+            await close_history_database(_app)
+        finally:
+            await close_outbound_clients()
 
 
 def create_app():
@@ -273,6 +273,7 @@ def create_app():
         allow_methods=[
             "GET",
             "POST",
+            "DELETE",
         ],
         allow_headers=[
             "Authorization",

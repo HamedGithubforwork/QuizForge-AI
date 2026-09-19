@@ -15,6 +15,59 @@ const supabaseUrl =
   process.env.INTEGRATION_SUPABASE_URL || ''
 const supabasePublishableKey =
   process.env.INTEGRATION_SUPABASE_PUBLISHABLE_KEY || ''
+const apiUrl =
+  process.env.INTEGRATION_API_URL || ''
+
+test('history API preserves ownership with real Supabase RLS', async ({ request }) => {
+  expect(apiUrl).not.toBe('')
+  async function login(email: string) {
+    const response = await request.post(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
+      headers: { apikey: supabasePublishableKey },
+      data: { email, password: testPassword },
+    })
+    expect(response.ok()).toBe(true)
+    const body = await response.json()
+    return { headers: { Authorization: `Bearer ${body.access_token}` }, userId: body.user.id }
+  }
+  const owner = await login(testEmail)
+  const other = await login('quizforge-other@example.com')
+  const endpoint = `${apiUrl}/api/quiz-history`
+  const filename = `history-api-${Date.now()}.pdf`
+  const documentSha = 'c'.repeat(64)
+  const entry = {
+    quiz_title: 'History API ownership test', source_filename: filename,
+    document_sha256: documentSha, difficulty: 'medium', question_type: 'multiple_choice',
+    question_count: 5, score: 4, percentage: 80,
+    quiz_data: { title: 'History API ownership test', questions: [] }, selected_answers: {},
+  }
+  const documentUrl = `${endpoint}/document?${new URLSearchParams({ source_filename: filename, document_sha256: documentSha })}`
+  let entryId: string | undefined
+  try {
+    expect((await request.get(endpoint)).status()).toBe(401)
+    expect((await request.post(endpoint, {
+      headers: owner.headers, data: { ...entry, user_id: other.userId },
+    })).status()).toBe(422)
+    expect((await request.post(endpoint, { headers: owner.headers, data: entry })).status()).toBe(201)
+
+    const savedResponse = await request.get(documentUrl, { headers: owner.headers })
+    expect(savedResponse.status()).toBe(200)
+    const saved = await savedResponse.json()
+    expect(saved).toHaveLength(1)
+    entryId = saved[0].id
+    expect(saved[0].user_id).toBe(owner.userId)
+    expect(saved[0].document_sha256).toBe(documentSha)
+    expect(saved[0].score).toBe(4)
+    expect(await (await request.get(documentUrl, { headers: other.headers })).json()).toEqual([])
+
+    // A foreign delete is an idempotent no-op; the owner's row must survive.
+    expect((await request.delete(`${endpoint}/${entryId}`, { headers: other.headers })).status()).toBe(204)
+    expect(await (await request.get(documentUrl, { headers: owner.headers })).json()).toHaveLength(1)
+    expect((await request.delete(`${endpoint}/${entryId}`, { headers: owner.headers })).status()).toBe(204)
+    expect(await (await request.get(documentUrl, { headers: owner.headers })).json()).toEqual([])
+  } finally {
+    if (entryId) await request.delete(`${endpoint}/${entryId}`, { headers: owner.headers })
+  }
+})
 
 async function seedOlderHistory(
   request: APIRequestContext,
