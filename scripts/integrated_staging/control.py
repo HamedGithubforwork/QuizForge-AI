@@ -1,5 +1,6 @@
-"""Trusted main-only orchestration. No production credentials, logs or user data."""
+"""Trusted main-only orchestration. No production user data; existing OpenAI key stays in the guard."""
 from datetime import datetime, timedelta, timezone
+import base64
 import importlib.util
 import json
 import os
@@ -30,6 +31,7 @@ def module(name, path):
 
 hosting = module("integrated_hosting", "scripts/frontend_staging/control.py")
 https = module("integrated_https", "scripts/aws_staging_https.py")
+functional = module("integrated_pdf", "scripts/aws_staging_functional.py")
 cognito = module("integrated_cognito", "scripts/rds_rehearsal/cognito_profile.py")
 
 
@@ -130,8 +132,32 @@ def verify_config(v):
         assert not task.get("taskRoleArn")
         container = task["containerDefinitions"][0]
         assert container["readonlyRootFilesystem"] and container["user"] == "10001:10001"
-        assert all(not e["name"].startswith(("SUPABASE", "OPENAI", "IDENTITY_SUPABASE")) for e in container["environment"])
+        assert all(not e["name"].startswith(("SUPABASE", "IDENTITY_SUPABASE")) for e in container["environment"])
+        environment = {e["name"]: e["value"] for e in container["environment"]}
+        if kind == "api":
+            assert environment["OPENAI_API_KEY"] == "staging-budget-guard"
+            assert environment["OPENAI_BASE_URL"] == "http://127.0.0.1:8002/v1"
+            assert environment["REDIS_URL"] == v["redis_url"]
+            assert len(task["containerDefinitions"]) == 2
+            guard = task["containerDefinitions"][1]
+            assert guard["name"] == "generation-guard" and guard["image"] == v["probe_image"]
+            assert not guard.get("portMappings") and guard["readonlyRootFilesystem"]
+            assert guard["secrets"] == [{"name":"OPENAI_API_KEY", "valueFrom":
+                "arn:aws:ssm:ca-central-1:" + client("sts").get_caller_identity()["Account"] + ":parameter/quizforge/prod/OPENAI_API_KEY"}]
+        else:
+            assert len(task["containerDefinitions"]) == 1
+            assert not any(k.startswith("OPENAI") for k in environment)
         assert len(container["secrets"]) == 1
+    cache = client("elasticache").describe_replication_groups(ReplicationGroupId=NAME)["ReplicationGroups"][0]
+    assert cache["Status"] == "available" and cache["TransitEncryptionEnabled"] and cache["AtRestEncryptionEnabled"]
+    assert cache["TransitEncryptionMode"] == "required" and cache["CacheNodeType"] == "cache.t4g.micro"
+    assert len(cache["MemberClusters"]) == 1 and cache["SnapshotRetentionLimit"] == 0
+    assert v["redis_url"] == "rediss://" + cache["NodeGroups"][0]["PrimaryEndpoint"]["Address"] + ":6379/0"
+    rules = client("ec2").describe_security_groups(GroupIds=[v["cache_security_group"]])["SecurityGroups"][0]["IpPermissions"]
+    assert len(rules) == 1 and rules[0]["FromPort"] == rules[0]["ToPort"] == 6379
+    assert not rules[0].get("IpRanges") and not rules[0].get("Ipv6Ranges")
+    assert [g["GroupId"] for g in rules[0]["UserIdGroupPairs"]] == [v["security_group"]]
+    print("PASS: private encrypted Valkey and loopback-only capped generation guard verified")
     print("PASS: exact HTTPS Cognito callbacks/MFA, private forced-TLS RDS and credential-isolated application tasks")
 
 
@@ -162,7 +188,8 @@ def prepare():
                            fixture_access=auth["AccessToken"], enrolled_at=int(time.time()))
     bundle = dict(pool=v["pool"], client=v["client"], domain=v["auth_domain"], users=users,
                   frontend_url="https://" + v["domain"], api_url=v["api_url"], csp=v["csp"],
-                  origin_url="https://" + v["origin"], deadline=v["deadline"])
+                  origin_url="https://" + v["origin"], deadline=v["deadline"],
+                  pdf=base64.b64encode(functional.make_pdf(v["deadline"])).decode())
     client("secretsmanager").put_secret_value(SecretId=v["fixture_secret"], SecretString=json.dumps(bundle))
     print("PASS: three disposable TOTP users prepared; credentials exist only in the temporary encrypted fixture secret")
     run_probe("seed")
@@ -303,12 +330,19 @@ def absent():
     hosting.NAME, hosting.TF = NAME, TF
     hosting.absent()
     for service, method, args, codes in (
+        ("elasticache", "describe_replication_groups", {"ReplicationGroupId":NAME}, {"ReplicationGroupNotFoundFault"}),
+        ("elasticache", "describe_cache_subnet_groups", {"CacheSubnetGroupName":NAME}, {"CacheSubnetGroupNotFoundFault"}),
         ("elbv2", "describe_load_balancers", {"Names":[NAME]}, {"LoadBalancerNotFound"}),
         ("rds", "describe_db_instances", {"DBInstanceIdentifier":NAME}, {"DBInstanceNotFound"}),
         ("rds", "describe_db_subnet_groups", {"DBSubnetGroupName":NAME}, {"DBSubnetGroupNotFoundFault"}),
         ("rds", "describe_db_parameter_groups", {"DBParameterGroupName":NAME}, {"DBParameterGroupNotFound"}),
     ):
         hosting.missing(getattr(client(service), method), codes, **args)
+    cache = client("elasticache")
+    assert not [c for page in cache.get_paginator("describe_cache_clusters").paginate()
+                for c in page["CacheClusters"] if c.get("ReplicationGroupId") == NAME or c["CacheClusterId"].startswith(NAME + "-")]
+    assert not [s for page in cache.get_paginator("describe_snapshots").paginate()
+                for s in page["Snapshots"] if s.get("ReplicationGroupId") == NAME or s.get("CacheClusterId", "").startswith(NAME + "-")]
     wait_for_backups_absent(client("rds"))
     assert not client("ec2").describe_security_groups(Filters=[{"Name":"group-name", "Values":[NAME + "-*"]}])["SecurityGroups"]
     for page in client("cognito-idp").get_paginator("list_user_pools").paginate(MaxResults=60):
@@ -333,7 +367,7 @@ def absent():
         assert all(t["TargetGroupName"] not in {"qf-integrated-api", "qf-integrated-identity"} for t in page["TargetGroups"])
     dns = client("route53").list_resource_record_sets(HostedZoneId=os.environ["TF_VAR_zone_id"], StartRecordName=HOST, MaxItems="10")["ResourceRecordSets"]
     assert all(r["Name"].lower().rstrip(".") != HOST for r in dns)
-    print("PASS: integration ALB/ECS/RDS/backups/Cognito/secrets/IAM/logs/security groups/DNS absent; reusable zone/certificate retained")
+    print("PASS: integration ALB/ECS/RDS/Valkey/backups/Cognito/secrets/IAM/logs/security groups/DNS absent; reusable zone/certificate retained")
 
 
 if __name__ == "__main__":

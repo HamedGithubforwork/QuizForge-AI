@@ -1,4 +1,8 @@
 mock_provider "aws" {
+  mock_resource "aws_security_group" {
+    override_during = plan
+    defaults        = { id = "sg-1234567890abcdef0" }
+  }
   mock_data "aws_caller_identity" {
     defaults = { account_id = "123456789012" }
   }
@@ -61,6 +65,18 @@ run "private_data_and_stopped_tasks" {
   assert {
     condition     = aws_s3_bucket_public_access_block.site.block_public_policy && aws_cloudfront_origin_access_control.site.signing_behavior == "always" && aws_cloudfront_distribution.site.default_cache_behavior[0].viewer_protocol_policy == "redirect-to-https"
     error_message = "The frontend must use HTTPS and a private signed S3 origin."
+  }
+  assert {
+    condition     = aws_elasticache_replication_group.cache.transit_encryption_enabled && aws_elasticache_replication_group.cache.transit_encryption_mode == "required" && aws_elasticache_replication_group.cache.at_rest_encryption_enabled && aws_elasticache_replication_group.cache.num_cache_clusters == 1 && aws_elasticache_replication_group.cache.snapshot_retention_limit == 0
+    error_message = "The temporary cache must be one encrypted private node without retained snapshots."
+  }
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.cache_app.cidr_ipv4 == null && aws_vpc_security_group_ingress_rule.cache_app.from_port == 6379 && aws_vpc_security_group_ingress_rule.cache_app.referenced_security_group_id == aws_security_group.app.id
+    error_message = "Only the integration application security group may reach Valkey."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.generation_secret.policy).Statement[0].Action == ["ssm:GetParameters"] && jsondecode(aws_iam_role_policy.generation_secret.policy).Statement[0].Resource == "arn:aws:ssm:ca-central-1:123456789012:parameter/quizforge/prod/OPENAI_API_KEY"
+    error_message = "The execution role may inject only the already-authorized generation key."
   }
 }
 run "unreviewed_start_rejected" {

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { createHash, createHmac } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { chromium, request as http } from '@playwright/test'
+import { chromium, request as http, expect } from '@playwright/test'
 const bundle=JSON.parse(await readFile('/run/fixture.json','utf8'))
 const base=bundle.frontend_url, api=bundle.api_url
 const domain=`https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
@@ -109,9 +109,94 @@ async function logout(session, user) {
   console.log('PASS: hosted logout clears the provider cookie, revokes fresh access/refresh tokens, and same-browser sign-in requires password plus existing TOTP')
 }
 
-const entry={quiz_title:'Integrated AWS browser history',source_filename:'synthetic.pdf',document_sha256:'b'.repeat(64),
-  difficulty:'easy',question_type:'multiple_choice',question_count:5,score:4,percentage:80,
-  quiz_data:{questions:[]},selected_answers:{'0':1}}
+async function fullQuiz(session) {
+  page=session.page
+  phase='PDF upload and document cache'
+  const pdf=Buffer.from(bundle.pdf,'base64')
+  const sha=createHash('sha256').update(pdf).digest('hex')
+  await page.locator('input[type="file"]').setInputFiles({name:'integrated-water-cycle.pdf',mimeType:'application/pdf',buffer:pdf})
+  let document
+  for(let n=0;n<2;n++) {
+    const pending=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/documents/upload'&&r.request().method()==='POST')
+    await page.getByRole('button',{name:'Process PDF',exact:true}).click()
+    const response=await pending
+    assert.equal(response.status(),200)
+    const data=await response.json()
+    assert.equal(data.pdf_sha256,sha); assert.equal(data.page_count,1)
+    assert(data.character_count>400 && !data.scanned_likely)
+    if(document) assert.deepEqual(data,document)
+    document=data
+    await page.getByRole('heading',{name:'PDF processed successfully'}).waitFor()
+  }
+  phase='bounded real quiz generation'
+  await page.getByLabel('Number of questions',{exact:true}).selectOption('5')
+  await page.getByLabel('Difficulty',{exact:true}).selectOption('easy')
+  await page.getByLabel('Question type',{exact:true}).selectOption('multiple_choice')
+  const generation=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/quizzes/generate'&&r.request().method()==='POST',{timeout:240000})
+  await page.getByRole('button',{name:'Generate Quiz',exact:true}).click()
+  const response=await generation
+  assert.equal(response.status(),200)
+  const quiz=await response.json()
+  assert.equal(quiz.questions.length,5)
+  await page.getByRole('heading',{name:quiz.title,exact:true}).waitFor()
+  phase='answering, grading and source-page retrieval'
+  const cards=page.locator('.question-card')
+  await expect(cards).toHaveCount(5)
+  for(const [index,question] of quiz.questions.entries()) {
+    assert.equal(question.question_type,'multiple_choice')
+    assert.equal(question.choices.length,4)
+    assert(Number.isInteger(question.correct_index)&&question.correct_index>=0&&question.correct_index<4)
+    assert.deepEqual(question.source_pages,[1])
+    // One deliberately wrong choice verifies both sides of deterministic grading.
+    const choice=index===0?(question.correct_index+1)%4:question.correct_index
+    await cards.nth(index).getByText(question.choices[choice],{exact:true}).click()
+  }
+  await page.getByRole('button',{name:'Check Answers',exact:true}).click()
+  await page.getByRole('heading',{name:'4 / 5 correct',exact:true}).waitFor()
+  const source=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/documents/${sha}/pages/1`)
+  await cards.nth(0).getByRole('button',{name:'View Source',exact:true}).click()
+  assert.equal((await source).status(),200)
+  await expect(cards.nth(0)).toContainText('Evaporation')
+  phase='saving graded quiz to private RDS'
+  const saving=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/quiz-history'&&r.request().method()==='POST')
+  await page.getByRole('button',{name:'Save Result',exact:true}).click()
+  assert.equal((await saving).status(),201)
+  await page.getByText('Quiz result saved to your history.',{exact:true}).waitFor()
+  const saved=(await (await request(session.context,'/api/quiz-history',session.tokens.access_token)).json()).items[0]
+  assert.equal(saved.user_id,'00000000-0000-0000-0000-000000000003')
+  assert.equal(saved.document_sha256,sha); assert.equal(saved.score,4); assert.equal(saved.percentage,80)
+  assert.deepEqual(saved.quiz_data,quiz)
+  phase='quiz cache and normal API rate limit'
+  async function generate(count) {
+    return page.evaluate(async ({api,token,sha,count})=>{
+      const form=new FormData()
+      for(const [key,value] of Object.entries({document_sha256:sha,question_count:String(count),difficulty:'easy',question_type:'multiple_choice'})) form.append(key,value)
+      const r=await fetch(api+'/api/quizzes/generate',{method:'POST',headers:{Authorization:'Bearer '+token},body:form})
+      return {status:r.status,body:await r.json(),retryAfter:r.headers.get('Retry-After')}
+    },{api,token:session.tokens.access_token,sha,count})
+  }
+  const cached=await generate(5)
+  assert.equal(cached.status,200); assert.deepEqual(cached.body,quiz)
+  for(let n=0;n<8;n++) assert.equal((await generate(1)).status,400)
+  const limitedResponse=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/quizzes/generate'&&r.status()===429)
+  const limited=await generate(1)
+  assert.equal(limited.status,429)
+  const retryAfter=Number((await limitedResponse).headers()['retry-after'])
+  assert(retryAfter>=1&&retryAfter<=600)
+  assert.deepEqual(await page.evaluate(()=>window.integrationCsp),[])
+  console.log('PASS: real PDF upload/repeat, five-question generation, 4/5 grading, source retrieval, RDS save, identical cached quiz and normal 429 rate limit')
+  await session.context.close()
+  const reopened=await login('mapped')
+  phase='reopening saved result in a new authenticated browser context'
+  await reopened.page.getByRole('button',{name:'My Quiz History',exact:false}).click()
+  const card=reopened.page.locator('.history-card').filter({hasText:quiz.title})
+  await expect(card).toHaveCount(1)
+  await expect(card).toContainText('80%'); await expect(card).toContainText('4 / 5')
+  await expect(card).toContainText('integrated-water-cycle.pdf')
+  assert.deepEqual(await reopened.page.evaluate(()=>window.integrationCsp),[])
+  console.log('PASS: saved quiz and score reopened from RDS after fresh Cognito MFA login')
+  return {saved,session:reopened}
+}
 try {
   client=await http.newContext({timeout:30000})
   assert.equal((await client.get(bundle.origin_url+'/index.html')).status(),403)
@@ -149,20 +234,15 @@ try {
   assert(await mobilePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
   await mobile.close()
 
-  const mapped=await login('mapped')
+  let mapped=await login('mapped')
   phase='mapped history and real browser CORS'
   await mapped.page.getByRole('button',{name:'My Quiz History',exact:false}).waitFor()
   assert.equal((await (await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token)).json()).totalCount,0)
   for(const token of ['', 'invalid', mapped.tokens.id_token,bundle.users.mapped.fixture_access])
     assert.equal((await request(mapped.context,'/api/quiz-history',token)).status(),401)
-  assert.equal((await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token,'POST',entry)).status(),201)
-  const saved=(await (await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token)).json()).items[0]
-  assert.equal(saved.user_id,'00000000-0000-0000-0000-000000000003')
-  // Opening history triggers its initial fetch from the real API.
-  await mapped.page.getByRole('button',{name:'My Quiz History',exact:false}).click()
-  await mapped.page.getByRole('heading',{level:3,name:entry.quiz_title,exact:true}).waitFor()
-  assert.deepEqual(await mapped.page.evaluate(()=>window.integrationCsp),[])
-  console.log('PASS: CloudFront -> Cognito code/PKCE/nonce and mandatory MFA -> ALB/Fargate -> TLS RDS; real browser history save/list/render')
+  const completed=await fullQuiz(mapped)
+  const saved=completed.saved
+  mapped=completed.session
 
   const fresh=await login('unmapped')
   phase='explicit account enrollment and ownership isolation'
@@ -186,7 +266,7 @@ try {
   assert.equal((await request(unverified.context,'/api/quiz-history',unverified.tokens.access_token)).status(),403)
   console.log('PASS: unverified email cannot access enrollment or history')
   await logout(fresh,bundle.users.unmapped)
-  console.log('PASS: integrated AWS browser validation complete; no OpenAI requests or production data used')
+  console.log('PASS: integrated AWS browser quiz validation complete; bounded real OpenAI generation and synthetic data only')
 } catch(error) {
   // Playwright errors may contain entered values, tokens, or OAuth URLs.
   console.error('ERROR: integrated browser failed in '+phase+' ('+error.constructor.name+')')

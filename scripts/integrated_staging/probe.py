@@ -1,4 +1,6 @@
 """Trusted private-VPC setup/verification. Never exports the RDS owner password."""
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -8,6 +10,8 @@ from uuid import UUID
 
 import boto3
 import psycopg
+from redis import Redis
+from generation_guard import BUDGET_KEY, CALLS_KEY, MAX_CALLS
 from psycopg import sql
 from psycopg.rows import dict_row
 from probe_fixtures import fixtures, fingerprint, insert
@@ -26,6 +30,14 @@ def main(phase):
     assert phase in ("seed", "verify")
     sm = boto3.client("secretsmanager", region_name="ca-central-1")
     bundle = json.loads(sm.get_secret_value(SecretId=os.environ["FIXTURE_SECRET"])["SecretString"])
+    assert os.environ["REDIS_URL"].startswith("rediss://")
+    cache = Redis.from_url(os.environ["REDIS_URL"], decode_responses=True, socket_connect_timeout=10, socket_timeout=10)
+    assert cache.ping()
+    if phase == "seed":
+        assert cache.set(BUDGET_KEY, MAX_CALLS, nx=True), "Generation budget was already initialized"
+        assert cache.get(CALLS_KEY) is None
+        assert cache.ttl(BUDGET_KEY) == -1
+        print("PASS: private TLS Valkey ready; non-expiring two-request model budget initialized exactly once")
     with psycopg.connect(**options(os.environ)) as conn:
         assert conn.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
         if phase == "seed":
@@ -60,7 +72,40 @@ def main(phase):
         if phase == "verify":
             assert conn.execute("SELECT count(*) AS n FROM app.users").fetchone()["n"] == 4
             assert conn.execute("SELECT count(*) AS n FROM app.identity_challenges WHERE used_at IS NOT NULL").fetchone()["n"] == 1
+            verify_cache(cache, bundle)
             print("PASS: browser enrollment used one confirmation; eight foreign fixtures unchanged; no browser history rows remain")
+
+
+def verify_cache(cache, bundle):
+    sha = hashlib.sha256(base64.b64decode(bundle["pdf"])).hexdigest()
+    documents = [key for key in cache.scan_iter("quizforge:document-cache:*") if key.count(":") == 2]
+    quizzes = list(cache.scan_iter("quizforge:quiz-cache:*"))
+    assert len(documents) == len(quizzes) == 1
+    document = json.loads(cache.get(documents[0]))
+    assert document["pdf_sha256"] == sha and len(document["pages"]) == 1
+    assert 0 < cache.ttl(documents[0]) <= 86400
+    page_key = documents[0] + ":source-page:1"
+    assert "Evaporation" in cache.get(page_key)
+    assert 0 < cache.ttl(page_key) <= 86400
+    assert json.loads(cache.get(documents[0] + ":source-pages"))["page_numbers"] == [1]
+    quiz = json.loads(cache.get(quizzes[0]))
+    assert len(quiz["questions"]) == 5
+    assert all(q["question_type"] == "multiple_choice" and q["source_pages"] == [1] for q in quiz["questions"])
+    assert 0 < cache.ttl(quizzes[0]) <= 3600
+    rate = "quizforge:rate:00000000-0000-0000-0000-000000000003"
+    assert cache.get(rate) == "11" and 0 < cache.ttl(rate) <= 600
+    for metric, expected in {"quiz_cache_hits_total":1, "quiz_cache_misses_total":9, "quiz_requests_total":10}.items():
+        assert int(cache.get("quizforge:metrics:" + metric) or 0) == expected, metric
+    for metric in ("document_cache_hits_total", "document_cache_misses_total"):
+        assert int(cache.get("quizforge:metrics:" + metric) or 0) >= 1, metric
+    assert not list(cache.scan_iter("quizforge:rate:answer-review:*"))
+    calls = int(cache.get(CALLS_KEY))
+    assert 1 <= calls <= MAX_CALLS
+    assert 1 <= cache.llen("quizforge:metrics:timing:openai_generation_latency_ms") <= calls
+    assert int(cache.get(BUDGET_KEY)) + calls == MAX_CALLS and cache.ttl(BUDGET_KEY) == -1
+    print("PASS: application-created document/source/quiz caches and TTLs in private Valkey; distributed counter proves normal 429; one generation pipeline and one quiz cache hit")
+    print("PASS: real upstream model requests=" + str(calls) + "; hard maximum=2; each request capped at 4096 output tokens and 32768 input-body bytes")
+    cache.close()
 
 
 if __name__ == "__main__":
