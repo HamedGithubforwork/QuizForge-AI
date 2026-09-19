@@ -19,6 +19,24 @@ def require(condition, message):
         raise ValueError(message)
 
 
+def aws_diagnostic(error):
+    """Expose actionable read-only API failures without unrelated identity details."""
+    operation = getattr(error, "operation_name", "")
+    detail = getattr(error, "response", {}).get("Error", {})
+    code = detail.get("Code", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", operation) or not re.fullmatch(r"[A-Za-z0-9_.-]+", code):
+        return ""
+    result = f"AWS operation={operation} error={code}"
+    # These list operations receive no user data, certificate bodies or secrets.
+    if operation in {"ListDomains", "ListHostedZones", "ListCertificates"}:
+        message = str(detail.get("Message", ""))
+        message = re.sub(r"arn:[^\s,;]+", "[AWS identity]", message)
+        message = re.sub(r"[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+", "[email]", message)
+        message = re.sub(r"\b[0-9]{12}\b", "[account]", message)
+        result += ": " + " ".join(message.split())[:700]
+    return result
+
+
 def settings(env):
     host = env.get("TF_VAR_staging_hostname", "")
     arn = env.get("TF_VAR_staging_certificate_arn", "")
@@ -82,9 +100,6 @@ def inspect():
     print(f"Public Route 53 hosted zones: {len(zones)}")
     # Do not publish unrelated domain names, contact information or private DNS names.
     print(f"Public zones whose name contains quizforge: {sum('quizforge' in z['Name'].lower() for z in zones)}")
-    registrar = boto3.client("route53domains", region_name="us-east-1")
-    domains = [domain for page in registrar.get_paginator("list_domains").paginate() for domain in page["Domains"]]
-    print(f"Domains registered through Route 53: {len(domains)}")
     for region in ("ca-central-1", "us-east-1"):
         acm = boto3.client("acm", region_name=region)
         certificates = [certificate for page in acm.get_paginator("list_certificates").paginate(
@@ -98,6 +113,11 @@ def inspect():
         print("HTTPS readiness: NOT CONFIGURED. No staging domain/certificate/zone configuration is available.")
     else:
         preflight()
+    # Registrar availability must not prevent checking actual HTTPS prerequisites.
+    # Its failure still fails this inventory; unavailable is never reported as zero.
+    registrar = boto3.client("route53domains", region_name="us-east-1")
+    domains = [domain for page in registrar.get_paginator("list_domains").paginate() for domain in page["Domains"]]
+    print(f"Domains registered through Route 53: {len(domains)}")
     print("Read-only inventory complete. No AWS resources, certificates or DNS records were created or modified.")
 
 
@@ -178,6 +198,9 @@ if __name__ == "__main__":
     except Exception as error:
         # Static errors only; never print service responses, credentials, or request data.
         print(f"HTTPS readiness/validation failed ({type(error).__name__}).", file=sys.stderr)
+        diagnostic = aws_diagnostic(error)
+        if diagnostic:
+            print(diagnostic, file=sys.stderr)
         if isinstance(error, ValueError):
             print(str(error), file=sys.stderr)
         raise SystemExit(1)
