@@ -142,7 +142,7 @@ async function fullQuiz(session) {
   assert.equal(quiz.questions.length,5)
   await page.getByRole('heading',{name:quiz.title,exact:true}).waitFor()
   phase='answering, grading and source-page retrieval'
-  const cards=page.locator('.question-card')
+  const cards=page.locator('.question-card'), answers={}
   await expect(cards).toHaveCount(5)
   for(const [index,question] of quiz.questions.entries()) {
     assert.equal(question.question_type,'multiple_choice')
@@ -151,6 +151,7 @@ async function fullQuiz(session) {
     assert.deepEqual(question.source_pages,[1])
     // One deliberately wrong choice verifies both sides of deterministic grading.
     const choice=index===0?(question.correct_index+1)%4:question.correct_index
+    answers[String(index)]=choice
     await cards.nth(index).getByText(question.choices[choice],{exact:true}).click()
   }
   await page.getByRole('button',{name:'Check Answers',exact:true}).click()
@@ -167,7 +168,8 @@ async function fullQuiz(session) {
   const saved=(await (await request(session.context,'/api/quiz-history',session.tokens.access_token)).json()).items[0]
   assert.equal(saved.user_id,'00000000-0000-0000-0000-000000000003')
   assert.equal(saved.document_sha256,sha); assert.equal(saved.score,4); assert.equal(saved.percentage,80)
-  assert.deepEqual(saved.quiz_data,quiz)
+  assert.deepEqual(saved.quiz_data,{...quiz,document_sha256:sha})
+  assert.deepEqual(saved.selected_answers,answers)
   phase='quiz cache and normal API rate limit'
   async function generate(count) {
     return page.evaluate(async ({api,token,sha,count})=>{
