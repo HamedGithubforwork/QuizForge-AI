@@ -5,6 +5,33 @@ Application PR #97 remains unmerged. This prepares HTTPS for the disposable AWS
 ALB; it does not claim that the CloudFront/Cognito/backend browser flow has been
 integrated or validated yet.
 
+## Verified checkpoint — 2026-09-19
+
+The custom-domain HTTPS rehearsal passed on main commit
+`658c15c2e3c68dd9efce7170ca3990dd76b7a764` in
+[run 35422836790](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35422836790).
+The run checked the issued certificate and unused DNS name before provisioning,
+then verified trusted TLS at `staging-api.quizfromnotes.com`, canonical HTTP
+redirects, API health, unauthenticated rejection, and host isolation. The
+authenticated Supabase canary and managed Valkey runtime smoke test also passed.
+The full generation and history validations were skipped; this run made no
+OpenAI calls and does not establish integrated Cognito browser coverage.
+
+Terraform destroyed all **12 temporary resources** at **05:20:14 UTC**. At
+**05:20:38 UTC**, the independent cleanup job verified absence of the staging
+ALB, active ECS service, Fargate tasks, Valkey, and temporary DNS alias, with
+empty Terraform outputs. The reusable hosted zone, certificate, and validation
+record remain outside staging state. Later successful scheduled stop runs are
+cleanup checks, not additional live HTTPS validations.
+
+The next milestone is integrated temporary **CloudFront frontend + Cognito +
+HTTPS backend** staging, including browser authentication and application API
+access with verified teardown. The earlier CloudFront test used synthetic
+authentication settings and blocked API connections, so hosting and API success
+must not be presented as a completed end-to-end browser test. Application PR #97
+remains unmerged; this checkpoint does not move production from Vercel, Render,
+or Supabase.
+
 ## Read-only inventory
 
 Use **AWS staging environment → main → inspect-https**. This operation uses GitHub
