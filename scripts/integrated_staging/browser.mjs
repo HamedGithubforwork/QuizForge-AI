@@ -1,0 +1,198 @@
+// Trusted driver; no mocks, local proxy, AWS credentials, trace or token logs.
+import assert from 'node:assert/strict'
+import { createHash, createHmac } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { chromium, request as http } from '@playwright/test'
+const bundle=JSON.parse(await readFile('/run/fixture.json','utf8'))
+const base=bundle.frontend_url, api=bundle.api_url
+const domain=`https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
+assert.match(base,/^https:\/\/[a-z0-9]+\.cloudfront\.net$/)
+assert.equal(api,'https://staging-api.quizfromnotes.com')
+assert.match(domain,/^https:\/\/quizforge-integrated-[0-9]{12}\.auth\.ca-central-1\.amazoncognito\.com$/)
+assert(Date.parse(bundle.deadline)>Date.now())
+for(const key of ['AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY','AWS_SESSION_TOKEN','ACTIONS_ID_TOKEN_REQUEST_TOKEN','PGPASSWORD']) assert(!process.env[key])
+const wait=ms=>new Promise(r=>setTimeout(r,ms))
+let browser, page, phase='hosting and TLS', client
+const watchdog=setTimeout(()=>{console.error('ERROR: integrated browser timed out in '+phase);process.exit(1)},540000)
+function totp(secret) {
+  let bits = ''
+  for (const char of secret.replace(/=+$/,'')) bits += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(char).toString(2).padStart(5,'0')
+  const key = Buffer.from(bits.match(/.{8}/g).map(b => parseInt(b,2)))
+  const counter = Buffer.alloc(8); counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)))
+  const digest = createHmac('sha1',key).update(counter).digest(), offset = digest.at(-1)&15
+  return String((digest.readUInt32BE(offset)&0x7fffffff)%1000000).padStart(6,'0')
+}
+// Execute from the real CloudFront page: browser enforces CORS and CSP.
+async function request(context,path,token,method='GET',data) {
+  const originPage=context.pages().find(p=>new URL(p.url()).origin===base)
+  assert(originPage)
+  const r=await originPage.evaluate(async ({api,path,token,method,data})=>{
+    const response=await fetch(api+path,{method,headers:{...(token?{Authorization:'Bearer '+token}:{}),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined})
+    return {status:response.status,text:await response.text()}
+  },{api,path,token,method,data})
+  return {status:()=>r.status,json:async()=>JSON.parse(r.text)}
+}
+async function login(name, context, userOverride) {
+  phase = name + ': login page'
+  const user = userOverride || bundle.users[name]
+  context ||= await browser.newContext()
+  context.setDefaultTimeout(30000)
+  await context.addInitScript(()=>{
+    window.integrationCsp=[]
+    document.addEventListener('securitypolicyviolation',e=>window.integrationCsp.push(e.violatedDirective))
+  })
+  page = await context.newPage()
+  let authorization, exchange, tokens
+  page.on('request',r => {
+    const url = new URL(r.url())
+    if (url.origin === domain && url.pathname === '/oauth2/authorize') authorization = url.searchParams
+    if (url.origin === domain && url.pathname === '/oauth2/token' && r.method()==='POST') exchange = new URLSearchParams(r.postData())
+  })
+  page.on('response', async response => {
+    if (response.url()===domain+'/oauth2/token' && response.request().method()==='POST' && response.status()===200)
+      tokens = await response.json()
+  })
+  await page.goto(base)
+  await page.getByRole('button',{name:'Sign in or create account'}).click()
+  await page.locator('input[name="username"]:visible').fill(user.email)
+  await page.locator('input[name="password"]:visible').fill(user.password)
+  await page.locator('input[name="signInSubmitButton"]:visible,button[name="signInSubmitButton"]:visible').click()
+  phase = name + ': mandatory TOTP'
+  const code = page.locator('input[name="authentication_code"][id="totpCodeInput"]:visible')
+  await code.waitFor({state:'visible',timeout:30000})
+  // Never reuse the setup OTP or submit at the end of a 30-second period.
+  if (Math.floor(Date.now()/30000) <= Math.floor(user.enrolled_at/30) || Date.now()%30000 > 25000)
+    await wait(31000-Date.now()%30000)
+  await code.fill(totp(user.totp))
+  user.enrolled_at = Math.floor(Date.now()/1000)
+  await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
+  await page.waitForURL(url => url.origin===base,{timeout:60000})
+  for(let n=0;!tokens&&n<100;n++) await wait(100)
+  assert(tokens?.access_token)
+  assert.equal(authorization.get('response_type'),'code')
+  assert.equal(authorization.get('code_challenge_method'),'S256')
+  assert.equal(createHash('sha256').update(exchange.get('code_verifier')).digest('base64url'),authorization.get('code_challenge'))
+  assert.equal(JSON.parse(Buffer.from(tokens.id_token.split('.')[1],'base64url')).nonce,authorization.get('nonce'))
+  return {context,page,tokens}
+}
+
+async function rejectedRefresh(context, token) {
+  const response = await context.request.post(domain+'/oauth2/token', {
+    form:{grant_type:'refresh_token',client_id:bundle.client,refresh_token:token}
+  })
+  assert.equal(response.status(),400)
+  assert.equal((await response.json()).error,'invalid_grant')
+}
+function unexpired(token) {
+  assert(JSON.parse(Buffer.from(token.split('.')[1],'base64url')).exp*1000-Date.now()>60000)
+}
+async function logout(session, user) {
+  phase='hosted logout and cookie clearance'
+  // Establish both a live API session and a provider cookie before signing out.
+  unexpired(session.tokens.access_token)
+  assert.equal((await request(session.context,'/api/quiz-history',session.tokens.access_token)).status(),200)
+  assert((await session.context.cookies(domain)).some(c=>c.name==='cognito'&&c.value))
+  const navigation = session.page.waitForRequest(r=>new URL(r.url()).origin===domain&&new URL(r.url()).pathname==='/logout')
+  await session.page.getByRole('button',{name:'Sign out',exact:true}).click()
+  const target = new URL((await navigation).url())
+  assert.equal(target.searchParams.get('client_id'),bundle.client)
+  assert.equal(target.searchParams.get('logout_uri'),base+'/')
+  await session.page.getByRole('button',{name:'Sign in or create account'}).waitFor()
+  assert(!(await session.context.cookies(domain)).some(c=>c.name==='cognito'&&c.value))
+  assert.equal((await request(session.context,'/api/quiz-history',session.tokens.access_token)).status(),401)
+  await rejectedRefresh(session.context,session.tokens.refresh_token)
+  unexpired(session.tokens.access_token)
+  // Same browser context: a surviving provider cookie would skip the required
+  // visible password and MFA fields and make login fail, never silently pass.
+  const again = await login('mapped',session.context,user)
+  assert.equal((await request(again.context,'/api/quiz-history',again.tokens.access_token)).status(),200)
+  console.log('PASS: hosted logout clears the provider cookie, revokes fresh access/refresh tokens, and same-browser sign-in requires password plus existing TOTP')
+}
+
+const entry={quiz_title:'Integrated AWS browser history',source_filename:'synthetic.pdf',document_sha256:'b'.repeat(64),
+  difficulty:'easy',question_type:'multiple_choice',question_count:5,score:4,percentage:80,
+  quiz_data:{questions:[]},selected_answers:{'0':1}}
+try {
+  client=await http.newContext({timeout:30000})
+  assert.equal((await client.get(bundle.origin_url+'/index.html')).status(),403)
+  const redirect=await client.get(base.replace('https:','http:')+'/',{maxRedirects:0})
+  assert.equal(redirect.status(),301); assert.equal(redirect.headers().location,base+'/')
+  let index
+  for(let n=0;n<18;n++) {
+    index=await client.get(base+'/')
+    if(index.status()===200) break
+    await wait(5000)
+  }
+  assert.equal(index.status(),200)
+  assert.equal(index.headers()['content-security-policy'],bundle.csp)
+  assert.equal(index.headers()['cache-control'],'no-store')
+  assert.equal(index.headers()['x-frame-options'],'DENY')
+  assert.equal(index.headers()['x-content-type-options'],'nosniff')
+  assert.equal(index.headers()['referrer-policy'],'no-referrer')
+  assert.equal((await client.get(base+'/auth/callback?error=access_denied')).status(),200)
+  for(const path of ['/api/health','/missing-route','/assets/missing.js'])
+    assert([403,404].includes((await client.get(base+path)).status()))
+  const health=await client.get(api+'/api/health')
+  assert.equal(health.status(),200)
+  const apiRedirect=await client.get(api.replace('https:','http:')+'/api/health?https_probe=1',{maxRedirects:0})
+  assert.equal(apiRedirect.status(),301)
+  assert([api+'/api/health?https_probe=1',api+':443/api/health?https_probe=1'].includes(apiRedirect.headers().location))
+  assert.equal((await client.get(api+'/api/health',{headers:{Host:'unrelated.invalid'}})).status(),404)
+  assert.equal((await client.get(api+'/identity/session')).status(),403)
+  const cors=await client.fetch(api+'/api/quiz-history',{method:'OPTIONS',headers:{Origin:'https://foreign.invalid','Access-Control-Request-Method':'GET','Access-Control-Request-Headers':'authorization'}})
+  assert(!cors.headers()['access-control-allow-origin'])
+  console.log('PASS: private S3, CloudFront HTTPS/CSP/routes, trusted API TLS/redirects, foreign Host and Origin rejection')
+  browser=await chromium.launch({headless:true})
+  const mobile=await browser.newContext({viewport:{width:390,height:844}})
+  const mobilePage=await mobile.newPage(); await mobilePage.goto(base)
+  await mobilePage.getByRole('button',{name:'Sign in or create account'}).waitFor()
+  assert(await mobilePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))
+  await mobile.close()
+
+  const mapped=await login('mapped')
+  phase='mapped history and real browser CORS'
+  await mapped.page.getByRole('button',{name:'My Quiz History',exact:false}).waitFor()
+  assert.equal((await (await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token)).json()).totalCount,0)
+  for(const token of ['', 'invalid', mapped.tokens.id_token,bundle.users.mapped.fixture_access])
+    assert.equal((await request(mapped.context,'/api/quiz-history',token)).status(),401)
+  assert.equal((await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token,'POST',entry)).status(),201)
+  const saved=(await (await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token)).json()).items[0]
+  assert.equal(saved.user_id,'00000000-0000-0000-0000-000000000003')
+  // Opening history triggers its initial fetch from the real API.
+  await mapped.page.getByRole('button',{name:'My Quiz History',exact:false}).click()
+  await mapped.page.getByRole('heading',{level:3,name:entry.quiz_title,exact:true}).waitFor()
+  assert.deepEqual(await mapped.page.evaluate(()=>window.integrationCsp),[])
+  console.log('PASS: CloudFront -> Cognito code/PKCE/nonce and mandatory MFA -> ALB/Fargate -> TLS RDS; real browser history save/list/render')
+
+  const fresh=await login('unmapped')
+  phase='explicit account enrollment and ownership isolation'
+  await fresh.page.getByRole('heading',{name:'Set up your staging account'}).waitFor()
+  assert.equal((await request(fresh.context,'/api/quiz-history',fresh.tokens.access_token)).status(),403)
+  await fresh.page.getByLabel('Account setup',{exact:true}).selectOption('enroll')
+  await fresh.page.getByRole('button',{name:'Continue account setup'}).click()
+  await fresh.page.getByRole('button',{name:'Confirm account setup'}).click()
+  await fresh.page.getByRole('button',{name:'My Quiz History',exact:false}).click()
+  await fresh.page.getByText('No saved quizzes yet').waitFor()
+  assert.equal((await request(fresh.context,'/api/quiz-history/'+saved.id,fresh.tokens.access_token,'DELETE')).status(),204)
+  assert.equal((await (await request(mapped.context,'/api/quiz-history',mapped.tokens.access_token)).json()).totalCount,1)
+  assert.equal((await request(mapped.context,'/api/quiz-history/'+saved.id,mapped.tokens.access_token,'DELETE')).status(),204)
+  const storage=await fresh.page.evaluate(()=>JSON.stringify({local:{...localStorage},session:{...sessionStorage}}))
+  assert(!storage.includes(fresh.tokens.access_token)&&!storage.includes('code_verifier'))
+  assert.deepEqual(await fresh.page.evaluate(()=>window.integrationCsp),[])
+  console.log('PASS: explicit one-use enrollment, foreign history isolation, own deletion, no tokens in persistent storage or CSP violations')
+  const unverified=await login('unverified')
+  phase='unverified identity rejection'
+  assert.equal((await request(unverified.context,'/identity/session',unverified.tokens.access_token)).status(),403)
+  assert.equal((await request(unverified.context,'/api/quiz-history',unverified.tokens.access_token)).status(),403)
+  console.log('PASS: unverified email cannot access enrollment or history')
+  await logout(fresh,bundle.users.unmapped)
+  console.log('PASS: integrated AWS browser validation complete; no OpenAI requests or production data used')
+} catch(error) {
+  // Playwright errors may contain entered values, tokens, or OAuth URLs.
+  console.error('ERROR: integrated browser failed in '+phase+' ('+error.constructor.name+')')
+  if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
+  process.exitCode=1
+} finally {
+  clearTimeout(watchdog)
+  await browser?.close(); await client?.dispose()
+}
