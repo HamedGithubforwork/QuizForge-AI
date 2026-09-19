@@ -164,9 +164,13 @@ def live():
     http = output["api_http_url"]["value"]
     require(re.fullmatch(r"http://quizforge-staging-api-[0-9]+\.ca-central-1\.elb\.amazonaws\.com", http),
             "Refusing an unrelated load balancer.")
+    redirect_path = "/api/health?https_probe=1"
+    # ALB includes HTTPS's default :443 in Location. Accept only these two
+    # equivalent spellings, keeping the host, port, path and query exact.
+    redirect_targets = {base + redirect_path, base + ":443" + redirect_path}
     for origin in (http, "http://" + host):
-        status, headers, _ = request(origin + "/api/health?https_probe=1")
-        require(status == 301 and headers.get("Location") == base + "/api/health?https_probe=1",
+        status, headers, _ = request(origin + redirect_path)
+        require(status == 301 and headers.get("Location") in redirect_targets,
                 "HTTP must redirect to the canonical HTTPS host with path and query preserved.")
     status, _, body = request(base + "/api/health")
     require(status == 200 and isinstance(json.loads(body), dict), "TLS-verified health probe failed.")
