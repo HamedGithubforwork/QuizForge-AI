@@ -111,3 +111,28 @@ verified the empty environment before the successful live retry.
 
 Production rollout remains pending. Application PR #97 is still open and draft;
 production continues on Vercel, Render and Supabase.
+
+## Full quiz rehearsal — initial attempt
+
+[Run 35475976574](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35475976574)
+used controller `20693d8c69662e00ae2c3be242f46c2a0c322c4a` and the same reviewed
+application commit. It created **59** temporary resources at **23:38:08 UTC on
+September 19, 2026**. Live checks confirmed private encrypted Valkey, the bounded
+loopback generation guard, exact Cognito/TLS/database isolation, mandatory-MFA
+fixtures, the two-request budget and private RDS seeding. Hosting/authentication
+and the two browser PDF uploads succeeded.
+
+The browser stopped at quiz-setting selection at **23:43:52 UTC**, because exact
+label matching did not account for wrapped select-option text. This attempt is
+not a successful full-quiz validation. PR #122 adopts the application's existing
+scoped select locators and checks the document fingerprint and selected answers
+that accompany saved quiz data.
+
+Automatic teardown destroyed **all 59 resources at 23:50:46 UTC**. Independent
+absence checks passed at **23:50:59 UTC**, including Valkey nodes/snapshots and
+RDS backups. The original run remains failed because its browser test failed;
+its cleanup job succeeded. The reusable foundation, zone/certificate and ECR
+images were retained.
+
+See [production-readiness costs and migration/rollback steps](aws-production-readiness.md)
+for the prepared next-stage review. That plan does not deploy production.

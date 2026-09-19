@@ -54,8 +54,10 @@ is deliberately unsuitable as a production quota. No paid commitment is proposed
 ## Existing users and history
 
 1. Inventory the real source schema, user/history counts, supported sign-in
-   methods, MFA/recovery requirements and current write paths using authorized
-   read-only access. No production export has occurred in this rehearsal.
+   methods, MFA/recovery requirements, PostgreSQL version/extensions, roles/RLS
+   and current write paths using authorized read-only access. Use a verified-TLS
+   direct or session connection for the consistent export. No production export
+   has occurred in this rehearsal.
 2. Adapt the existing [encrypted history transfer rehearsal](history-data-transfer.md)
    into a separately reviewed production-capable tool. Its current executable
    deliberately accepts only the disposable database. Preserve internal UUIDs,
@@ -71,6 +73,11 @@ is deliberately unsuitable as a production quota. No paid commitment is proposed
    sessions writing directly to Supabase. Freeze or reconcile signup/deletion,
    drain in-flight writes, import atomically and compare counts, ownership and
    complete content digests. A consistent export alone does not capture later edits.
+
+The [current Supabase transfer guidance](https://supabase.com/docs/guides/self-hosting/restore-from-platform)
+distinguishes database migration from auth-provider settings, email, storage and
+functions. This project uses its allowlisted history/identity-ID transfer into
+RDS; a full Supabase system-schema restore is not the proposed migration.
 
 ## Production hardening and acceptance
 
