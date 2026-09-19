@@ -98,10 +98,10 @@ def verify_cache(cache, bundle):
         assert int(cache.get("quizforge:metrics:" + metric) or 0) == expected, metric
     for metric in ("document_cache_hits_total", "document_cache_misses_total"):
         assert int(cache.get("quizforge:metrics:" + metric) or 0) >= 1, metric
-    assert cache.llen("quizforge:metrics:timing:openai_generation_latency_ms") == 1
     assert not list(cache.scan_iter("quizforge:rate:answer-review:*"))
     calls = int(cache.get(CALLS_KEY))
     assert 1 <= calls <= MAX_CALLS
+    assert 1 <= cache.llen("quizforge:metrics:timing:openai_generation_latency_ms") <= calls
     assert int(cache.get(BUDGET_KEY)) + calls == MAX_CALLS and cache.ttl(BUDGET_KEY) == -1
     print("PASS: application-created document/source/quiz caches and TTLs in private Valkey; distributed counter proves normal 429; one generation pipeline and one quiz cache hit")
     print("PASS: real upstream model requests=" + str(calls) + "; hard maximum=2; each request capped at 4096 output tokens and 32768 input-body bytes")

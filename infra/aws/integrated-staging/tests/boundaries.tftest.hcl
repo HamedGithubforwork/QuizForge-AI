@@ -1,4 +1,8 @@
 mock_provider "aws" {
+  mock_resource "aws_security_group" {
+    override_during = plan
+    defaults        = { id = "sg-1234567890abcdef0" }
+  }
   mock_data "aws_caller_identity" {
     defaults = { account_id = "123456789012" }
   }
