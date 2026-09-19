@@ -168,9 +168,78 @@ resource "aws_lb_listener" "api_http" {
   port              = 80
   protocol          = "HTTP"
 
+  dynamic "default_action" {
+    for_each = local.https_enabled ? [] : [1]
+    content {
+      type             = "forward"
+      target_group_arn = aws_lb_target_group.api.arn
+    }
+  }
+
+  dynamic "default_action" {
+    for_each = local.https_enabled ? [1] : []
+    content {
+      type = "redirect"
+      redirect {
+        protocol    = "HTTPS"
+        port        = "443"
+        host        = var.staging_hostname
+        path        = "/#{path}"
+        query       = "#{query}"
+        status_code = "HTTP_301"
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.tls_inputs_complete
+      error_message = "HTTPS requires hostname, ACM certificate ARN and Route 53 zone together. Partial configuration is refused."
+    }
+  }
+}
+
+resource "aws_lb_listener" "api_https" {
+  count             = local.https_enabled ? 1 : 0
+  load_balancer_arn = aws_lb.api.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.staging_certificate_arn
+
   default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Unknown staging host"
+      status_code  = "404"
+    }
+  }
+}
+
+resource "aws_lb_listener_rule" "api_https_host" {
+  count        = local.https_enabled ? 1 : 0
+  listener_arn = aws_lb_listener.api_https[0].arn
+  priority     = 10
+  action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
+  }
+  condition {
+    host_header { values = [var.staging_hostname] }
+  }
+}
+
+resource "aws_route53_record" "staging_api" {
+  count           = local.https_enabled ? 1 : 0
+  zone_id         = var.staging_zone_id
+  name            = var.staging_hostname
+  type            = "A"
+  allow_overwrite = false
+  alias {
+    name                   = aws_lb.api.dns_name
+    zone_id                = aws_lb.api.zone_id
+    evaluate_target_health = true
   }
 }
 
@@ -208,5 +277,6 @@ resource "aws_ecs_service" "api" {
 
   depends_on = [
     aws_lb_listener.api_http,
+    aws_lb_listener_rule.api_https_host,
   ]
 }

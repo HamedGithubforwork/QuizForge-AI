@@ -37,3 +37,8 @@ output "api_http_url" {
   description = "Temporary HTTP staging URL."
   value       = "http://${aws_lb.api.dns_name}"
 }
+
+output "api_url" {
+  description = "Canonical API endpoint; HTTPS when staging TLS is configured."
+  value       = local.https_enabled ? "https://${var.staging_hostname}" : "http://${aws_lb.api.dns_name}"
+}
