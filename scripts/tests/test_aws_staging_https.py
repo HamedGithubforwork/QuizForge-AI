@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta, timezone
+from itertools import product
+import json
+import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, call, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from aws_staging_https import aws_diagnostic, covers, registered_domain_count, settings, validate_certificate, validate_zone
+from aws_staging_https import aws_diagnostic, covers, live, registered_domain_count, settings, validate_certificate, validate_zone
 
 NOW = datetime(2026, 9, 19, tzinfo=timezone.utc)
 HOST = "staging-api.example.com"
@@ -101,6 +104,70 @@ class HttpsSafety(unittest.TestCase):
         registrar.get_paginator.return_value.paginate.return_value = [
             {"Domains": [{"DomainName": "example.com"}]}, {"Domains": [{"DomainName": "example.org"}]}]
         self.assertEqual(registered_domain_count(registrar), 2)
+
+    def run_live_probe(self, responses):
+        outputs = {"api_url": {"value": "https://" + HOST},
+                   "api_http_url": {"value": "http://quizforge-staging-api-123.ca-central-1.elb.amazonaws.com"}}
+        with patch.dict(os.environ, self.env, clear=True), \
+                patch("aws_staging_https.subprocess.check_output", return_value=json.dumps(outputs)), \
+                patch("aws_staging_https.request", side_effect=responses) as request:
+            live()
+        return request
+
+    def live_responses(self, first_port="", second_port=""):
+        suffix = "/api/health?https_probe=1"
+        return [(301, {"Location": "https://" + HOST + first_port + suffix}, b""),
+                (301, {"Location": "https://" + HOST + second_port + suffix}, b""),
+                (200, {}, b'{"status":"ok"}'), (401, {}, b""), (404, {}, b"")]
+
+    def test_live_accepts_explicit_and_implicit_default_https_port(self):
+        # ALB's observed Location includes :443; both spellings use the same origin.
+        for ports in product(("", ":443"), repeat=2):
+            with self.subTest(ports=ports):
+                request = self.run_live_probe(self.live_responses(*ports))
+                self.assertEqual(request.call_args_list, [
+                    call("http://quizforge-staging-api-123.ca-central-1.elb.amazonaws.com/api/health?https_probe=1"),
+                    call("http://" + HOST + "/api/health?https_probe=1"),
+                    call("https://" + HOST + "/api/health"),
+                    call("https://" + HOST + "/api/documents/" + "0" * 64 + "/pages/1"),
+                    call("https://" + HOST + "/api/health", {"Host": "unrelated.invalid"}),
+                ])
+
+    def test_live_rejects_unsafe_or_changed_redirects_from_either_origin(self):
+        suffix = "/api/health?https_probe=1"
+        destination = "https://" + HOST + ":443" + suffix
+        invalid = [(code, destination) for code in (200, 302, 307, 308)]
+        invalid += [(301, location) for location in (
+            None, "", "http://" + HOST + suffix, "//" + HOST + suffix,
+            "https://unrelated.invalid" + suffix,
+            "https://" + HOST + ".unrelated.invalid" + suffix,
+            "https://" + HOST + ":8443" + suffix,
+            "https://" + HOST + ":80" + suffix,
+            "https://user@" + HOST + ":443" + suffix,
+            "https://" + HOST + "@unrelated.invalid" + suffix,
+            "https://" + HOST + ":443/other?https_probe=1",
+            "https://" + HOST + ":443/api/health",
+            destination + "&extra=1", destination + "#fragment",
+        )]
+        for index, (status, location) in product(range(2), invalid):
+            with self.subTest(origin=index, status=status, location=location):
+                responses = self.live_responses(":443", ":443")
+                responses[index] = (status, {"Location": location}, b"")
+                with self.assertRaisesRegex(ValueError, "HTTP must redirect"):
+                    self.run_live_probe(responses)
+
+    def test_live_retains_health_authentication_and_host_isolation_checks(self):
+        for index, response, message in (
+            (2, (503, {}, b""), "health probe failed"),
+            (2, (200, {}, b"[]"), "health probe failed"),
+            (3, (200, {}, b""), "Protected route"),
+            (4, (200, {}, b""), "Unexpected Host"),
+        ):
+            with self.subTest(probe=index, response=response):
+                responses = self.live_responses(":443", ":443")
+                responses[index] = response
+                with self.assertRaisesRegex(ValueError, message):
+                    self.run_live_probe(responses)
 
 
 if __name__ == "__main__":
