@@ -172,15 +172,20 @@ async function mockSupabase(
   )
 
   await page.route(
-    '**/supabase-mock/rest/v1/quiz_history**',
+    '**/api-mock/api/quiz-history**',
     async (route) => {
       const request = route.request()
+      expect(request.headers().authorization).toBe(`Bearer ${ACCESS_TOKEN}`)
 
       if (request.method() === 'GET') {
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(historyRows),
+          body: JSON.stringify(
+            new URL(request.url()).pathname.endsWith('/document')
+              ? historyRows
+              : { items: historyRows, totalCount: historyRows.length, hasMore: false, nextCursor: null },
+          ),
         })
         return
       }
@@ -195,8 +200,10 @@ async function mockSupabase(
           ? rawPayload[0]
           : rawPayload
 
+        expect(payload).not.toHaveProperty('user_id')
         historyRows.unshift({
           ...payload,
+          user_id: buildUser().id,
           id: `history-${historyRows.length + 1}`,
           created_at: new Date().toISOString(),
         })
