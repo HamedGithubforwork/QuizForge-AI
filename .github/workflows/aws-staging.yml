@@ -10,12 +10,17 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Start or stop the temporary AWS staging environment"
+        description: "Start, stop, or inspect HTTPS readiness without creating resources"
         required: true
         type: choice
         options:
           - start
           - stop
+          - inspect-https
+      https_validation:
+        description: "Validate configured staging HTTPS, authentication and Valkey, then automatically stop (no OpenAI calls)"
+        type: boolean
+        default: false
       functional_validation:
         description: "Run full backend validation (one quiz + one answer review), then automatically stop staging"
         type: boolean
@@ -57,6 +62,8 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: Check formatting
         run: terraform fmt -check -recursive
@@ -67,9 +74,46 @@ jobs:
       - name: Validate configuration
         run: terraform validate
 
+      - name: Test HTTPS listener and DNS plans without AWS credentials
+        run: terraform test
+
       - name: Test staging validation guardrails
         working-directory: .
         run: python -m unittest discover -s scripts/tests -p 'test_aws_staging_*.py' -v
+
+  inspect-https:
+    name: Inspect AWS HTTPS prerequisites without changes
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'inspect-https'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_VAR_staging_hostname: ${{ vars.AWS_STAGING_API_HOSTNAME }}
+      TF_VAR_staging_certificate_arn: ${{ vars.AWS_STAGING_CERTIFICATE_ARN }}
+      TF_VAR_staging_zone_id: ${{ vars.AWS_STAGING_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked read-only inventory dependencies before OIDC
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+            "sts:GetCallerIdentity","route53:ListHostedZones","route53:GetHostedZone",
+            "route53:ListResourceRecordSets","route53domains:ListDomains",
+            "acm:ListCertificates","acm:DescribeCertificate"],"Resource":"*"}]}
+      - name: Inspect public DNS and certificates without publishing unrelated domain names
+        run: python scripts/aws_staging_https.py inspect
 
   preview-image:
     name: Build tested PR preview
@@ -112,7 +156,7 @@ jobs:
 
   operate:
     name: Operate temporary staging
-    if: always() && needs.validate.result == 'success' && (needs.preview-image.result == 'success' || needs.preview-image.result == 'skipped') && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule')
+    if: always() && needs.validate.result == 'success' && (needs.preview-image.result == 'success' || needs.preview-image.result == 'skipped') && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation != 'inspect-https'))
     needs:
       - validate
       - preview-image
@@ -127,6 +171,9 @@ jobs:
     env:
       TF_VAR_aws_region: ${{ vars.AWS_REGION }}
       TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_staging_hostname: ${{ inputs.https_validation && vars.AWS_STAGING_API_HOSTNAME || '' }}
+      TF_VAR_staging_certificate_arn: ${{ inputs.https_validation && vars.AWS_STAGING_CERTIFICATE_ARN || '' }}
+      TF_VAR_staging_zone_id: ${{ inputs.https_validation && vars.AWS_STAGING_ZONE_ID || '' }}
 
     steps:
       - name: Check out repository
@@ -154,7 +201,7 @@ jobs:
       - name: Require automatic cleanup for PR previews
         if: env.OPERATION == 'start' && inputs.backend_pr != ''
         env:
-          AUTO_CLEANUP: ${{ inputs.functional_validation || inputs.history_validation }}
+          AUTO_CLEANUP: ${{ inputs.functional_validation || inputs.history_validation || inputs.https_validation }}
         run: test "$AUTO_CLEANUP" = "true"
 
       - name: Download tested image
@@ -164,11 +211,24 @@ jobs:
           name: tested-preview-image
           path: /tmp/quizforge-preview
 
+      - name: Install HTTPS readiness dependencies
+        if: env.OPERATION == 'start' && inputs.https_validation
+        working-directory: .
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
       - name: Configure temporary AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Refuse missing TLS configuration or existing DNS before starting paid staging
+        if: env.OPERATION == 'start' && inputs.https_validation
+        working-directory: .
+        env:
+          FUNCTIONAL_VALIDATION: ${{ inputs.functional_validation }}
+          HISTORY_VALIDATION: ${{ inputs.history_validation }}
+        run: python scripts/aws_staging_https.py preflight
 
       - name: Push tested image under a staging tag
         if: env.OPERATION == 'start' && inputs.backend_pr != ''
@@ -192,6 +252,8 @@ jobs:
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
 
       - name: Initialize staging state
         run: |
@@ -212,7 +274,7 @@ jobs:
         run: |
           cluster="$(terraform output -raw ecs_cluster_name)"
           service="$(terraform output -raw ecs_service_name)"
-          url="$(terraform output -raw api_http_url)"
+          url="$(terraform output -raw api_url)"
 
           aws ecs wait services-stable \
             --cluster "$cluster" \
@@ -232,6 +294,10 @@ jobs:
 
           echo "The staging API did not become reachable in time."
           exit 1
+
+      - name: Verify trusted HTTPS, redirect, host isolation and protected route denial
+        if: env.OPERATION == 'start' && inputs.https_validation
+        run: python ../../../scripts/aws_staging_https.py live
 
       - name: Verify staging canary credentials
         if: env.OPERATION == 'start'
@@ -417,17 +483,64 @@ jobs:
         run: terraform destroy -auto-approve || true
 
       - name: Stop staging
-        if: always() && (env.OPERATION == 'stop' || (env.OPERATION == 'start' && (inputs.functional_validation || inputs.history_validation)))
+        if: always() && (env.OPERATION == 'stop' || (env.OPERATION == 'start' && (inputs.functional_validation || inputs.history_validation || inputs.https_validation)))
         run: terraform destroy -auto-approve
 
       - name: Confirm result
         if: success()
         shell: bash
         run: |
-          if [ "$OPERATION" = "start" ] && [ "${{ inputs.functional_validation || inputs.history_validation }}" != "true" ]; then
+          if [ "$OPERATION" = "start" ] && [ "${{ inputs.functional_validation || inputs.history_validation || inputs.https_validation }}" != "true" ]; then
             echo "Staging is running at ${STAGING_URL}."
             echo "Health, authenticated, and managed Valkey canaries all passed."
             echo "Run this workflow with operation=stop when you finish."
           else
             echo "Staging is stopped. ALB, ECS service, and ephemeral Valkey resources are no longer running."
           fi
+
+  cleanup-https:
+    name: Independently destroy HTTPS rehearsal and verify absence
+    needs: [validate, preview-image, operate]
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'start' && inputs.https_validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra/aws/staging
+    env:
+      TF_VAR_aws_region: ca-central-1
+      TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_staging_hostname: ${{ vars.AWS_STAGING_API_HOSTNAME }}
+      TF_VAR_staging_certificate_arn: ${{ vars.AWS_STAGING_CERTIFICATE_ARN }}
+      TF_VAR_staging_zone_id: ${{ vars.AWS_STAGING_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies before OIDC
+        working-directory: .
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Initialize only staging state
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=quizforge/staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Destroy even after a timed-out operation runner
+        run: terraform destroy -auto-approve
+      - name: Independently verify staging and temporary DNS absence
+        run: python ../../../scripts/aws_staging_https.py absent
