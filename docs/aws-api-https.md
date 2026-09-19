@@ -13,6 +13,11 @@ domains, and ACM certificates in ca-central-1 and us-east-1. It does not initial
 Terraform state or create/modify DNS, certificates, or staging resources. Unrelated
 domain names and contact data are not published in logs. A successful inventory is
 not a successful live HTTPS validation; the output explicitly reports readiness.
+The current AWS Free Tier plan rejects the optional Route 53 Domains registration
+API. That exact service-plan restriction is reported as **UNAVAILABLE / UNKNOWN**,
+never as zero registered domains. Other access errors still fail inspection. A
+domain can be registered elsewhere; certificate and public DNS checks remain
+mandatory before HTTPS staging can start. No account-plan upgrade is automated.
 
 ## Domain prerequisites
 

@@ -92,6 +92,21 @@ def preflight():
     print("PASS: certificate account/region/validity/hostname and unused public staging DNS name verified")
 
 
+def registered_domain_count(registrar):
+    """Registrar inventory is informational; it is not proof of DNS ownership."""
+    try:
+        return sum(len(page["Domains"]) for page in registrar.get_paginator("list_domains").paginate())
+    except Exception as error:
+        detail = getattr(error, "response", {}).get("Error", {})
+        # Only this observed service-plan restriction is an unavailable result.
+        # All other access denials, throttling and service errors still fail.
+        if (getattr(error, "operation_name", "") == "ListDomains"
+                and detail.get("Code") == "AccessDeniedException"
+                and detail.get("Message") == "Free Tier accounts are not supported for this service"):
+            return None
+        raise
+
+
 def inspect():
     import boto3
     dns = boto3.client("route53")
@@ -113,11 +128,14 @@ def inspect():
         print("HTTPS readiness: NOT CONFIGURED. No staging domain/certificate/zone configuration is available.")
     else:
         preflight()
-    # Registrar availability must not prevent checking actual HTTPS prerequisites.
-    # Its failure still fails this inventory; unavailable is never reported as zero.
+    # Registration is optional: the user may own a domain at another registrar.
+    # It does not authorize deployment; preflight's certificate/DNS checks do that.
     registrar = boto3.client("route53domains", region_name="us-east-1")
-    domains = [domain for page in registrar.get_paginator("list_domains").paginate() for domain in page["Domains"]]
-    print(f"Domains registered through Route 53: {len(domains)}")
+    count = registered_domain_count(registrar)
+    if count is None:
+        print("Route 53 registration inventory: UNAVAILABLE on the current AWS Free Tier plan; domain count UNKNOWN.")
+    else:
+        print(f"Domains registered through Route 53: {count}")
     print("Read-only inventory complete. No AWS resources, certificates or DNS records were created or modified.")
 
 

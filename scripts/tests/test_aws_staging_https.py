@@ -2,9 +2,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from aws_staging_https import aws_diagnostic, covers, settings, validate_certificate, validate_zone
+from aws_staging_https import aws_diagnostic, covers, registered_domain_count, settings, validate_certificate, validate_zone
 
 NOW = datetime(2026, 9, 19, tzinfo=timezone.utc)
 HOST = "staging-api.example.com"
@@ -78,6 +79,28 @@ class HttpsSafety(unittest.TestCase):
         self.assertNotIn("user@example.com", diagnostic)
         error.operation_name = "DescribeCertificate"
         self.assertNotIn("Denied for", aws_diagnostic(error))
+
+    def test_unsupported_registrar_is_unknown_never_zero(self):
+        error = RuntimeError()
+        error.operation_name = "ListDomains"
+        error.response = {"Error": {"Code": "AccessDeniedException",
+                                   "Message": "Free Tier accounts are not supported for this service"}}
+        registrar = Mock()
+        registrar.get_paginator.return_value.paginate.side_effect = error
+        self.assertIsNone(registered_domain_count(registrar))
+        # Ordinary IAM denial must never be mistaken for the Free Tier restriction.
+        error.response["Error"]["Message"] = "Identity policy does not permit this action"
+        with self.assertRaises(RuntimeError):
+            registered_domain_count(registrar)
+        error.response["Error"]["Code"] = "ThrottlingException"
+        with self.assertRaises(RuntimeError):
+            registered_domain_count(registrar)
+
+    def test_registrar_count_includes_all_pages(self):
+        registrar = Mock()
+        registrar.get_paginator.return_value.paginate.return_value = [
+            {"Domains": [{"DomainName": "example.com"}]}, {"Domains": [{"DomainName": "example.org"}]}]
+        self.assertEqual(registered_domain_count(registrar), 2)
 
 
 if __name__ == "__main__":
