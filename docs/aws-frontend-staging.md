@@ -14,9 +14,10 @@ screen using synthetic Cognito settings and reserved `.invalid` API endpoints.
 No real authentication provider or API is connected. Do not attempt signup here.
 The build strips environment files, passes only explicit build environment values,
 and has no production credentials. CSP blocks all API connections. Full Cognito
-login/enrollment/recovery was tested separately. Connecting this frontend to a
-real HTTPS API is a subsequent milestone; the HTTP staging ALB cannot be used
-from an HTTPS browser. Application PR #97 remains unmerged to preserve production.
+login/enrollment/recovery was tested separately. The subsequent
+[integrated browser rehearsal](aws-integrated-staging.md) connected this frontend
+to real Cognito and the dedicated HTTPS API with private RDS. This hosting-only
+workflow retains its narrower scope. Application PR #97 remains unmerged.
 
 The S3 origin uses BucketOwnerEnforced, all four public access blocks, SSE-S3 and
 a bucket policy permitting only this CloudFront distribution to read objects.

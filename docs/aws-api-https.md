@@ -1,9 +1,9 @@
 # Staging API HTTPS preparation
 
 The existing production Vercel, Render and Supabase services remain unchanged.
-Application PR #97 remains unmerged. This prepares HTTPS for the disposable AWS
-ALB; it does not claim that the CloudFront/Cognito/backend browser flow has been
-integrated or validated yet.
+Application PR #97 remains unmerged. This guide covers HTTPS for the disposable
+AWS ALB. The subsequent [integrated browser rehearsal](aws-integrated-staging.md)
+validated CloudFront, Cognito, the HTTPS API and private RDS together.
 
 ## Verified checkpoint — 2026-09-19
 
@@ -24,13 +24,12 @@ empty Terraform outputs. The reusable hosted zone, certificate, and validation
 record remain outside staging state. Later successful scheduled stop runs are
 cleanup checks, not additional live HTTPS validations.
 
-The next milestone is integrated temporary **CloudFront frontend + Cognito +
-HTTPS backend** staging, including browser authentication and application API
-access with verified teardown. The earlier CloudFront test used synthetic
-authentication settings and blocked API connections, so hosting and API success
-must not be presented as a completed end-to-end browser test. Application PR #97
-remains unmerged; this checkpoint does not move production from Vercel, Render,
-or Supabase.
+The next milestone from this checkpoint was integrated temporary **CloudFront
+frontend + Cognito + HTTPS backend** staging. That browser authentication and
+history path subsequently passed in [run 35471289022](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35471289022);
+its separate [integration guide](aws-integrated-staging.md) records the coverage
+and cleanup evidence. Application PR #97 remains unmerged, with production still
+on Vercel, Render and Supabase.
 
 ## Read-only inventory
 
@@ -107,8 +106,9 @@ HTTPS evidence.
 
 Existing HTTP-only rehearsals remain available without the HTTPS option. Legacy
 functional/history URL guards continue to reject arbitrary hosts; they have not
-been broadened or weakened. Their HTTPS migration and integrated Cognito/frontend
-deployment are subsequent work.
+been broadened or weakened. The integrated Cognito/frontend workflow uses its own
+isolated state and strict HTTPS checks. Migration of the legacy generation/cache
+rehearsal remains separate work.
 
 ## Cost
 

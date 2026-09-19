@@ -43,6 +43,51 @@ normal AWS charges while present.
 
 This test covers the integrated authentication and history path. Generation,
 managed cache, recovery email and production rollout retain their separate gates.
-CI builds and mocked Terraform plans are prerequisites; they are not evidence of
-a successful live rehearsal. Record the successful workflow run and cleanup
-evidence after execution.
+CI builds and mocked Terraform plans are prerequisites; the live evidence follows.
+
+## Verified browser checkpoint — 2026-09-19
+
+[Run 35471289022](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35471289022)
+used controller commit `5db2df20f488e1ace3ea2b6b7ff437725d8f0e63` and the checked
+application PR #97 commit `26edb5d6557835060ac309595f0634d46e888bf4`. Provisioning
+created 53 temporary resources at 21:55:30 UTC. The frontend was built with the
+actual public CloudFront, Cognito and HTTPS API settings on a separate runner.
+
+The live browser checks passed at 22:01:01 UTC:
+
+- Private S3 denial, CloudFront HTTPS/CSP/routes, trusted API TLS/redirects and rejection of foreign hosts/origins.
+- Real Cognito hosted code/PKCE/nonce and mandatory TOTP, followed by history save/list/render through the ALB and API into TLS RDS.
+- Explicit account enrollment, cross-user history isolation, own-row deletion, rejected unverified identities and no persistent browser tokens or CSP violations.
+- Hosted logout cleared the provider cookie and revoked still-valid access/refresh tokens; the next login in the same browser required password and TOTP again.
+
+At 22:01:56 UTC, the private verification probe confirmed one used enrollment
+confirmation, all eight foreign history fixtures unchanged and no browser-created
+history rows remaining. No OpenAI calls or production data were used.
+
+Terraform destroyed all **53 temporary resources** at **22:06:53 UTC**. The
+original run's final absence check and its cleanup-only retry failed because RDS
+still listed a snapshot record after deleting the instance. Do not describe that
+original workflow run as entirely green: its browser and database jobs passed,
+while cleanup needed the later independent confirmation below.
+
+At **22:15:09 UTC**, [cleanup-only run 35472754716](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35472754716)
+passed every independent AWS absence check, including snapshots and automated
+backups. Terraform state/outputs were empty; S3 objects/bucket, CloudFront/OAC/
+function/policies, ALB/targets, ECS tasks/services/active definitions, RDS and its
+network resources, Cognito, temporary secrets/roles/logs/security groups and the
+staging DNS alias were absent. This run created no resources. The reusable
+foundation, zone, certificate/validation record and ECR images remain.
+
+PR #118 added snapshot status diagnostics and a bounded five-minute read-only
+wait, retaining strict failure for persistent backups or AWS access errors.
+The snapshot entry was already gone when the successful final check ran; no
+additional backup-deletion operation was needed.
+
+The first attempt stopped before resource creation because Terraform reports a
+missing state file on a brand-new backend. PR #117 added a strict S3 missing-object
+check and regression coverage; access and service errors remain fatal. The
+[cleanup-only run 35471210836](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35471210836)
+verified the empty environment before the successful live retry.
+
+Production rollout remains pending. Application PR #97 is still open and draft;
+production continues on Vercel, Render and Supabase.
