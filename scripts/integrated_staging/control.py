@@ -45,13 +45,26 @@ def values():
     return json.loads(tf("output", "-json")).get("integration", {}).get("value")
 
 
+def state_resources():
+    # A brand-new backend has no object. Never classify denied access or other
+    # backend errors as empty state: only S3's explicit missing-object response.
+    try:
+        client("s3").head_object(Bucket=os.environ["TF_VAR_foundation_state_bucket"],
+                                 Key="quizforge/integrated-staging/terraform.tfstate")
+    except ClientError as error:
+        if error.response["Error"]["Code"] in {"404", "NoSuchKey"}:
+            return []
+        raise
+    return tf("state", "list").splitlines()
+
+
 def write_vars(v):
     assert set(v) == {"deadline", "api_image", "probe_image", "enable_api"}
     (TF / "integration.auto.tfvars.json").write_text(json.dumps(v))
 
 
 def configure():
-    assert not tf("state", "list").strip(), "Stop existing integrated staging first"
+    assert not state_resources(), "Stop existing integrated staging first"
     # Reuse the existing certificate/account/region/public-zone/no-overwrite gates.
     https.preflight()
     assert os.environ["TF_VAR_hostname"] == HOST
@@ -244,7 +257,7 @@ def browser():
 
 
 def stop_tasks():
-    permitted_state(tf("state", "list").splitlines())
+    permitted_state(state_resources())
     ecs = client("ecs")
     # Existing foundation cluster; only exact integration task families qualify.
     for suffix in ("-api", "-identity"):
@@ -263,7 +276,7 @@ def stop_tasks():
 
 
 def absent():
-    assert not tf("state", "list").strip() and not values(), "Integration state is not empty"
+    assert not state_resources() and not values(), "Integration state is not empty"
     # Reuse the proven private-hosting absence checker with this fixed root/name.
     hosting.NAME, hosting.TF = NAME, TF
     hosting.absent()

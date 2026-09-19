@@ -2,8 +2,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
+from botocore.exceptions import ClientError
 from guards import NAME, public_config, permitted_state, owned_task
-from control import hosting
+from control import hosting, state_resources
 
 
 class Boundaries(unittest.TestCase):
@@ -37,6 +39,21 @@ class Boundaries(unittest.TestCase):
         self.assertTrue(owned_task(task(NAME+'-api')))
         for family in ('quizforge-api-staging',NAME+'-api-production','quizforge-rds-rehearsal'):
             self.assertFalse(owned_task(task(family)))
+
+    @patch.dict('os.environ', {'TF_VAR_foundation_state_bucket':'test-state'})
+    def test_only_missing_state_object_is_empty(self):
+        with patch('control.client') as aws, patch('control.tf') as terraform:
+            for code in ('404', 'NoSuchKey'):
+                aws.return_value.head_object.side_effect = ClientError({'Error':{'Code':code}}, 'HeadObject')
+                self.assertEqual(state_resources(), [])
+            terraform.assert_not_called()
+            for code in ('403', 'AccessDenied', 'NoSuchBucket', 'ServiceUnavailable'):
+                aws.return_value.head_object.side_effect = ClientError({'Error':{'Code':code}}, 'HeadObject')
+                with self.assertRaises(ClientError): state_resources()
+            aws.return_value.head_object.side_effect = None
+            terraform.return_value = 'aws_db_instance.db\n'
+            self.assertEqual(state_resources(), ['aws_db_instance.db'])
+            aws.return_value.head_object.assert_called_with(Bucket='test-state', Key='quizforge/integrated-staging/terraform.tfstate')
 
     def test_artifact_rejects_credential_file_and_symlink(self):
         with tempfile.TemporaryDirectory() as root:
