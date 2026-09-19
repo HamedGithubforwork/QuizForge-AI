@@ -128,10 +128,12 @@ async function fullQuiz(session) {
     document=data
     await page.getByRole('heading',{name:'PDF processed successfully'}).waitFor()
   }
+  phase='selecting quiz settings'
+  // These wrapping labels also contain all option text. Use the same scoped
+  // select locators as the application's existing end-to-end tests.
+  for(const [label,value] of [['Number of questions','5'],['Difficulty','easy'],['Question type','multiple_choice']])
+    await page.locator('.setting-group').filter({hasText:label}).locator('select').selectOption(value)
   phase='bounded real quiz generation'
-  await page.getByLabel('Number of questions',{exact:true}).selectOption('5')
-  await page.getByLabel('Difficulty',{exact:true}).selectOption('easy')
-  await page.getByLabel('Question type',{exact:true}).selectOption('multiple_choice')
   const generation=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/quizzes/generate'&&r.request().method()==='POST',{timeout:240000})
   await page.getByRole('button',{name:'Generate Quiz',exact:true}).click()
   const response=await generation
@@ -271,6 +273,7 @@ try {
   // Playwright errors may contain entered values, tokens, or OAuth URLs.
   console.error('ERROR: integrated browser failed in '+phase+' ('+error.constructor.name+')')
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
+  if(page) console.error('Visible select schema:',JSON.stringify(await page.locator('select:visible').evaluateAll(nodes=>nodes.map(n=>({label:n.closest('label')?.querySelector('span')?.textContent,options:[...n.options].map(o=>o.value),disabled:n.disabled}))).catch(()=>[])))
   process.exitCode=1
 } finally {
   clearTimeout(watchdog)
