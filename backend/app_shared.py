@@ -47,6 +47,9 @@ DEFAULT_ALLOWED_ORIGINS = [
 class AuthenticatedUser(BaseModel):
     id: str
     email: str | None = None
+    provider: str = "supabase"
+    issuer: str = ""
+    subject: str = ""
 
 
 def get_allowed_origins():
@@ -143,6 +146,26 @@ async def get_current_user(
             detail="Authentication is required.",
         )
 
+    from cognito_auth import auth_provider, CognitoSettings, validate_auth_configuration, verifier_for
+
+    try:
+        provider = auth_provider()
+        if provider == "cognito":
+            validate_auth_configuration()
+    except RuntimeError:
+        raise HTTPException(500, "Authentication is not configured on the backend.") from None
+
+    if provider == "cognito":
+        auth_started_at = time.perf_counter()
+        try:
+            settings = CognitoSettings.from_environment()
+            subject, email = await verifier_for(settings).verify(
+                authorization[len("Bearer "):].strip(), await get_http_client())
+            return AuthenticatedUser(id=f"cognito:{settings.pool_id}:{subject}", email=email,
+                                     provider="cognito", issuer=settings.issuer, subject=subject)
+        finally:
+            await _record_auth_timing(auth_started_at)
+
     if (
         not SUPABASE_URL
         or not SUPABASE_PUBLISHABLE_KEY
@@ -220,9 +243,11 @@ async def get_current_user(
             ),
         ) from error
 
+    if not isinstance(user_data, dict):
+        raise HTTPException(503, "Authentication service returned an invalid response.")
     user_id = user_data.get("id")
 
-    if not isinstance(user_id, str):
+    if not isinstance(user_id, str) or not user_id:
         raise HTTPException(
             status_code=401,
             detail=(
@@ -235,6 +260,9 @@ async def get_current_user(
 
     return AuthenticatedUser(
         id=user_id,
+        provider="supabase",
+        issuer=SUPABASE_URL + "/auth/v1",
+        subject=user_id,
         email=(
             email
             if isinstance(email, str)
@@ -245,18 +273,20 @@ async def get_current_user(
 
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
+    from cognito_auth import validate_auth_configuration
+    validate_auth_configuration()
     await start_outbound_clients()
-
+    from history_database import start_history_database, close_history_database
     from redis_integration import redis_client
-
-    await log_startup_performance_snapshot(
-        redis_client
-    )
-
     try:
+        await start_history_database(_app)
+        await log_startup_performance_snapshot(redis_client)
         yield
     finally:
-        await close_outbound_clients()
+        try:
+            await close_history_database(_app)
+        finally:
+            await close_outbound_clients()
 
 
 def create_app():
@@ -273,6 +303,7 @@ def create_app():
         allow_methods=[
             "GET",
             "POST",
+            "DELETE",
         ],
         allow_headers=[
             "Authorization",
