@@ -2,10 +2,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from botocore.exceptions import ClientError
 from guards import NAME, public_config, permitted_state, owned_task
-from control import hosting, state_resources
+from control import hosting, state_resources, wait_for_backups_absent
 
 
 class Boundaries(unittest.TestCase):
@@ -63,6 +63,32 @@ class Boundaries(unittest.TestCase):
             with self.assertRaises(ValueError): hosting.inventory(p)
             (p/'.env').unlink(); (p/'assets/link.js').symlink_to(p/'index.html')
             with self.assertRaises(ValueError): hosting.inventory(p)
+
+    @patch('control.time.sleep')
+    def test_backup_absence_waits_for_both_inventories(self, sleep):
+        rds = Mock()
+        snapshots, backups = Mock(), Mock()
+        rds.get_paginator.side_effect = lambda name: snapshots if name == 'describe_db_snapshots' else backups
+        foreign = {'DBInstanceIdentifier':'production'}
+        snapshots.paginate.side_effect = [
+            [{'DBSnapshots':[foreign, {'DBInstanceIdentifier':NAME,'SnapshotType':'automated','Status':'deleting'}]}],
+            [{'DBSnapshots':[foreign]}], [{'DBSnapshots':[foreign]}]]
+        backups.paginate.side_effect = [[{'DBInstanceAutomatedBackups':[]}],
+            [{'DBInstanceAutomatedBackups':[{'DBInstanceIdentifier':NAME,'Status':'retained'}]}],
+            [{'DBInstanceAutomatedBackups':[foreign]}]]
+        wait_for_backups_absent(rds, attempts=3, delay=0)
+        self.assertEqual(sleep.call_count, 2)
+
+    @patch('control.time.sleep')
+    def test_retained_backup_never_counts_as_absent(self, sleep):
+        rds = Mock()
+        snapshots, backups = Mock(), Mock()
+        rds.get_paginator.side_effect = lambda name: snapshots if name == 'describe_db_snapshots' else backups
+        snapshots.paginate.return_value = [{'DBSnapshots':[{'DBInstanceIdentifier':NAME,'SnapshotType':'manual','Status':'available'}]}]
+        backups.paginate.return_value = [{'DBInstanceAutomatedBackups':[]}]
+        with self.assertRaises(AssertionError): wait_for_backups_absent(rds, attempts=2, delay=0)
+        snapshots.paginate.side_effect = ClientError({'Error':{'Code':'AccessDenied'}}, 'DescribeDBSnapshots')
+        with self.assertRaises(ClientError): wait_for_backups_absent(rds, attempts=2, delay=0)
 
 
 if __name__ == '__main__': unittest.main()

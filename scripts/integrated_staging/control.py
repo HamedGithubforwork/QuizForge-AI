@@ -275,6 +275,28 @@ def stop_tasks():
     print("PASS: only exact integration tasks selected for shutdown")
 
 
+def wait_for_backups_absent(rds, attempts=31, delay=10):
+    # RDS deletion and its snapshot inventory can settle at different times.
+    # Keep the strict absence requirement; report only this disposable DB's
+    # status metadata and fail after a bounded read-only wait.
+    for attempt in range(attempts):
+        snapshots = [s for page in rds.get_paginator("describe_db_snapshots").paginate()
+                     for s in page["DBSnapshots"] if s["DBInstanceIdentifier"] == NAME]
+        backups = [b for page in rds.get_paginator("describe_db_instance_automated_backups").paginate()
+                   for b in page["DBInstanceAutomatedBackups"] if b["DBInstanceIdentifier"] == NAME]
+        if not snapshots and not backups:
+            print("PASS: integration snapshots and automated backups are absent")
+            return
+        if attempt % 6 == 0:
+            metadata = [{"type":s.get("SnapshotType"), "status":s.get("Status"),
+                         "created_at":str(s.get("SnapshotCreateTime"))} for s in snapshots]
+            print("Waiting for integration backup absence: " + json.dumps({"snapshots":metadata,
+                  "automated_backup_statuses":[b.get("Status") for b in backups]}), flush=True)
+        if attempt + 1 < attempts:
+            time.sleep(delay)
+    raise AssertionError("Integration backup records remain after five-minute wait")
+
+
 def absent():
     assert not state_resources() and not values(), "Integration state is not empty"
     # Reuse the proven private-hosting absence checker with this fixed root/name.
@@ -287,10 +309,7 @@ def absent():
         ("rds", "describe_db_parameter_groups", {"DBParameterGroupName":NAME}, {"DBParameterGroupNotFound"}),
     ):
         hosting.missing(getattr(client(service), method), codes, **args)
-    for page in client("rds").get_paginator("describe_db_snapshots").paginate():
-        assert all(s["DBInstanceIdentifier"] != NAME for s in page["DBSnapshots"])
-    for page in client("rds").get_paginator("describe_db_instance_automated_backups").paginate():
-        assert all(b["DBInstanceIdentifier"] != NAME for b in page["DBInstanceAutomatedBackups"])
+    wait_for_backups_absent(client("rds"))
     assert not client("ec2").describe_security_groups(Filters=[{"Name":"group-name", "Values":[NAME + "-*"]}])["SecurityGroups"]
     for page in client("cognito-idp").get_paginator("list_user_pools").paginate(MaxResults=60):
         assert all(p["Name"] != NAME for p in page["UserPools"])
