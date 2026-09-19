@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from aws_staging_https import covers, settings, validate_certificate, validate_zone
+from aws_staging_https import aws_diagnostic, covers, settings, validate_certificate, validate_zone
 
 NOW = datetime(2026, 9, 19, tzinfo=timezone.utc)
 HOST = "staging-api.example.com"
@@ -66,6 +66,18 @@ class HttpsSafety(unittest.TestCase):
         for record_type in ("A", "AAAA", "CNAME", "TXT"):
             with self.subTest(record_type=record_type), self.assertRaises(ValueError):
                 validate_zone(self.zone, HOST, [{"Name": HOST + ".", "Type": record_type}])
+
+    def test_read_only_diagnostic_preserves_error_and_redacts_identity(self):
+        error = RuntimeError()
+        error.operation_name = "ListDomains"
+        error.response = {"Error": {"Code": "AccessDeniedException", "Message":
+                          "Denied for arn:aws:sts::123456789012:assumed-role/test/run user@example.com account 123456789012"}}
+        diagnostic = aws_diagnostic(error)
+        self.assertIn("operation=ListDomains error=AccessDeniedException", diagnostic)
+        self.assertNotIn(ACCOUNT, diagnostic)
+        self.assertNotIn("user@example.com", diagnostic)
+        error.operation_name = "DescribeCertificate"
+        self.assertNotIn("Denied for", aws_diagnostic(error))
 
 
 if __name__ == "__main__":
