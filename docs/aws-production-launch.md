@@ -1,5 +1,11 @@
 # Permanent AWS launch — prepared configuration
 
+The owner requested a lower-cost Lightsail evaluation after reviewing this
+managed-stack estimate. See the [small-server capacity results](aws-small-server-capacity.md):
+the 2 GiB memory budget fits, but large scans under sustained CPU need background
+processing or an agreed upload limit before launch. The USD88 proposal below
+remains unapplied and is not the selected next activation step.
+
 Status: production preparation, not a live website. The owner selected a fully
 AWS-hosted deployment after the integrated rehearsal passed. The existing
 Vercel/Render/Supabase site is still active; no account data has been exported
