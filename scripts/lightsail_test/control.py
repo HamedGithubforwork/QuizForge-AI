@@ -17,8 +17,10 @@ from urllib.request import urlopen
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
-from cryptography.hazmat.primitives.serialization import (SSHCertificate, SSHCertificateType,
-                                                         load_ssh_public_identity, load_ssh_public_key)
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (SSHCertificate, SSHCertificateType, Encoding,
+                                                         PrivateFormat, PublicFormat, NoEncryption,
+                                                         load_ssh_public_identity)
 
 from policy import (APP_SHA, HARNESS_SHA, REGION, GROUP, ROLE, PURPOSE, BUNDLE,
                     BLUEPRINT, MAX_MONTHLY_USD, TTL_SECONDS, cleanup_policy,
@@ -47,7 +49,9 @@ def failure_summary(error):
         # These requests carry no secrets. Never dump access-details responses,
         # subprocess output, request headers or credentials to diagnose a denial.
         if operation in ('CreateInstances', 'GetSchedule'):
-            message += ': ' + ' '.join(str(detail.get('Message', '')).split())[:1000]
+            reason = ' '.join(str(detail.get('Message', '')).split())
+            reason = re.sub(r'[A-Za-z0-9+/]{80,}={0,2}', '[redacted]', reason)
+            message += ': ' + reason[:1000]
         return message
     return str(error) if isinstance(error, RuntimeError) else type(error).__name__
 
@@ -218,19 +222,14 @@ def wait_running(ls, name):
 
 
 def wait_ssh_details(ls, instance, wait_seconds=300):
-    # Instance state can become running before AWS publishes all optional SSH
-    # fields. Wait only for completeness; never substitute unverified host keys.
+    # Instance state can become running before AWS publishes credentials.
+    # Host identity is pinned from the unique key installed by our bootstrap.
     deadline = time.monotonic() + wait_seconds
     previous_missing = None
     while True:
         access = ls.get_instance_access_details(instanceName=instance['name'], protocol='ssh').get('accessDetails', {})
         missing = [key for key in ('ipAddress', 'instanceName', 'username', 'privateKey', 'certKey')
                    if not access.get(key)]
-        host_keys = [host for host in access.get('hostKeys', [])
-                     if host.get('algorithm') in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
-                     and (host.get('publicKey') or host.get('fingerprintSHA256'))]
-        if not host_keys:
-            missing.append('trustedHostIdentity')
         if not missing:
             return access
         if time.monotonic() >= deadline:
@@ -263,58 +262,25 @@ def validate_ssh_certificate(access):
                 'SSH API credential lifetime too short')
 
 
-def trusted_host_lines(access, address, wait_seconds=300):
-    supported = ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
-    known, fingerprints = [], {}
-    for host in access.get('hostKeys', []):
-        algorithm, key = host.get('algorithm'), host.get('publicKey', '').strip()
-        if algorithm not in supported:
-            continue
-        if key:
-            if key.startswith(algorithm + ' '):
-                key = key.split()[1]
-            require(re.fullmatch(r'[A-Za-z0-9+/=]+', key), 'Invalid trusted host public key')
-            load_ssh_public_key((algorithm + ' ' + key).encode())
-            known.append(f'{address} {algorithm} {key}\n')
-        fingerprint = host.get('fingerprintSHA256', '')
-        if fingerprint:
-            require(re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}=?', fingerprint), 'Invalid AWS SHA256 host fingerprint')
-            fingerprints[algorithm] = fingerprint.rstrip('=')
-    if known:
-        return known
-    require(bool(fingerprints), 'AWS has not supplied trusted SSH host identity')
-    # Scanned keys are untrusted until their SHA256 digest matches AWS. No SSH
-    # authentication or credentials are sent during keyscan; no TOFU is used.
-    deadline = time.monotonic() + wait_seconds
-    while True:
-        scanned = subprocess.run(['ssh-keyscan', '-T', '10', '-t', 'ed25519,ecdsa,rsa', address],
-                                 capture_output=True, text=True, timeout=35)
-        for line in scanned.stdout.splitlines():
-            fields = line.split()
-            if len(fields) != 3 or fields[0] != address or fields[1] not in fingerprints:
-                continue
-            _, algorithm, key = fields
-            try:
-                raw = base64.b64decode(key, validate=True)
-                load_ssh_public_key((algorithm + ' ' + key).encode())
-            except Exception:
-                raise RuntimeError('Invalid scanned SSH public key') from None
-            actual = 'SHA256:' + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip('=')
-            require(actual == fingerprints[algorithm], 'SSH host fingerprint does not match AWS')
-            known.append(f'{address} {algorithm} {key}\n')
-        if known:
-            return known
-        require(time.monotonic() < deadline, 'AWS-pinned SSH host key was unavailable before deadline')
-        time.sleep(5)
+def host_bootstrap():
+    # A unique server identity is generated locally and delivered only in the
+    # authenticated CreateInstances request. It grants no client login access.
+    key = Ed25519PrivateKey.generate()
+    private = key.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+    public = key.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH).decode()
+    script = (HERE / 'bootstrap.sh').read_text()
+    require(script.count('__CAPACITY_HOST_KEY_BASE64__') == 1, 'Expected one disposable host-key placeholder')
+    return script.replace('__CAPACITY_HOST_KEY_BASE64__', base64.b64encode(private).decode()), public
 
 
-def ssh_access(ls, instance, directory):
+def ssh_access(ls, instance, directory, pinned_host_key):
     access = wait_ssh_details(ls, instance)
     address = str(ipaddress.IPv4Address(access['ipAddress']))
     require(address == instance['publicIpAddress'] and access['instanceName'] == instance['name'], 'SSH endpoint mismatch')
     require(access['username'] == 'ubuntu', 'Unexpected SSH account')
     validate_ssh_certificate(access)
-    known = trusted_host_lines(access, address)
+    require(re.fullmatch(r'ssh-ed25519 [A-Za-z0-9+/=]+', pinned_host_key), 'Invalid pinned test host key')
+    known = [address + ' ' + pinned_host_key + '\n']
     for name, value in [('identity', access['privateKey']), ('identity-cert.pub', access['certKey']),
                         ('known_hosts', ''.join(known))]:
         path = directory / name
@@ -342,10 +308,10 @@ def metrics(ls, name, start):
     save('aws-cpu-metrics.json', result)
 
 
-def benchmark(ls, instance, image, digest):
+def benchmark(ls, instance, image, digest, pinned_host_key):
     with tempfile.TemporaryDirectory(prefix='qf-ssh-', dir=os.environ['RUNNER_TEMP']) as tmp:
-        print('Stage: waiting for AWS-verified SSH details', flush=True)
-        options, target = ssh_access(ls, instance, Path(tmp))
+        print('Stage: obtaining credentials for the pre-pinned test host', flush=True)
+        options, target = ssh_access(ls, instance, Path(tmp), pinned_host_key)
         ssh = ['ssh', *options, target]
         deadline = time.monotonic() + 600
         while time.monotonic() < deadline:
@@ -413,12 +379,13 @@ def run(clients, account, name):
         report['cleanup_schedule_verified'] = True
         # Do not retry CreateInstances: a timeout can represent an accepted request.
         require(datetime.now(timezone.utc) < deadline - timedelta(minutes=90), 'Too little time remains before cleanup')
+        user_data, pinned_host_key = host_bootstrap()
         report['instance_creation_attempted'] = True
         ls.create_instances(instanceNames=[name], availabilityZone=inspected['checks']['availability_zone'],
             blueprintId=BLUEPRINT, bundleId=BUNDLE, ipAddressType='ipv4', addOns=[],
             tags=[{'key': 'Purpose', 'value': PURPOSE}, {'key': 'TestId', 'value': report['test_id']},
                   {'key': 'DeleteAfter', 'value': deadline.isoformat()}],
-            userData=(HERE / 'bootstrap.sh').read_text())
+            userData=user_data)
         instance = wait_running(ls, name)
         ports = [{'fromPort': 22, 'toPort': 22, 'protocol': 'tcp', 'cidrs': [str(runner_ip) + '/32'], 'ipv6Cidrs': []}]
         ls.put_instance_public_ports(instanceName=name, portInfos=ports)
@@ -426,7 +393,7 @@ def run(clients, account, name):
         opened = [p for p in actual if p.get('state') == 'open']
         require(len(opened) == 1 and all(opened[0].get(k, []) == v for k, v in ports[0].items()), 'SSH-only firewall read-back failed')
         report['live_test_performed'] = True
-        benchmark(ls, instance, image, digest)
+        benchmark(ls, instance, image, digest, pinned_host_key)
         report['all_profiles_passed'] = True
     finally:
         signal.alarm(0)
