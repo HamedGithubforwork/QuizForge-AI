@@ -214,16 +214,41 @@ def wait_running(ls, name):
     raise RuntimeError('Instance startup deadline exceeded')
 
 
+def wait_ssh_details(ls, instance, wait_seconds=300):
+    # Instance state can become running before AWS publishes all optional SSH
+    # fields. Wait only for completeness; never substitute unverified host keys.
+    deadline = time.monotonic() + wait_seconds
+    previous_missing = None
+    while True:
+        access = ls.get_instance_access_details(instanceName=instance['name'], protocol='ssh').get('accessDetails', {})
+        missing = [key for key in ('ipAddress', 'instanceName', 'username', 'expiresAt', 'privateKey', 'certKey')
+                   if not access.get(key)]
+        host_keys = [host for host in access.get('hostKeys', [])
+                     if host.get('algorithm') in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
+                     and host.get('publicKey')]
+        if not host_keys:
+            missing.append('trustedHostPublicKey')
+        if not missing:
+            return access
+        if time.monotonic() >= deadline:
+            raise RuntimeError('AWS SSH details not ready before deadline; missing fields: ' + ', '.join(missing))
+        if missing != previous_missing:
+            print('Waiting for AWS SSH fields: ' + ', '.join(missing), flush=True)
+            previous_missing = missing
+        time.sleep(5)
+
+
 def ssh_access(ls, instance, directory):
-    access = ls.get_instance_access_details(instanceName=instance['name'], protocol='ssh')['accessDetails']
+    access = wait_ssh_details(ls, instance)
     address = str(ipaddress.IPv4Address(access['ipAddress']))
     require(address == instance['publicIpAddress'] and access['instanceName'] == instance['name'], 'SSH endpoint mismatch')
     require(access['username'] == 'ubuntu', 'Unexpected SSH account')
+    require(isinstance(access['expiresAt'], datetime), 'Invalid SSH credential expiry')
     require(access['expiresAt'] > datetime.now(timezone.utc) + timedelta(minutes=45), 'SSH credential lifetime too short')
     known = []
     for host in access.get('hostKeys', []):
-        algorithm, key = host['algorithm'], host['publicKey'].strip()
-        if algorithm not in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256'):
+        algorithm, key = host.get('algorithm'), host.get('publicKey', '').strip()
+        if algorithm not in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256') or not key:
             continue
         if key.startswith(algorithm + ' '):
             key = key.split()[1]
@@ -259,6 +284,7 @@ def metrics(ls, name, start):
 
 def benchmark(ls, instance, image, digest):
     with tempfile.TemporaryDirectory(prefix='qf-ssh-', dir=os.environ['RUNNER_TEMP']) as tmp:
+        print('Stage: waiting for AWS-verified SSH details', flush=True)
         options, target = ssh_access(ls, instance, Path(tmp))
         ssh = ['ssh', *options, target]
         deadline = time.monotonic() + 600
@@ -270,9 +296,11 @@ def benchmark(ls, instance, image, digest):
             time.sleep(5)
         else:
             raise RuntimeError('Docker bootstrap/verified SSH deadline exceeded')
+        print('Stage: transferring checked synthetic image', flush=True)
         subprocess.run(['scp', *options, str(image), target + ':/home/ubuntu/capacity-image.tar.gz'],
             check=True, capture_output=True, timeout=300)
         try:
+            print('Stage: running burst and sustained OCR profiles', flush=True)
             with (HERE / 'remote.sh').open('rb') as script:
                 subprocess.run([*ssh, f'sudo bash -s -- {digest} {APP_SHA}'], stdin=script,
                     check=True, capture_output=True, timeout=2200)

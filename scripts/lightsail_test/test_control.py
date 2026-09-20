@@ -22,6 +22,35 @@ INSTANCE = {'name': NAME, 'tags': [{'key': 'Purpose', 'value': policy.PURPOSE},
 
 
 class Boundaries(unittest.TestCase):
+    def test_incomplete_aws_ssh_fields_are_waited_for_without_logging_secrets(self):
+        client = MagicMock()
+        complete = {'ipAddress': '203.0.113.1', 'instanceName': NAME, 'username': 'ubuntu',
+                    'expiresAt': datetime.now(timezone.utc) + timedelta(hours=1),
+                    'privateKey': 'private-value', 'certKey': 'cert-value',
+                    'hostKeys': [{'algorithm': 'ssh-ed25519', 'publicKey': 'AAAA'}]}
+        incomplete = {**complete, 'hostKeys': [{'algorithm': 'ssh-ed25519'}]}
+        client.get_instance_access_details.side_effect = [
+            {'accessDetails': incomplete}, {'accessDetails': complete}]
+        with patch.object(control.time, 'sleep'), patch('builtins.print') as printed:
+            self.assertEqual(control.wait_ssh_details(client, INSTANCE), complete)
+        self.assertEqual(client.get_instance_access_details.call_count, 2)
+        self.assertNotIn('private-value', str(printed.call_args_list))
+        self.assertNotIn('cert-value', str(printed.call_args_list))
+
+    def test_missing_ssh_details_fail_closed_at_the_deadline(self):
+        client = MagicMock()
+        client.get_instance_access_details.return_value = {'accessDetails': {}}
+        with self.assertRaisesRegex(RuntimeError, 'missing fields:.*trustedHostPublicKey'):
+            control.wait_ssh_details(client, INSTANCE, wait_seconds=0)
+        client.get_instance_access_details.assert_called_once()
+
+    def test_ssh_identity_mismatch_is_rejected_before_writing_credentials(self):
+        access = {'ipAddress': '203.0.113.1', 'instanceName': NAME, 'username': 'root'}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(control, 'wait_ssh_details', return_value=access):
+            with self.assertRaisesRegex(RuntimeError, 'Unexpected SSH account'):
+                control.ssh_access(MagicMock(), {**INSTANCE, 'publicIpAddress': '203.0.113.1'}, Path(tmp))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
     def test_identifiers_cannot_target_production_or_inject_shell(self):
         for value in ('production', '../1234-1', '1234-1;id', '0-1', '1-0', '1-1\n', '-1-1'):
             with self.subTest(value=value), self.assertRaises(ValueError):
