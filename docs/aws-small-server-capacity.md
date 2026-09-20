@@ -4,13 +4,14 @@ The owner authorized testing the approximately USD15–20/month alternative.
 This does not activate a permanent instance or migrate live accounts/history.
 The previous USD88 managed-service proposal remains unapplied.
 
-**Latest decision (September 20): the PDF fix passed both real Lightsail profiles,
-including sustained timing, restart recovery and queue cleanup. The temporary
-server was deleted and absence confirmed. Capacity now passes for the measured
-workload; production preparation and migration/domain gates remain.**
-See the [retest](#real-lightsail-retest-after-the-pdf-fix) and preserved
-[structured evidence](evidence/lightsail-capacity-35526563913.json).
-The original failed measurements remain below.
+**Latest decision (September 20): the PDF optimization retest passed both real
+Lightsail capacity profiles and the temporary server was deleted. Speed results
+are mixed: 10-page burst OCR improved from 15.746 to 14.886 seconds, while sustained
+OCR increased from 44.996 to 48.496 seconds. The local grayscale speedup is not yet
+an established AWS benefit. Production preparation and domain gates remain.**
+See the [optimization retest](#real-lightsail-retest-of-the-pdf-optimizations) and
+[structured evidence](evidence/lightsail-capacity-35533918641.json).
+The earlier passing and failed measurements remain below.
 
 ## Proposed small-server layout
 
@@ -385,3 +386,81 @@ Sources checked September 20, 2026:
 [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/),
 [CPU baseline](https://docs.aws.amazon.com/lightsail/latest/userguide/baseline-cpu-performance.html),
 [Cognito pricing](https://aws.amazon.com/cognito/pricing/).
+
+## Real Lightsail retest of the PDF optimizations
+
+[Run 35533918641](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35533918641)
+passed both profiles on September 20 with application
+`bff2ab7612951fe1612268af3772794651ea86c8` and controller
+`d55fbc786ae34fb496d7febb17f3b0ea1cdd36c3` (pin-only PR149).
+The harness remained `52f44f16794369601f21e429b15389efcf7d62e4`, with the same
+fixtures, 2/0.4 CPU profiles, 1536 MiB limit and original acceptance targets.
+
+The candidate adds bounded 24-hour extracted-text caching, processing of selected
+pages before OCR, and grayscale 150-DPI automatic OCR. It passed the required
+application gates, including 290 backend tests (14 environment-dependent skips),
+production-image OCR/reading-order checks, browser/full-stack tests and database
+security. It remains draft in PR127 and has not been deployed to the live domain.
+
+### Comparison with the earlier passing AWS run
+
+These are individual synthetic runs on different temporary instances of the same
+bundle and CPU model, not a randomized comparison on the same host.
+
+| Metric | Previous burst | New burst | Previous sustained | New sustained |
+| --- | ---: | ---: | ---: | ---: |
+| Cold text, 100 pages | 1.884 s | 0.872 s | 2.460 s | 2.951 s |
+| Cold scan, 1 page | 3.113 s | 3.119 s | 7.000 s | 9.391 s |
+| Cold scan, 10 pages | 15.746 s | 14.886 s | 44.996 s | 48.496 s |
+| Cold scan, 30 pages | 44.417 s | 43.512 s | 131.878 s | 142.847 s |
+| Two 10-page scans plus history | 30.655 s | 28.797 s | 96.322 s | 99.266 s |
+| Warm completed 10-page job | 0.036 s | 0.047 s | 0.142 s | 0.126 s |
+| Interrupted-job recovery | 18.543 s | 20.493 s | 51.245 s | 51.662 s |
+| Peak whole-container memory | 687.60 MiB | 670.61 MiB | 678.55 MiB | 685.15 MiB |
+
+The 10-page scan took **5.5% less elapsed time in burst mode**, but **7.8% more
+under the sustained CPU limit**. The 30-page sustained scan took 8.3% longer.
+The local 13.8% OCR improvement was therefore **not reproduced as a consistent
+AWS improvement**. These data do not isolate grayscale from the other changes or
+from run-to-run variation. Do not claim a 14% AWS speedup or promise that the
+previous 45-second sustained result is now faster.
+
+All original capacity thresholds still passed. Health checks succeeded 450/450
+in burst mode and 1350/1350 in sustained mode (1800/1800 overall). Health p95 was
+0.011/0.083 seconds; no OOM event occurred and all six services stayed alive.
+Both restart experiments recovered ten pages on exactly attempt two without an
+orphan worker. Both profiles ended with zero raw inputs and zero pending jobs;
+completed result payload remained 309,889 bytes. Owner isolation, cancellation,
+overload admission, history cleanup and the disabled model budget checks passed.
+No paid model call or real-user document/account was involved.
+
+This unchanged workload processes every page and reuses the warm job immediately.
+It does **not** quantify selected-page savings or prove a 24-hour wait on AWS;
+those feature semantics, bounds, ownership and restart behavior were verified
+by application/CI tests. Warm timings exclude AI quiz generation.
+
+**Decision:** the optimized candidate still passes the small-server capacity
+gate, but grayscale is not yet an established AWS speed improvement. Preserve
+the cache/page-selection work and use a controlled same-host comparison before
+choosing grayscale as a production performance default. No larger server or
+new permanent AWS service was introduced by this retest. Production configuration,
+backup/restore, spending controls, account/data migration and domain/TLS acceptance
+remain separate launch gates.
+
+AWS reported the same Intel Xeon Platinum 8259CL CPU model and 1,951,768 KiB
+of host RAM (1906.02 MiB). As before, the 0.4 CPU quota approximates baseline
+performance; natural burst-credit exhaustion was not demonstrated. Original
+harness fields indicating non-live placement and a nominal 512 MiB reserve are
+preserved with the actual live-host wrapper; about 370.02 MiB sits outside the
+container's 1536 MiB limit.
+
+The controller started at 19:58:24 UTC, readiness succeeded at 19:59:17 UTC,
+and both CPU profiles began at 19:59:23 UTC. The browser's live log view stopped
+updating during execution, so apparent startup delays in progress messages were
+not actual setup delays. Completed timestamped logs are authoritative.
+Deletion was confirmed at **20:09:03 UTC**. Independent cleanup was armed before
+creation and remains scheduled for 21:58:24 UTC. No permanent deployment, account
+upgrade, migration or domain change occurred.
+[Structured reports and comparison](evidence/lightsail-capacity-35533918641.json)
+retain the exact application/harness identities, all measurements and deletion
+confirmation alongside the earlier successful and failed runs.

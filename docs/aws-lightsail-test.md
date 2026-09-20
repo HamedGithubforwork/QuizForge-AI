@@ -8,6 +8,12 @@ The temporary server was deleted and absence confirmed. See the
 The earlier failed run remains recorded. This did not deploy the production
 website; application PR127 remains draft and unmerged.
 
+The subsequent [optimization retest 35533918641](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35533918641)
+also passed both capacity profiles, with deletion confirmed at 20:09:03 UTC.
+Its OCR timings were mixed, so the local grayscale speedup is not an established
+AWS improvement. See the [full comparison](aws-small-server-capacity.md#real-lightsail-retest-of-the-pdf-optimizations)
+and [preserved reports](evidence/lightsail-capacity-35533918641.json).
+
 ## Reviewed scope and cost
 
 - One `small_3_0` Linux instance in `ca-central-1`: 2 GB, 2 vCPUs, 60 GB SSD,
@@ -204,11 +210,11 @@ or fallback invocation remains outstanding.
 Application: `bff2ab7612951fe1612268af3772794651ea86c8` (PR127, bounded 24-hour text cache, selected-page processing, grayscale OCR).
 Harness: `52f44f16794369601f21e429b15389efcf7d62e4` (PR130).
 The earlier passing AWS result above used `df1946500335cc7c614796723357680875bf0123`; the new
-application must be remeasured. All required CI gates, including production-image
+application was remeasured in run 35533918641. All required CI gates, including production-image
 OCR, browser and full-stack tests, passed on this new exact head. Only the
 application pin changes for this retest: the harness, targets, bundle, permissions
-and cleanup controls stay fixed. The local 13.8% OCR improvement is not yet an AWS
-measurement, and this harness does not measure selecting fewer pages or waiting
+and cleanup controls stay fixed. The local 13.8% OCR improvement was not reproduced as a consistent AWS
+speedup. This harness does not measure selecting fewer pages or waiting
 24 hours before a cache hit.
 The build first requires PR127's exact current head to pass its existing gates,
 then refuses any head other than the reviewed pin. A later app update requires
