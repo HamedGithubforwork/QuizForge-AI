@@ -69,6 +69,17 @@ class Boundaries(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'read-back'):
             control.arm(scheduler, NAME, ACCOUNT, datetime.now(timezone.utc) + timedelta(hours=2))
 
+    def test_schedule_validation_reports_reason_without_dumping_aws_response(self):
+        scheduler = MagicMock()
+        scheduler.create_schedule.side_effect = ClientError({'Error': {
+            'Code': 'ValidationException', 'Message': 'Unsupported target\nparameter'},
+            'UnexpectedPrivateField': 'must-not-be-logged'}, 'CreateSchedule')
+        with self.assertRaises(RuntimeError) as raised:
+            control.arm(scheduler, NAME, ACCOUNT, datetime.now(timezone.utc) + timedelta(hours=2))
+        self.assertEqual(str(raised.exception),
+                         'Cleanup schedule creation rejected: ValidationException: Unsupported target parameter')
+        scheduler.get_schedule.assert_not_called()
+
     def test_foreign_instance_is_never_deleted(self):
         client = MagicMock()
         for value in ({'name': NAME, 'tags': []}, {**INSTANCE, 'name': 'production'},
