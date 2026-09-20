@@ -28,7 +28,7 @@ resource "aws_iam_role" "cleanup" {
     Effect = "Allow", Principal = { Service = "scheduler.amazonaws.com" },
     Action = "sts:AssumeRole", Condition = { StringEquals = {
       "aws:SourceAccount" = data.aws_caller_identity.current.account_id,
-      "aws:SourceArn"     = aws_scheduler_schedule_group.capacity.arn
+      "aws:SourceArn"     = "arn:aws:scheduler:ca-central-1:${data.aws_caller_identity.current.account_id}:schedule-group/${aws_scheduler_schedule_group.capacity.name}"
     } }
   }] })
   tags = { Purpose = "quizforge-capacity-test" }
@@ -36,7 +36,7 @@ resource "aws_iam_role" "cleanup" {
 
 resource "aws_iam_role_policy" "cleanup" {
   name = "delete-capacity-test"
-  role = aws_iam_role.cleanup.id
+  role = aws_iam_role.cleanup.name
   policy = jsonencode({ Version = "2012-10-17", Statement = [{
     Effect    = "Allow", Action = ["lightsail:DeleteInstance"],
     Resource  = "arn:aws:lightsail:ca-central-1:${data.aws_caller_identity.current.account_id}:Instance/*",

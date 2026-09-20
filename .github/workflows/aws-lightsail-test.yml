@@ -6,6 +6,7 @@ on:
       - scripts/lightsail_test/**
       - infra/aws/lightsail-test-cleanup/**
       - .github/workflows/aws-lightsail-test.yml
+      - .github/workflows/aws-lightsail-cleanup.yml
   workflow_dispatch:
     inputs:
       operation:

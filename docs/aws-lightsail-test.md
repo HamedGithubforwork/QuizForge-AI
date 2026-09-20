@@ -67,7 +67,7 @@ one-time schedule armed, even after confirmed deletion, to cover ambiguous
 creation responses. Scheduler automatically removes it after completion.
 
 Provision this small prerequisite module using the existing encrypted Terraform
-state bucket and a **new** key such as `quizforge/lightsail-test-cleanup.tfstate`.
+state bucket and the **new** key `quizforge/lightsail-test-cleanup/terraform.tfstate`.
 Never use the foundation or production state key. Review a saved plan: it should
 show only these three creates and zero updates/deletes before applying. Creating
 the role requires IAM permission; the test controller deliberately has none.
@@ -75,6 +75,17 @@ The existing OIDC deployment role also needs the actions in
 `scripts/lightsail_test/policy.py`: its effective permissions are the intersection
 of that role and the inline session boundary. Do not solve AccessDenied by
 attaching AdministratorAccess. Use the exact reviewed statement scope.
+
+The separate `aws-lightsail-cleanup.yml` manual workflow defaults to `plan` with
+read-only credentials and no state lock writes. It prints the concrete AWS plan
+and checks that only the three expected resources would be created, with the exact
+tag-scoped policy and same-account Scheduler trust. Its explicit `apply` operation
+uses a scoped session that can create only this named role, policy and schedule
+group and write only their isolated state. It cannot launch Lightsail or grant
+permissions to the GitHub role. Apply uses the checked saved plan, refuses updates,
+replacements/deletions or additional resources, and requires explicit authorization
+for this new AWS permission before browser dispatch. No raw plan/state artifact is
+uploaded.
 
 After the prerequisite exists, dispatch `inspect`. Resolve reported blockers
 without upgrading the account or broadening permissions automatically. Then
