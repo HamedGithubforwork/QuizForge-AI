@@ -36,6 +36,19 @@ def save(name, value):
     (RESULTS / name).write_text(json.dumps(value, indent=2, default=str) + '\n')
 
 
+def failure_summary(error):
+    if isinstance(error, ClientError):
+        detail = error.response.get('Error', {})
+        operation = str(error.operation_name)
+        message = operation + ': ' + str(detail.get('Code', 'ClientError'))
+        # These requests carry no secrets. Never dump access-details responses,
+        # subprocess output, request headers or credentials to diagnose a denial.
+        if operation in ('CreateInstances', 'GetSchedule'):
+            message += ': ' + ' '.join(str(detail.get('Message', '')).split())[:1000]
+        return message
+    return str(error) if isinstance(error, RuntimeError) else type(error).__name__
+
+
 def tags(instance):
     return {t['key']: t.get('value', '') for t in instance.get('tags', [])}
 
@@ -297,6 +310,7 @@ def run(clients, account, name):
     report = {'test_id': name.removeprefix('qf-capacity-'), 'region': REGION, 'bundle': BUNDLE,
               'application_sha': APP_SHA, 'harness_sha': HARNESS_SHA, 'image_sha256': digest,
               'started_at': start, 'delete_at': deadline, 'live_test_performed': False,
+              'cleanup_schedule_verified': False, 'instance_creation_attempted': False,
               'monthly_bundle_usd': inspected['checks']['bundle']['price'], 'scheduled_cleanup_is_not_a_spending_cap': True}
     save('run.json', report)
     # Finish ordinary work within 50 minutes so the one-hour AWS session still
@@ -304,8 +318,10 @@ def run(clients, account, name):
     signal.alarm(3000)
     try:
         arm(scheduler, name, account, deadline)
+        report['cleanup_schedule_verified'] = True
         # Do not retry CreateInstances: a timeout can represent an accepted request.
         require(datetime.now(timezone.utc) < deadline - timedelta(minutes=90), 'Too little time remains before cleanup')
+        report['instance_creation_attempted'] = True
         ls.create_instances(instanceNames=[name], availabilityZone=inspected['checks']['availability_zone'],
             blueprintId=BLUEPRINT, bundleId=BUNDLE, ipAddressType='ipv4', addOns=[],
             tags=[{'key': 'Purpose', 'value': PURPOSE}, {'key': 'TestId', 'value': report['test_id']},
@@ -370,7 +386,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:
-        code = error.response['Error']['Code'] if isinstance(error, ClientError) else type(error).__name__
-        message = str(error) if isinstance(error, RuntimeError) else code
-        print('FAIL: ' + message, file=sys.stderr)
+        print('FAIL: ' + failure_summary(error), file=sys.stderr)
         raise SystemExit(1)

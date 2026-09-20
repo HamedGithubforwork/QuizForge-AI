@@ -82,6 +82,14 @@ class Boundaries(unittest.TestCase):
                          'Cleanup schedule creation rejected: ValidationException: Unsupported target parameter')
         scheduler.get_schedule.assert_not_called()
 
+    def test_launch_denial_is_diagnostic_but_access_credentials_stay_private(self):
+        error = {'Error': {'Code': 'AccessDeniedException', 'Message': 'Launch restricted\nby account plan'},
+                 'PrivateResponse': 'must-not-be-logged'}
+        self.assertEqual(control.failure_summary(ClientError(error, 'CreateInstances')),
+                         'CreateInstances: AccessDeniedException: Launch restricted by account plan')
+        self.assertEqual(control.failure_summary(ClientError(error, 'GetInstanceAccessDetails')),
+                         'GetInstanceAccessDetails: AccessDeniedException')
+
     def test_foreign_instance_is_never_deleted(self):
         client = MagicMock()
         for value in ({'name': NAME, 'tags': []}, {**INSTANCE, 'name': 'production'},
@@ -130,6 +138,9 @@ class Boundaries(unittest.TestCase):
                         with self.assertRaises(RuntimeError):
                             control.run((ls, scheduler, iam, free), ACCOUNT, NAME)
                         cleanup.assert_called_once_with(ls, NAME)
+                    report = json.loads(Path('lightsail-results/run.json').read_text())
+                    self.assertEqual(report['cleanup_schedule_verified'], where == 'create')
+                    self.assertEqual(report['instance_creation_attempted'], where == 'create')
                     self.assertEqual(ls.create_instances.call_count, int(where == 'create'))
                     if where == 'create':
                         args = ls.create_instances.call_args.kwargs
