@@ -130,8 +130,16 @@ StrictHostKeyChecking stays enabled; a different host key prevents authenticatio
 The bootstrap restricts the host algorithm to Ed25519 and reloads SSH only after
 configuration validation. Temporary login credentials still come from the same
 AWS access-details API. The controller validates the AWS-issued certificate's
-signature, user principal and validity interval, including the original 45-minute
-remaining-lifetime requirement, and also checks expiresAt when AWS supplies it.
+signature, user principal and validity interval, and also checks expiresAt when
+AWS supplies it. The [next launch](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35519982984)
+showed that AWS's login certificate lasts less than the original 45-minute
+requirement; the server was deleted without running the benchmark. Each new SSH
+or SCP connection now fetches and validates fresh credentials in a separate private
+directory, removed after that connection finishes or fails. Both the signed
+certificate and any API expiry must have more than 30 seconds remaining for the
+10-second connection timeout. Authentication expiry does not terminate an already
+authenticated SSH session. The 50-minute controller limit and two-hour independent
+deletion schedule remain unchanged.
 No new IAM permission, persistent login key pair or open application port is needed.
 
 Validated synthetic capacity reports and host metadata are printed in logs so

@@ -63,13 +63,38 @@ class Boundaries(unittest.TestCase):
             return (SSHCertificateBuilder().public_key(key).type(kind).valid_principals([principal])
                     .valid_after(now - 120).valid_before(expiry).sign(ca).public_bytes().decode())
         control.validate_ssh_certificate({'certKey': certificate(now + 3600)})
-        for cert in (certificate(now - 1), certificate(now + 60),
+        control.validate_ssh_certificate({'certKey': certificate(now + 120)})
+        for cert in (certificate(now - 1), certificate(now + 10),
                      certificate(now + 3600, b'root'), certificate(now + 3600, kind=SSHCertificateType.HOST)):
             with self.subTest(cert=cert[:25]), self.assertRaises(RuntimeError):
                 control.validate_ssh_certificate({'certKey': cert})
         with self.assertRaisesRegex(RuntimeError, 'API credential lifetime'):
             control.validate_ssh_certificate({'certKey': certificate(now + 3600),
-                                             'expiresAt': datetime.now(timezone.utc) + timedelta(minutes=1)})
+                                             'expiresAt': datetime.now(timezone.utc) + timedelta(seconds=10)})
+
+    def test_each_connection_fetches_new_credentials_and_removes_private_files(self):
+        access = {'ipAddress': '203.0.113.1', 'instanceName': NAME, 'username': 'ubuntu',
+                  'privateKey': 'private-value', 'certKey': 'cert-value'}
+        instance = {**INSTANCE, 'publicIpAddress': '203.0.113.1'}
+        directories = []
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'RUNNER_TEMP': root}), \
+             patch.object(control, 'wait_ssh_details', return_value=access) as fetch, \
+             patch.object(control, 'validate_ssh_certificate') as validate:
+            for failure in (False, True):
+                try:
+                    with control.ssh_connection(MagicMock(), instance, 'ssh-ed25519 AAAA') as (options, target):
+                        directory = Path(options[1]).parent
+                        directories.append(directory)
+                        self.assertTrue((directory / 'identity').is_file())
+                        self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+                        if failure:
+                            raise RuntimeError('connection failed')
+                except RuntimeError as error:
+                    self.assertEqual(str(error), 'connection failed')
+                self.assertFalse(directory.exists())
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(validate.call_count, 2)
+        self.assertNotEqual(*directories)
 
     def test_each_bootstrap_has_a_unique_key_matching_the_client_pin(self):
         script, public = control.host_bootstrap()
