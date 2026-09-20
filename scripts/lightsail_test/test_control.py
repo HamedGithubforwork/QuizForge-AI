@@ -1,5 +1,6 @@
 """Failure-path tests for billable-resource ownership and independent cleanup."""
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
 import json
 import os
@@ -11,6 +12,9 @@ from unittest.mock import MagicMock, patch
 import boto3
 from botocore.exceptions import ClientError
 from botocore.validate import validate_parameters
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import (Encoding, PublicFormat,
+                                                         SSHCertificateBuilder, SSHCertificateType)
 
 import control
 import policy
@@ -40,7 +44,7 @@ class Boundaries(unittest.TestCase):
     def test_missing_ssh_details_fail_closed_at_the_deadline(self):
         client = MagicMock()
         client.get_instance_access_details.return_value = {'accessDetails': {}}
-        with self.assertRaisesRegex(RuntimeError, 'missing fields:.*trustedHostPublicKey'):
+        with self.assertRaisesRegex(RuntimeError, 'missing fields:.*trustedHostIdentity'):
             control.wait_ssh_details(client, INSTANCE, wait_seconds=0)
         client.get_instance_access_details.assert_called_once()
 
@@ -50,6 +54,42 @@ class Boundaries(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'Unexpected SSH account'):
                 control.ssh_access(MagicMock(), {**INSTANCE, 'publicIpAddress': '203.0.113.1'}, Path(tmp))
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_signed_certificate_expiry_is_checked_when_api_expiry_is_absent(self):
+        now = int(datetime.now(timezone.utc).timestamp())
+        ca = Ed25519PrivateKey.generate()
+        key = Ed25519PrivateKey.generate().public_key()
+        def certificate(expiry, principal=b'ubuntu', kind=SSHCertificateType.USER):
+            return (SSHCertificateBuilder().public_key(key).type(kind).valid_principals([principal])
+                    .valid_after(now - 120).valid_before(expiry).sign(ca).public_bytes().decode())
+        control.validate_ssh_certificate({'certKey': certificate(now + 3600)})
+        for cert in (certificate(now - 1), certificate(now + 60),
+                     certificate(now + 3600, b'root'), certificate(now + 3600, kind=SSHCertificateType.HOST)):
+            with self.subTest(cert=cert[:25]), self.assertRaises(RuntimeError):
+                control.validate_ssh_certificate({'certKey': cert})
+        with self.assertRaisesRegex(RuntimeError, 'API credential lifetime'):
+            control.validate_ssh_certificate({'certKey': certificate(now + 3600),
+                                             'expiresAt': datetime.now(timezone.utc) + timedelta(minutes=1)})
+
+    def test_scanned_host_key_requires_exact_aws_sha256_pin(self):
+        address = '203.0.113.1'
+        pub = Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH).decode()
+        algorithm, blob = pub.split()
+        digest = base64.b64encode(hashlib.sha256(base64.b64decode(blob)).digest()).decode().rstrip('=')
+        access = {'hostKeys': [{'algorithm': algorithm, 'fingerprintSHA256': 'SHA256:' + digest}]}
+        with patch.object(control.subprocess, 'run', return_value=MagicMock(stdout=address + ' ' + pub + '\n')) as scan:
+            self.assertEqual(control.trusted_host_lines(access, address), [address + ' ' + pub + '\n'])
+            self.assertEqual(scan.call_args.args[0][0], 'ssh-keyscan')
+            access['hostKeys'][0]['fingerprintSHA256'] = 'SHA256:' + 'A' * 43
+            with self.assertRaisesRegex(RuntimeError, 'does not match AWS'):
+                control.trusted_host_lines(access, address)
+
+    def test_host_key_without_aws_pin_or_with_only_sha1_is_never_trusted(self):
+        with patch.object(control.subprocess, 'run') as scan:
+            for hosts in ([], [{'algorithm': 'ssh-ed25519', 'fingerprintSHA1': 'untrusted'}]):
+                with self.assertRaisesRegex(RuntimeError, 'not supplied trusted'):
+                    control.trusted_host_lines({'hostKeys': hosts}, '203.0.113.1')
+            scan.assert_not_called()
 
     def test_identifiers_cannot_target_production_or_inject_shell(self):
         for value in ('production', '../1234-1', '1234-1;id', '0-1', '1-0', '1-1\n', '-1-1'):
