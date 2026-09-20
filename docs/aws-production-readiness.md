@@ -14,6 +14,13 @@ spending controls, identity/data migration and domain gates below. Application
 PR127 remains draft. The managed-service estimate below remains an unapplied
 alternative; the small-server allowance is not a fixed bill or a live deployment.
 
+The [PDF optimization retest](aws-small-server-capacity.md#real-lightsail-retest-of-the-pdf-optimizations)
+also passed both capacity profiles and confirmed deletion at 20:09:03 UTC. Its
+burst OCR was slightly faster but sustained OCR was slower than the prior run;
+treat grayscale's production speed benefit as unproven pending a controlled
+comparison. The 24-hour cache and page-selection semantics passed application
+checks; this unchanged hardware workload does not separately measure them.
+
 The complete integrated staging workflow passed on September 20, including the
 corrected private rate-counter verification and independent AWS teardown. The
 production decisions and acceptance gates below remain pending.
