@@ -63,7 +63,7 @@ a UI feature to reload old questions into a new attempt.
 Credentialless CI tests atomic reservations with 16 concurrent connections to a
 real disposable Valkey instance, boundary guards, immutable image builds and mocked
 Terraform plans. Recovery email and production rollout remain separate gates.
-The earlier live evidence below predates generation/cache integration.
+The first browser checkpoint below predates generation/cache integration.
 
 ## Verified browser checkpoint — 2026-09-19
 
@@ -111,3 +111,99 @@ verified the empty environment before the successful live retry.
 
 Production rollout remains pending. Application PR #97 is still open and draft;
 production continues on Vercel, Render and Supabase.
+
+## Full quiz rehearsal — initial attempt
+
+[Run 35475976574](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35475976574)
+used controller `20693d8c69662e00ae2c3be242f46c2a0c322c4a` and the same reviewed
+application commit. It created **59** temporary resources at **23:38:08 UTC on
+September 19, 2026**. Live checks confirmed private encrypted Valkey, the bounded
+loopback generation guard, exact Cognito/TLS/database isolation, mandatory-MFA
+fixtures, the two-request budget and private RDS seeding. Hosting/authentication
+and the two browser PDF uploads succeeded.
+
+The browser stopped at quiz-setting selection at **23:43:52 UTC**, because exact
+label matching did not account for wrapped select-option text. This attempt is
+not a successful full-quiz validation. PR #122 adopts the application's existing
+scoped select locators and checks the document fingerprint and selected answers
+that accompany saved quiz data.
+
+Automatic teardown destroyed **all 59 resources at 23:50:46 UTC**. Independent
+absence checks passed at **23:50:59 UTC**, including Valkey nodes/snapshots and
+RDS backups. The original run remains failed because its browser test failed;
+its cleanup job succeeded. The reusable foundation, zone/certificate and ECR
+images were retained.
+
+## Full browser success; private verification incomplete — 2026-09-20
+
+[Run 35477507194](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35477507194)
+used controller `7cc27697e596eca29ee12c4b4e6801d3ec7b0e89` and the same application
+PR #97 commit. All 59 temporary resources were created at **00:12:48 UTC**.
+Live configuration, synthetic account/database setup and the model-request guard
+passed at **00:15:39 UTC**.
+
+The full browser journey passed at **00:19:02 UTC**:
+
+- PDF upload and repeat processing, real five-question generation, deliberately
+  mixed answers graded 4/5, and authenticated source-page retrieval.
+- RDS save with exact quiz content, document fingerprint and selected answers;
+  saved score/metadata reopened after a fresh Cognito MFA login.
+- Identical cached quiz and the normal eleventh-request 429 with `Retry-After`.
+- Explicit enrollment, owner isolation/deletion, unverified-user rejection,
+  hosted logout, token revocation and password/TOTP on the next sign-in.
+- Hosting, TLS, CORS/CSP and browser token-storage boundaries.
+
+The subsequent private probe failed an assertion at **00:19:55 UTC**. Its original
+diagnostics did not identify the assertion. Therefore this run does **not** prove
+the complete private cache/fixture verification or the exact upstream-request
+count, and its overall status remains failed. An offline reproduction of the
+application's real cache/metric/rate code with synthetic generation passed the
+same cache assertions. PR #123 adds safe checkpoint, numeric counter and failing
+line diagnostics while preserving all verification requirements.
+
+Automatic cleanup destroyed **all 59 resources at 00:26:35 UTC**; independent
+absence checks passed at **00:26:48 UTC**, including RDS backups and Valkey.
+The reusable foundation, zone/certificate and ECR images remain.
+
+## Private probe diagnosis — 2026-09-20
+
+[Run 35479035851](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35479035851)
+used controller `a4d842c0f85548d40050d57d19c18061c9bfe381` and the same reviewed
+application commit. It created 59 resources at **00:45:39 UTC**, and the complete
+browser journey passed again at **00:51:32 UTC**.
+
+At **00:52:25 UTC**, the private probe confirmed all eight original history
+fixtures unchanged, no browser-created rows remaining, four internal users and
+one consumed enrollment confirmation. It also confirmed the application-created
+document/source/quiz cache contents and TTLs. Safe diagnostics recorded:
+
+| Observation | Value |
+| --- | ---: |
+| Real upstream model requests | 1 |
+| Remaining model-request budget | 1 |
+| Budget TTL | -1 (non-expiring for the disposable cache lifetime) |
+| Model timing samples | 1 |
+| Quiz cache hits / misses | 1 / 9 |
+| Quiz requests recorded | 10 |
+| Document cache hits / misses | 2 / 1 |
+
+The remaining assertion queried the rate counter using the internal history UUID.
+The reviewed application's `app_shared.get_current_user` instead identifies
+generation/cache users as `cognito:<pool>:<subject>`; the history repository maps
+that identity separately to an internal UUID. This explains the probe failure.
+[PR #124](https://github.com/HamedGithubforwork/QuizForge-AI/pull/124) corrects the
+lookup and adds real-Valkey regression coverage for the correct Cognito identity,
+wrong history UUID, wrong pool and missing expiry. The required count of eleven
+and active ten-minute TTL remain unchanged. The application is unchanged.
+
+Automatic cleanup destroyed **all 59 resources at 00:59:08 UTC**. Independent
+absence checks passed at **00:59:20 UTC**, including RDS backups and Valkey.
+The reusable foundation, zone/certificate and ECR images remain.
+
+A final live run with the corrected probe is still required before describing the
+whole workflow as green. The local workspace/browser disconnected during this
+run; GitHub monitoring, code publication and automatic AWS cleanup remained
+available, but the disconnected browser could not dispatch the corrected rerun.
+
+See [production-readiness costs and migration/rollback steps](aws-production-readiness.md)
+for the prepared next-stage review. That plan does not deploy production.
