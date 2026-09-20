@@ -83,12 +83,8 @@ cross-owner status/cancel/source rejection, concurrent admission, idempotency,
 hourly allowance, expiration, raw/result deletion, single-worker locking, bounded
 restart recovery, real child cancellation and cancellation during process creation.
 Browser tests cover progress, page refresh, restored quiz generation and cancel.
-The [constrained capacity follow-up](aws-small-server-capacity.md#background-processing-follow-up)
-measured admission separately from background completion and retained the original
-failed synchronous result. Thirty-page scans completed in 68.016 / 187.681 seconds
-at burst / sustained CPU, with all 2708 concurrent-load health checks succeeding.
-Recovery, ownership and cleanup passed. The sustained 10-page and two-scan timing
-targets still failed; this is not an unrestricted production-capacity approval.
+The follow-up constrained capacity run must measure admission latency separately
+from background completion and retain the original failed synchronous result.
 
 Implementation references: [Python subprocess lifecycle](https://docs.python.org/3.11/library/asyncio-subprocess.html)
 and [SQLite secure deletion](https://www.sqlite.org/pragma.html#pragma_secure_delete).
