@@ -116,7 +116,9 @@ def verify_cache(cache, bundle):
     assert all(q["question_type"] == "multiple_choice" and q["source_pages"] == [1] for q in quiz["questions"])
     assert 0 < cache.ttl(quizzes[0]) <= 3600
     print("PASS: private quiz cache contains five grounded multiple-choice questions with a valid TTL")
-    rate = "quizforge:rate:00000000-0000-0000-0000-000000000003"
+    # Generation uses app_shared.AuthenticatedUser.id; history separately maps
+    # that Cognito identity to an internal database UUID.
+    rate = f"quizforge:rate:cognito:{bundle['pool']}:{bundle['users']['mapped']['subject']}"
     assert cache.get(rate) == "11" and 0 < cache.ttl(rate) <= 600
     print("PASS: private distributed quiz-rate counter is eleven with an active ten-minute window")
     expected_metrics = {"quiz_cache_hits_total":1, "quiz_cache_misses_total":9, "quiz_requests_total":10}
