@@ -44,24 +44,28 @@ def cleanup_trust(account):
             'aws:SourceArn': f'arn:aws:scheduler:{REGION}:{account}:schedule-group/{GROUP}'}}}]}
 
 
-def session_policy(account, operation):
+def session_policy(account, operation, ident=None):
     account_id(account)
     if operation not in ('inspect', 'run', 'cleanup'):
         raise ValueError('Unsupported operation')
+    if operation == 'run':
+        test_name(ident or '')
     role = f'arn:aws:iam::{account}:role/{ROLE}'
     schedule = f'arn:aws:scheduler:{REGION}:{account}:schedule/{GROUP}/{PREFIX}*'
     statements = [
         {'Effect': 'Allow', 'Action': ['sts:GetCallerIdentity', 'freetier:GetAccountPlanState',
          'lightsail:GetBundles', 'lightsail:GetBlueprints', 'lightsail:GetRegions',
-         'lightsail:GetInstances', 'lightsail:GetInstance', 'lightsail:GetInstanceState',
+         'lightsail:GetInstances', 'lightsail:GetInstance',
          'lightsail:GetInstanceMetricData', 'lightsail:GetInstancePortStates'], 'Resource': '*'},
         {'Effect': 'Allow', 'Action': ['iam:GetRole', 'iam:GetRolePolicy',
          'iam:ListRolePolicies', 'iam:ListAttachedRolePolicies'], 'Resource': role},
         {'Effect': 'Allow', 'Action': ['scheduler:GetScheduleGroup'],
          'Resource': f'arn:aws:scheduler:{REGION}:{account}:schedule-group/{GROUP}'},
-        {'Effect': 'Allow', 'Action': ['scheduler:GetSchedule'], 'Resource': schedule}]
+        {'Effect': 'Allow', 'Action': ['scheduler:GetSchedule'] +
+         (['scheduler:CreateSchedule'] if operation == 'run' else []), 'Resource': schedule}]
     if operation in ('run', 'cleanup'):
-        statements.append({'Effect': 'Allow', 'Action': ['lightsail:DeleteInstance'],
+        statements.append({'Effect': 'Allow', 'Action': ['lightsail:DeleteInstance'] +
+            (['lightsail:GetInstanceAccessDetails', 'lightsail:PutInstancePublicPorts'] if operation == 'run' else []),
             'Resource': f'arn:aws:lightsail:{REGION}:{account}:Instance/*',
             'Condition': {'StringEquals': {'aws:ResourceTag/Purpose': PURPOSE}}})
     if operation == 'run':
@@ -69,11 +73,11 @@ def session_policy(account, operation):
             {'Effect': 'Allow', 'Action': ['lightsail:CreateInstances'], 'Resource': '*',
              'Condition': {'StringEquals': {'aws:RequestedRegion': REGION,
                                            'aws:RequestTag/Purpose': PURPOSE}}},
-            {'Effect': 'Allow', 'Action': ['lightsail:GetInstanceAccessDetails',
-             'lightsail:PutInstancePublicPorts'],
+            {'Effect': 'Allow', 'Action': ['lightsail:TagResource'],
              'Resource': f'arn:aws:lightsail:{REGION}:{account}:Instance/*',
-             'Condition': {'StringEquals': {'aws:ResourceTag/Purpose': PURPOSE}}},
-            {'Effect': 'Allow', 'Action': ['scheduler:CreateSchedule'], 'Resource': schedule},
+             'Condition': {'StringEquals': {'aws:RequestTag/Purpose': PURPOSE,
+                                             'aws:RequestTag/TestId': ident},
+                           'ForAllValues:StringEquals': {'aws:TagKeys': ['Purpose', 'TestId', 'DeleteAfter']}}},
             {'Effect': 'Allow', 'Action': ['iam:PassRole'], 'Resource': role,
              'Condition': {'StringEquals': {'iam:PassedToService': 'scheduler.amazonaws.com'}}}])
     return {'Version': '2012-10-17', 'Statement': statements}
@@ -81,6 +85,8 @@ def session_policy(account, operation):
 
 if __name__ == '__main__':
     import os
-    policy = session_policy(os.environ['TEST_ACCOUNT_ID'], os.environ['OPERATION'])
+    operation = os.environ['OPERATION']
+    ident = os.environ['GITHUB_RUN_ID'] + '-' + os.environ['GITHUB_RUN_ATTEMPT'] if operation == 'run' else None
+    policy = session_policy(os.environ['TEST_ACCOUNT_ID'], operation, ident)
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write('json=' + json.dumps(policy, separators=(',', ':')) + '\n')

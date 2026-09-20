@@ -81,6 +81,36 @@ its request-shape validator does not prove Scheduler input compatibility.
 The schedule still must be created and read back before instance creation.
 No performance result is established by these failed launch attempts.
 
+The [next diagnostic run 35496414231](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35496414231)
+successfully created and verified its cleanup schedule, then AWS denied
+`CreateInstances` because the temporary session omitted the dependent
+`lightsail:TagResource` action. It recorded `cleanup_schedule_verified: true`,
+`instance_creation_attempted: true`, `live_test_performed: false` and confirmed
+`cleanup.instance_absent: true`. This is a session-policy defect, not evidence
+of an account-plan restriction or an OCR capacity failure.
+
+The prepared session-policy correction allows `TagResource` only on this
+account's Canadian instance ARNs, with the exact current run's `TestId`, the
+test `Purpose`, and only the `Purpose`, `TestId`, `DeleteAfter` keys. Read-only
+and cleanup sessions cannot tag anything; untagging is not allowed. Shared
+statements are combined and an unused read is removed to retain STS's 2048-byte
+limit without wildcard actions. The existing role and cleanup role are not
+modified. This permission is needed for tags on the create request; the
+controller never calls the separate tagging API.
+
+Lightsail instance ARNs contain generated IDs, so this tag permission cannot
+be expressed as a test-name ARN before creation. The request-tag condition
+does not by itself prevent re-tagging an existing instance: that remains a
+reviewed-controller boundary. Only trusted main-branch code receives the
+temporary session. Because this adds effective tagging access to the session,
+the browser confirmation policy requires approval before dispatching a run with
+the correction. Prepare/review it first; do not silently remove the session
+boundary or add broad role permissions to overcome this denial.
+
+Until that corrected run completes, live capacity remains unverified. The prior
+CI sustained-profile timing failures remain authoritative, and the website has
+not been switched to the proposed AWS server.
+
 Provision this small prerequisite module using the existing encrypted Terraform
 state bucket and the **new** key `quizforge/lightsail-test-cleanup/terraform.tfstate`.
 Never use the foundation or production state key. Review a saved plan: it should
