@@ -139,7 +139,7 @@ class PersistentBudget(unittest.TestCase):
 class ProductionSchema(unittest.TestCase):
     def test_bootstrap_schema_import_reconciliation_and_role_separation(self):
         from psycopg.rows import dict_row
-        from history_transfer import APPLICATION, import_snapshot, export_snapshot, seal, unseal, validate
+        from history_transfer import APPLICATION, SUPABASE, import_snapshot, export_snapshot, insert_rows, seal, unseal, validate
         from probe import fixtures
         from uuid import UUID
         import secrets
@@ -147,9 +147,14 @@ class ProductionSchema(unittest.TestCase):
         with psycopg.connect(os.environ["PRODUCTION_TEST_DB"], autocommit=True, row_factory=dict_row) as owner:
             assert owner.info.host == "127.0.0.1" and owner.info.dbname == "quizforge"
             owner.execute(Path(__file__).with_name("schema.sql").read_text())
-            snapshot = {"version": 1, "issuer": SOURCE_ISSUER,
-                        "users": [str(UUID(int=i)) for i in (1,2,3)],
-                        "rows": [json.dumps(row,default=str) for row in fixtures()]}
+            owner.execute("CREATE SCHEMA auth")
+            owner.execute("CREATE TABLE auth.users (id uuid PRIMARY KEY)")
+            owner.execute("CREATE TABLE public.quiz_history (LIKE app.quiz_history INCLUDING ALL)")
+            for i in (1,2,3): owner.execute("INSERT INTO auth.users VALUES (%s)",(UUID(int=i),))
+            insert_rows(owner,SUPABASE.history,[json.dumps(row,default=str) for row in fixtures()])
+            # Use the real PostgreSQL exporter, preserving its canonical numeric
+            # and timestamp text rather than manufacturing a Python snapshot.
+            snapshot = export_snapshot(owner,SUPABASE,SOURCE_ISSUER)
             key = secrets.token_bytes(32)
             decoded = unseal(seal(snapshot,key),key)
             report = import_snapshot(owner, decoded)
