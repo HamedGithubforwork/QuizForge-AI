@@ -165,5 +165,45 @@ Automatic cleanup destroyed **all 59 resources at 00:26:35 UTC**; independent
 absence checks passed at **00:26:48 UTC**, including RDS backups and Valkey.
 The reusable foundation, zone/certificate and ECR images remain.
 
+## Private probe diagnosis — 2026-09-20
+
+[Run 35479035851](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35479035851)
+used controller `a4d842c0f85548d40050d57d19c18061c9bfe381` and the same reviewed
+application commit. It created 59 resources at **00:45:39 UTC**, and the complete
+browser journey passed again at **00:51:32 UTC**.
+
+At **00:52:25 UTC**, the private probe confirmed all eight original history
+fixtures unchanged, no browser-created rows remaining, four internal users and
+one consumed enrollment confirmation. It also confirmed the application-created
+document/source/quiz cache contents and TTLs. Safe diagnostics recorded:
+
+| Observation | Value |
+| --- | ---: |
+| Real upstream model requests | 1 |
+| Remaining model-request budget | 1 |
+| Budget TTL | -1 (non-expiring for the disposable cache lifetime) |
+| Model timing samples | 1 |
+| Quiz cache hits / misses | 1 / 9 |
+| Quiz requests recorded | 10 |
+| Document cache hits / misses | 2 / 1 |
+
+The remaining assertion queried the rate counter using the internal history UUID.
+The reviewed application's `app_shared.get_current_user` instead identifies
+generation/cache users as `cognito:<pool>:<subject>`; the history repository maps
+that identity separately to an internal UUID. This explains the probe failure.
+[PR #124](https://github.com/HamedGithubforwork/QuizForge-AI/pull/124) corrects the
+lookup and adds real-Valkey regression coverage for the correct Cognito identity,
+wrong history UUID, wrong pool and missing expiry. The required count of eleven
+and active ten-minute TTL remain unchanged. The application is unchanged.
+
+Automatic cleanup destroyed **all 59 resources at 00:59:08 UTC**. Independent
+absence checks passed at **00:59:20 UTC**, including RDS backups and Valkey.
+The reusable foundation, zone/certificate and ECR images remain.
+
+A final live run with the corrected probe is still required before describing the
+whole workflow as green. The local workspace/browser disconnected during this
+run; GitHub monitoring, code publication and automatic AWS cleanup remained
+available, but the disconnected browser could not dispatch the corrected rerun.
+
 See [production-readiness costs and migration/rollback steps](aws-production-readiness.md)
 for the prepared next-stage review. That plan does not deploy production.

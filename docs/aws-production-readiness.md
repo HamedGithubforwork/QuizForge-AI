@@ -1,6 +1,6 @@
 # AWS production-readiness plan
 
-Prepared September 19, 2026. This is a review plan, not a production deployment.
+Prepared September 19, 2026; evidence updated September 20. This is a review plan, not a production deployment.
 Production remains on Vercel, Render and Supabase. Application PR #97 remains
 draft and unmerged. Live rehearsal evidence is in [integrated staging](aws-integrated-staging.md).
 
