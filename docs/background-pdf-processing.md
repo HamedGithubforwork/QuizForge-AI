@@ -27,13 +27,34 @@ Without the flag, the existing synchronous upload contract remains HTTP 200.
 When background mode is enabled, uploading a PDF to quiz generation cannot bypass
 the queue: an unprocessed document receives 409 and must be processed first.
 
+## Selecting pages before extraction
+
+The background upload form accepts an optional `page_selection` such as `2, 5-7`.
+Blank means all pages. Selection is validated and canonicalized before admission;
+the worker reads/rasterizes/OCRs only those pages and preserves their original
+page numbers in saved text, checkpoints, previews, citations and weak-area practice.
+Out-of-document selections return a job error. The original PDF must still be at
+most 100 pages and 15 MiB; the 30-scan limit applies to the pages being processed.
+The whole file is uploaded, so this reduces processing rather than upload bandwidth.
+
+Partial-document identity includes both the raw PDF hash and canonical selection.
+The existing `pdf_sha256` response field therefore identifies the selected view for
+partial uploads; clients must reuse that returned value. Full-document hashes remain
+unchanged. Different selections cannot reuse incompatible text, quiz or history
+results. Cache hits require the same owner, PDF and selection. Synchronous legacy
+uploads reject nonempty selections explicitly; the website displays the control
+only when background-job discovery succeeds.
+
 ## Bounds and recovery
 
 One PDF subprocess runs at a time. At most four jobs may be queued/running across
 the host, with one pending job per owner and four new jobs per owner per hour.
 Duplicate submissions of an unexpired pending/completed PDF reuse the same owned
 job, including after a lost HTTP response. At most sixteen job records and
-128 MiB of reserved input/checkpoint/result payload are retained. Pending jobs
+128 MiB of reserved input/checkpoint/result payload are retained. Completed text
+has a separate 32 MiB cap, with least-recently-used completed results evicted
+when needed. Admissions are tracked independently for one hour (four per owner,
+sixteen globally), so eviction and cancellation cannot reset upload allowances. Pending jobs
 reserve their input size plus 8 MiB for completed page text. Busy submissions receive
 429 with Retry-After; a stopped queue fails closed with 503.
 
@@ -58,7 +79,10 @@ results remain usable across a process restart and a Redis cache miss.
 Saved page text stays private and is unavailable through the document API until
 the entire extraction succeeds. Checkpoints are removed after success, failure,
 cancellation or expiration. Raw input is removed after success, failure or cancellation. All processing
-records/results expire one hour after submission; reads enforce expiration
+jobs expire one hour after submission. Successful extracted text expires 24 hours
+after completion, without extending its expiry on reads; it may be evicted earlier
+under the cache bounds. Raw PDFs are never retained for the extended cache window.
+Reads enforce expiration
 immediately and the queue loop removes expired records, including at startup.
 SQLite secure deletion clears deleted payload from ordinary database pages;
 encrypted storage is still necessary for the host and any storage snapshots.
@@ -74,13 +98,14 @@ SQLite main file is capped at 256 MiB; allow additional space for its transient
 rollback journal. Exclude temporary PDF jobs from retained application backups.
 Account/history backups remain a separate required operation.
 
-Queue schema version 2 migrates version 1 on startup while preserving uploads.
+Queue schema version 3 migrates versions 1 and 2 on startup while preserving
+uploads, checkpoints, existing expiry times and recent admission counts.
 Version-1 interrupted jobs have no saved page text and therefore restart from
 page one. Drain/discard temporary jobs before rolling back to an older application
-that only understands schema version 1.
+that only understands an older queue schema.
 
 The isolated worker extracts selectable text once and initializes one Tesseract 5
-engine per document. It recognizes 150-DPI RGB page rasters directly, avoiding
+engine per document. It recognizes 150-DPI grayscale page rasters directly, avoiding
 intermediate searchable PDFs and repeated language-model loading. Native work
 remains inside the limited child with no API, database or model-client imports.
 The production image must provide `libtesseract.so.5` and English trained data;
@@ -104,7 +129,9 @@ Checkpoint tests cover atomic progress, bounds, private reads, version-1 migrati
 page skipping on resume and deletion of saved bytes for every terminal state.
 The required Docker OCR check exercises small text, columns, mixed content and
 PDF rotation metadata through the real isolated worker, including interrupted resume.
-Browser tests cover progress, page refresh, restored quiz generation and cancel.
+Browser tests cover progress, page refresh, restored quiz generation, page selection
+and cancellation. Cache tests cover fixed 24-hour expiry, LRU byte bounds, private
+reads, migration and admission limits that survive eviction.
 The follow-up constrained capacity run must measure admission latency separately
 from background completion and retain the original failed synchronous result.
 

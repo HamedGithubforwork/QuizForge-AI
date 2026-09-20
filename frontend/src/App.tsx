@@ -38,6 +38,7 @@ function App() {
 
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null)
+  const [pageSelection, setPageSelection] = useState('')
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
   const [quiz, setQuiz] =
@@ -99,6 +100,11 @@ function App() {
       event.target.files?.[0] ?? null
 
     setSelectedFile(file)
+    setPageSelection('')
+    resetProcessedDocument()
+  }
+
+  function resetProcessedDocument() {
     pdfUpload.clear()
     setDocumentResult(null)
     setQuiz(null)
@@ -107,6 +113,11 @@ function App() {
     resetPracticeMode()
     setGenerationStage('')
     setError('')
+  }
+
+  function handlePageSelectionChange(value: string) {
+    setPageSelection(value)
+    resetProcessedDocument()
   }
 
   async function handleProcessPdf(resume?: PdfJobResponse) {
@@ -124,7 +135,7 @@ function App() {
     resetPracticeMode()
 
     try {
-      const data = await pdfUpload.run(selectedFile ?? undefined, resume)
+      const data = await pdfUpload.run(selectedFile ?? undefined, resume, pageSelection)
       setDocumentResult(data)
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
@@ -635,6 +646,10 @@ function App() {
           recentJob={pdfUpload.recentJob}
           onResume={job => void handleProcessPdf(job)}
           onCancel={() => void handleCancelProcessing()}
+          pageSelection={pageSelection}
+          onPageSelectionChange={handlePageSelectionChange}
+          supportsPageSelection={pdfUpload.supportsPageSelection}
+          selectionDisabled={isGenerating || isWeakPracticeGenerating}
         />
 
         {error && (

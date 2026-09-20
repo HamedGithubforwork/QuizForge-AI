@@ -14,6 +14,7 @@ import pymupdf
 
 from pdf_ocr import extract_pdf_pages_with_ocr
 from pdf_process import extract_in_process, extract_background
+from benchmark_pdf_ocr import fixtures, quality
 
 
 EXPECTED_WORDS = {
@@ -92,6 +93,7 @@ def main():
     # This path is required even if a CI runner lacks system Tesseract: the
     # production Docker image must exercise the actual isolated native engine.
     asyncio.run(verify_isolated_quality())
+    asyncio.run(verify_selection_and_reading_order())
 
     print("OCR runtime verification passed.")
 
@@ -154,6 +156,29 @@ async def verify_isolated_quality():
     async def observe(batch, total): resumed.extend(page['page_number'] for page in batch)
     restored = await extract_background(raw, checkpoint=checkpoints, on_checkpoint=observe)
     assert resumed == [2, 3, 4] and restored == pages
+
+
+async def verify_selection_and_reading_order():
+    raw, names, expected = fixtures()
+    pages = await extract_in_process(raw)
+    for page, name, reference in zip(pages, names, expected):
+        scores = quality(page['text'], reference)
+        assert min(scores.values()) >= .98, (name, scores)
+    selected = [2, 4, 5]
+    saved = []
+    async def interrupt(batch, total):
+        assert total == len(selected)
+        saved.extend(batch)
+        raise asyncio.CancelledError()
+    try:
+        await extract_background(raw, page_numbers=selected, on_checkpoint=interrupt)
+    except asyncio.CancelledError:
+        pass
+    assert [page['page_number'] for page in saved] == [2]
+    async def observe(batch, total):
+        assert total == len(selected)
+    restored = await extract_background(raw, page_numbers=selected, checkpoint=saved, on_checkpoint=observe)
+    assert restored == [pages[number - 1] for number in selected]
 
 
 if __name__ == "__main__":

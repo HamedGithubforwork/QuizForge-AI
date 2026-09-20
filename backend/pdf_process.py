@@ -13,6 +13,7 @@ import weakref
 
 from fastapi import HTTPException
 from pdf_protocol import MAX_RESULT_BYTES, validate_pages
+from pdf_selection import validate_selection
 
 TIMEOUT_SECONDS = 120
 _states = weakref.WeakKeyDictionary()
@@ -24,9 +25,10 @@ class _State:
         self.pending = 0
 
 
-async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None, on_checkpoint=None):
+async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None, on_checkpoint=None, page_numbers=None):
+    selected = [] if page_numbers is None else validate_selection(page_numbers)
     saved = [] if checkpoint is None else checkpoint
-    resume = validate_pages(saved)
+    resume = validate_pages(saved, total=len(selected) if selected else 100, page_numbers=selected)
     previous = len(saved)
     expected_total = None
     progress_mode = on_progress is not None or on_checkpoint is not None
@@ -38,6 +40,7 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
     creation = asyncio.create_task(asyncio.create_subprocess_exec(
         sys.executable, str(Path(__file__).with_name('pdf_worker.py')),
         *(['--progress', '--resume'] if progress_mode else []),
+        *(['--pages', ','.join(map(str, selected))] if selected else []),
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL, env=env, limit=MAX_RESULT_BYTES + 4096,
     ))
@@ -77,7 +80,7 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
                         raise ValueError('Output after worker result')
                     if item.get('type') == 'pages':
                         batch, total = item['pages'], item['total']
-                        encoded = validate_pages(batch, start=previous + 1, total=total)
+                        encoded = validate_pages(batch, start=previous + 1, total=total, page_numbers=selected)
                         if not batch or (expected_total is not None and total != expected_total):
                             raise ValueError('Invalid worker progress')
                         expected_total = total
@@ -118,7 +121,9 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
             result = json.loads(raw)
             if result['status'] != 200:
                 raise HTTPException(result['status'], result['detail'])
-            validate_pages(result['pages'])
+            validate_pages(result['pages'], total=len(selected) if selected else 100, page_numbers=selected)
+            if selected and len(result['pages']) != len(selected):
+                raise ValueError('Worker omitted selected pages')
             if progress_mode and (len(result['pages']) != previous
                     or (expected_total is not None and previous != expected_total)):
                 raise ValueError('Worker result did not match completed pages')
@@ -136,13 +141,13 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
         await process.wait()
 
 
-async def extract_background(contents, on_progress=None, *, timeout=600, checkpoint=None, on_checkpoint=None):
+async def extract_background(contents, on_progress=None, *, timeout=600, checkpoint=None, on_checkpoint=None, page_numbers=None):
     # The durable queue owns admission and the single active job. Synchronous
     # extraction routes are disabled when background mode is enabled.
     if len(contents) > 15 * 1024**2:
         raise HTTPException(413, 'PDF exceeds the 15 MB upload limit.')
     return await _execute(contents, timeout=timeout, on_progress=on_progress,
-                          checkpoint=checkpoint, on_checkpoint=on_checkpoint)
+                          checkpoint=checkpoint, on_checkpoint=on_checkpoint, page_numbers=page_numbers)
 
 
 async def extract_in_process(contents):

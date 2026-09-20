@@ -13,7 +13,8 @@ MAX_PAGE_PIXELS = 12_000_000
 
 
 class OcrEngine:
-    def __init__(self):
+    def __init__(self, *, colorspace=None):
+        self.colorspace = pymupdf.csGRAY if colorspace is None else colorspace
         self.handle = None
         self.lib = c.CDLL('libtesseract.so.5')
         signatures = (
@@ -47,7 +48,7 @@ class OcrEngine:
         import math
         if math.ceil(page.rect.width * OCR_DPI / 72) * math.ceil(page.rect.height * OCR_DPI / 72) > MAX_PAGE_PIXELS:
             raise ValueError('OCR page is too large')
-        pixmap = page.get_pixmap(dpi=OCR_DPI, colorspace=pymupdf.csRGB, alpha=False)
+        pixmap = page.get_pixmap(dpi=OCR_DPI, colorspace=self.colorspace, alpha=False)
         samples = pixmap.samples  # Keep the buffer alive until recognition ends.
         pointer = None
         try:

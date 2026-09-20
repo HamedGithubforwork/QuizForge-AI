@@ -83,6 +83,7 @@ export type PdfJobResponse = {
   "expires_at": string
   "error": string | null
   "result"?: UploadResponse | null
+  "selected_pages"?: number[]
 }
 
 export type PdfJobList = {

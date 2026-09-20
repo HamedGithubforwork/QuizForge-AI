@@ -297,3 +297,13 @@ def test_rejects_invalid_source_pages():
         in error
         for error in errors
     )
+
+
+def test_selected_document_citations_keep_original_numbers_and_reject_unselected_pages():
+    question = make_mc_question()
+    question.source_pages = [7]
+    quiz = Quiz(title='Selected pages', questions=[question])
+    arguments = dict(question_count=1, requested_question_type='multiple_choice', page_count=2, allowed_page_numbers={2, 7})
+    assert not get_quiz_validation_errors(quiz, **arguments)
+    question.source_pages = [3]
+    assert any('source page' in error for error in get_quiz_validation_errors(quiz, **arguments))

@@ -351,10 +351,13 @@ async def generate_quiz_from_pages(
             ),
         )
 
+    available_page_numbers = {page['page_number'] for page in pages}
     focus_page_numbers = parse_focus_pages(
         focus_pages,
-        len(pages),
+        max(available_page_numbers, default=0),
     )
+    if not set(focus_page_numbers).issubset(available_page_numbers):
+        raise HTTPException(400, 'Focus pages must be among the pages processed from this PDF.')
 
     focus_types = parse_focus_question_types(
         focus_question_types,
@@ -660,6 +663,7 @@ Do not mention the retry or validation process in the quiz.
                 question_count=question_count,
                 requested_question_type=question_type,
                 page_count=len(pages),
+                allowed_page_numbers=available_page_numbers,
             )
         )
 
@@ -693,12 +697,7 @@ Do not mention the retry or validation process in the quiz.
             ),
         )
 
-    valid_pages = set(
-        range(
-            1,
-            len(pages) + 1,
-        )
-    )
+    valid_pages = available_page_numbers
     types_found = set()
 
     for question in quiz.questions:

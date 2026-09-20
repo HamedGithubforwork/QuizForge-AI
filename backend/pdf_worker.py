@@ -5,6 +5,7 @@ import resource
 import sys
 
 from pdf_protocol import MAX_RESULT_BYTES, validate_pages
+from pdf_selection import parse_selection
 
 
 class _InputError(Exception):
@@ -35,6 +36,7 @@ def main():
     # Import only extraction dependencies; API/model clients stay in the parent.
     from pdf_extraction import PdfError, extract
     try:
+        selected = parse_selection(sys.argv[sys.argv.index('--pages') + 1]) if '--pages' in sys.argv else []
         checkpoint = []
         if '--resume' in sys.argv:
             header = sys.stdin.buffer.read(4)
@@ -47,11 +49,12 @@ def main():
             if len(payload) != length:
                 raise _InputError()
             checkpoint = json.loads(payload)
-            validate_pages(checkpoint)
+            validate_pages(checkpoint, total=len(selected) if selected else 100, page_numbers=selected)
         raw = sys.stdin.buffer.read(15 * 1024**2 + 1)
         if len(raw) > 15 * 1024**2:
             raise PdfError(413, 'PDF exceeds the 15 MB upload limit.')
-        result = {'status': 200, 'pages': extract(raw, checkpoint=checkpoint, on_pages=progress if progress_mode else None)}
+        result = {'status': 200, 'pages': extract(raw, checkpoint=checkpoint,
+                  on_pages=progress if progress_mode else None, page_numbers=selected)}
     except PdfError as error:
         result = {'status': error.status_code, 'detail': error.detail}
     except Exception:

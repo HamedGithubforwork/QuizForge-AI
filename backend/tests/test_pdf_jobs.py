@@ -113,7 +113,8 @@ def test_expiry_and_hourly_allowance_do_not_accumulate_payloads(tmp_path, monkey
         store.close()
 
 
-def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache(tmp_path, monkeypatch, cognito):
+@pytest.mark.parametrize('selection,numbers', [('', [1, 2]), ('2', [2])])
+def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache(tmp_path, monkeypatch, cognito, selection, numbers):
     async def scenario():
         monkeypatch.setenv('PDF_BACKGROUND_JOBS', 'true')
         monkeypatch.setenv('PDF_PROCESS_ISOLATION', 'true')
@@ -132,6 +133,7 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     token = {'Authorization': 'Bearer ' + cognito.sign()}
                     other = {'Authorization': 'Bearer ' + cognito.sign(subject=str(UUID(int=202)))}
                     response = await client.post('/api/documents/upload', headers=token,
+                                                 data={'page_selection': selection},
                                                  files={'file': ('notes.pdf', pdf_bytes(), 'application/pdf')})
                     assert response.status_code == 202 and response.headers['Cache-Control'] == 'no-store'
                     job = response.json()
@@ -144,7 +146,9 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                         if job['status'] == 'succeeded': break
                         assert job['status'] in ('queued', 'processing'), job
                         await asyncio.sleep(.05)
-                    assert job['status'] == 'succeeded' and job['completed_pages'] == 2
+                    assert job['status'] == 'succeeded' and job['completed_pages'] == len(numbers)
+                    assert [page['page_number'] for page in job['result']['pages']] == numbers
+                    assert job['selected_pages'] == (numbers if selection else [])
                     assert 'input' not in job and 'text' not in job['result']['pages'][0]
                     digest = job['result']['pdf_sha256']
                     await pdf_jobs.close_pdf_jobs()
@@ -152,9 +156,11 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     await pdf_jobs.start_pdf_jobs()
                     restored = (await client.get(path, headers=token)).json()
                     assert restored['result'] == job['result']
-                    source = f'/api/documents/{digest}/pages/1'
+                    source = f'/api/documents/{digest}/pages/{numbers[0]}'
                     own_source = await client.get(source, headers=token)
                     assert own_source.status_code == 200 and 'Photosynthesis' in own_source.json()['text']
+                    if selection:
+                        assert (await client.get(f'/api/documents/{digest}/pages/1', headers=token)).status_code == 404
                     assert (await client.get(source, headers=other)).status_code == 410
                     assert (await client.delete(path, headers=token)).status_code == 204
                     assert (await client.get(path, headers=token)).json()['status'] == 'cancelled'

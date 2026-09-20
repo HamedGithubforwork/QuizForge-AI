@@ -309,3 +309,25 @@ def test_large_document_can_reach_quiz_generation(
         in user_content
     )
     assert len(user_content) < 100_000
+
+
+def test_partial_document_generates_quiz_with_original_source_numbers(monkeypatch):
+    pages = build_generation_pages([
+        _page(number, 'Photosynthesis converts light into chemical energy. ' * 20)
+        for number in [2, 7]
+    ], focus_page_numbers=[7])
+    quiz = _multiple_choice_quiz(7)
+    captured = []
+    class Responses:
+        async def parse(self, *, model, input, text_format):
+            captured.append(input)
+            return SimpleNamespace(output_parsed=quiz)
+    async def client(_):
+        return SimpleNamespace(responses=Responses())
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-key')
+    monkeypatch.setattr(quiz_service, 'get_openai_client', client)
+    result = asyncio.run(quiz_service.generate_quiz_from_pages(pages=pages,
+        question_count=5, difficulty='medium', question_type='multiple_choice', focus_pages='7'))
+    assert result == quiz and len(captured) == 1
+    assert '--- PAGE 7 ---' in captured[0][1]['content']
+    assert all(question.source_pages == [7] for question in result.questions)

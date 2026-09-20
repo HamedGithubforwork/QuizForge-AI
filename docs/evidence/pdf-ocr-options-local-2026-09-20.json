@@ -1,0 +1,192 @@
+{
+  "environment": "local diagnostic; synthetic scans; one OCR thread",
+  "python": "3.12.14",
+  "pymupdf": "1.28.2",
+  "repeats": 3,
+  "variants": {
+    "rgb-150-auto": {
+      "wall_seconds": [
+        2.704929830000765,
+        2.7081825580007717,
+        2.522007288000168
+      ],
+      "cpu_seconds": [
+        2.70264315,
+        2.702331299000001,
+        2.5214962069999984
+      ],
+      "pages": [
+        {
+          "name": "single-column",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "two-columns",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "small-text",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "colored-page",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "rotated-metadata",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        }
+      ],
+      "median_wall_seconds": 2.704929830000765,
+      "median_cpu_seconds": 2.702331299000001
+    },
+    "gray-150-auto": {
+      "wall_seconds": [
+        2.3094242899987876,
+        2.4172429750015,
+        2.3326684969997586
+      ],
+      "cpu_seconds": [
+        2.308757841,
+        2.4171195250000004,
+        2.332459629999999
+      ],
+      "pages": [
+        {
+          "name": "single-column",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "two-columns",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "small-text",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "colored-page",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "rotated-metadata",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        }
+      ],
+      "median_wall_seconds": 2.3326684969997586,
+      "median_cpu_seconds": 2.332459629999999
+    },
+    "gray-150-block": {
+      "wall_seconds": [
+        2.1446825040002295,
+        2.091266932999133,
+        2.288272792000498
+      ],
+      "cpu_seconds": [
+        2.144589304,
+        2.0911884449999985,
+        2.2787906540000016
+      ],
+      "pages": [
+        {
+          "name": "single-column",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "two-columns",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 0.16203703703703703
+        },
+        {
+          "name": "small-text",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "colored-page",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "rotated-metadata",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        }
+      ],
+      "median_wall_seconds": 2.1446825040002295,
+      "median_cpu_seconds": 2.144589304
+    },
+    "gray-120-auto": {
+      "wall_seconds": [
+        1.9406359959994006,
+        2.060903411000254,
+        1.9185346829999617
+      ],
+      "cpu_seconds": [
+        1.9315464739999992,
+        2.051913971000001,
+        1.9183058640000006
+      ],
+      "pages": [
+        {
+          "name": "single-column",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "two-columns",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "small-text",
+          "precision": 0.9904761904761905,
+          "recall": 0.9904761904761905,
+          "reading_order": 0.6666666666666666
+        },
+        {
+          "name": "colored-page",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        },
+        {
+          "name": "rotated-metadata",
+          "precision": 1.0,
+          "recall": 1.0,
+          "reading_order": 1.0
+        }
+      ],
+      "median_wall_seconds": 1.9406359959994006,
+      "median_cpu_seconds": 1.9315464739999992
+    }
+  }
+}

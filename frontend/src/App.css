@@ -1718,3 +1718,22 @@ button {
     scroll-margin-top: 0;
   }
 }
+.page-selection {
+  display: grid;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+
+.page-selection input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.7rem;
+  border: 1px solid #64748b;
+  border-radius: 0.5rem;
+  font: inherit;
+}
+
+.page-selection p {
+  margin: 0;
+  font-size: 0.9rem;
+}

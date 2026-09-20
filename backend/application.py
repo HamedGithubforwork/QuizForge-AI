@@ -466,6 +466,7 @@ async def admin_metrics(
 )
 async def upload_pdf(
     file: UploadFile = File(...),
+    page_selection: str = Form(''),
     current_user: AuthenticatedUser = Depends(
         get_current_user
     ),
@@ -474,9 +475,13 @@ async def upload_pdf(
         file.content_type
     )
 
+    page_selection = page_selection if isinstance(page_selection, str) else ''
     if background_pdfs_enabled():
-        result = await pdf_job_manager().submit_upload(current_user.id, file)
+        result = await pdf_job_manager().submit_upload(current_user.id, file, page_selection)
         return JSONResponse(status_code=202, content=result.model_dump(mode='json'), headers={'Cache-Control': 'no-store'})
+
+    if page_selection.strip():
+        raise HTTPException(400, 'Selected pages require background PDF processing.')
 
     contents = await file.read()
     validate_pdf_size(contents)
@@ -630,9 +635,11 @@ async def generate_quiz(
             focus_page_numbers = (
                 quiz_service.parse_focus_pages(
                     focus_pages,
-                    len(pages),
+                    max((page['page_number'] for page in pages), default=0),
                 )
             )
+            if not set(focus_page_numbers).issubset({page['page_number'] for page in pages}):
+                raise HTTPException(400, 'Focus pages must be among the pages processed from this PDF.')
             previous_questions = (
                 quiz_service.parse_avoid_questions(
                     avoid_questions

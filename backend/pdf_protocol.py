@@ -1,5 +1,6 @@
 """Small, dependency-free bounds shared by the private PDF worker and queue."""
 import json
+from pdf_selection import validate_selection
 
 MAX_RESULT_BYTES = 8 * 1024**2
 MAX_PAGE_BYTES = MAX_RESULT_BYTES - 1024  # Leave room for the result envelope.
@@ -12,12 +13,16 @@ def encode_pages(pages):
     return raw
 
 
-def validate_pages(pages, *, start=1, total=100):
+def validate_pages(pages, *, start=1, total=100, page_numbers=None):
     if type(total) is not int or not 0 <= total <= 100 or not isinstance(pages, list):
         raise ValueError('Invalid page checkpoint')
     if start < 1 or start + len(pages) - 1 > total:
         raise ValueError('Invalid checkpoint length')
-    for number, page in enumerate(pages, start):
+    selected = [] if page_numbers is None else validate_selection(page_numbers)
+    if selected and (total != len(selected) or start + len(pages) - 1 > len(selected)):
+        raise ValueError('Invalid selected checkpoint length')
+    expected = selected[start - 1:start - 1 + len(pages)] if selected else range(start, start + len(pages))
+    for number, page in zip(expected, pages):
         if (not isinstance(page, dict) or set(page) != {'page_number', 'text'}
                 or type(page['page_number']) is not int or page['page_number'] != number
                 or not isinstance(page['text'], str)):

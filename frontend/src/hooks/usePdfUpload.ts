@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { rememberCurrentDocumentIdentity } from '../lib/documentIdentity'
 import { waitForPdfJob } from '../lib/pdfJobs'
+import { normalizePageSelection } from '../lib/pageSelection'
 import type { PdfJobResponse, UploadResponse } from '../types/api.generated'
 
 async function readJob(id: string, signal: AbortSignal): Promise<PdfJobResponse> {
@@ -17,6 +18,7 @@ export function usePdfUpload() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [job, setJob] = useState<PdfJobResponse | null>(null)
   const [recentJob, setRecentJob] = useState<PdfJobResponse | null>(null)
+  const [supportsPageSelection, setSupportsPageSelection] = useState(false)
   const operation = useRef<AbortController | null>(null)
   const revision = useRef(0)
 
@@ -27,6 +29,7 @@ export function usePdfUpload() {
       .then(async response => {
         if (!response.ok) return
         const data = await response.json()
+        if (!controller.signal.aborted) setSupportsPageSelection(true)
         if (!controller.signal.aborted && initialRevision === revision.current) {
           setRecentJob(data.jobs?.find((item: PdfJobResponse) => ['queued', 'processing', 'succeeded'].includes(item.status)) ?? null)
         }
@@ -37,7 +40,7 @@ export function usePdfUpload() {
     }
   }, [])
 
-  async function run(file?: File, resume?: PdfJobResponse) {
+  async function run(file?: File, resume?: PdfJobResponse, pageSelection = '') {
     operation.current?.abort()
     const controller = new AbortController()
     operation.current = controller
@@ -51,7 +54,9 @@ export function usePdfUpload() {
       } else {
         const formData = new FormData()
         if (!file) throw new Error('Please choose a PDF first.')
+        const selection = normalizePageSelection(pageSelection)
         formData.append('file', file)
+        if (selection) formData.append('page_selection', selection)
         const response = await apiFetch('/api/documents/upload', {
           method: 'POST', body: formData,
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(180000)]),
@@ -96,5 +101,5 @@ export function usePdfUpload() {
     setJob(null)
   }
 
-  return { isProcessing, job, recentJob, run, cancel, clear }
+  return { isProcessing, job, recentJob, supportsPageSelection, run, cancel, clear }
 }

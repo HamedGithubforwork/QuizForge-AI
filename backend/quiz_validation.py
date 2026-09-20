@@ -584,6 +584,7 @@ def get_quiz_validation_errors(
     question_count: int,
     requested_question_type: str,
     page_count: int,
+    allowed_page_numbers: set[int] | None = None,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -597,9 +598,7 @@ def get_quiz_validation_errors(
             "The quiz has the wrong number of questions."
         )
 
-    valid_pages = set(
-        range(1, page_count + 1)
-    )
+    valid_pages = set(range(1, page_count + 1)) if allowed_page_numbers is None else allowed_page_numbers
     types_found = set()
     seen_questions = set()
 

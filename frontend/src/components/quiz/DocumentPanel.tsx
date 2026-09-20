@@ -46,7 +46,7 @@ function DocumentPanel({
 
         <div className="stat-card">
           <span className="stat-label">
-            Pages
+            Pages processed
           </span>
 
           <strong>
@@ -65,6 +65,10 @@ function DocumentPanel({
           </strong>
         </div>
       </div>
+
+      {documentResult.pages.some((page, index) => page.page_number !== index + 1) && (
+        <p>Source pages: {documentResult.pages.map(page => page.page_number).join(', ')}.</p>
+      )}
 
       {documentResult.warning && (
         <div className="scan-warning">

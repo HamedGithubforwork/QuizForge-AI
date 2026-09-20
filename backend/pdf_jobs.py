@@ -3,18 +3,20 @@ import asyncio
 from contextlib import suppress
 from datetime import datetime, timezone
 import os
+import json
 import time
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app_shared import AuthenticatedUser, get_current_user
 from document_api import UploadResponse, build_upload_response_from_sha
 from observability import log_event
 from pdf_job_store import JobStore, MAX_UPLOAD_BYTES
 from pdf_process import extract_background
+from pdf_selection import parse_selection
 
 _manager = None
 router = APIRouter(prefix='/api/documents/jobs')
@@ -29,6 +31,7 @@ class PdfJobResponse(BaseModel):
     expires_at: str
     error: str | None
     result: UploadResponse | None = None
+    selected_pages: list[int] = Field(default_factory=list)
 
 
 class PdfJobList(BaseModel):
@@ -56,6 +59,7 @@ def public_job(row):
     return PdfJobResponse(
         job_id=row['id'], filename=row['filename'], status=row['state'],
         completed_pages=row['completed_pages'], total_pages=row['total_pages'],
+        selected_pages=json.loads(row.get('selection', '[]')),
         expires_at=datetime.fromtimestamp(row['expires'], timezone.utc).isoformat(), error=row['error'],
         result=build_upload_response_from_sha(filename=row['filename'], pdf_sha256=row['sha256'], pages=pages)
         if pages is not None and row['state'] == 'succeeded' else None,
@@ -111,22 +115,27 @@ class JobManager:
         try:
             timeout = min(600, max(0.01, row['expires'] - time.time()))
             pages = await extract_background(row['input'], timeout=timeout,
-                                             checkpoint=row['checkpoint'], on_checkpoint=checkpoint)
+                                             checkpoint=row['checkpoint'], on_checkpoint=checkpoint,
+                                             page_numbers=json.loads(row['selection']))
             await store_call(self.store.finish, row['id'], pages)
         except HTTPException as error:
             await store_call(self.store.fail, row['id'], error.detail)
         except Exception:
             await store_call(self.store.fail, row['id'], 'PDF processing failed. Please try again later.')
 
-    async def submit_upload(self, owner, file):
+    async def submit_upload(self, owner, file, page_selection=''):
         # Bound in-memory body reads; the reverse proxy must also bound the
         # incoming multipart body and simultaneous uploads before ASGI parsing.
         if self.uploads >= 2:
             raise HTTPException(429, 'Uploads are busy. Try again shortly.', headers={'Retry-After': '10'})
         self.uploads += 1
         try:
+            try:
+                selected = parse_selection(page_selection)
+            except ValueError as error:
+                raise HTTPException(400, str(error)) from None
             contents = await file.read(MAX_UPLOAD_BYTES + 1)
-            row = await store_call(self.store.submit, owner, file.filename, contents)
+            row = await store_call(self.store.submit, owner, file.filename, contents, selected)
             if row['state'] == 'succeeded':
                 row = await store_call(self.store.get_owned, owner, row['id'])
             return public_job(row)

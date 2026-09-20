@@ -5,7 +5,6 @@ before 202 is returned; raw bytes are removed on completion/cancellation/failure
 This database is temporary processing data, not an account/history database.
 """
 from contextlib import contextmanager
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,15 +15,18 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from pdf_protocol import MAX_PAGE_BYTES, validate_pages
+from pdf_selection import document_identity, validate_selection
 
 MAX_UPLOAD_BYTES = 15 * 1024**2
 MAX_RESULT_BYTES = 8 * 1024**2
 MAX_RESERVED_BYTES = 128 * 1024**2
 RETENTION_SECONDS = 3600
+RESULT_RETENTION_SECONDS = 24 * 3600
+MAX_CACHE_BYTES = 32 * 1024**2
 MAX_PENDING = 4
 MAX_JOBS = 16
 MAX_OWNER_JOBS = 4
-METADATA = 'id, owner, sha256, filename, state, completed_pages, total_pages, created, expires, attempts, error'
+METADATA = 'id, owner, sha256, filename, state, completed_pages, total_pages, created, expires, attempts, error, selection'
 
 
 class JobStore:
@@ -51,7 +53,7 @@ class JobStore:
                 os.close(fd)
             with self.connect() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version not in (0, 1, 2):
+                if version not in (0, 1, 2, 3):
                     raise RuntimeError('Unsupported PDF job database version')
                 db.execute('PRAGMA journal_mode=DELETE')
                 db.executescript('''
@@ -68,8 +70,20 @@ class JobStore:
                         page_number INTEGER NOT NULL, page BLOB NOT NULL,
                         PRIMARY KEY(job_id, page_number)
                     );
-                    PRAGMA user_version=2;
                 ''')
+            with self.transaction() as db:
+                columns = {row[1] for row in db.execute('PRAGMA table_info(jobs)')}
+                if 'selection' not in columns:
+                    db.execute("ALTER TABLE jobs ADD COLUMN selection TEXT NOT NULL DEFAULT '[]'")
+                if 'accessed' not in columns:
+                    db.execute('ALTER TABLE jobs ADD COLUMN accessed REAL NOT NULL DEFAULT 0')
+                    db.execute('UPDATE jobs SET accessed=created')
+                db.execute('CREATE TABLE IF NOT EXISTS admissions (id TEXT PRIMARY KEY, owner TEXT NOT NULL, created REAL NOT NULL)')
+                db.execute('CREATE INDEX IF NOT EXISTS admissions_owner ON admissions(owner, created)')
+                if version < 3:
+                    db.execute('INSERT OR IGNORE INTO admissions SELECT id,owner,created FROM jobs WHERE created>?',
+                               (time.time() - RETENTION_SECONDS,))
+                db.execute('PRAGMA user_version=3')
             self.recover()
         except BaseException:
             os.close(self.lock_fd)
@@ -106,7 +120,7 @@ class JobStore:
 
     def recover(self):
         with self.transaction() as db:
-            db.execute('DELETE FROM jobs WHERE expires<=?', (time.time(),))
+            self._cleanup(db, time.time())
             db.execute("""DELETE FROM checkpoints WHERE job_id IN
                 (SELECT id FROM jobs WHERE state='processing' AND attempts>=2)""")
             db.execute("""UPDATE jobs SET state='failed', input=NULL, result=NULL, reserved=0,
@@ -123,34 +137,58 @@ class JobStore:
                        (MAX_RESULT_BYTES,))
 
     def cleanup(self):
-        with self.connect() as db:
-            db.execute('DELETE FROM jobs WHERE expires<=?', (time.time(),))
+        with self.transaction() as db:
+            self._cleanup(db, time.time())
 
-    def submit(self, owner, filename, contents):
+    @staticmethod
+    def _cleanup(db, now):
+        db.execute('DELETE FROM jobs WHERE expires<=?', (now,))
+        db.execute('DELETE FROM admissions WHERE created<=?', (now - RETENTION_SECONDS,))
+
+    @staticmethod
+    def _make_room(db, *, reserved=0, jobs=0, protect=''):
+        # Evict only completed text, never active uploads/checkpoints. Admission
+        # records survive eviction so cache churn cannot bypass hourly limits.
+        while True:
+            counts = db.execute('''SELECT count(*),coalesce(sum(reserved),0),
+                coalesce(sum(CASE WHEN state='succeeded' THEN length(result) ELSE 0 END),0) FROM jobs''').fetchone()
+            if counts[0] + jobs <= MAX_JOBS and counts[1] + reserved <= MAX_RESERVED_BYTES and counts[2] <= MAX_CACHE_BYTES:
+                return
+            victim = db.execute("SELECT id FROM jobs WHERE state='succeeded' AND id!=? ORDER BY accessed,created,id LIMIT 1",
+                                (protect,)).fetchone()
+            if victim is None:
+                raise HTTPException(429, 'PDF processing storage is full. Please try again later.', headers={'Retry-After': '60'})
+            db.execute('DELETE FROM jobs WHERE id=?', (victim['id'],))
+
+    def submit(self, owner, filename, contents, page_numbers=None):
         if not contents or len(contents) > MAX_UPLOAD_BYTES:
             raise HTTPException(413, 'PDF must be between 1 byte and 15 MB.')
         now = time.time()
-        digest = hashlib.sha256(contents).hexdigest()
+        selected = [] if page_numbers is None else validate_selection(page_numbers)
+        digest = document_identity(contents, selected)
         with self.transaction() as db:
-            db.execute('DELETE FROM jobs WHERE expires<=?', (now,))
+            self._cleanup(db, now)
             previous = db.execute(f"""SELECT {METADATA} FROM jobs WHERE owner=? AND sha256=?
                 AND state IN ('queued','processing','succeeded') ORDER BY created DESC LIMIT 1""",
                 (owner, digest)).fetchone()
             if previous is not None:
+                db.execute('UPDATE jobs SET accessed=? WHERE id=?', (now, previous['id']))
                 return dict(previous)
-            own = db.execute("""SELECT count(*), coalesce(sum(state IN ('queued','processing')),0)
-                FROM jobs WHERE owner=?""", (owner,)).fetchone()
-            counts = db.execute("""SELECT count(*), coalesce(sum(state IN ('queued','processing')),0),
-                coalesce(sum(reserved),0) FROM jobs""").fetchone()
+            own_pending = db.execute("SELECT count(*) FROM jobs WHERE owner=? AND state IN ('queued','processing')", (owner,)).fetchone()[0]
+            pending = db.execute("SELECT count(*) FROM jobs WHERE state IN ('queued','processing')").fetchone()[0]
+            own_uploads = db.execute('SELECT count(*) FROM admissions WHERE owner=?', (owner,)).fetchone()[0]
+            uploads = db.execute('SELECT count(*) FROM admissions').fetchone()[0]
             reservation = len(contents) + MAX_RESULT_BYTES
-            if own[1] or own[0] >= MAX_OWNER_JOBS or counts[0] >= MAX_JOBS or counts[1] >= MAX_PENDING or counts[2] + reservation > MAX_RESERVED_BYTES:
+            if own_pending or own_uploads >= MAX_OWNER_JOBS or uploads >= MAX_JOBS or pending >= MAX_PENDING:
                 raise HTTPException(429, 'PDF processing is busy or your hourly upload allowance is used. Try again later.',
                                     headers={'Retry-After': '60'})
+            self._make_room(db, reserved=reservation, jobs=1)
             job_id = str(uuid4())
-            db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,input,reserved)
-                VALUES (?,?,?,?,'queued',?,?,?,?)""",
+            db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,input,reserved,selection,accessed)
+                VALUES (?,?,?,?,'queued',?,?,?,?,?,?)""",
                 (job_id, owner, digest, (filename or 'Study material.pdf')[:255], now,
-                 now + RETENTION_SECONDS, contents, reservation))
+                 now + RETENTION_SECONDS, contents, reservation, json.dumps(selected), now))
+            db.execute('INSERT INTO admissions VALUES (?,?,?)', (job_id, owner, now))
             return dict(db.execute(f'SELECT {METADATA} FROM jobs WHERE id=?', (job_id,)).fetchone())
 
     def list_owned(self, owner):
@@ -159,26 +197,31 @@ class JobStore:
                                                     (owner, time.time()))]
 
     def get_owned(self, owner, job_id):
-        with self.connect() as db:
+        with self.transaction() as db:
             row = db.execute(f'SELECT {METADATA}, result FROM jobs WHERE owner=? AND id=? AND expires>?',
                              (owner, job_id, time.time())).fetchone()
             if row is None:
                 raise HTTPException(404, 'PDF job is unavailable or has expired.')
+            if row['state'] == 'succeeded':
+                db.execute('UPDATE jobs SET accessed=? WHERE id=?', (time.time(), job_id))
             result = dict(row)
             if result['result'] is not None:
                 result['result'] = json.loads(result['result'])
             return result
 
     def get_document(self, owner, sha256):
-        with self.connect() as db:
-            row = db.execute("""SELECT result FROM jobs WHERE owner=? AND sha256=? AND state='succeeded'
+        with self.transaction() as db:
+            row = db.execute("""SELECT id,result FROM jobs WHERE owner=? AND sha256=? AND state='succeeded'
                 AND expires>? ORDER BY created DESC LIMIT 1""", (owner, sha256, time.time())).fetchone()
-            return {'pdf_sha256': sha256, 'pages': json.loads(row[0])} if row else None
+            if row is None:
+                return None
+            db.execute('UPDATE jobs SET accessed=? WHERE id=?', (time.time(), row['id']))
+            return {'pdf_sha256': sha256, 'pages': json.loads(row['result'])}
 
     def claim(self):
         with self.transaction() as db:
             now = time.time()
-            db.execute('DELETE FROM jobs WHERE expires<=?', (now,))
+            self._cleanup(db, now)
             row = db.execute(f"SELECT {METADATA}, input FROM jobs WHERE state='queued' ORDER BY created LIMIT 1").fetchone()
             if row is None:
                 return None
@@ -186,17 +229,18 @@ class JobStore:
             result = dict(row)
             result['checkpoint'] = [json.loads(page[0]) for page in db.execute(
                 'SELECT page FROM checkpoints WHERE job_id=? ORDER BY page_number', (row['id'],))]
-            validate_pages(result['checkpoint'])
+            selected = json.loads(row['selection'])
+            validate_pages(result['checkpoint'], total=len(selected) if selected else 100, page_numbers=selected)
             return result
 
     def checkpoint(self, job_id, pages, total):
         """Commit page text and visible progress together, before reporting it."""
         with self.transaction() as db:
-            row = db.execute("""SELECT completed_pages,total_pages FROM jobs
+            row = db.execute("""SELECT completed_pages,total_pages,selection FROM jobs
                 WHERE id=? AND state='processing' AND expires>?""", (job_id, time.time())).fetchone()
             if row is None:
                 return
-            validate_pages(pages, start=row['completed_pages'] + 1, total=total)
+            validate_pages(pages, start=row['completed_pages'] + 1, total=total, page_numbers=json.loads(row['selection']))
             if not pages or (row['total_pages'] is not None and row['total_pages'] != total):
                 raise ValueError('Invalid checkpoint progress')
             encoded = [json.dumps(page, separators=(',', ':')).encode() for page in pages]
@@ -221,10 +265,19 @@ class JobStore:
         if len(raw) > MAX_RESULT_BYTES:
             raise HTTPException(413, 'Extracted document text is too large.')
         with self.transaction() as db:
+            now = time.time()
+            row = db.execute("SELECT selection FROM jobs WHERE id=? AND state='processing' AND expires>?", (job_id, now)).fetchone()
+            if row is None:
+                return
+            selected = json.loads(row['selection'])
+            validate_pages(pages, total=len(selected) if selected else 100, page_numbers=selected)
+            if selected and len(pages) != len(selected):
+                raise ValueError('Selected pages are incomplete')
             db.execute("""UPDATE jobs SET state='succeeded', completed_pages=?, total_pages=?,
-                input=NULL, result=?, reserved=? WHERE id=? AND state='processing' AND expires>?""",
-                (len(pages), len(pages), raw, len(raw), job_id, time.time()))
+                input=NULL, result=?, reserved=?, expires=?, accessed=? WHERE id=? AND state='processing' AND expires>?""",
+                (len(pages), len(pages), raw, len(raw), now + RESULT_RETENTION_SECONDS, now, job_id, now))
             db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))
+            self._make_room(db, protect=job_id)
 
     def fail(self, job_id, detail):
         with self.transaction() as db:
@@ -234,8 +287,10 @@ class JobStore:
 
     def cancel(self, owner, job_id):
         with self.transaction() as db:
-            changed = db.execute("""UPDATE jobs SET state='cancelled', input=NULL, result=NULL, reserved=0, error=NULL
-                WHERE owner=? AND id=? AND expires>?""", (owner, job_id, time.time())).rowcount
+            changed = db.execute("""UPDATE jobs SET state='cancelled', input=NULL, result=NULL, reserved=0, error=NULL,
+                expires=min(expires,?)
+                WHERE owner=? AND id=? AND expires>?""",
+                (time.time() + RETENTION_SECONDS, owner, job_id, time.time())).rowcount
             if not changed:
                 raise HTTPException(404, 'PDF job is unavailable or has expired.')
             db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))

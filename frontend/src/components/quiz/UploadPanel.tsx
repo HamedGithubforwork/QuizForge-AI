@@ -21,6 +21,10 @@ type UploadPanelProps = {
   recentJob: PdfJobResponse | null
   onResume: (job: PdfJobResponse) => void
   onCancel: () => void
+  pageSelection: string
+  onPageSelectionChange: (value: string) => void
+  supportsPageSelection: boolean
+  selectionDisabled: boolean
 }
 
 function UploadPanel({
@@ -33,6 +37,10 @@ function UploadPanel({
   recentJob,
   onResume,
   onCancel,
+  pageSelection,
+  onPageSelectionChange,
+  supportsPageSelection,
+  selectionDisabled,
 }: UploadPanelProps) {
   return (
     <section className="panel upload-panel">
@@ -88,6 +96,23 @@ function UploadPanel({
         </div>
       )}
 
+      {supportsPageSelection && (
+        <div className="page-selection">
+          <label htmlFor="pdf-page-selection">Pages to process (optional)</label>
+          <input
+            id="pdf-page-selection"
+            type="text"
+            value={pageSelection}
+            onChange={event => onPageSelectionChange(event.target.value)}
+            placeholder="All pages, or e.g. 1, 3-5"
+            maxLength={400}
+            aria-describedby="pdf-page-selection-help"
+            disabled={isProcessing || selectionDisabled || !selectedFile}
+          />
+          <p id="pdf-page-selection-help">Leave blank for all pages. Selected pages keep their original page numbers.</p>
+        </div>
+      )}
+
       <button
         className="button primary-button"
         type="button"
@@ -117,7 +142,8 @@ function UploadPanel({
           <button className="button secondary-button" type="button" onClick={() => onResume(recentJob)}>
             Resume {getDisplayFilename(recentJob.filename)}
           </button>
-          <p>Recent PDFs are available for up to one hour after upload.</p>
+          <p>Completed text can be reused for up to 24 hours, while cache space is available. Processing jobs expire after one hour.</p>
+          {!!recentJob.selected_pages?.length && <p>Selected pages: {recentJob.selected_pages.join(', ')}.</p>}
         </div>
       )}
       {((isProcessing && job) || (!isProcessing && recentJob)) && (
