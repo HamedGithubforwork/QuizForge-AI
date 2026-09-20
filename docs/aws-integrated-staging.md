@@ -63,7 +63,7 @@ a UI feature to reload old questions into a new attempt.
 Credentialless CI tests atomic reservations with 16 concurrent connections to a
 real disposable Valkey instance, boundary guards, immutable image builds and mocked
 Terraform plans. Recovery email and production rollout remain separate gates.
-The earlier live evidence below predates generation/cache integration.
+The first browser checkpoint below predates generation/cache integration.
 
 ## Verified browser checkpoint — 2026-09-19
 
@@ -133,6 +133,37 @@ absence checks passed at **23:50:59 UTC**, including Valkey nodes/snapshots and
 RDS backups. The original run remains failed because its browser test failed;
 its cleanup job succeeded. The reusable foundation, zone/certificate and ECR
 images were retained.
+
+## Full browser success; private verification incomplete — 2026-09-20
+
+[Run 35477507194](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35477507194)
+used controller `7cc27697e596eca29ee12c4b4e6801d3ec7b0e89` and the same application
+PR #97 commit. All 59 temporary resources were created at **00:12:48 UTC**.
+Live configuration, synthetic account/database setup and the model-request guard
+passed at **00:15:39 UTC**.
+
+The full browser journey passed at **00:19:02 UTC**:
+
+- PDF upload and repeat processing, real five-question generation, deliberately
+  mixed answers graded 4/5, and authenticated source-page retrieval.
+- RDS save with exact quiz content, document fingerprint and selected answers;
+  saved score/metadata reopened after a fresh Cognito MFA login.
+- Identical cached quiz and the normal eleventh-request 429 with `Retry-After`.
+- Explicit enrollment, owner isolation/deletion, unverified-user rejection,
+  hosted logout, token revocation and password/TOTP on the next sign-in.
+- Hosting, TLS, CORS/CSP and browser token-storage boundaries.
+
+The subsequent private probe failed an assertion at **00:19:55 UTC**. Its original
+diagnostics did not identify the assertion. Therefore this run does **not** prove
+the complete private cache/fixture verification or the exact upstream-request
+count, and its overall status remains failed. An offline reproduction of the
+application's real cache/metric/rate code with synthetic generation passed the
+same cache assertions. PR #123 adds safe checkpoint, numeric counter and failing
+line diagnostics while preserving all verification requirements.
+
+Automatic cleanup destroyed **all 59 resources at 00:26:35 UTC**; independent
+absence checks passed at **00:26:48 UTC**, including RDS backups and Valkey.
+The reusable foundation, zone/certificate and ECR images remain.
 
 See [production-readiness costs and migration/rollback steps](aws-production-readiness.md)
 for the prepared next-stage review. That plan does not deploy production.
