@@ -4,12 +4,13 @@ The owner authorized testing the approximately USD15–20/month alternative.
 This does not activate a permanent instance or migrate live accounts/history.
 The previous USD88 managed-service proposal remains unapplied.
 
-**Latest decision (September 20): the real Lightsail test completed. Burst passed;
-the 0.4-CPU sustained profile failed three timing targets and did not complete
-restart recovery/queue cleanup within the test bounds. Do not launch this
-configuration yet. The temporary instance was deleted and absence confirmed.**
-See [live results](#real-lightsail-results) and the preserved
-[structured evidence](evidence/lightsail-capacity-35521952974.json).
+**Latest decision (September 20): the PDF fix passed both real Lightsail profiles,
+including sustained timing, restart recovery and queue cleanup. The temporary
+server was deleted and absence confirmed. Capacity now passes for the measured
+workload; production preparation and migration/domain gates remain.**
+See the [retest](#real-lightsail-retest-after-the-pdf-fix) and preserved
+[structured evidence](evidence/lightsail-capacity-35526563913.json).
+The original failed measurements remain below.
 
 ## Proposed small-server layout
 
@@ -291,7 +292,7 @@ run measured a low memory peak; it does not prove spare memory under other loads
 The 0.4-CPU quota approximates the published baseline and does not prove natural
 AWS burst credits were exhausted.
 
-**Current decision:** retain the USD15–20 layout as a cost candidate and block
+**Decision after the first real AWS run:** retain the USD15–20 layout as a cost candidate and block
 production launch. Profile/optimize sustained PDF processing and resolve the
 bounded recovery/cleanup failure, then validate a reviewed changed application
 against the same targets. Peak memory was below 735 MiB and the USD24/4 GB bundle
@@ -308,6 +309,77 @@ was performed. USD15–20 remains an estimated future hosting budget, not an act
 monthly bill or an accepted performance configuration; tax/model usage and
 overages are separate. Evidence is retained in the repository because workflow
 artifacts have limited retention.
+
+## Real Lightsail retest after the PDF fix
+
+[Run 35526563913](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35526563913)
+passed **both profiles** on September 20 with application
+`df1946500335cc7c614796723357680875bf0123` and controller
+`e416778319cdbc391eca05612bf1dd57a9b6bec3`.
+The harness stayed at `52f44f16794369601f21e429b15389efcf7d62e4`: no fixture,
+CPU/memory limit, timing target or recovery deadline was relaxed.
+
+The isolated worker now avoids API/model imports, extracts selectable text once,
+reuses one Tesseract 5 engine and recognizes 150-DPI RGB rasters directly.
+Completed OCR pages and visible progress are committed atomically to private
+SQLite checkpoints. The interrupted job resumes saved pages instead of repeating
+recognition. Ownership, one-hour expiration, cancellation, bounded retries,
+secure deletion and payload reservations apply to those checkpoints.
+
+| Metric | 2 CPU burst | 0.4 CPU sustained |
+| --- | ---: | ---: |
+| Peak whole-container memory | 687.60 MiB | 678.55 MiB |
+| Cold text, 100 pages; target <=10 s | 1.884 s | 2.460 s |
+| Cold scan, 1 page; target <=15 s | 3.113 s | 7.000 s |
+| Cold scan, 10 pages; target <=60 s | 15.746 s | 44.996 s |
+| Cold scan, 30 pages: HTTP admission; target <=2 s | 0.127 s | 0.242 s |
+| Cold scan, 30 pages: completion; target <=240 s | 44.417 s | 131.878 s |
+| Two 10-page scans + history; target <=120 s | 30.655 s | 96.322 s |
+| Warm completed 10-page job; target <=3 s | 0.036 s | 0.142 s |
+| Health successes during OCR load | 473 / 473 | 1310 / 1310 |
+| Health p95; target <=1 s | 0.008 s | 0.078 s |
+| Interrupted-job recovery; target <=90 s, completion wait <=75 s | 18.543 s | 51.245 s |
+| Raw PDF inputs / pending jobs at measurement end | 0 / 0 | 0 / 0 |
+| Overall profile | **PASS** | **PASS** |
+
+Both profiles recovered all ten pages on exactly attempt two, with no orphan OCR
+worker. All six services stayed alive; every OOM counter remained zero.
+Four pending uploads were admitted and the fifth returned 429; cross-owner
+access/cancellation was denied and owner cancellation passed. Twenty history
+cycles left zero rows. Paid model calls and model reservations were zero.
+Each profile retained 309,889 bytes of completed temporary result payload before
+server deletion. The unchanged harness checks raw inputs and pending jobs;
+checkpoint-specific deletion and page skipping are also covered by the new
+application tests and production-image OCR check.
+
+The exact application passed 267 backend tests (14 runner-dependent skips),
+the mandatory real OCR check inside its Docker image, deterministic performance
+budgets, API contract verification, database security, dependency audit,
+frontend tests/build/lint, Playwright and full-stack browser integration.
+The Docker OCR check includes small text, columns, mixed content, rotation
+metadata and interrupted resume. The application remains draft in PR127.
+
+This run used the same Intel Xeon Platinum 8259CL CPU model. Actual host memory
+was 1,951,764 KiB (1906.02 MiB), leaving about 370.02 MiB outside the 1536 MiB
+container limit. Original harness fields `live_aws_instance: false` and nominal
+`host_reserve_mib: 512` are preserved, alongside the live host/run evidence.
+The CPU quota remains a baseline approximation; natural burst-credit exhaustion
+was not established. Clean synthetic English scans do not establish performance
+for all PDFs, languages, traffic levels or hostile input.
+
+**Decision after the fix:** the USD12 server now passes the agreed measured
+capacity workload, supporting the approximately USD15–20/month hosting candidate.
+Proceed to production preparation: the self-hosted configuration, encrypted
+off-instance backup/restore, spending controls, identity/data migration and
+domain/TLS acceptance still need completion before public cutover. The test
+image is not a production image, and the allowance is not a fixed bill.
+
+The temporary server was created after the 17:42:02 UTC start and confirmed absent
+at 17:52:30 UTC. Independent cleanup was armed before creation and remains
+scheduled for 19:42:02 UTC. The account stayed on the existing Free plan; no
+permanent server, account upgrade, real-data migration or domain change occurred.
+[Structured evidence](evidence/lightsail-capacity-35526563913.json) preserves the
+reports and deletion confirmation; the earlier failed run remains above.
 
 Sources checked September 20, 2026:
 [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/),

@@ -368,7 +368,7 @@ test(`background PDF ${selected ? 'selected pages' : 'all pages'} reports progre
     extractable_page_count: 2, scanned_likely: false, warning: null,
     pages: [{ page_number: selected ? 2 : 1, character_count: 780, preview: sourcePageText[1] },
       { page_number: selected ? 5 : 2, character_count: 780, preview: sourcePageText[2] }] }
-  await page.route('**/api-mock/api/documents/jobs', route => route.fulfill({ json: { jobs: submitted ? [base] : [] } }))
+  await page.route('**/api-mock/api/documents/jobs', route => route.fulfill({ json: { jobs: submitted ? [base] : [], supports_page_selection: true } }))
   await page.route('**/api-mock/api/documents/upload', route => {
     if (selected) expect(route.request().postData()).toContain('name="page_selection"\r\n\r\n2,5')
     else expect(route.request().postData()).not.toContain('name="page_selection"')

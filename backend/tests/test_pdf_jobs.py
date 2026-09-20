@@ -140,7 +140,7 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     path = '/api/documents/jobs/' + job['job_id']
                     assert (await client.get(path, headers=other)).status_code == 404
                     assert (await client.delete(path, headers=other)).status_code == 404
-                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': []}
+                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': [], 'supports_page_selection': True}
                     for _ in range(150):
                         job = (await client.get(path, headers=token)).json()
                         if job['status'] == 'succeeded': break

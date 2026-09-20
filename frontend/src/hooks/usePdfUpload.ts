@@ -29,7 +29,7 @@ export function usePdfUpload() {
       .then(async response => {
         if (!response.ok) return
         const data = await response.json()
-        if (!controller.signal.aborted) setSupportsPageSelection(true)
+        if (!controller.signal.aborted) setSupportsPageSelection(data.supports_page_selection === true)
         if (!controller.signal.aborted && initialRevision === revision.current) {
           setRecentJob(data.jobs?.find((item: PdfJobResponse) => ['queued', 'processing', 'succeeded'].includes(item.status)) ?? null)
         }

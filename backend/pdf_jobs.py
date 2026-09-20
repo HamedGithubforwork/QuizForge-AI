@@ -36,6 +36,7 @@ class PdfJobResponse(BaseModel):
 
 class PdfJobList(BaseModel):
     jobs: list[PdfJobResponse]
+    supports_page_selection: bool = True
 
 
 def enabled():

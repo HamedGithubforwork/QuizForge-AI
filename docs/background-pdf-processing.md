@@ -43,7 +43,8 @@ partial uploads; clients must reuse that returned value. Full-document hashes re
 unchanged. Different selections cannot reuse incompatible text, quiz or history
 results. Cache hits require the same owner, PDF and selection. Synchronous legacy
 uploads reject nonempty selections explicitly; the website displays the control
-only when background-job discovery succeeds.
+only when job discovery explicitly advertises `supports_page_selection: true`,
+so a newer frontend cannot silently submit a selection to an older backend.
 
 ## Bounds and recovery
 

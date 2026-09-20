@@ -88,6 +88,7 @@ export type PdfJobResponse = {
 
 export type PdfJobList = {
   "jobs": PdfJobResponse[]
+  "supports_page_selection"?: boolean
 }
 
 export type Quiz = {

@@ -1,11 +1,12 @@
 # Temporary real-Lightsail capacity test
 
-The real experiment for the USD15–20/month candidate completed on September 20,
-2026 in [run 35521952974](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35521952974).
-Burst passed; the sustained profile failed timing and bounded recovery/cleanup
-checks. The temporary server was deleted and absence confirmed. See the
-[capacity decision and measurements](aws-small-server-capacity.md#real-lightsail-results).
-This did not deploy the production website; application PR127 remains unmerged.
+The PDF fix passed both real profiles on September 20, 2026 in
+[run 35526563913](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35526563913),
+including sustained timing, bounded restart recovery and queue cleanup.
+The temporary server was deleted and absence confirmed. See the
+[capacity decision and measurements](aws-small-server-capacity.md#real-lightsail-retest-after-the-pdf-fix).
+The earlier failed run remains recorded. This did not deploy the production
+website; application PR127 remains draft and unmerged.
 
 ## Reviewed scope and cost
 
@@ -200,7 +201,7 @@ or fallback invocation remains outstanding.
 
 ## What the experiment measures
 
-Application: `f3c63fec355fc8552e4a68142860f88e874281f6` (PR127).
+Application: `df1946500335cc7c614796723357680875bf0123` (PR127, OCR/checkpoint fix).
 Harness: `52f44f16794369601f21e429b15389efcf7d62e4` (PR130).
 The build first requires PR127's exact current head to pass its existing gates,
 then refuses any head other than the reviewed pin. A later app update requires
