@@ -1,0 +1,106 @@
+name: AWS production preparation
+
+on:
+  pull_request:
+    paths:
+      - "infra/aws/production/**"
+      - "scripts/production/**"
+      - "scripts/rds_rehearsal/history_transfer.py"
+      - ".github/workflows/aws-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Production retention, migration and durable model-budget tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_PASSWORD: synthetic-ci-only
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Check persistent quotas, role isolation and private archive boundaries
+        env:
+          PRODUCTION_TEST_DB: postgresql://postgres:synthetic-ci-only@127.0.0.1:5432/quizforge
+        run: |
+          python -m unittest discover -s scripts/production -p 'test_*.py' -v
+          python -m unittest discover -s scripts/rds_rehearsal -p 'test_history_transfer.py' -v
+          python -m compileall -q scripts/production
+          node --check infra/aws/production/routes.js
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - name: Verify protected production infrastructure without AWS credentials
+        run: |
+          terraform -chdir=infra/aws/production fmt -check -recursive
+          terraform -chdir=infra/aws/production init -backend=false -lockfile=readonly
+          terraform -chdir=infra/aws/production validate
+          terraform -chdir=infra/aws/production test
+      - name: Build explicit-command operations image without credentials
+        run: docker build -t quizforge-production-operations:checked -f scripts/production/operations.Dockerfile .
+
+  plan:
+    name: Read-only permanent infrastructure plan
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+      TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_zone_id: ${{ vars.AWS_STAGING_ZONE_ID }}
+      # Review proposal only. Actual activation needs the owner's threshold and
+      # confirmed notification address; this job never applies its plan.
+      TF_VAR_monthly_budget_usd: "100"
+      TF_VAR_alert_email: operator@example.invalid
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","ec2:Describe*","ecs:Describe*","ecs:List*","rds:Describe*","rds:ListTagsForResource","elasticache:Describe*","elasticache:ListTagsForResource","elasticloadbalancing:Describe*","cloudfront:Get*","cloudfront:List*","acm:DescribeCertificate","acm:List*","cognito-idp:DescribeUserPool","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeUserPoolDomain","cognito-idp:ListTagsForResource","iam:GetRole","iam:GetRolePolicy","iam:ListRolePolicies","iam:ListAttachedRolePolicies","secretsmanager:DescribeSecret","logs:Describe*","logs:ListTags*","cloudwatch:Describe*","cloudwatch:ListTagsForResource","sns:GetTopicAttributes","sns:GetSubscriptionAttributes","sns:ListTagsForResource","budgets:ViewBudget","wafv2:GetWebACL","wafv2:GetWebACLForResource","wafv2:ListTagsForResource","route53:GetHostedZone","route53:ListResourceRecordSets","route53:ListTagsForResource"],"Resource":"*"},
+              {"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":"arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}"},
+              {"Effect":"Allow","Action":"s3:GetObject","Resource":["arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/quizforge/foundation/terraform.tfstate","arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/quizforge/production/terraform.tfstate"]}
+            ]}
+      - name: Initialize only the production state using read-only credentials
+        run: |
+          terraform -chdir=infra/aws/production init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/production/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Compute an unapplied plan with tasks, signup and application DNS disabled
+        run: |
+          terraform -chdir=infra/aws/production plan -lock=false -out="$RUNNER_TEMP/production.tfplan"
+          terraform -chdir=infra/aws/production show -json "$RUNNER_TEMP/production.tfplan" > "$RUNNER_TEMP/production-plan.json"
+          python scripts/production/plan.py "$RUNNER_TEMP/production-plan.json"

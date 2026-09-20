@@ -56,7 +56,7 @@ def budgets():
     client = boto3.client("budgets", region_name="us-east-1")
     result = []
     for page in client.get_paginator("describe_budgets").paginate(AccountId=account):
-        for budget in page["Budgets"]:
+        for budget in page.get("Budgets", []):
             # Existing account-wide budgets are counted, without exposing names,
             # filters, linked accounts or alert recipients in this public repo.
             result.append({"type": budget["BudgetType"], "period": budget["TimeUnit"]})
