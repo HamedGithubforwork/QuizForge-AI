@@ -16,13 +16,43 @@ and no production resources or application DNS have been created.
   The sole public application table is `quiz_history`, with RLS enabled and
   ownership policies for SELECT, INSERT and DELETE. No record contents or auth
   credentials were retrieved. Recheck the inventory immediately before migration.
-- AWS run `35485825049` verified an ACTIVE FREE account plan and the existing
-  public domain zone. Only apex NS/SOA records were present. There are no issued
-  production website/API certificates yet. The first inventory's budget response
-  was UNKNOWN; the parser now accepts AWS's omitted empty list and needs a rerun.
+- AWS [inventory run 35487422363](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35487422363)
+  verified an ACTIVE FREE account plan and the existing public domain zone.
+  Only apex NS/SOA records were present. There are no production website/API
+  certificates or AWS budgets yet. This rerun resolves the earlier UNKNOWN
+  budget result; the SDK omits the list when no budgets exist. No credit balance,
+  account identifier, notification recipient or budget amount was logged.
 - Application PR127 carries the exact tested PR97 implementation forward with
   explicit production settings. It remains unmerged so legacy production keeps
   its current release. The production frontend accepts only `quizfromnotes.com`.
+
+## Preparation validation
+
+[PR128](https://github.com/HamedGithubforwork/QuizForge-AI/pull/128) is merged at
+`a6d5611012990d1abf80d444bcdfbea184fd2d64`. Its exact final candidate passed eleven
+production tests, including real PostgreSQL concurrent budget reservations and
+encrypted history/identity reconciliation; six transfer tests; four Terraform
+boundary tests; Terraform validation; and the operations container build in
+[run 35487137071](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35487137071).
+The subsequent [foundation run 35487368136](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35487368136)
+validated successfully and skipped apply because foundation resource files did
+not change. Production has not been applied.
+
+The real AWS [read-only plan run 35487464165](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35487464165)
+passed against the production state and existing foundation. It proposes 85
+resources to create, zero to change and zero to destroy. The checked plan keeps
+both application services at zero tasks, public signup off, and application DNS
+unpublished. Its three proposed DNS records are certificate-validation records,
+not website/API routing. The plan ran with explicit read-only AWS credentials
+and `-lock=false`; no state or resources were written and no plan artifact was
+uploaded. This establishes a concrete proposal, not permission to apply it or
+proof that all services are available under the account's current Free plan.
+
+The application candidate is pinned to PR127 commit
+`d185d5a63b4506d48ff5fa3189a025c9d2541f01`. Its backend/frontend, PostgreSQL security,
+browser integration, dependency audits and container-build checks passed.
+Production authentication, real-user linking and final-hostname acceptance still
+require the deployed environment; passing CI does not establish those results.
 
 ## Concrete resources and activation sequence
 
