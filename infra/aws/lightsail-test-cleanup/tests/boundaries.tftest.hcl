@@ -7,8 +7,9 @@ run "deletion_only" {
     values = { account_id = "123456789012" }
   }
   override_resource {
-    target = aws_scheduler_schedule_group.capacity
-    values = { arn = "arn:aws:scheduler:ca-central-1:123456789012:schedule-group/quizforge-capacity-test" }
+    target          = aws_scheduler_schedule_group.capacity
+    override_during = plan
+    values          = { arn = "arn:aws:scheduler:ca-central-1:123456789012:schedule-group/quizforge-capacity-test" }
   }
   assert {
     condition     = jsondecode(aws_iam_role_policy.cleanup.policy).Statement[0].Action == ["lightsail:DeleteInstance"]
