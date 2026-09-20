@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 from botocore.validate import validate_parameters
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (Encoding, PublicFormat,
-                                                         SSHCertificateBuilder, SSHCertificateType)
+                                                         SSHCertificateBuilder, SSHCertificateType, load_ssh_private_key)
 
 import control
 import policy
@@ -32,7 +32,7 @@ class Boundaries(unittest.TestCase):
                     'expiresAt': datetime.now(timezone.utc) + timedelta(hours=1),
                     'privateKey': 'private-value', 'certKey': 'cert-value',
                     'hostKeys': [{'algorithm': 'ssh-ed25519', 'publicKey': 'AAAA'}]}
-        incomplete = {**complete, 'hostKeys': [{'algorithm': 'ssh-ed25519'}]}
+        incomplete = {**complete, 'certKey': ''}
         client.get_instance_access_details.side_effect = [
             {'accessDetails': incomplete}, {'accessDetails': complete}]
         with patch.object(control.time, 'sleep'), patch('builtins.print') as printed:
@@ -44,7 +44,7 @@ class Boundaries(unittest.TestCase):
     def test_missing_ssh_details_fail_closed_at_the_deadline(self):
         client = MagicMock()
         client.get_instance_access_details.return_value = {'accessDetails': {}}
-        with self.assertRaisesRegex(RuntimeError, 'missing fields:.*trustedHostIdentity'):
+        with self.assertRaisesRegex(RuntimeError, 'missing fields:.*certKey'):
             control.wait_ssh_details(client, INSTANCE, wait_seconds=0)
         client.get_instance_access_details.assert_called_once()
 
@@ -52,7 +52,7 @@ class Boundaries(unittest.TestCase):
         access = {'ipAddress': '203.0.113.1', 'instanceName': NAME, 'username': 'root'}
         with tempfile.TemporaryDirectory() as tmp, patch.object(control, 'wait_ssh_details', return_value=access):
             with self.assertRaisesRegex(RuntimeError, 'Unexpected SSH account'):
-                control.ssh_access(MagicMock(), {**INSTANCE, 'publicIpAddress': '203.0.113.1'}, Path(tmp))
+                control.ssh_access(MagicMock(), {**INSTANCE, 'publicIpAddress': '203.0.113.1'}, Path(tmp), 'ssh-ed25519 AAAA')
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_signed_certificate_expiry_is_checked_when_api_expiry_is_absent(self):
@@ -71,25 +71,31 @@ class Boundaries(unittest.TestCase):
             control.validate_ssh_certificate({'certKey': certificate(now + 3600),
                                              'expiresAt': datetime.now(timezone.utc) + timedelta(minutes=1)})
 
-    def test_scanned_host_key_requires_exact_aws_sha256_pin(self):
-        address = '203.0.113.1'
-        pub = Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH).decode()
-        algorithm, blob = pub.split()
-        digest = base64.b64encode(hashlib.sha256(base64.b64decode(blob)).digest()).decode().rstrip('=')
-        access = {'hostKeys': [{'algorithm': algorithm, 'fingerprintSHA256': 'SHA256:' + digest}]}
-        with patch.object(control.subprocess, 'run', return_value=MagicMock(stdout=address + ' ' + pub + '\n')) as scan:
-            self.assertEqual(control.trusted_host_lines(access, address), [address + ' ' + pub + '\n'])
-            self.assertEqual(scan.call_args.args[0][0], 'ssh-keyscan')
-            access['hostKeys'][0]['fingerprintSHA256'] = 'SHA256:' + 'A' * 43
-            with self.assertRaisesRegex(RuntimeError, 'does not match AWS'):
-                control.trusted_host_lines(access, address)
+    def test_each_bootstrap_has_a_unique_key_matching_the_client_pin(self):
+        script, public = control.host_bootstrap()
+        other_script, other_public = control.host_bootstrap()
+        self.assertNotEqual(public, other_public)
+        self.assertNotEqual(script, other_script)
+        encoded = script.split("printf '%s' '", 1)[1].split("'", 1)[0]
+        private = load_ssh_private_key(base64.b64decode(encoded), password=None)
+        actual = private.public_key().public_bytes(Encoding.OpenSSH, PublicFormat.OpenSSH).decode()
+        self.assertEqual(actual, public)
+        self.assertNotIn('__CAPACITY_HOST_KEY_BASE64__', script)
+        self.assertIn('HostKeyAlgorithms ssh-ed25519', script)
 
-    def test_host_key_without_aws_pin_or_with_only_sha1_is_never_trusted(self):
-        with patch.object(control.subprocess, 'run') as scan:
-            for hosts in ([], [{'algorithm': 'ssh-ed25519', 'fingerprintSHA1': 'untrusted'}]):
-                with self.assertRaisesRegex(RuntimeError, 'not supplied trusted'):
-                    control.trusted_host_lines({'hostKeys': hosts}, '203.0.113.1')
-            scan.assert_not_called()
+    def test_client_pins_only_the_provisioned_key_and_keeps_strict_checking(self):
+        _, public = control.host_bootstrap()
+        access = {'ipAddress': '203.0.113.1', 'instanceName': NAME, 'username': 'ubuntu',
+                  'privateKey': 'private-value', 'certKey': 'cert-value'}
+        with tempfile.TemporaryDirectory() as tmp, patch.object(control, 'wait_ssh_details', return_value=access), \
+             patch.object(control, 'validate_ssh_certificate'):
+            options, target = control.ssh_access(MagicMock(),
+                {**INSTANCE, 'publicIpAddress': '203.0.113.1'}, Path(tmp), public)
+            self.assertEqual((Path(tmp) / 'known_hosts').read_text(), '203.0.113.1 ' + public + '\n')
+            self.assertIn('StrictHostKeyChecking=yes', options)
+            self.assertEqual(target, 'ubuntu@203.0.113.1')
+            for file in Path(tmp).iterdir():
+                self.assertEqual(file.stat().st_mode & 0o777, 0o600)
 
     def test_identifiers_cannot_target_production_or_inject_shell(self):
         for value in ('production', '../1234-1', '1234-1;id', '0-1', '1-0', '1-1\n', '-1-1'):
@@ -171,6 +177,13 @@ class Boundaries(unittest.TestCase):
                          'CreateInstances: AccessDeniedException: Launch restricted by account plan')
         self.assertEqual(control.failure_summary(ClientError(error, 'GetInstanceAccessDetails')),
                          'GetInstanceAccessDetails: AccessDeniedException')
+
+    def test_launch_validation_does_not_echo_encoded_bootstrap_key(self):
+        secret = base64.b64encode(b'disposable private host identity' * 10).decode()
+        error = ClientError({'Error': {'Code': 'InvalidInputException',
+                                      'Message': 'Invalid userData ' + secret}}, 'CreateInstances')
+        self.assertNotIn(secret, control.failure_summary(error))
+        self.assertIn('[redacted]', control.failure_summary(error))
 
     def test_foreign_instance_is_never_deleted(self):
         client = MagicMock()
