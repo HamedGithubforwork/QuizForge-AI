@@ -154,7 +154,17 @@ def schedule_request(name, account, deadline):
 def arm(scheduler, name, account, deadline):
     request = schedule_request(name, account, deadline)
     # Always arm and read back the external deletion schedule BEFORE CreateInstances.
-    scheduler.create_schedule(**request)
+    try:
+        scheduler.create_schedule(**request)
+    except ClientError as error:
+        # This request contains only the reviewed role, test name and deletion
+        # target. Expose its validation reason without logging arbitrary AWS
+        # responses (especially temporary SSH credentials from other APIs).
+        detail = error.response.get('Error', {})
+        reason = str(detail.get('Code', 'ClientError'))
+        if reason == 'ValidationException':
+            reason += ': ' + ' '.join(str(detail.get('Message', '')).split())[:1000]
+        raise RuntimeError('Cleanup schedule creation rejected: ' + reason) from None
     actual = scheduler.get_schedule(Name=name, GroupName=GROUP)
     for key in ('ScheduleExpression', 'ScheduleExpressionTimezone', 'FlexibleTimeWindow',
                 'State', 'ActionAfterCompletion', 'Target'):
