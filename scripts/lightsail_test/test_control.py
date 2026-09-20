@@ -171,6 +171,24 @@ class Boundaries(unittest.TestCase):
                 policy.test_name(value)
         self.assertEqual(policy.test_name('1234-1'), NAME)
 
+    def test_comparison_rejects_wrong_sources_limits_or_fabricated_summary(self):
+        import hashlib
+        from test_ocr_comparison import samples
+        from ocr_comparison import summarize
+        rows = samples()
+        good = {'application_sha': policy.APP_SHA, 'comparison_script_sha256':
+                hashlib.sha256((control.HERE / 'ocr_comparison.py').read_bytes()).hexdigest(),
+                'synthetic_data': True, 'paid_model_calls': 0, 'cpu_limit': .4,
+                'pairs': 6, 'dpi': 150, 'page_segmentation_mode': 3, 'ocr_threads': 1,
+                'samples': rows, 'summary': summarize(rows), 'passed': True}
+        control.validate_comparison(good, 'sustained')
+        for key, value in (('application_sha', 'wrong'), ('comparison_script_sha256', 'wrong'),
+                           ('paid_model_calls', 1), ('cpu_limit', 2), ('pairs', 1),
+                           ('dpi', 120), ('page_segmentation_mode', 6), ('ocr_threads', 2),
+                           ('summary', {}), ('passed', False)):
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                control.validate_comparison({**good, key: value}, 'sustained')
+
     def test_session_policies_fit_sts_and_inspect_has_no_writes(self):
         for operation in ('inspect', 'run', 'cleanup'):
             document = policy.session_policy(ACCOUNT, operation, '12345678901234567890-12345')

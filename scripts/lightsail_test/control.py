@@ -384,8 +384,27 @@ def benchmark(ls, instance, image, digest, pinned_host_key):
         print(json.dumps({'capacity_profile': profile, 'report': report}), flush=True)
         # Preserve the original harness report byte-for-byte. This wrapper records placement.
         reports.append({'profile': profile, 'passed': report.get('passed') is True})
+        diagnostic = json.loads((path.parent / 'ocr-comparison.json').read_text())
+        validate_comparison(diagnostic, profile)
+        print(json.dumps({'ocr_comparison_profile': profile, 'report': diagnostic}), flush=True)
     exit_code = (RESULTS / 'capacity-results/exit-code.txt').read_text().strip()
     require(exit_code == '0' and all(p['passed'] for p in reports), 'Measured profile failed; targets are not waived')
+
+
+def validate_comparison(report, profile):
+    from ocr_comparison import summarize
+    expected_cpu = 2 if profile == 'burst' else .4
+    script_hash = hashlib.sha256((HERE / 'ocr_comparison.py').read_bytes()).hexdigest()
+    require(report.get('application_sha') == APP_SHA and report.get('comparison_script_sha256') == script_hash
+            and report.get('synthetic_data') is True and report.get('paid_model_calls') == 0,
+            'Unexpected OCR comparison source/data boundary')
+    require(report.get('cpu_limit') == expected_cpu and report.get('pairs') == 6
+            and report.get('dpi') == 150 and report.get('page_segmentation_mode') == 3
+            and report.get('ocr_threads') == 1 and len(report.get('samples', [])) == 12
+            and report.get('passed') is True, 'Incomplete or failed controlled OCR comparison')
+    require(report.get('summary') == summarize(report['samples'])
+            and all(c['quality_passed'] for c in report['summary'].values()),
+            'OCR comparison summary or quality mismatch')
 
 
 def run(clients, account, name):

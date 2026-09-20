@@ -53,7 +53,7 @@ jobs:
   build:
     name: Build pinned synthetic laboratory without AWS identity
     needs: validate
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run'
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -91,8 +91,34 @@ jobs:
           ref: bff2ab7612951fe1612268af3772794651ea86c8
           path: harness/preview-source
           persist-credentials: false
+      - name: Add the isolated comparison wrapper to the fixed laboratory
+        run: |
+          cp scripts/lightsail_test/ocr_comparison.py harness/scripts/capacity/ocr_comparison.py
+          cat >> harness/scripts/capacity/Dockerfile <<'EOF'
+          ENTRYPOINT ["python", "/app/scripts/capacity/ocr_comparison.py"]
+          EOF
       - run: docker build -f harness/scripts/capacity/Dockerfile -t quizforge-capacity:checked harness
+      - name: Verify paired OCR and accuracy in the production image without AWS
+        if: github.event_name == 'pull_request'
+        run: |
+          docker run --name comparison --network none --memory 1536m --memory-swap 1536m --cpus 2 \
+            --pids-limit 192 --cap-drop ALL --security-opt no-new-privileges \
+            -e APPLICATION_SHA=bff2ab7612951fe1612268af3772794651ea86c8 \
+            quizforge-capacity:checked --diagnostic-only
+      - name: Retain the comparison self-check
+        if: always() && github.event_name == 'pull_request'
+        run: |
+          mkdir -p comparison-self-check
+          docker cp comparison:/results/. comparison-self-check/ || true
+          docker rm -f comparison || true
+      - uses: actions/upload-artifact@v7
+        if: always() && github.event_name == 'pull_request'
+        with:
+          name: ocr-comparison-self-check
+          path: comparison-self-check/
+          retention-days: 7
       - name: Package immutable test image and source manifest
+        if: github.event_name == 'workflow_dispatch'
         run: |
           mkdir capacity-build
           docker save quizforge-capacity:checked | gzip -1 > capacity-build/capacity-image.tar.gz
@@ -107,6 +133,7 @@ jobs:
               'application_sha': APP_SHA, 'harness_sha': HARNESS_SHA, 'image_sha256': digest}))
           PY
       - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch'
         with:
           name: capacity-build
           path: capacity-build/
