@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 import pymupdf
@@ -124,6 +125,10 @@ def extract_pdf_pages_with_ocr(contents: bytes):
 async def extract_pdf_pages_off_event_loop(
     contents: bytes,
 ):
+    if os.getenv("PDF_PROCESS_ISOLATION") == "true":
+        from pdf_process import extract_in_process
+
+        return await extract_in_process(contents)
     return await run_in_threadpool(
         extract_pdf_pages_with_ocr,
         contents,
