@@ -1,5 +1,6 @@
 """Manual, bounded Lightsail laboratory. Builds never execute with AWS credentials."""
 from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
 import base64
 import hashlib
 import ipaddress
@@ -255,10 +256,12 @@ def validate_ssh_certificate(access):
     require(certificate.type == SSHCertificateType.USER, 'Unexpected SSH certificate type')
     require(b'ubuntu' in certificate.valid_principals, 'SSH certificate does not name the expected user')
     require(certificate.valid_after <= now.timestamp(), 'SSH certificate is not yet valid')
-    require(certificate.valid_before > now.timestamp() + 45 * 60, 'SSH credential lifetime too short')
+    # A certificate is checked at authentication, not for an established session.
+    # Fetch a fresh one per connection and retain headroom for ConnectTimeout=10.
+    require(certificate.valid_before > now.timestamp() + 30, 'SSH credential lifetime too short')
     if access.get('expiresAt') is not None:
         expiry = access['expiresAt']
-        require(isinstance(expiry, datetime) and expiry > now + timedelta(minutes=45),
+        require(isinstance(expiry, datetime) and expiry > now + timedelta(seconds=30),
                 'SSH API credential lifetime too short')
 
 
@@ -294,6 +297,13 @@ def ssh_access(ls, instance, directory, pinned_host_key):
     return options, 'ubuntu@' + address
 
 
+@contextmanager
+def ssh_connection(ls, instance, pinned_host_key):
+    # Never reuse a short-lived AWS login certificate for a later connection.
+    with tempfile.TemporaryDirectory(prefix='qf-ssh-', dir=os.environ['RUNNER_TEMP']) as tmp:
+        yield ssh_access(ls, instance, Path(tmp), pinned_host_key)
+
+
 def metrics(ls, name, start):
     result = {}
     for metric, unit in [('CPUUtilization', 'Percent'), ('BurstCapacityPercentage', 'Percent'),
@@ -309,45 +319,45 @@ def metrics(ls, name, start):
 
 
 def benchmark(ls, instance, image, digest, pinned_host_key):
-    with tempfile.TemporaryDirectory(prefix='qf-ssh-', dir=os.environ['RUNNER_TEMP']) as tmp:
-        print('Stage: obtaining credentials for the pre-pinned test host', flush=True)
-        options, target = ssh_access(ls, instance, Path(tmp), pinned_host_key)
-        ssh = ['ssh', *options, target]
-        deadline = time.monotonic() + 600
-        while time.monotonic() < deadline:
-            ready = subprocess.run([*ssh, 'test -f /var/lib/quizforge-capacity-ready'],
+    print('Stage: waiting for bootstrap with fresh credentials and the pinned host key', flush=True)
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        with ssh_connection(ls, instance, pinned_host_key) as (options, target):
+            ready = subprocess.run(['ssh', *options, target, 'test -f /var/lib/quizforge-capacity-ready'],
                 capture_output=True, timeout=25)
-            if ready.returncode == 0:
-                break
-            time.sleep(5)
-        else:
-            raise RuntimeError('Docker bootstrap/verified SSH deadline exceeded')
-        print('Stage: transferring checked synthetic image', flush=True)
+        if ready.returncode == 0:
+            break
+        time.sleep(5)
+    else:
+        raise RuntimeError('Docker bootstrap/verified SSH deadline exceeded')
+    print('Stage: transferring checked synthetic image', flush=True)
+    with ssh_connection(ls, instance, pinned_host_key) as (options, target):
         subprocess.run(['scp', *options, str(image), target + ':/home/ubuntu/capacity-image.tar.gz'],
             check=True, capture_output=True, timeout=300)
-        try:
-            print('Stage: running burst and sustained OCR profiles', flush=True)
-            with (HERE / 'remote.sh').open('rb') as script:
-                subprocess.run([*ssh, f'sudo bash -s -- {digest} {APP_SHA}'], stdin=script,
-                    check=True, capture_output=True, timeout=2200)
-        finally:
-            # No raw PDFs, cloud credentials or production data exist in this image.
+    try:
+        print('Stage: running burst and sustained OCR profiles', flush=True)
+        with ssh_connection(ls, instance, pinned_host_key) as (options, target), (HERE / 'remote.sh').open('rb') as script:
+            subprocess.run(['ssh', *options, target, f'sudo bash -s -- {digest} {APP_SHA}'], stdin=script,
+                check=True, capture_output=True, timeout=2200)
+    finally:
+        # No raw PDFs, cloud credentials or production data exist in this image.
+        with ssh_connection(ls, instance, pinned_host_key) as (options, target):
             subprocess.run(['scp', *options, '-r', target + ':/home/ubuntu/capacity-results', str(RESULTS)],
                 check=True, capture_output=True, timeout=90)
-        reports = []
-        host_path = RESULTS / 'capacity-results' / 'host.json'
-        if host_path.is_file():
-            print(json.dumps({'capacity_host': json.loads(host_path.read_text())}), flush=True)
-        for profile in ('burst', 'sustained'):
-            path = RESULTS / 'capacity-results' / profile / 'capacity.json'
-            report = json.loads(path.read_text())
-            require(report.get('application_sha') == APP_SHA and report.get('synthetic_data') is True
-                    and report.get('paid_model_calls') == 0, 'Unexpected benchmark identity/data boundary')
-            print(json.dumps({'capacity_profile': profile, 'report': report}), flush=True)
-            # Preserve the original harness report byte-for-byte. This wrapper records placement.
-            reports.append({'profile': profile, 'passed': report.get('passed') is True})
-        exit_code = (RESULTS / 'capacity-results/exit-code.txt').read_text().strip()
-        require(exit_code == '0' and all(p['passed'] for p in reports), 'Measured profile failed; targets are not waived')
+    reports = []
+    host_path = RESULTS / 'capacity-results' / 'host.json'
+    if host_path.is_file():
+        print(json.dumps({'capacity_host': json.loads(host_path.read_text())}), flush=True)
+    for profile in ('burst', 'sustained'):
+        path = RESULTS / 'capacity-results' / profile / 'capacity.json'
+        report = json.loads(path.read_text())
+        require(report.get('application_sha') == APP_SHA and report.get('synthetic_data') is True
+                and report.get('paid_model_calls') == 0, 'Unexpected benchmark identity/data boundary')
+        print(json.dumps({'capacity_profile': profile, 'report': report}), flush=True)
+        # Preserve the original harness report byte-for-byte. This wrapper records placement.
+        reports.append({'profile': profile, 'passed': report.get('passed') is True})
+    exit_code = (RESULTS / 'capacity-results/exit-code.txt').read_text().strip()
+    require(exit_code == '0' and all(p['passed'] for p in reports), 'Measured profile failed; targets are not waived')
 
 
 def run(clients, account, name):
