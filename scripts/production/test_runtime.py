@@ -10,12 +10,26 @@ import psycopg
 
 import generation_guard as guard
 import inventory
+from build import public_config
 from cloud_transfer import validate_delivery
 from database import options
 from transfer import private_read, private_write
 
 
 class Boundaries(unittest.TestCase):
+    def test_build_refuses_secret_keys_and_foreign_endpoints_before_running_npm(self):
+        import base64
+        config = {"pool":"ca-central-1_Test","client":"client123",
+                  "auth_origin":"https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
+                  "frontend_url":"https://quizfromnotes.com","api_url":"https://api.quizfromnotes.com",
+                  "legacy_url":"https://vfxmsvphgcaizqnbyjip.supabase.co",
+                  "legacy_publishable_key":"sb_publishable_synthetic_public_key_12345"}
+        self.assertEqual(public_config(config),config)
+        privileged = 'header.'+base64.urlsafe_b64encode(json.dumps({'role':'service_role','ref':'vfxmsvphgcaizqnbyjip'}).encode()).decode().rstrip('=')+'.signature'
+        for change in ({'legacy_publishable_key':privileged},{'legacy_publishable_key':'sb_secret_private'},
+                       {'api_url':'https://foreign.test'},{'OPENAI_API_KEY':'private'}):
+            with self.assertRaises(ValueError): public_config(config | change)
+
     def test_model_request_is_bounded_and_cannot_use_tools_or_other_endpoints(self):
         body = {"model": "gpt-5.6-luna", "input": [{"role": "user", "content": "Synthetic notes"}]}
         result = json.loads(guard.bounded_request(json.dumps(body | {"store": True, "max_output_tokens": 999999}).encode()))
