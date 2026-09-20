@@ -4,6 +4,13 @@ The owner authorized testing the approximately USD15–20/month alternative.
 This does not activate a permanent instance or migrate live accounts/history.
 The previous USD88 managed-service proposal remains unapplied.
 
+**Latest decision (September 20): the real Lightsail test completed. Burst passed;
+the 0.4-CPU sustained profile failed three timing targets and did not complete
+restart recovery/queue cleanup within the test bounds. Do not launch this
+configuration yet. The temporary instance was deleted and absence confirmed.**
+See [live results](#real-lightsail-results) and the preserved
+[structured evidence](evidence/lightsail-capacity-35521952974.json).
+
 ## Proposed small-server layout
 
 Use one Canadian Lightsail Linux instance with 2 GiB RAM, two burstable vCPUs,
@@ -220,7 +227,7 @@ inputs, zero pending jobs, 308,753 bytes of retained result payload and a
 13,549,568-byte SQLite file. Synthetic history rows and model reservations were
 both zero.
 
-**Current decision:** background processing fixes the long-request failure. The
+**Decision after CI:** background processing fixes the long-request failure. The
 30-page asynchronous acceptance/completion target, responsiveness, ownership,
 cleanup and recovery checks passed in both profiles. The overall sustained
 profile remains a failure because its 10-page and two-scan completion times
@@ -231,10 +238,76 @@ The small-server design remains a candidate for light use where these waiting
 times are acceptable. Background jobs improve request handling and recovery;
 they do not create more CPU capacity. The USD15–20 hosting target adds no separate
 queue service, but remains an estimate before variable/model usage and tax.
-Actual Lightsail hardware performance and the deployment, backup/restore,
-account migration and domain prerequisites remain unverified. App PR127 and
+At that stage, actual Lightsail hardware performance and the deployment,
+backup/restore, account migration and domain prerequisites remained unverified. App PR127 and
 capacity PR130 remain draft; no permanent AWS server, account upgrade, live-data
 transfer, paid model call or domain change was performed.
+
+## Real Lightsail results
+
+[Run 35521952974](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35521952974)
+completed the unchanged pinned benchmark on September 20. The application and
+harness commits are the same as the background CI experiment above. Controller
+`4a15b9cf356bb22fc2d2ca88eedcd18d424a3dd3` launched exactly one `small_3_0` server
+in `ca-central-1`, verified the USD12/month catalogue price, and used the original
+1536 MiB/no-swap container and 2/0.4 CPU limits. Host CPU: Intel Xeon Platinum
+8259CL at 2.50 GHz. All documents/accounts were synthetic; paid model calls were zero.
+
+| Metric | 2 CPU burst | 0.4 CPU sustained |
+| --- | ---: | ---: |
+| Peak whole-container memory | 726.37 MiB | 734.02 MiB |
+| Cold text, 100 pages; target <=10 s | 3.437 s | **13.063 s — fail** |
+| Cold scan, 1 page; target <=15 s | 5.419 s | 14.798 s |
+| Cold scan, 10 pages; target <=60 s | 28.746 s | **79.199 s — fail** |
+| Cold scan, 30 pages: HTTP admission; target <=2 s | 0.108 s | 0.275 s |
+| Cold scan, 30 pages: background completion; target <=240 s | 73.487 s | 226.744 s |
+| Two 10-page scans + history; target <=120 s | 54.640 s | **168.998 s — fail** |
+| Warm completed 10-page job; target <=3 s | 0.038 s | 0.113 s |
+| Health successes during OCR load | 823 / 823 | 2335 / 2335 |
+| Health p95; target <=1 s | 0.009 s | 0.078 s |
+| Interrupted-job recovery | 34.698 s; attempt 2 | **Completion wait exceeded 75 s** |
+| Raw PDF inputs / pending jobs at measurement end | 0 / 0 | **1 / 1 — fail** |
+| Overall profile | **PASS** | **FAIL** |
+
+Both profiles kept all six services alive, with zero OOM events or kills. The
+four-job admission limit and fifth-request 429, cross-owner denial and owner
+cancellation passed. Twenty history cycles preserved ownership and left zero
+rows. Model reservations were zero. The 30-page asynchronous case completed in
+both profiles, but its sustained margin was only 13.256 seconds.
+
+The sustained restart experiment exceeded its existing 75-second completion
+wait, leaving one synthetic raw input and one pending job when queue state was
+checked. This does not establish permanent data loss or that the job could never
+recover; it means recovery and cleanup were not demonstrated within the original
+bounds. Do not mark those checks passed or extend the timeout to hide the result.
+Deleting the disposable server subsequently removed this synthetic test state.
+
+The preserved harness reports still say `live_aws_instance: false` and
+`host_reserve_mib: 512`; these are original harness fields, not live measurements.
+The accompanying host/run records prove AWS placement and report 1,951,768 KiB
+of actual host memory (about 1906.02 MiB). That leaves about 370.02 MiB outside
+the 1536 MiB container limit, rather than the nominal 512 MiB assumption. This
+run measured a low memory peak; it does not prove spare memory under other loads.
+The 0.4-CPU quota approximates the published baseline and does not prove natural
+AWS burst credits were exhausted.
+
+**Current decision:** retain the USD15–20 layout as a cost candidate and block
+production launch. Profile/optimize sustained PDF processing and resolve the
+bounded recovery/cleanup failure, then validate a reviewed changed application
+against the same targets. Peak memory was below 735 MiB and the USD24/4 GB bundle
+has the same CPU baseline, so a RAM upgrade alone does not address this evidence.
+Production configuration, encrypted off-instance backup/restore, model spending
+controls, real account enrollment/history migration and final domain/TLS checks
+remain required. Neither application PR127 nor harness PR130 was merged for this test.
+
+The test server existed from approximately 16:13:52 to 16:30:25 UTC. The controller
+confirmed `cleanup.instance_absent: true`; its independent fallback deletion
+remains armed until completion. The AWS account stayed on its existing Free plan.
+No permanent server, account upgrade, production-data transfer or domain change
+was performed. USD15–20 remains an estimated future hosting budget, not an actual
+monthly bill or an accepted performance configuration; tax/model usage and
+overages are separate. Evidence is retained in the repository because workflow
+artifacts have limited retention.
 
 Sources checked September 20, 2026:
 [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/),

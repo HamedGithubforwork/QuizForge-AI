@@ -1,8 +1,11 @@
 # Temporary real-Lightsail capacity test
 
-This prepares the next experiment for the USD15–20/month candidate. It does not
-deploy the production website. The earlier [measured capacity failures](aws-small-server-capacity.md)
-remain recorded and the application PR127 remains unmerged.
+The real experiment for the USD15–20/month candidate completed on September 20,
+2026 in [run 35521952974](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35521952974).
+Burst passed; the sustained profile failed timing and bounded recovery/cleanup
+checks. The temporary server was deleted and absence confirmed. See the
+[capacity decision and measurements](aws-small-server-capacity.md#real-lightsail-results).
+This did not deploy the production website; application PR127 remains unmerged.
 
 ## Reviewed scope and cost
 
@@ -157,9 +160,13 @@ No new IAM permission, persistent login key pair or open application port is nee
 Validated synthetic capacity reports and host metadata are printed in logs so
 results remain inspectable if artifact materialization is unavailable.
 
-Live capacity remains unverified until a complete benchmark. The prior CI
-sustained-profile timing failures remain authoritative, and the website has
-not been switched to the proposed AWS server.
+The corrected bootstrap authenticated successfully and both profiles ran in
+[run 35521952974](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35521952974).
+The sustained profile failed three timing targets, its restart-recovery completion
+wait, and the final queue cleanup check. The prior CI results remain recorded;
+the new hardware result does not waive any target. The website has not been
+switched to the proposed AWS server. The [structured reports](evidence/lightsail-capacity-35521952974.json)
+preserve the original harness data together with live host and deletion evidence.
 
 Provision this small prerequisite module using the existing encrypted Terraform
 state bucket and the **new** key `quizforge/lightsail-test-cleanup/terraform.tfstate`.
