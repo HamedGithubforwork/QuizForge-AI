@@ -135,7 +135,7 @@ rejected generation with zero reservations. Three simultaneous uploads produced
 two successes and one explicit 429; the 101-page document was rejected with 413.
 The 30-page sustained failure is a real capacity limitation, not a waived test.
 
-**Decision:** the memory footprint supports the small-server proposal, and the
+**Decision at the synchronous test stage:** the memory footprint supports the small-server proposal, and the
 process isolation fixes the observed API stalls. The USD15–20 layout is a viable
 candidate for the measured light workload, but it is not approved as an unrestricted
 production replacement. Before launch, either implement a bounded background
@@ -152,6 +152,89 @@ The separate `aws-small-readiness.yml` workflow only reads the account plan and
 Canadian Lightsail bundle catalogue using an explicit read-only AWS session.
 It cannot create instances, change permissions, upgrade the account or alter DNS.
 Catalogue access alone does not prove creation permission or Free-plan eligibility.
+
+The subsequent [read-only check 35489346505](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35489346505)
+confirmed ACTIVE / FREE and the Canadian `small_3_0` catalogue entry: USD12/month,
+2 GiB RAM, 2 vCPUs, 60 GB disk, 3072 GB transfer and one public IPv4 address. It
+performed zero mutations and did not establish permission or eligibility to launch.
+
+## Background-processing follow-up
+
+The owner authorized the recommended background processing. Application
+[PR127](https://github.com/HamedGithubforwork/QuizForge-AI/pull/127), at
+`f3c63fec355fc8552e4a68142860f88e874281f6`, adds a durable private queue, owned
+status/cancellation, per-page progress and refresh/resume in the website. It
+keeps the existing file, scanned-page, worker-memory and CPU-time bounds. A
+background job has a separate 600-second wall deadline, and queued work does not
+hold an HTTP connection. See [configuration, limits and recovery](background-pdf-processing.md).
+
+Exact-head verification passed: 252 backend tests / 13 skipped, real OCR image
+verification, dependency audits, frontend build/lint/tests, PostgreSQL ownership
+security and full local-stack browser integration. Eight application browser
+tests and eight Cognito enrollment tests passed. The application tests include
+progress, refresh/resume, quiz generation without reuploading and cancellation.
+Focused tests verify signed-token
+job ownership, raw/result deletion, expiry, admission limits, bounded restart
+recovery and real child termination, including cancellation during child creation.
+
+The [background capacity run 35490585428](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35490585428)
+uses controller `52f44f16794369601f21e429b15389efcf7d62e4` and the exact application
+above, retaining the same 1536 MiB container, 512 MiB host reserve, no swap and
+2 / 0.4 CPU profiles. The new acceptance contract was recorded before execution:
+**HTTP 202 admission <=2 seconds, 30-page background completion <=240 seconds**.
+The previous synchronous <=120-second failure remains recorded above. The proxy
+now uses a 10-second upstream idle timeout. Smaller-PDF completion targets remain
+unchanged. Additional synthetic owners exercise one pending job per owner and
+four queued/running jobs across the host.
+
+| Metric | 2 CPU burst | 0.4 CPU sustained |
+| --- | ---: | ---: |
+| Peak whole-container memory | 727.74 MiB | 721.22 MiB |
+| Cold text, 100 pages | 2.860 s | 5.429 s |
+| Cold scan, 1 page | 4.590 s | 11.499 s |
+| Cold scan, 10 pages | 24.468 s | 65.599 s (target 60 s) |
+| Cold scan, 30 pages: HTTP admission | 0.072 s | 0.156 s |
+| Cold scan, 30 pages: background completion | 68.016 s | 187.681 s |
+| Two 10-page scans + history cycles | 48.158 s | 136.020 s (target 120 s) |
+| Warm completed 10-page job | 0.021 s | 0.044 s |
+| Health successes during OCR load | 741 / 741 | 1967 / 1967 |
+| Health p95 | 0.004 s | 0.070 s |
+| Interrupted 10-page job recovery | 30.314 s | 78.654 s |
+| Overall profile | PASS | FAIL: two completion-time targets |
+
+The recovery experiment deliberately kills the API after a real OCR child has
+processed a page. It requires that child to stop, then restarts the API on the
+same private job directory. The same job must finish on exactly its second
+attempt and expose its owned source pages. This planned downtime is outside the
+concurrent-load health window and is reported separately; unexpected failures
+during ordinary OCR load are not waived.
+
+Both profiles completed every accepted PDF, returned all expected OCR pages,
+preserved history ownership during concurrent work, and kept all services alive
+without an OOM kill. Four pending uploads were admitted and the fifth received
+429. Cross-owner read/cancel requests failed; the owner cancelled and discarded
+all four jobs. The 101-page document failed the bounded preflight. Both restart
+tests recovered the same job on exactly its second attempt, with no surviving
+OCR worker from the terminated API. Final storage checks found zero raw PDF
+inputs, zero pending jobs, 308,753 bytes of retained result payload and a
+13,549,568-byte SQLite file. Synthetic history rows and model reservations were
+both zero.
+
+**Current decision:** background processing fixes the long-request failure. The
+30-page asynchronous acceptance/completion target, responsiveness, ownership,
+cleanup and recovery checks passed in both profiles. The overall sustained
+profile remains a failure because its 10-page and two-scan completion times
+exceed the predeclared 60/120-second targets. Do not label the whole suite green,
+relax the recorded targets or rerun merely to obtain a faster CI machine.
+
+The small-server design remains a candidate for light use where these waiting
+times are acceptable. Background jobs improve request handling and recovery;
+they do not create more CPU capacity. The USD15–20 hosting target adds no separate
+queue service, but remains an estimate before variable/model usage and tax.
+Actual Lightsail hardware performance and the deployment, backup/restore,
+account migration and domain prerequisites remain unverified. App PR127 and
+capacity PR130 remain draft; no permanent AWS server, account upgrade, live-data
+transfer, paid model call or domain change was performed.
 
 Sources checked September 20, 2026:
 [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/),

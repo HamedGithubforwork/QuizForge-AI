@@ -2,9 +2,11 @@
 
 The owner requested a lower-cost Lightsail evaluation after reviewing this
 managed-stack estimate. See the [small-server capacity results](aws-small-server-capacity.md):
-the 2 GiB memory budget fits, but large scans under sustained CPU need background
-processing or an agreed upload limit before launch. The USD88 proposal below
-remains unapplied and is not the selected next activation step.
+the 2 GiB memory budget fits and the background-processing candidate completes
+30-page scans under sustained CPU limits. The 10-page and two-scan timing targets
+still fail in that profile; see the exact results and remaining launch requirements.
+The USD88 proposal below remains unapplied and is not the selected next activation
+step.
 
 Status: production preparation, not a live website. The owner selected a fully
 AWS-hosted deployment after the integrated rehearsal passed. The existing
