@@ -4,6 +4,10 @@ Prepared September 19, 2026; evidence updated September 20. This is a review pla
 Production remains on Vercel, Render and Supabase. Application PR #97 remains
 draft and unmerged. Live rehearsal evidence is in [integrated staging](aws-integrated-staging.md).
 
+The complete integrated staging workflow passed on September 20, including the
+corrected private rate-counter verification and independent AWS teardown. The
+production decisions and acceptance gates below remain pending.
+
 ## Running cost before a cutover
 
 An always-on copy of the small rehearsal architecture would cost approximately

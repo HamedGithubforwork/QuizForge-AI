@@ -5,6 +5,11 @@ single browser journey: private S3 and CloudFront, Cognito hosted code/PKCE logi
 with mandatory TOTP, the dedicated staging HTTPS ALB, separate API and account
 setup Fargate tasks, private forced-TLS RDS PostgreSQL, and private TLS Valkey.
 
+**Latest result:** the complete workflow, including private verification and
+independent cleanup, passed in [run 35480531677](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35480531677)
+on September 20, 2026. All 59 temporary resources were removed. The successful
+checkpoint below supersedes the earlier incomplete attempts.
+
 Run **AWS integrated browser staging** on `main`, operation `run`, application PR
 `97`. The controller requires the existing checks to pass on that exact application
 commit before building it. The application PR remains draft and unmerged.
@@ -200,10 +205,57 @@ Automatic cleanup destroyed **all 59 resources at 00:59:08 UTC**. Independent
 absence checks passed at **00:59:20 UTC**, including RDS backups and Valkey.
 The reusable foundation, zone/certificate and ECR images remain.
 
-A final live run with the corrected probe is still required before describing the
-whole workflow as green. The local workspace/browser disconnected during this
-run; GitHub monitoring, code publication and automatic AWS cleanup remained
-available, but the disconnected browser could not dispatch the corrected rerun.
+At this checkpoint, a final live run with the corrected probe was still required.
+The local workspace/browser disconnected during the run; GitHub monitoring, code
+publication and automatic AWS cleanup remained available. After reconnection,
+the corrected rerun completed successfully as recorded below.
+
+## Successful complete rehearsal — 2026-09-20
+
+[Run 35480531677](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35480531677)
+finished with **every job successful**. It used controller
+`b70e1ab40b0a71e1947391fdc741e0aa6ed2ad96` and application PR #97 commit
+`26edb5d6557835060ac309595f0634d46e888bf4`. The credentialless checks passed all
+17 Python tests, four mocked Terraform tests and the reviewed image builds.
+
+| Checkpoint | September 20 UTC | Result |
+| --- | --- | --- |
+| Provisioning | 01:22:11 | 59 temporary resources created |
+| Complete browser journey | 01:28:32 | Passed |
+| Independent private database/cache probe | 01:29:27 | Passed |
+| Terraform teardown | 01:36:02 | All 59 temporary resources destroyed |
+| Independent AWS absence checks | 01:38:21 | Passed, including snapshots and automated backups |
+
+The browser verified real Cognito MFA login, repeat PDF processing, real
+five-question multiple-choice generation, 4/5 grading, authenticated source
+retrieval, saving the exact quiz/answers/document fingerprint to RDS and reopening
+the score/metadata after a fresh login. It also passed cache reuse, the normal
+429 rate response, enrollment, ownership isolation/deletion, unverified-user
+rejection, logout/token revocation and browser CORS/CSP/storage boundaries.
+
+The corrected private probe verified the **Cognito-scoped rate counter of eleven
+with an active ten-minute TTL**. It confirmed document/source/quiz cache contents
+and TTLs, one quiz cache hit, nine misses and ten recorded quiz requests; document
+metrics included at least one hit and miss. There were no semantic answer-review
+requests. Exactly **one real upstream model request** consumed one of the two
+budget slots, with one remaining and no budget expiry. The guard retained its
+4,096-output-token and 32,768-input-body-byte limits.
+
+All eight original foreign history fixtures remained unchanged, all browser-created
+history rows were removed, and the database held four internal users and exactly
+one consumed enrollment confirmation.
+
+AWS briefly continued listing an automated RDS snapshot after database deletion.
+The existing bounded read-only wait observed it disappear at 01:38:21 UTC;
+verification was not bypassed and no manual backup deletion was required.
+Terraform state had no resources or outputs. S3/CloudFront resources, ALB/ECS,
+RDS/Valkey and backups, Cognito, temporary secrets/IAM/logs/security groups and
+staging DNS were independently confirmed absent. The reusable foundation,
+zone/certificate and ECR images remain.
+
+The full staging milestone is complete. Production remains on Vercel, Render and
+Supabase; application PR #97 remains draft and unmerged. Production configuration,
+source inventory, migration, recovery and cutover gates remain in the readiness plan.
 
 See [production-readiness costs and migration/rollback steps](aws-production-readiness.md)
 for the prepared next-stage review. That plan does not deploy production.
