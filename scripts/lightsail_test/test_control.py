@@ -30,7 +30,7 @@ class Boundaries(unittest.TestCase):
 
     def test_session_policies_fit_sts_and_inspect_has_no_writes(self):
         for operation in ('inspect', 'run', 'cleanup'):
-            document = policy.session_policy(ACCOUNT, operation)
+            document = policy.session_policy(ACCOUNT, operation, '12345678901234567890-12345')
             self.assertLessEqual(len(json.dumps(document, separators=(',', ':'))), 2048)
             actions = [a for s in document['Statement'] for a in s['Action']]
             self.assertFalse(any(a.startswith(('route53:', 'cognito-idp:', 'bedrock:', 'rds:')) for a in actions))
@@ -38,8 +38,21 @@ class Boundaries(unittest.TestCase):
                 self.assertTrue(all(a.split(':')[1].startswith(('Get', 'List')) for a in actions))
             if operation == 'cleanup':
                 self.assertNotIn('lightsail:CreateInstances', actions)
+            if operation != 'run':
+                self.assertNotIn('lightsail:TagResource', actions)
             self.assertNotIn('scheduler:DeleteSchedule', actions)
             self.assertNotIn('iam:CreateRole', actions)
+
+    def test_tagging_is_limited_to_instances_and_this_runs_three_tags(self):
+        document = policy.session_policy(ACCOUNT, 'run', '1234-1')
+        statement, = [s for s in document['Statement'] if 'lightsail:TagResource' in s['Action']]
+        self.assertEqual(statement['Resource'], f'arn:aws:lightsail:ca-central-1:{ACCOUNT}:Instance/*')
+        self.assertEqual(statement['Condition'], {
+            'StringEquals': {'aws:RequestTag/Purpose': policy.PURPOSE, 'aws:RequestTag/TestId': '1234-1'},
+            'ForAllValues:StringEquals': {'aws:TagKeys': ['Purpose', 'TestId', 'DeleteAfter']}})
+        self.assertFalse(any('lightsail:UntagResource' in s['Action'] for s in document['Statement']))
+        with self.assertRaises(ValueError):
+            policy.session_policy(ACCOUNT, 'run')
 
     def test_price_ram_ipv4_and_size_are_not_silently_upgraded(self):
         good = {'bundleId': policy.BUNDLE, 'isActive': True, 'price': 12, 'cpuCount': 2,
