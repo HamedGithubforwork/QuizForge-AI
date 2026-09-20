@@ -111,6 +111,7 @@ def setup():
                            'HISTORY_BACKEND': 'postgres', 'REDIS_URL': 'redis://127.0.0.1:6379/0',
                            'OPENAI_API_KEY': 'synthetic-disabled', 'OPENAI_BASE_URL': 'http://127.0.0.1:8002/v1',
                            'IDENTITY_STAGING_ENABLED': 'true', 'IDENTITY_ALLOWED_ORIGIN': 'http://127.0.0.1:5173',
+                           'PDF_PROCESS_ISOLATION': 'true',
                            'OMP_THREAD_LIMIT': '1'}
     for prefix, role in (('HISTORY_DB', 'quizforge_app'), ('IDENTITY_DB', 'quizforge_identity')):
         common.update({prefix + '_' + key: value for key, value in {
@@ -224,11 +225,15 @@ def history_cycle():
         for _ in range(20):
             created = c.post('/api/quiz-history', json=entry)
             require(created.status_code == 201, 'History write failed')
-            own = c.get('/api/quiz-history').json()
+            response = c.get('/api/quiz-history')
+            require(response.status_code == 200, 'History read status failed')
+            own = response.json()
             require(len(own['items']) == 1, 'History read failed')
             other = c.get('/api/quiz-history', headers={'Authorization': 'Bearer capacity-2'}).json()
             require(not other['items'], 'History ownership boundary failed')
-            require(c.delete('/api/quiz-history/' + created.json()['id']).status_code == 204, 'History delete failed')
+            # The real create endpoint returns an empty 201; obtain its UUID by
+            # reading the authenticated history response, as the browser does.
+            require(c.delete('/api/quiz-history/' + own['items'][0]['id']).status_code == 204, 'History delete failed')
     return {'cycles': 20, 'ownership_checked': True}
 
 
@@ -237,6 +242,8 @@ def exercise():
     text = fixture(100)
     scans = {n: fixture(n, True, str(n)) for n in (1, 10, 30)}
     parallel = [fixture(10, True, 'concurrent-' + str(i)) for i in range(2)]
+    overload = [fixture(1, True, 'overload-' + str(i)) for i in range(3)]
+    too_many_pages = fixture(101)
     watcher = threading.Thread(target=health_loop, daemon=True)
     watcher.start()
     case('text_100_pages_cold', lambda: upload(text, 100), 10)
@@ -250,6 +257,21 @@ def exercise():
             return {'uploads': [f.result() for f in futures], 'history': history.result()}
     case('two_cold_scans_with_history', simultaneous, 120)
     case('warm_10_page_scan', lambda: upload(scans[10], 10), 3)
+    def bounded_overload():
+        barrier = threading.Barrier(3)
+        def attempt(blob):
+            with client() as c:
+                barrier.wait(timeout=10)
+                response = c.post('/api/documents/upload', files={'file': ('synthetic.pdf', blob, 'application/pdf')})
+                return response.status_code
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            statuses = sorted(pool.map(attempt, overload))
+        require(statuses == [200, 200, 429], 'Overload must accept two jobs and explicitly reject the third')
+        return {'statuses': statuses}
+    case('bounded_overload', bounded_overload, 30)
+    with client() as c:
+        require(c.post('/api/documents/upload', files={'file': ('too-many.pdf', too_many_pages, 'application/pdf')}).status_code == 413,
+                'Oversized page count must fail before OCR')
     with client() as c:
         require(c.get('/api/quiz-history', headers={'Authorization': 'invalid'}).status_code == 401,
                 'Test adapter accepted unauthenticated history')
