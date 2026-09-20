@@ -1,0 +1,71 @@
+name: Small AWS server capacity
+
+on:
+  pull_request:
+    paths:
+      - scripts/capacity/**
+      - .github/workflows/aws-small-capacity.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capacity:
+    name: 2 GB host capacity (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: burst
+            cpus: '2'
+          - profile: sustained
+            cpus: '0.4'
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require the reviewed production application's exact passing commit
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_PR: '127'
+          REQUIRE_POSTGRES_HISTORY: '1'
+        run: python scripts/aws_staging_preview.py
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.app.outputs.sha }}
+          path: preview-source
+          persist-credentials: false
+      - name: Build the synthetic capacity image without cloud credentials
+        run: docker build -f scripts/capacity/Dockerfile -t quizforge-capacity:checked .
+      - name: Run all services under one memory and CPU limit with networking disabled
+        env:
+          APPLICATION_SHA: ${{ steps.app.outputs.sha }}
+          CAPACITY_CPUS: ${{ matrix.cpus }}
+        run: |
+          docker run --name capacity --network none --memory 1536m --memory-swap 1536m \
+            --cpus "$CAPACITY_CPUS" --pids-limit 192 --shm-size 64m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            -e APPLICATION_SHA quizforge-capacity:checked
+      - name: Retain only synthetic aggregate results and remove the container
+        if: always()
+        run: |
+          mkdir -p capacity-results
+          if docker container inspect capacity >/dev/null 2>&1; then
+            docker cp capacity:/results/. capacity-results/ || true
+            docker inspect --format '{{json .State}}' capacity > capacity-results/container-state.json
+            docker rm -f capacity
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: capacity-${{ matrix.profile }}
+          path: capacity-results/
+          retention-days: 7
