@@ -57,11 +57,13 @@ class Boundaries(unittest.TestCase):
         session = boto3.session.Session()
         model = session._session.get_service_model('scheduler')
         validate_parameters(request, model.operation_model('CreateSchedule').input_shape)
-        model = session._session.get_service_model('lightsail')
-        validate_parameters(json.loads(request['Target']['Input']), model.operation_model('DeleteInstance').input_shape)
+        # The live Scheduler validator requires InstanceName, even though the
+        # direct Lightsail API model accepts instanceName. Do not mistake a
+        # direct boto3 schema check for the universal-target input contract.
+        self.assertEqual(json.loads(request['Target']['Input']),
+                         {'InstanceName': NAME, 'ForceDeleteAddOns': True})
         self.assertEqual(request['ScheduleExpression'], 'at(2026-09-20T12:00:00)')
         self.assertEqual(request['ActionAfterCompletion'], 'DELETE')
-        self.assertEqual(json.loads(request['Target']['Input'])['instanceName'], NAME)
 
     def test_bad_schedule_readback_fails_closed(self):
         scheduler = MagicMock()

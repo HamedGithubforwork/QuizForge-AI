@@ -147,7 +147,9 @@ def schedule_request(name, account, deadline):
         'State': 'ENABLED', 'ActionAfterCompletion': 'DELETE',
         'Target': {'Arn': 'arn:aws:scheduler:::aws-sdk:lightsail:deleteInstance',
             'RoleArn': f'arn:aws:iam::{account}:role/{ROLE}',
-            'Input': json.dumps({'instanceName': name, 'forceDeleteAddOns': True}),
+            # Scheduler's universal AWS SDK target requires PascalCase fields,
+            # unlike Lightsail's lower-camel boto3/wire request model.
+            'Input': json.dumps({'InstanceName': name, 'ForceDeleteAddOns': True}),
             'RetryPolicy': {'MaximumEventAgeInSeconds': 3600, 'MaximumRetryAttempts': 10}}}
 
 
