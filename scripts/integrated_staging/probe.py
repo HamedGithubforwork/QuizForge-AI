@@ -75,8 +75,27 @@ def main(phase):
             assert conn.execute("SELECT count(*) AS n FROM app.users").fetchone()["n"] == 4
             assert conn.execute("SELECT count(*) AS n FROM app.identity_challenges WHERE used_at IS NOT NULL").fetchone()["n"] == 1
             print("PASS: four internal users and exactly one consumed enrollment confirmation")
-            verify_cache(cache, bundle)
+            try:
+                verify_cache(cache, bundle)
+            except AssertionError:
+                report_cache_counters(cache)
+                raise
             print("PASS: browser enrollment used one confirmation; eight foreign fixtures unchanged; no browser history rows remain")
+
+
+def report_cache_counters(cache):
+    # Only fixed numeric counters; never dump cache values, documents or tokens.
+    try:
+        names = ("quiz_cache_hits_total", "quiz_cache_misses_total", "quiz_requests_total",
+                 "document_cache_hits_total", "document_cache_misses_total")
+        counts = {name:int(cache.get("quizforge:metrics:" + name) or 0) for name in names}
+        counts.update(model_requests=int(cache.get(CALLS_KEY) or 0),
+                      remaining_budget=int(cache.get(BUDGET_KEY) or 0),
+                      budget_ttl=cache.ttl(BUDGET_KEY),
+                      model_timing_samples=cache.llen("quizforge:metrics:timing:openai_generation_latency_ms"))
+        print("ERROR: private cache verification counters: " + json.dumps(counts, sort_keys=True))
+    except Exception:
+        print("ERROR: private cache counter diagnostics unavailable")
 
 
 def verify_cache(cache, bundle):
@@ -102,8 +121,6 @@ def verify_cache(cache, bundle):
     print("PASS: private distributed quiz-rate counter is eleven with an active ten-minute window")
     expected_metrics = {"quiz_cache_hits_total":1, "quiz_cache_misses_total":9, "quiz_requests_total":10}
     actual_metrics = {metric:int(cache.get("quizforge:metrics:" + metric) or 0) for metric in expected_metrics}
-    if actual_metrics != expected_metrics:
-        print("ERROR: synthetic quiz counter mismatch: " + json.dumps(actual_metrics, sort_keys=True))
     assert actual_metrics == expected_metrics
     for metric in ("document_cache_hits_total", "document_cache_misses_total"):
         assert int(cache.get("quizforge:metrics:" + metric) or 0) >= 1, metric
