@@ -15,6 +15,7 @@ import time
 from uuid import uuid4
 
 from fastapi import HTTPException
+from pdf_protocol import MAX_PAGE_BYTES, validate_pages
 
 MAX_UPLOAD_BYTES = 15 * 1024**2
 MAX_RESULT_BYTES = 8 * 1024**2
@@ -50,7 +51,7 @@ class JobStore:
                 os.close(fd)
             with self.connect() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version not in (0, 1):
+                if version not in (0, 1, 2):
                     raise RuntimeError('Unsupported PDF job database version')
                 db.execute('PRAGMA journal_mode=DELETE')
                 db.executescript('''
@@ -62,7 +63,12 @@ class JobStore:
                         input BLOB, result BLOB, reserved INTEGER NOT NULL, error TEXT
                     );
                     CREATE INDEX IF NOT EXISTS jobs_owner ON jobs(owner, sha256, created);
-                    PRAGMA user_version=1;
+                    CREATE TABLE IF NOT EXISTS checkpoints (
+                        job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                        page_number INTEGER NOT NULL, page BLOB NOT NULL,
+                        PRIMARY KEY(job_id, page_number)
+                    );
+                    PRAGMA user_version=2;
                 ''')
             self.recover()
         except BaseException:
@@ -78,6 +84,7 @@ class JobStore:
         db.row_factory = sqlite3.Row
         try:
             db.execute('PRAGMA secure_delete=ON')
+            db.execute('PRAGMA foreign_keys=ON')
             db.execute('PRAGMA synchronous=FULL')
             db.execute('PRAGMA cache_size=-2048')
             db.execute('PRAGMA temp_store=MEMORY')
@@ -100,11 +107,20 @@ class JobStore:
     def recover(self):
         with self.transaction() as db:
             db.execute('DELETE FROM jobs WHERE expires<=?', (time.time(),))
+            db.execute("""DELETE FROM checkpoints WHERE job_id IN
+                (SELECT id FROM jobs WHERE state='processing' AND attempts>=2)""")
             db.execute("""UPDATE jobs SET state='failed', input=NULL, result=NULL, reserved=0,
                 error='Processing was interrupted twice. Please upload the PDF again.'
                 WHERE state='processing' AND attempts>=2""")
-            db.execute("""UPDATE jobs SET state='queued', completed_pages=0, total_pages=NULL
+            db.execute("""UPDATE jobs SET state='queued',
+                completed_pages=(SELECT count(*) FROM checkpoints WHERE job_id=jobs.id),
+                total_pages=CASE WHEN EXISTS (SELECT 1 FROM checkpoints WHERE job_id=jobs.id)
+                    THEN total_pages ELSE NULL END
                 WHERE state='processing' AND attempts<2""")
+            # Version-1 reservations covered input OR result. During resumed OCR
+            # both input and bounded page checkpoints coexist on disk.
+            db.execute("UPDATE jobs SET reserved=length(input)+? WHERE state IN ('queued','processing')",
+                       (MAX_RESULT_BYTES,))
 
     def cleanup(self):
         with self.connect() as db:
@@ -126,7 +142,7 @@ class JobStore:
                 FROM jobs WHERE owner=?""", (owner,)).fetchone()
             counts = db.execute("""SELECT count(*), coalesce(sum(state IN ('queued','processing')),0),
                 coalesce(sum(reserved),0) FROM jobs""").fetchone()
-            reservation = max(len(contents), MAX_RESULT_BYTES)
+            reservation = len(contents) + MAX_RESULT_BYTES
             if own[1] or own[0] >= MAX_OWNER_JOBS or counts[0] >= MAX_JOBS or counts[1] >= MAX_PENDING or counts[2] + reservation > MAX_RESERVED_BYTES:
                 raise HTTPException(429, 'PDF processing is busy or your hourly upload allowance is used. Try again later.',
                                     headers={'Retry-After': '60'})
@@ -167,30 +183,59 @@ class JobStore:
             if row is None:
                 return None
             db.execute("UPDATE jobs SET state='processing', attempts=attempts+1 WHERE id=?", (row['id'],))
-            return dict(row)
+            result = dict(row)
+            result['checkpoint'] = [json.loads(page[0]) for page in db.execute(
+                'SELECT page FROM checkpoints WHERE job_id=? ORDER BY page_number', (row['id'],))]
+            validate_pages(result['checkpoint'])
+            return result
 
-    def progress(self, job_id, completed, total):
-        with self.connect() as db:
-            db.execute("""UPDATE jobs SET completed_pages=?, total_pages=?
-                WHERE id=? AND state='processing' AND completed_pages<=?""", (completed, total, job_id, completed))
+    def checkpoint(self, job_id, pages, total):
+        """Commit page text and visible progress together, before reporting it."""
+        with self.transaction() as db:
+            row = db.execute("""SELECT completed_pages,total_pages FROM jobs
+                WHERE id=? AND state='processing' AND expires>?""", (job_id, time.time())).fetchone()
+            if row is None:
+                return
+            validate_pages(pages, start=row['completed_pages'] + 1, total=total)
+            if not pages or (row['total_pages'] is not None and row['total_pages'] != total):
+                raise ValueError('Invalid checkpoint progress')
+            encoded = [json.dumps(page, separators=(',', ':')).encode() for page in pages]
+            size = db.execute('SELECT coalesce(sum(length(page)+1),0) FROM checkpoints WHERE job_id=?',
+                              (job_id,)).fetchone()[0]
+            if size + sum(len(page) + 1 for page in encoded) + 2 > MAX_PAGE_BYTES:
+                raise HTTPException(413, 'Extracted document text is too large.')
+            # Also enforce actual storage during a version-1 upgrade, where old
+            # reservations did not allow input and checkpoints to coexist.
+            payload_bytes = db.execute('''SELECT
+                (SELECT coalesce(sum(coalesce(length(input),0)+coalesce(length(result),0)+2),0) FROM jobs)
+                + (SELECT coalesce(sum(length(page)+1),0) FROM checkpoints)''').fetchone()[0]
+            if payload_bytes + sum(len(page) + 1 for page in encoded) > MAX_RESERVED_BYTES:
+                raise HTTPException(429, 'PDF processing storage is full. Please try again later.')
+            db.executemany('INSERT INTO checkpoints(job_id,page_number,page) VALUES (?,?,?)',
+                           [(job_id, page['page_number'], raw) for page, raw in zip(pages, encoded)])
+            db.execute('UPDATE jobs SET completed_pages=?,total_pages=? WHERE id=?',
+                       (row['completed_pages'] + len(pages), total, job_id))
 
     def finish(self, job_id, pages):
         raw = json.dumps(pages, separators=(',', ':')).encode()
         if len(raw) > MAX_RESULT_BYTES:
             raise HTTPException(413, 'Extracted document text is too large.')
-        with self.connect() as db:
+        with self.transaction() as db:
             db.execute("""UPDATE jobs SET state='succeeded', completed_pages=?, total_pages=?,
                 input=NULL, result=?, reserved=? WHERE id=? AND state='processing' AND expires>?""",
                 (len(pages), len(pages), raw, len(raw), job_id, time.time()))
+            db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))
 
     def fail(self, job_id, detail):
-        with self.connect() as db:
+        with self.transaction() as db:
             db.execute("""UPDATE jobs SET state='failed', error=?, input=NULL, result=NULL, reserved=0
                 WHERE id=? AND state='processing'""", (detail, job_id))
+            db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))
 
     def cancel(self, owner, job_id):
-        with self.connect() as db:
+        with self.transaction() as db:
             changed = db.execute("""UPDATE jobs SET state='cancelled', input=NULL, result=NULL, reserved=0, error=NULL
                 WHERE owner=? AND id=? AND expires>?""", (owner, job_id, time.time())).rowcount
             if not changed:
                 raise HTTPException(404, 'PDF job is unavailable or has expired.')
+            db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))

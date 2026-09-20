@@ -106,11 +106,12 @@ class JobManager:
             log_event('pdf_queue_unavailable', error_type=type(error).__name__)
 
     async def process(self, row):
-        async def progress(completed, total):
-            await store_call(self.store.progress, row['id'], completed, total)
+        async def checkpoint(pages, total):
+            await store_call(self.store.checkpoint, row['id'], pages, total)
         try:
             timeout = min(600, max(0.01, row['expires'] - time.time()))
-            pages = await extract_background(row['input'], progress, timeout=timeout)
+            pages = await extract_background(row['input'], timeout=timeout,
+                                             checkpoint=row['checkpoint'], on_checkpoint=checkpoint)
             await store_call(self.store.finish, row['id'], pages)
         except HTTPException as error:
             await store_call(self.store.fail, row['id'], error.detail)

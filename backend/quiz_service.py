@@ -12,12 +12,11 @@ from starlette.concurrency import run_in_threadpool
 from observability import log_event
 from outbound_clients import get_openai_client
 from quiz_validation import get_quiz_validation_errors
+from pdf_text import analyze_extracted_text, MIN_EXTRACTABLE_CHARACTERS, SCAN_CHARACTERS_PER_PAGE
 
 
 MAX_FILE_SIZE = 15 * 1024 * 1024
 MAX_AI_CHARACTERS = 100_000
-MIN_EXTRACTABLE_CHARACTERS = 100
-SCAN_CHARACTERS_PER_PAGE = 50
 
 VALID_QUESTION_COUNTS = {5, 10, 15}
 VALID_DIFFICULTIES = {
@@ -192,44 +191,6 @@ async def extract_pdf_pages_off_event_loop(
         extract_pdf_pages,
         contents,
     )
-
-
-def analyze_extracted_text(pages):
-    total_characters = sum(
-        len(page["text"])
-        for page in pages
-    )
-
-    extractable_page_count = sum(
-        1
-        for page in pages
-        if len(page["text"].strip()) >= 20
-    )
-
-    scan_threshold = max(
-        MIN_EXTRACTABLE_CHARACTERS,
-        len(pages) * SCAN_CHARACTERS_PER_PAGE,
-    )
-
-    scanned_likely = (
-        total_characters < scan_threshold
-    )
-
-    warning = None
-
-    if scanned_likely:
-        warning = (
-            "Very little selectable text was detected. "
-            "This PDF may be scanned or image-based. "
-            "OCR support is not available yet."
-        )
-
-    return {
-        "total_characters": total_characters,
-        "extractable_page_count": extractable_page_count,
-        "scanned_likely": scanned_likely,
-        "warning": warning,
-    }
 
 
 def parse_focus_pages(

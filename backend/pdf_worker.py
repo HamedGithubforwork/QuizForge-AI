@@ -4,7 +4,11 @@ import os
 import resource
 import sys
 
-MAX_RESULT_BYTES = 8 * 1024 * 1024
+from pdf_protocol import MAX_RESULT_BYTES, validate_pages
+
+
+class _InputError(Exception):
+    pass
 
 
 def main():
@@ -21,45 +25,40 @@ def main():
     progress_mode = '--progress' in sys.argv
     protocol = os.fdopen(result_fd, 'wb')
 
-    def progress(completed, total):
-        protocol.write(json.dumps({'type': 'progress', 'completed': completed, 'total': total}).encode() + b'\n')
+    def progress(pages, total):
+        protocol.write(json.dumps({'type': 'pages', 'pages': pages, 'total': total}, separators=(',', ':')).encode() + b'\n')
         protocol.flush()
 
     resource.setrlimit(resource.RLIMIT_AS, (768 * 1024**2, 768 * 1024**2))
     resource.setrlimit(resource.RLIMIT_CPU, (90, 95))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    # Import only extraction dependencies; API/model clients stay in the parent.
+    from pdf_extraction import PdfError, extract
     try:
-        from fastapi import HTTPException
-        import pymupdf
-        from pdf_ocr import extract_pdf_pages_with_ocr
+        checkpoint = []
+        if '--resume' in sys.argv:
+            header = sys.stdin.buffer.read(4)
+            if len(header) != 4:
+                raise _InputError()
+            length = int.from_bytes(header, 'big')
+            if length > MAX_RESULT_BYTES:
+                raise _InputError()
+            payload = sys.stdin.buffer.read(length)
+            if len(payload) != length:
+                raise _InputError()
+            checkpoint = json.loads(payload)
+            validate_pages(checkpoint)
         raw = sys.stdin.buffer.read(15 * 1024**2 + 1)
         if len(raw) > 15 * 1024**2:
-            raise HTTPException(413, 'PDF exceeds the 15 MB upload limit.')
-        try:
-            document = pymupdf.open(stream=raw, filetype='pdf')
-        except Exception:
-            raise HTTPException(400, 'Could not read this PDF.') from None
-        with document:
-            if document.needs_pass:
-                raise HTTPException(400, 'Password-protected PDFs are not supported yet.')
-            if document.page_count > 100:
-                raise HTTPException(413, 'This server accepts PDFs with up to 100 pages.')
-            scanned = 0
-            for page in document:
-                if page.rect.width * page.rect.height * (150 / 72)**2 > 12_000_000:
-                    raise HTTPException(413, 'A PDF page is too large. Resize it before uploading.')
-                if len(page.get_text().strip()) < 20 and page.get_images(full=True):
-                    scanned += 1
-            if scanned > 30:
-                raise HTTPException(413, 'This server accepts up to 30 scanned pages per PDF.')
-        result = {'status': 200, 'pages': extract_pdf_pages_with_ocr(raw, progress=progress if progress_mode else None)}
-    except HTTPException as error:
+            raise PdfError(413, 'PDF exceeds the 15 MB upload limit.')
+        result = {'status': 200, 'pages': extract(raw, checkpoint=checkpoint, on_pages=progress if progress_mode else None)}
+    except PdfError as error:
         result = {'status': error.status_code, 'detail': error.detail}
     except Exception:
         result = {'status': 503, 'detail': 'PDF processing exceeded available capacity. Try a smaller document.'}
     if progress_mode:
         result['type'] = 'result'
-    output = json.dumps(result).encode()
+    output = json.dumps(result, separators=(',', ':')).encode()
     if len(output) > MAX_RESULT_BYTES:
         output = json.dumps({'type': 'result', 'status': 413, 'detail': 'Extracted document text is too large.'}).encode()
     with protocol:
