@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -123,6 +124,34 @@ class Boundaries(unittest.TestCase):
             self.assertEqual((Path(tmp) / 'identity-cert.pub').read_text(), 'cert-value\n')
             for file in Path(tmp).iterdir():
                 self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+
+    def test_bootstrap_runs_under_the_launchers_posix_shell(self):
+        # Execute filesystem/key operations in a temporary root. Stub only
+        # package/service/swap operations; never change this machine's services.
+        script, public = control.host_bootstrap()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            for command in ('apt-get', 'systemctl', 'swapoff', 'sshd'):
+                stub = bindir / command
+                stub.write_text('#!/bin/sh\nexit 0\n')
+                stub.chmod(0o755)
+            (root / 'etc/ssh').mkdir(parents=True)
+            (root / 'etc/ssh/sshd_config').write_text('Port 22\n')
+            (root / 'var/lib').mkdir(parents=True)
+            script = (script.replace('/etc/', str(root / 'etc') + '/')
+                      .replace('/run/sshd', str(root / 'run/sshd'))
+                      .replace('/var/lib/', str(root / 'var/lib') + '/')
+                      .replace('/usr/sbin/sshd', str(bindir / 'sshd')))
+            result = subprocess.run(['/bin/sh'], input=script, text=True, capture_output=True,
+                env={**os.environ, 'PATH': str(bindir) + os.pathsep + os.environ['PATH']}, timeout=10)
+            self.assertEqual(result.returncode, 0, 'Portable launch script failed')
+            self.assertTrue((root / 'var/lib/quizforge-capacity-ready').is_file())
+            key = root / 'etc/ssh/ssh_host_ed25519_key'
+            self.assertEqual(key.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(key.with_suffix('.pub').read_text().strip(), public)
+            self.assertTrue((root / 'etc/ssh/sshd_config').read_text().startswith('Include '))
 
     def test_ssh_readiness_reports_categories_without_echoing_stderr(self):
         for code, stderr, expected in (
