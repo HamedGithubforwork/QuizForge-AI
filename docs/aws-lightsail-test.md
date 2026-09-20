@@ -144,6 +144,14 @@ Readiness logs distinguish successful authentication with pending bootstrap from
 fixed SSH failure categories. Raw SSH errors and credentials are not printed.
 Private key and certificate files are terminated with a newline for OpenSSH
 compatibility, while retaining exclusive creation and 0600 permissions.
+The launch script is POSIX-shell compatible even when a launcher does not honor
+its shebang. It installs the generated identity at Ubuntu's standard Ed25519
+host-key path, derives the matching public-key file, explicitly includes its SSH
+configuration, validates it, and uses reload-or-restart for socket-activated SSH.
+These changes address bootstrap compatibility without accepting a different host
+identity or disabling client host verification. A filesystem-sandboxed shell test
+exercises real key generation/installation; it stubs service and package operations
+and does not prove the live Ubuntu service has activated the key.
 No new IAM permission, persistent login key pair or open application port is needed.
 
 Validated synthetic capacity reports and host metadata are printed in logs so
