@@ -4,6 +4,15 @@ Prepared September 19, 2026; evidence updated September 20. This is a review pla
 Production remains on Vercel, Render and Supabase. Application PR #97 remains
 draft and unmerged. Live rehearsal evidence is in [integrated staging](aws-integrated-staging.md).
 
+The current lower-cost track targets approximately USD15–20/month. Its
+[real Lightsail benchmark](aws-small-server-capacity.md#real-lightsail-results)
+completed on September 20: burst passed, while sustained processing and bounded
+restart recovery/cleanup failed. The temporary USD12/month-bundle server was
+deleted and absence confirmed. Production launch remains blocked pending those
+fixes and the backup, identity/data migration and domain gates below. The
+managed-service estimate below remains an unapplied alternative; the small-server
+budget is still a candidate, not an accepted production configuration.
+
 The complete integrated staging workflow passed on September 20, including the
 corrected private rate-counter verification and independent AWS teardown. The
 production decisions and acceptance gates below remain pending.
@@ -129,3 +138,4 @@ The next implementation milestone after the integrated rehearsal is a reviewed
 production configuration and read-only source inventory, with cost and recovery
 choices made explicit. Actual user migration and public cutover follow only after
 those results are reviewable.
+
