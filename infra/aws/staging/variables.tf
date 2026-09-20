@@ -25,6 +25,44 @@ variable "project_name" {
   default     = "quizforge"
 }
 
+variable "staging_hostname" {
+  description = "Optional dedicated staging-api subdomain; never a production hostname."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.staging_hostname == "" || can(regex("^staging-api\\.([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,63}$", var.staging_hostname))
+    error_message = "Use a lowercase staging-api subdomain of a domain you control."
+  }
+}
+
+variable "staging_certificate_arn" {
+  description = "Existing issued ACM certificate in ca-central-1; retained outside ephemeral staging."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.staging_certificate_arn == "" || can(regex("^arn:aws:acm:ca-central-1:[0-9]{12}:certificate/[a-f0-9-]{36}$", var.staging_certificate_arn))
+    error_message = "Use an ACM certificate ARN in ca-central-1."
+  }
+}
+
+variable "staging_zone_id" {
+  description = "Existing public Route 53 zone for the dedicated staging DNS record."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.staging_zone_id == "" || can(regex("^Z[A-Z0-9]+$", var.staging_zone_id))
+    error_message = "Use a Route 53 hosted-zone ID without the /hostedzone/ prefix."
+  }
+}
+
+locals {
+  https_enabled = var.staging_hostname != ""
+  tls_inputs_complete = (
+    (var.staging_hostname == "" && var.staging_certificate_arn == "" && var.staging_zone_id == "") ||
+    (var.staging_hostname != "" && var.staging_certificate_arn != "" && var.staging_zone_id != "")
+  )
+}
+
 locals {
   common_tags = {
     Project     = "QuizForge AI"

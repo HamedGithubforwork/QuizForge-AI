@@ -1,0 +1,338 @@
+name: AWS Cognito browser rehearsal
+
+on:
+  pull_request:
+    paths:
+      - "infra/aws/cognito-browser-rehearsal/**"
+      - "scripts/cognito_browser/**"
+      - "scripts/rds_rehearsal/identity_schema.sql"
+      - ".github/workflows/aws-cognito-browser.yml"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Run, start inbox verification/recovery, finish and destroy, or stop"
+        type: choice
+        required: true
+        options: [run, email-start, email-verify-stop, recovery-start, recovery-finish-stop, hosted-recovery-start, hosted-recovery-code, stop]
+      application_pr:
+        description: "Application PR with passing required checks (run or hosted-recovery-start)"
+        type: string
+        default: "97"
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+concurrency:
+  group: ${{ inputs.operation == 'hosted-recovery-code' && 'quizforge-cognito-browser-receipt' || 'quizforge-cognito-browser-rehearsal' }}
+  cancel-in-progress: false
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  validate:
+    name: Cognito browser infrastructure and signup guards
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && contains(fromJSON('["run", "email-start", "recovery-start", "hosted-recovery-start"]'), inputs.operation))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Test fail-closed signup guard
+        run: |
+          python -m unittest discover -s scripts/cognito_browser -p 'test_*.py' -v
+          python -m compileall -q scripts/cognito_browser
+          bash -n scripts/cognito_browser/runner.sh
+          node --check scripts/cognito_browser/browser/live.mjs
+          node --check scripts/cognito_browser/browser/vite.config.mjs
+          python scripts/cognito_browser/control.py package
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: Validate disposable Cognito Terraform
+        run: |
+          terraform -chdir=infra/aws/cognito-browser-rehearsal fmt -check
+          terraform -chdir=infra/aws/cognito-browser-rehearsal init -backend=false
+          terraform -chdir=infra/aws/cognito-browser-rehearsal validate
+
+  images:
+    name: Build reviewed browser and API without AWS credentials
+    needs: validate
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-browser-rehearsal-only
+          POSTGRES_DB: quizforge_rehearsal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGDATABASE: quizforge_rehearsal
+      PGUSER: postgres
+      PGPASSWORD: local-browser-rehearsal-only
+      QUIZFORGE_PREFLIGHT: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require passing checks on the exact application commit
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_PR: ${{ inputs.application_pr || '97' }}
+          REQUIRE_POSTGRES_HISTORY: "1"
+        run: python scripts/aws_staging_preview.py
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.preview.outputs.sha }}
+          path: preview-source
+          persist-credentials: false
+      - name: Build reviewed application and trusted browser driver
+        run: |
+          docker build --tag quizforge-browser-api:tested preview-source/backend
+          docker build --file scripts/cognito_browser/browser.Dockerfile --tag quizforge-browser-driver:tested .
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Prepare offline fixture and TLS database before AWS authentication
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+          python scripts/cognito_browser/control.py offline-fixture
+          bash scripts/cognito_browser/runner.sh prepare
+      - name: Require read-only application boot without AWS resources
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          python scripts/cognito_browser/control.py database
+          bash scripts/cognito_browser/runner.sh run
+      - name: Diagnose offline startup failure with credentials redacted
+        if: failure()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh diagnose
+      - name: Remove offline containers and credentials
+        if: always()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh cleanup
+      - name: Save validated images
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          docker save --output /tmp/images.tar quizforge-browser-api:tested quizforge-browser-driver:tested
+      - uses: actions/upload-artifact@v7
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: cognito-browser-images
+          path: /tmp/images.tar
+          compression-level: 0
+          retention-days: 1
+
+  rehearse:
+    name: Live hosted OAuth and browser enrollment
+    needs: [validate, images]
+    if: always() && needs.validate.result == 'success' && (needs.images.result == 'success' || needs.images.result == 'skipped') && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && contains(fromJSON('["run", "email-start", "recovery-start", "hosted-recovery-start"]'), inputs.operation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: local-browser-rehearsal-only
+          POSTGRES_DB: quizforge_rehearsal
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      OPERATION: ${{ inputs.operation }}
+      PGHOST: 127.0.0.1
+      PGDATABASE: quizforge_rehearsal
+      PGUSER: postgres
+      PGPASSWORD: local-browser-rehearsal-only
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install trusted locked controller dependencies before OIDC
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Download reviewed images
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
+        uses: actions/download-artifact@v8
+        with:
+          name: cognito-browser-images
+          path: /tmp/quizforge-browser-images
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Initialize isolated state and signup guard package
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          python scripts/cognito_browser/control.py package
+          terraform -chdir=infra/aws/cognito-browser-rehearsal init -reconfigure \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=quizforge/cognito-browser-rehearsal/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Restrict signup and establish cleanup deadline
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py configure
+      - name: Create temporary Lite pool and signup guard
+        run: terraform -chdir=infra/aws/cognito-browser-rehearsal apply -auto-approve
+      - name: Prepare synthetic identities with mandatory TOTP
+        if: inputs.operation == 'run'
+        run: python scripts/cognito_browser/control.py prepare
+      - name: Prepare hosted recovery fixture with dedicated verified inbox
+        if: inputs.operation == 'hosted-recovery-start'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py hosted-prepare
+      - name: Prepare isolated TLS database and Redis
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh prepare
+      - name: Apply reviewed enrollment schema with separate least-privilege roles
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
+        run: python scripts/cognito_browser/control.py database
+      - name: Verify real hosted OAuth, protected API, enrollment and revocation
+        if: contains(fromJSON('["run", "hosted-recovery-start"]'), inputs.operation)
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh run
+      - name: Verify fixture integrity and consumed confirmation
+        if: inputs.operation == 'run'
+        run: python scripts/cognito_browser/control.py database-verify
+      - name: Sign up dedicated inbox and request real verification email
+        if: inputs.operation == 'email-start'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py email-start
+      - name: Seed disposable MFA account and request real recovery email
+        if: inputs.operation == 'recovery-start'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py recovery-start
+      - name: Remove runner containers and temporary credential files
+        if: always()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: bash scripts/cognito_browser/runner.sh cleanup
+
+  hosted_code:
+    name: Deliver encrypted code to the active hosted browser
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'hosted-recovery-code'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked trusted controller before OIDC
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Initialize existing isolated state
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          terraform -chdir=infra/aws/cognito-browser-rehearsal init -reconfigure \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=quizforge/cognito-browser-rehearsal/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Validate and encrypt receipt for the still-open hosted form
+        env:
+          COGNITO_RECOVERY_RECEIPT: ${{ secrets.COGNITO_RECOVERY_RECEIPT }}
+        run: python scripts/cognito_browser/control.py hosted-accept
+
+  cleanup:
+    name: Verify inbox result when requested and destroy temporary Cognito
+    needs: [validate, images, rehearse, hosted_code]
+    if: always() && github.ref == 'refs/heads/main' && inputs.operation != 'hosted-recovery-code' && (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && !(contains(fromJSON('["email-start", "recovery-start"]'), inputs.operation) && needs.rehearse.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install trusted cleanup dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Initialize isolated state for cleanup
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          python scripts/cognito_browser/control.py package
+          terraform -chdir=infra/aws/cognito-browser-rehearsal init -reconfigure \
+            -backend-config="bucket=$STATE_BUCKET" -backend-config="key=quizforge/cognito-browser-rehearsal/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Check manual stop or expired email lease
+        id: lease
+        run: python scripts/cognito_browser/control.py cleanup-due
+      - name: Verify real dedicated-inbox email confirmation
+        if: inputs.operation == 'email-verify-stop'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+        run: python scripts/cognito_browser/control.py verify-email
+      - name: Verify real password recovery, revocation and preserved MFA
+        if: inputs.operation == 'recovery-finish-stop'
+        env:
+          COGNITO_REHEARSAL_EMAIL: ${{ secrets.COGNITO_REHEARSAL_EMAIL }}
+          COGNITO_RECOVERY_RECEIPT: ${{ secrets.COGNITO_RECOVERY_RECEIPT }}
+        run: python scripts/cognito_browser/control.py recovery-finish
+      - name: Remove temporary encrypted recovery fixture even after failure
+        if: always() && steps.lease.outputs.due == 'true'
+        run: python scripts/cognito_browser/control.py recovery-cleanup
+      - name: Destroy even after failed validation
+        if: always() && steps.lease.outputs.due == 'true'
+        run: terraform -chdir=infra/aws/cognito-browser-rehearsal destroy -auto-approve
+      - name: Verify pool, clients, domain, Lambda, role and logs are absent
+        if: always() && steps.lease.outputs.due == 'true'
+        run: python scripts/cognito_browser/control.py absent

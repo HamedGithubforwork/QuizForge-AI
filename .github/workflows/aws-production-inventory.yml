@@ -1,0 +1,55 @@
+name: AWS production readiness inventory
+
+on:
+  pull_request:
+    paths:
+      - "scripts/production/inventory.py"
+      - ".github/workflows/aws-production-inventory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate read-only production inventory
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m py_compile scripts/production/inventory.py
+
+  inventory:
+    name: Read AWS credits, budgets, domain and certificate readiness
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","freetier:GetAccountPlanState","budgets:ViewBudget","acm:ListCertificates","acm:DescribeCertificate"],"Resource":"*"},
+              {"Effect":"Allow","Action":["route53:GetHostedZone","route53:ListResourceRecordSets"],"Resource":"arn:aws:route53:::hostedzone/${{ vars.AWS_STAGING_ZONE_ID }}"}
+            ]}
+      - name: Inspect without creating resources or changing permissions
+        env:
+          ZONE_ID: ${{ vars.AWS_STAGING_ZONE_ID }}
+        run: python scripts/production/inventory.py
