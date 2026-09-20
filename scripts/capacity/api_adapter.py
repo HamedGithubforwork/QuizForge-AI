@@ -11,7 +11,7 @@ if not Path('/capacity-test-image').is_file() or os.environ.get('CAPACITY_TEST_O
 
 from fastapi import Header, HTTPException
 from app_shared import AuthenticatedUser, get_current_user
-from application import app
+from main import app
 
 
 async def synthetic_user(authorization: str | None = Header(default=None)):
