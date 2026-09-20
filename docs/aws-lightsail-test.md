@@ -66,6 +66,21 @@ before creating anything billable. Normal cleanup deliberately leaves the
 one-time schedule armed, even after confirmed deletion, to cover ambiguous
 creation responses. Scheduler automatically removes it after completion.
 
+The approved prerequisite was applied successfully on September 20, 2026:
+[run 35495461922](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35495461922)
+created exactly the three resources, with zero changes/deletions. The following
+[read-only inspection](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35495530857)
+confirmed the complete permissions and no preflight blockers.
+
+The first two test attempts created no server. The
+[diagnostic attempt](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35495976087)
+identified Scheduler's validation error: the universal target requires the
+PascalCase `InstanceName` field. Its input now uses `InstanceName` and
+`ForceDeleteAddOns`; the direct Lightsail boto3 API uses lower-camel fields and
+its request-shape validator does not prove Scheduler input compatibility.
+The schedule still must be created and read back before instance creation.
+No performance result is established by these failed launch attempts.
+
 Provision this small prerequisite module using the existing encrypted Terraform
 state bucket and the **new** key `quizforge/lightsail-test-cleanup/terraform.tfstate`.
 Never use the foundation or production state key. Review a saved plan: it should
