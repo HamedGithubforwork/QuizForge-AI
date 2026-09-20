@@ -30,7 +30,7 @@ resource "aws_iam_role" "setup" {
 resource "aws_iam_role_policy" "setup" {
   role = aws_iam_role.setup.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = ["secretsmanager:PutSecretValue"], Resource = [aws_secretsmanager_secret.application.arn, aws_secretsmanager_secret.identity.arn, aws_secretsmanager_secret.generation.arn] }
+    { Effect = "Allow", Action = ["secretsmanager:PutSecretValue"], Resource = [aws_secretsmanager_secret.application.arn, aws_secretsmanager_secret.identity.arn, aws_secretsmanager_secret.generation.arn, aws_secretsmanager_secret.transfer.arn] }
   ] })
 }
 resource "aws_ecs_task_definition" "operations" {
@@ -52,6 +52,8 @@ resource "aws_ecs_task_definition" "operations" {
       { name = "APPLICATION_SECRET", value = aws_secretsmanager_secret.application.arn },
       { name = "IDENTITY_SECRET", value = aws_secretsmanager_secret.identity.arn },
       { name = "GENERATION_SECRET", value = aws_secretsmanager_secret.generation.arn },
+      { name = "TRANSFER_BUCKET", value = aws_s3_bucket.transfer.id },
+      { name = "TRANSFER_SECRET", value = aws_secretsmanager_secret.transfer.arn },
       { name = "AWS_DEFAULT_REGION", value = "ca-central-1" }
     ],
     secrets = [

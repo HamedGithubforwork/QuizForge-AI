@@ -14,8 +14,12 @@ def options(env, source=False):
     names = {key: prefix + key for key in ("HOST", "USER", "PASSWORD", "SSLROOTCERT")}
     names["DATABASE"] = "SOURCE_DB_NAME" if source else "PGDATABASE"
     values = {key: env.get(name, "") for key, name in names.items()}
-    expected = values["HOST"] == SOURCE_HOST if source else bool(re.fullmatch(
-        r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com", values["HOST"]))
+    if source:
+        expected = (values["HOST"] == SOURCE_HOST or (
+            bool(re.fullmatch(r"aws-[0-9]+-ca-central-1\.pooler\.supabase\.com", values["HOST"]))
+            and values["USER"] == "postgres.vfxmsvphgcaizqnbyjip"))
+    else:
+        expected = bool(re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com", values["HOST"]))
     if not expected or values["DATABASE"] != ("postgres" if source else "quizforge"):
         raise ValueError("Database is outside the reviewed migration boundary")
     if any(not value for value in values.values()) or not Path(values["SSLROOTCERT"]).is_file():

@@ -58,8 +58,9 @@ override_resource {
   }
 }
 override_resource {
-  target = aws_sns_topic.alerts
-  values = { arn = "arn:aws:sns:ca-central-1:123456789012:quizforge-production-alerts" }
+  target          = aws_sns_topic.alerts
+  override_during = plan
+  values          = { arn = "arn:aws:sns:ca-central-1:123456789012:quizforge-production-alerts" }
 }
 variables {
   foundation_state_bucket = "test-state-bucket"

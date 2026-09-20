@@ -9,7 +9,8 @@ on:
     branches:
       - main
     paths:
-      - "infra/aws/**"
+      - "infra/aws/*.tf"
+      - "infra/aws/.terraform.lock.hcl"
       - ".github/workflows/terraform-aws.yml"
   workflow_dispatch:
 
@@ -25,6 +26,31 @@ env:
   TF_INPUT: "false"
 
 jobs:
+  changes:
+    name: Detect foundation resource changes
+    runs-on: ubuntu-latest
+    outputs:
+      foundation: ${{ steps.scope.outputs.foundation }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          changed=false
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            changed=true
+          elif [ "$EVENT_NAME" = push ]; then
+            if git diff --name-only "$BEFORE_SHA" "$HEAD_SHA" -- ':(glob)infra/aws/*.tf' infra/aws/.terraform.lock.hcl | rg -q .; then
+              changed=true
+            fi
+          fi
+          echo "foundation=$changed" >> "$GITHUB_OUTPUT"
   validate:
     name: Terraform validate
     runs-on: ubuntu-latest
@@ -52,9 +78,10 @@ jobs:
     name: Terraform apply
     if: >-
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      github.ref == 'refs/heads/main'
+      github.ref == 'refs/heads/main' && needs.changes.outputs.foundation == 'true'
     needs:
       - validate
+      - changes
     runs-on: ubuntu-latest
     permissions:
       contents: read

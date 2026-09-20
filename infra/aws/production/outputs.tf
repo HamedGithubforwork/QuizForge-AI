@@ -18,5 +18,7 @@ output "production" {
     dns_published   = var.publish_dns
     api_enabled     = var.enable_api
     signup_enabled  = var.public_signup
+    transfer_bucket = aws_s3_bucket.transfer.id
+    transfer_secret = aws_secretsmanager_secret.transfer.arn
   }
 }

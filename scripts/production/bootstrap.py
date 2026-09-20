@@ -1,4 +1,5 @@
 """Initialize only a fresh private production DB and separate runtime secrets."""
+import base64
 import json
 import os
 from pathlib import Path
@@ -24,6 +25,8 @@ def main():
         with conn.transaction():
             conn.execute(Path(__file__).with_name("schema.sql").read_text())
             conn.execute(Path(__file__).with_name("generation_budget.sql").read_text())
+            client.put_secret_value(SecretId=os.environ["TRANSFER_SECRET"],
+                                    SecretString=base64.b64encode(secrets.token_bytes(32)).decode())
             for role, secret_env in roles.items():
                 with psycopg.ClientCursor(conn) as cursor:
                     cursor.execute(sql.SQL("ALTER ROLE {} PASSWORD %s").format(sql.Identifier(role)), (passwords[role],))
