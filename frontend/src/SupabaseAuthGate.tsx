@@ -661,7 +661,7 @@ function AuthGate() {
         </div>
       </div>
 
-      <App />
+      <App key={session.user.id} />
     </>
   )
 }

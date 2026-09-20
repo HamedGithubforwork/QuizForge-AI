@@ -53,7 +53,7 @@ async function captureDocumentIdentity(
 ) {
   if (
     path !== '/api/documents/upload' ||
-    !response.ok
+    response.status !== 200
   ) {
     return
   }

@@ -6,6 +6,8 @@ import type {
 import {
   getDisplayFilename,
 } from '../../lib/quizPresentation'
+import type { PdfJobResponse } from '../../types/api.generated'
+import { pdfJobMessage } from '../../lib/pdfJobs'
 
 type UploadPanelProps = {
   fileInputRef:
@@ -15,6 +17,10 @@ type UploadPanelProps = {
   onFileChange:
     ChangeEventHandler<HTMLInputElement>
   onProcessPdf: () => void
+  job: PdfJobResponse | null
+  recentJob: PdfJobResponse | null
+  onResume: (job: PdfJobResponse) => void
+  onCancel: () => void
 }
 
 function UploadPanel({
@@ -23,6 +29,10 @@ function UploadPanel({
   isProcessing,
   onFileChange,
   onProcessPdf,
+  job,
+  recentJob,
+  onResume,
+  onCancel,
 }: UploadPanelProps) {
   return (
     <section className="panel upload-panel">
@@ -50,6 +60,7 @@ function UploadPanel({
         accept="application/pdf"
         aria-label="Study material PDF"
         onChange={onFileChange}
+        disabled={isProcessing}
       />
 
       {selectedFile && (
@@ -90,6 +101,30 @@ function UploadPanel({
           ? 'Processing PDF...'
           : 'Process PDF'}
       </button>
+      {job && (
+        <div className="pdf-job-status">
+          <p role="status">{pdfJobMessage(job)}</p>
+          {isProcessing && job.status === 'processing' && job.total_pages ? (
+            <progress aria-label="PDF pages processed" value={job.completed_pages} max={job.total_pages} />
+          ) : null}
+          {isProcessing && (
+            <p>You can close this page and resume your PDF here within one hour of uploading.</p>
+          )}
+        </div>
+      )}
+      {!isProcessing && recentJob && (
+        <div className="pdf-job-status">
+          <button className="button secondary-button" type="button" onClick={() => onResume(recentJob)}>
+            Resume {getDisplayFilename(recentJob.filename)}
+          </button>
+          <p>Recent PDFs are available for up to one hour after upload.</p>
+        </div>
+      )}
+      {((isProcessing && job) || (!isProcessing && recentJob)) && (
+        <button className="button secondary-button" type="button" onClick={onCancel}>
+          Cancel and discard PDF
+        </button>
+      )}
     </section>
   )
 }

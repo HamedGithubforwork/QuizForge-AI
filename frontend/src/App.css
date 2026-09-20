@@ -1688,6 +1688,15 @@ button {
 }
 
 
+.pdf-job-status {
+  margin-top: 1rem;
+}
+
+.pdf-job-status progress {
+  width: 100%;
+  accent-color: #2563eb;
+}
+
 /* PRINT / PDF OUTPUT */
 
 @media print {

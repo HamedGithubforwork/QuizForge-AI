@@ -49,7 +49,7 @@ def _ocr_page_text(page):
         ) from error
 
 
-def extract_pdf_pages_with_ocr(contents: bytes):
+def extract_pdf_pages_with_ocr(contents: bytes, *, progress=None):
     """Extract selectable text, then OCR sparse raster pages when needed."""
 
     pages = extract_pdf_pages(contents)
@@ -61,6 +61,8 @@ def extract_pdf_pages_with_ocr(contents: bytes):
     ]
 
     if not sparse_indexes:
+        if progress:
+            progress(len(pages), len(pages))
         return pages
 
     try:
@@ -77,11 +79,12 @@ def extract_pdf_pages_with_ocr(contents: bytes):
     improved_pages = 0
 
     try:
-        for index in sparse_indexes:
+        ocr_indexes = [index for index in sparse_indexes if _page_has_raster_content(document[index])]
+        completed = len(pages) - len(ocr_indexes)
+        if progress:
+            progress(completed, len(pages))
+        for index in ocr_indexes:
             page = document[index]
-
-            if not _page_has_raster_content(page):
-                continue
 
             attempted_pages += 1
             existing_text = pages[index]["text"].strip()
@@ -90,6 +93,9 @@ def extract_pdf_pages_with_ocr(contents: bytes):
             if len(ocr_text) > len(existing_text):
                 pages[index]["text"] = ocr_text
                 improved_pages += 1
+            completed += 1
+            if progress:
+                progress(completed, len(pages))
     finally:
         document.close()
 

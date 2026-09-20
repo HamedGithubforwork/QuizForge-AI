@@ -255,7 +255,8 @@ async def get_processed_document(
     )
 
     if memory_entry is None:
-        return None
+        from pdf_jobs import get_durable_document
+        return await get_durable_document(user_id, normalized_hash)
 
     (
         _expires_at,
@@ -333,7 +334,9 @@ async def get_processed_page(
     )
 
     if memory_entry is None:
-        return "missing_document", None
+        from pdf_jobs import get_durable_document
+        document = await get_durable_document(user_id, normalized_hash)
+        return _source_page_from_document(document, page_number) if document else ("missing_document", None)
 
     (
         _expires_at,

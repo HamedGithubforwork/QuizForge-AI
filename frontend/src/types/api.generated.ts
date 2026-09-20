@@ -74,6 +74,21 @@ export type HistoryPage = {
   "nextCursor": HistoryCursor | null
 }
 
+export type PdfJobResponse = {
+  "job_id": string
+  "filename": string
+  "status": "queued" | "processing" | "succeeded" | "failed" | "cancelled"
+  "completed_pages": number
+  "total_pages": number | null
+  "expires_at": string
+  "error": string | null
+  "result"?: UploadResponse | null
+}
+
+export type PdfJobList = {
+  "jobs": PdfJobResponse[]
+}
+
 export type Quiz = {
   "title": string
   "questions": QuizQuestion[]
@@ -125,9 +140,12 @@ export type UploadResponse = {
 }
 
 export const API_ROUTES = [
+  "DELETE /api/documents/jobs/{job_id}",
   "DELETE /api/quiz-history/{entry_id}",
   "GET /",
   "GET /api/admin/metrics",
+  "GET /api/documents/jobs",
+  "GET /api/documents/jobs/{job_id}",
   "GET /api/documents/{document_sha256}/pages/{page_number}",
   "GET /api/health",
   "GET /api/quiz-history",

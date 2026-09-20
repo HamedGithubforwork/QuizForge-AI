@@ -14,6 +14,8 @@ import PagePreviews from './components/quiz/PagePreviews.tsx'
 import QuizSession from './components/quiz/QuizSession.tsx'
 import QuizSettingsPanel from './components/quiz/QuizSettingsPanel.tsx'
 import UploadPanel from './components/quiz/UploadPanel.tsx'
+import { usePdfUpload } from './hooks/usePdfUpload.ts'
+import type { PdfJobResponse } from './types/api.generated.ts'
 import {
   useQuizAttempt,
 } from './hooks/useQuizAttempt.ts'
@@ -50,8 +52,8 @@ function App() {
     useState('medium')
   const [questionType, setQuestionType] =
     useState<QuestionMode>('multiple_choice')
-  const [isProcessing, setIsProcessing] =
-    useState(false)
+  const pdfUpload = usePdfUpload()
+  const { isProcessing } = pdfUpload
   const [isGenerating, setIsGenerating] =
     useState(false)
   const [generationStage, setGenerationStage] =
@@ -97,6 +99,7 @@ function App() {
       event.target.files?.[0] ?? null
 
     setSelectedFile(file)
+    pdfUpload.clear()
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
@@ -106,13 +109,13 @@ function App() {
     setError('')
   }
 
-  async function handleProcessPdf() {
-    if (!selectedFile) {
+  async function handleProcessPdf(resume?: PdfJobResponse) {
+    if (!selectedFile && !resume) {
       setError('Please choose a PDF first.')
       return
     }
 
-    setIsProcessing(true)
+    if (resume) setSelectedFile(null)
     setError('')
     setDocumentResult(null)
     setQuiz(null)
@@ -121,39 +124,34 @@ function App() {
     resetPracticeMode()
 
     try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-
-      const response = await apiFetch(
-        '/api/documents/upload',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'PDF processing failed.',
-        )
-      }
-
+      const data = await pdfUpload.run(selectedFile ?? undefined, resume)
       setDocumentResult(data)
     } catch (caughtError) {
+      if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
       setError(
         caughtError instanceof Error
           ? caughtError.message
           : 'Something went wrong while processing the PDF.',
       )
-    } finally {
-      setIsProcessing(false)
     }
   }
 
+  async function handleCancelProcessing() {
+    try {
+      await pdfUpload.cancel()
+      setDocumentResult(null)
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : 'Could not cancel processing.')
+    }
+  }
+
+  function appendDocument(formData: FormData) {
+    if (documentResult) formData.append('document_sha256', documentResult.pdf_sha256)
+    else if (selectedFile) formData.append('file', selectedFile)
+  }
+
   async function handleGenerateQuiz() {
-    if (!selectedFile) {
+    if (!selectedFile && !documentResult) {
       setError('Please choose a PDF first.')
       return
     }
@@ -207,7 +205,7 @@ function App() {
 
     try {
       const formData = new FormData()
-      formData.append('file', selectedFile)
+      appendDocument(formData)
       formData.append(
         'question_count',
         questionCount.toString(),
@@ -272,7 +270,7 @@ function App() {
   async function handlePracticeWeakAreas() {
     if (
       !quiz ||
-      !selectedFile ||
+      !documentResult ||
       !attempt.showResults
     ) {
       return
@@ -376,7 +374,7 @@ function App() {
 
     try {
       const formData = new FormData()
-      formData.append('file', selectedFile)
+      appendDocument(formData)
       formData.append('question_count', '5')
       formData.append(
         'difficulty',
@@ -464,7 +462,7 @@ function App() {
   async function handleHistoryPracticeWeakAreas(
     focus: HistoryPracticeFocus,
   ) {
-    if (!selectedFile || !documentResult) {
+    if (!documentResult) {
       setError(
         'Upload and process this PDF before generating history-based practice.',
       )
@@ -489,7 +487,7 @@ function App() {
 
     try {
       const formData = new FormData()
-      formData.append('file', selectedFile)
+      appendDocument(formData)
       formData.append('question_count', '5')
       formData.append(
         'difficulty',
@@ -583,6 +581,7 @@ function App() {
   }
 
   function handleUploadNewPdf() {
+    pdfUpload.clear()
     setSelectedFile(null)
     setDocumentResult(null)
     setQuiz(null)
@@ -631,7 +630,11 @@ function App() {
           selectedFile={selectedFile}
           isProcessing={isProcessing}
           onFileChange={handleFileChange}
-          onProcessPdf={handleProcessPdf}
+          onProcessPdf={() => void handleProcessPdf()}
+          job={pdfUpload.job}
+          recentJob={pdfUpload.recentJob}
+          onResume={job => void handleProcessPdf(job)}
+          onCancel={() => void handleCancelProcessing()}
         />
 
         {error && (
@@ -795,11 +798,10 @@ function App() {
         <QuizHistory
           refreshKey={historyRefreshKey}
           currentFilename={
-            selectedFile?.name ?? null
+            documentResult?.filename ?? selectedFile?.name ?? null
           }
           canPracticeCurrentDocument={
             Boolean(
-              selectedFile &&
               documentResult &&
               !documentResult.scanned_likely,
             )

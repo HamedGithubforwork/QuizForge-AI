@@ -11,6 +11,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from fastapi.responses import JSONResponse
 
 from admin_metrics import get_metric_snapshot
 from app_shared import (
@@ -38,6 +39,7 @@ from processed_documents import (
     normalize_document_sha256,
     remember_processed_document,
 )
+from pdf_jobs import PdfJobResponse, enabled as background_pdfs_enabled, manager as pdf_job_manager, router as pdf_jobs_router
 import quiz_service
 from quiz_history import router as quiz_history_router
 from quiz_service import (
@@ -64,6 +66,7 @@ from redis_integration import (
 
 app = create_app()
 app.include_router(quiz_history_router)
+app.include_router(pdf_jobs_router)
 
 QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0
 QUIZ_GENERATION_POLL_JITTER_RATIO = 0.2
@@ -89,6 +92,12 @@ async def get_document_pages_with_cache(
         if pdf_sha256 is not None
         else compute_pdf_sha256(contents)
     )
+
+    if background_pdfs_enabled():
+        document = await get_processed_document(user_id=user_id, pdf_sha256=resolved_pdf_sha256)
+        if document is None:
+            raise HTTPException(409, 'Process the PDF and wait for it to finish before generating a quiz.')
+        return resolved_pdf_sha256, document['pages']
 
     cache_key = build_document_cache_key_from_sha(
         user_id=user_id,
@@ -453,6 +462,7 @@ async def admin_metrics(
 @app.post(
     "/api/documents/upload",
     response_model=UploadResponse,
+    responses={202: {'model': PdfJobResponse}},
 )
 async def upload_pdf(
     file: UploadFile = File(...),
@@ -463,6 +473,10 @@ async def upload_pdf(
     validate_pdf_content_type(
         file.content_type
     )
+
+    if background_pdfs_enabled():
+        result = await pdf_job_manager().submit_upload(current_user.id, file)
+        return JSONResponse(status_code=202, content=result.model_dump(mode='json'), headers={'Cache-Control': 'no-store'})
 
     contents = await file.read()
     validate_pdf_size(contents)

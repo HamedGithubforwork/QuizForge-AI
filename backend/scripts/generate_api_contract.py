@@ -41,6 +41,8 @@ PUBLIC_SCHEMA_NAMES = (
     "HistoryRow",
     "HistoryCursor",
     "HistoryPage",
+    "PdfJobResponse",
+    "PdfJobList",
     "Quiz",
     "QuizQuestion",
     "ShortAnswerGradingSpec",

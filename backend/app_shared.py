@@ -277,16 +277,21 @@ async def app_lifespan(_app: FastAPI):
     validate_auth_configuration()
     await start_outbound_clients()
     from history_database import start_history_database, close_history_database
+    from pdf_jobs import start_pdf_jobs, close_pdf_jobs
     from redis_integration import redis_client
     try:
         await start_history_database(_app)
+        await start_pdf_jobs()
         await log_startup_performance_snapshot(redis_client)
         yield
     finally:
         try:
-            await close_history_database(_app)
+            await close_pdf_jobs()
         finally:
-            await close_outbound_clients()
+            try:
+                await close_history_database(_app)
+            finally:
+                await close_outbound_clients()
 
 
 def create_app():
