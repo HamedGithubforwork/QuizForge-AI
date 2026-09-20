@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import './AuthGate.css'
-import { identityRequest, initialize, manager, session, signIn, signOut } from './lib/cognitoBrowser'
+import { config, identityRequest, initialize, manager, session, signIn, signOut } from './lib/cognitoBrowser'
 import { secureEndpoint } from './lib/authConfig'
 
 export default function CognitoAuthGate() {
@@ -48,11 +48,11 @@ export default function CognitoAuthGate() {
     event.preventDefault()
     await run(async () => {
       if (mode === 'enroll') return requestConfirmation()
-      if (!linkingAvailable) throw new Error('Existing-account linking is not configured for this staging build.')
+      if (!linkingAvailable) throw new Error('Existing-account linking is not configured.')
       // A separate, non-persistent client never changes the production browser session.
       const client = createClient(secureEndpoint(import.meta.env.VITE_SUPABASE_URL), import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false,
-          storageKey: 'quizforge-staging-link-proof' } })
+          storageKey: 'quizforge-link-proof' } })
       const result = await client.auth.signInWithPassword({ email: email.trim(), password })
       setPassword('')
       if (result.error || !result.data.session) throw new Error('Existing-account sign-in failed.')
@@ -81,7 +81,7 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}<App />
   </>
   return <main className="auth-page"><section className="auth-card">
-    <h1>QuizForge staging</h1>
+    <h1>{config.environment === 'staging' ? 'QuizForge staging' : 'QuizForge'}</h1>
     {error && <p role="alert">{error}</p>}
     {!account ? <>
       <p>Sign in or create an account. Cognito will guide you through email verification and your authenticator setup.</p>
@@ -89,7 +89,7 @@ export default function CognitoAuthGate() {
       {error && logout}
     </> : <>
       <p>Signed in as {account.email}</p>
-      <h2>Set up your staging account</h2>
+      <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
       {confirmation ? <>
         <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
           : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
@@ -111,7 +111,7 @@ export default function CognitoAuthGate() {
         </select>
         {mode === 'link' ? <>
           <p>Sign in to your existing QuizForge account to prove ownership. Email addresses alone cannot link accounts.</p>
-          {!linkingAvailable && <p>Existing-account linking is unavailable in this staging build.</p>}
+          {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
           <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
           <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
         </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}

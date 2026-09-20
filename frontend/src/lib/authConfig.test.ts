@@ -33,3 +33,18 @@ test('Bearer transport rejects public plaintext, credentials, query strings and 
   assert.equal(secureEndpoint('http://127.0.0.1:8000/'), 'http://127.0.0.1:8000')
   assert.equal(secureEndpoint('https://example.test///'), 'https://example.test')
 })
+
+test('Production configuration requires exact domain, API and legacy account source', () => {
+  const production = { ...valid, VITE_COGNITO_STAGING: undefined, VITE_COGNITO_ENVIRONMENT: 'production',
+    VITE_API_URL: 'https://api.quizfromnotes.com', VITE_IDENTITY_API_URL: 'https://api.quizfromnotes.com',
+    VITE_SUPABASE_URL: 'https://vfxmsvphgcaizqnbyjip.supabase.co', VITE_SUPABASE_PUBLISHABLE_KEY: 'public-test-key' }
+  assert.equal(cognitoConfiguration(production, 'https://quizfromnotes.com').environment, 'production')
+  for (const origin of ['https://www.quizfromnotes.com', 'https://staging.test', 'http://localhost:4173']) {
+    assert.throws(() => cognitoConfiguration(production, origin))
+  }
+  for (const change of [{ VITE_COGNITO_STAGING: 'true' }, { VITE_COGNITO_ENVIRONMENT: 'prod' },
+    { VITE_API_URL: 'https://staging-api.quizfromnotes.com' }, { VITE_IDENTITY_API_URL: 'https://foreign.test' },
+    { VITE_SUPABASE_URL: 'https://foreign.supabase.co' }, { VITE_SUPABASE_PUBLISHABLE_KEY: '' }]) {
+    assert.throws(() => cognitoConfiguration({ ...production, ...change }, 'https://quizfromnotes.com'))
+  }
+})

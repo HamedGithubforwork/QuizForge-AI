@@ -73,3 +73,22 @@ def test_identity_service_fails_closed_without_staging_and_exact_origin(monkeypa
         with pytest.raises(RuntimeError): settings()
     monkeypatch.setenv("IDENTITY_ALLOWED_ORIGIN", "https://staging.test")
     assert settings()[0] == "https://staging.test"
+
+
+def test_production_enrollment_requires_exact_reviewed_configuration(monkeypatch):
+    values = {"IDENTITY_ENVIRONMENT": "production", "IDENTITY_ALLOWED_ORIGIN": "https://quizfromnotes.com",
+              "IDENTITY_DB_HOST": "quizforge-production.abcdef.ca-central-1.rds.amazonaws.com",
+              "IDENTITY_DB_NAME": "quizforge", "IDENTITY_SUPABASE_URL": "https://vfxmsvphgcaizqnbyjip.supabase.co",
+              "IDENTITY_SUPABASE_PUBLISHABLE_KEY": "public-test-key"}
+    monkeypatch.delenv("IDENTITY_STAGING_ENABLED", raising=False)
+    for name, value in values.items(): monkeypatch.setenv(name, value)
+    assert settings()[0] == values["IDENTITY_ALLOWED_ORIGIN"]
+    for name, bad in (("IDENTITY_ALLOWED_ORIGIN", "https://staging.test"), ("IDENTITY_DB_NAME", "quizforge_rehearsal"),
+                      ("IDENTITY_DB_HOST", "foreign.ca-central-1.rds.amazonaws.com"),
+                      ("IDENTITY_SUPABASE_URL", "https://foreign.supabase.co"),
+                      ("IDENTITY_SUPABASE_PUBLISHABLE_KEY", ""), ("IDENTITY_ENVIRONMENT", "prod")):
+        monkeypatch.setenv(name, bad)
+        with pytest.raises(RuntimeError): settings()
+        monkeypatch.setenv(name, values[name])
+    monkeypatch.setenv("IDENTITY_STAGING_ENABLED", "true")
+    with pytest.raises(RuntimeError): settings()

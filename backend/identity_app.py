@@ -1,4 +1,4 @@
-"""Opt-in staging enrollment process. NEVER mount this app in the history API."""
+"""Separate opt-in enrollment authority. Never mount in the history API."""
 from contextlib import asynccontextmanager
 import os
 from typing import Literal
@@ -26,8 +26,11 @@ class Confirmation(Intent):
 
 
 def settings():
-    if os.getenv("IDENTITY_STAGING_ENABLED") != "true":
-        raise RuntimeError("Identity enrollment is staging-only and disabled by default")
+    environment = os.getenv("IDENTITY_ENVIRONMENT", "")
+    if not environment and os.getenv("IDENTITY_STAGING_ENABLED") == "true":
+        environment = "staging"
+    if environment not in ("staging", "production"):
+        raise RuntimeError("Identity enrollment requires an explicit environment")
     origin = os.getenv("IDENTITY_ALLOWED_ORIGIN", "")
     parsed = urlparse(origin)
     if (not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment
@@ -39,6 +42,14 @@ def settings():
     if url and (legacy.scheme != "https" or not legacy.hostname or legacy.username or legacy.password
                 or legacy.path or legacy.query or legacy.fragment or not key):
         raise RuntimeError("Legacy proof requires an exact HTTPS origin and a publishable key")
+    if environment == "production":
+        import re
+        if (origin != "https://quizfromnotes.com" or os.getenv("IDENTITY_STAGING_ENABLED") == "true"
+                or url != "https://vfxmsvphgcaizqnbyjip.supabase.co" or not key
+                or os.getenv("IDENTITY_DB_NAME") != "quizforge"
+                or not re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com",
+                                    os.getenv("IDENTITY_DB_HOST", ""))):
+            raise RuntimeError("Production enrollment requires the exact reviewed domain, source and database")
     return origin, url, key
 
 
