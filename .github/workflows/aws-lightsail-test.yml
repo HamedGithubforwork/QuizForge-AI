@@ -88,7 +88,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          ref: df1946500335cc7c614796723357680875bf0123
+          ref: bff2ab7612951fe1612268af3772794651ea86c8
           path: harness/preview-source
           persist-credentials: false
       - run: docker build -f harness/scripts/capacity/Dockerfile -t quizforge-capacity:checked harness
