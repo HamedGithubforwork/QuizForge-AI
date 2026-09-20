@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -28,6 +29,7 @@ REPORT = {'application_sha': os.environ.get('APPLICATION_SHA'), 'cases': [], 'fa
           'synthetic_data': True, 'live_aws_instance': False, 'paid_model_calls': 0}
 STOP = threading.Event()
 HEALTH = []
+API_ENV = None
 
 
 def require(condition, description):
@@ -67,6 +69,7 @@ def db(**kwargs):
 
 
 def setup():
+    global API_ENV
     require(Path('/capacity-test-image').is_file(), 'Laboratory image required')
     require(sorted(p.name for p in Path('/sys/class/net').iterdir()) == ['lo'], 'Docker --network none required')
     require(not any(k.startswith(('AWS_', 'SUPABASE_')) for k in os.environ), 'Cloud credentials/configuration forbidden')
@@ -99,7 +102,7 @@ def setup():
         for role in ('quizforge_app', 'quizforge_identity', 'quizforge_generation'):
             from psycopg import sql
             owner.execute(sql.SQL("ALTER ROLE {} PASSWORD 'synthetic-capacity-only'").format(sql.Identifier(role)))
-        for n in (1, 2):
+        for n in range(1, 33):
             owner.execute('INSERT INTO app.users VALUES (%s)', (UUID(int=n),))
             owner.execute('INSERT INTO app.user_identities VALUES (%s,%s,%s)',
                           ('https://cognito-idp.ca-central-1.amazonaws.com/ca-central-1_Capacity', str(UUID(int=n)), UUID(int=n)))
@@ -112,11 +115,13 @@ def setup():
                            'OPENAI_API_KEY': 'synthetic-disabled', 'OPENAI_BASE_URL': 'http://127.0.0.1:8002/v1',
                            'IDENTITY_STAGING_ENABLED': 'true', 'IDENTITY_ALLOWED_ORIGIN': 'http://127.0.0.1:5173',
                            'PDF_PROCESS_ISOLATION': 'true',
+                           'PDF_BACKGROUND_JOBS': 'true', 'PDF_JOB_DIR': str(ROOT / 'jobs'),
                            'OMP_THREAD_LIMIT': '1'}
     for prefix, role in (('HISTORY_DB', 'quizforge_app'), ('IDENTITY_DB', 'quizforge_identity')):
         common.update({prefix + '_' + key: value for key, value in {
             'HOST': '127.0.0.1', 'NAME': 'quizforge', 'USER': role, 'PASSWORD': 'synthetic-capacity-only',
-            'SSLROOTCERT': str(ROOT / 'server.crt'), 'POOL_SIZE': '2'}.items()})
+             'SSLROOTCERT': str(ROOT / 'server.crt'), 'POOL_SIZE': '2'}.items()})
+    API_ENV = common
     spawn('api', [sys.executable, '-m', 'uvicorn', 'api_adapter:app', '--host', '127.0.0.1', '--port', '8000', '--no-access-log'], common)
     wait_port(8000)
     spawn('identity', [sys.executable, '-m', 'uvicorn', 'identity_app:create_identity_app', '--factory',
@@ -141,7 +146,7 @@ http {{
     ssl_certificate {ROOT}/server.crt;
     ssl_certificate_key {ROOT}/server.key;
     client_max_body_size 16m;
-    location / {{ proxy_pass http://127.0.0.1:8000; proxy_read_timeout 180s; }}
+    location / {{ proxy_pass http://127.0.0.1:8000; proxy_read_timeout 10s; }}
   }}
 }}
 ''')
@@ -149,10 +154,10 @@ http {{
     wait_port(8443)
 
 
-def client():
+def client(owner=1):
     import ssl
     return httpx.Client(base_url='https://127.0.0.1:8443', verify=ssl.create_default_context(cafile=str(ROOT / 'server.crt')),
-                        timeout=180, headers={'Authorization': 'Bearer capacity-1'}, trust_env=False)
+                        timeout=10, headers={'Authorization': 'Bearer capacity-' + str(owner)}, trust_env=False)
 
 
 def fixture(pages, scanned=False, salt='a'):
@@ -178,17 +183,45 @@ def fixture(pages, scanned=False, salt='a'):
     return result
 
 
-def upload(payload, pages):
+def wait_job(c, job, seconds=240):
+    deadline = time.monotonic() + seconds
+    observations = []
+    while job['status'] in ('queued', 'processing'):
+        require(time.monotonic() < deadline, 'Background completion deadline exceeded')
+        observations.append(job['completed_pages'])
+        time.sleep(.25)
+        response = c.get('/api/documents/jobs/' + job['job_id'])
+        require(response.status_code == 200, 'Owned job status unavailable')
+        require(response.headers.get('cache-control') == 'no-store', 'Job status must not be cached')
+        job = response.json()
+    observations.append(job['completed_pages'])
+    require(observations == sorted(observations), 'Progress must not go backwards within one attempt')
+    return job, observations
+
+
+def submit_job(c, payload):
     start = time.monotonic()
-    with client() as c:
-        response = c.post('/api/documents/upload', files={'file': ('synthetic.pdf', payload, 'application/pdf')})
+    response = c.post('/api/documents/upload', files={'file': ('synthetic.pdf', payload, 'application/pdf')})
+    seconds = time.monotonic() - start
+    require(response.status_code == 202, f'Background admission returned {response.status_code}')
+    require(seconds <= 2, 'Background admission must finish within two seconds')
+    return response.json(), seconds
+
+
+def upload(payload, pages, owner=1):
+    start = time.monotonic()
+    with client(owner) as c:
+        job, admission = submit_job(c, payload)
+        job, observations = wait_job(c, job)
     duration = time.monotonic() - start
-    require(response.status_code == 200, f'Upload returned {response.status_code}')
-    data = response.json()
+    require(job['status'] == 'succeeded', 'Background job failed: ' + str(job.get('error')))
+    data = job['result']
     require(data['page_count'] == pages and data['extractable_page_count'] == pages and not data['scanned_likely'],
             'All synthetic pages must be correctly recovered')
     require(all('photosynthesis' in p['preview'].lower() for p in data['pages']), 'Expected OCR content missing')
-    return {'seconds': round(duration, 3), 'file_mib': round(len(payload) / 1024**2, 3), 'pages': pages}
+    return {'seconds': round(duration, 3), 'admission_seconds': round(admission, 3),
+            'file_mib': round(len(payload) / 1024**2, 3), 'pages': pages,
+            'progress_updates': len(set(observations)), 'completed_pages': job['completed_pages']}
 
 
 def health_loop():
@@ -242,36 +275,47 @@ def exercise():
     text = fixture(100)
     scans = {n: fixture(n, True, str(n)) for n in (1, 10, 30)}
     parallel = [fixture(10, True, 'concurrent-' + str(i)) for i in range(2)]
-    overload = [fixture(1, True, 'overload-' + str(i)) for i in range(3)]
+    overload = fixture(10, True, 'overload')
     too_many_pages = fixture(101)
     watcher = threading.Thread(target=health_loop, daemon=True)
     watcher.start()
     case('text_100_pages_cold', lambda: upload(text, 100), 10)
     case('scan_1_page_cold', lambda: upload(scans[1], 1), 15)
     case('scan_10_pages_cold', lambda: upload(scans[10], 10), 60)
-    case('scan_30_pages_cold', lambda: upload(scans[30], 30), 120)
+    # The previous synchronous <=120s case remains a recorded failure. This is
+    # a different contract: <=2s HTTP admission, <=240s background completion.
+    case('scan_30_pages_background', lambda: upload(scans[30], 30), 240)
     def simultaneous():
         with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = [pool.submit(upload, blob, 10) for blob in parallel]
+            futures = [pool.submit(upload, blob, 10, owner) for owner, blob in zip((2, 3), parallel)]
             history = pool.submit(history_cycle)
             return {'uploads': [f.result() for f in futures], 'history': history.result()}
     case('two_cold_scans_with_history', simultaneous, 120)
     case('warm_10_page_scan', lambda: upload(scans[10], 10), 3)
     def bounded_overload():
-        barrier = threading.Barrier(3)
-        def attempt(blob):
-            with client() as c:
-                barrier.wait(timeout=10)
-                response = c.post('/api/documents/upload', files={'file': ('synthetic.pdf', blob, 'application/pdf')})
-                return response.status_code
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            statuses = sorted(pool.map(attempt, overload))
-        require(statuses == [200, 200, 429], 'Overload must accept two jobs and explicitly reject the third')
-        return {'statuses': statuses}
+        statuses, accepted = [], []
+        for owner in range(10, 15):
+            with client(owner) as c:
+                response = c.post('/api/documents/upload', files={'file': ('synthetic.pdf', overload, 'application/pdf')})
+                statuses.append(response.status_code)
+                if response.status_code == 202:
+                    accepted.append((owner, response.json()['job_id']))
+        require(statuses == [202, 202, 202, 202, 429], 'Queue must accept four pending jobs and reject the fifth')
+        for owner, job_id in accepted:
+            path = '/api/documents/jobs/' + job_id
+            with client(31) as other:
+                require(other.get(path).status_code == 404 and other.delete(path).status_code == 404,
+                        'Cross-owner job access/cancellation must fail')
+            with client(owner) as own:
+                require(own.delete(path).status_code == 204, 'Owner cancellation failed')
+                require(own.get(path).json()['status'] == 'cancelled', 'Cancelled job remained active')
+        return {'statuses': statuses, 'discarded_jobs': len(accepted), 'ownership_checked': True}
     case('bounded_overload', bounded_overload, 30)
-    with client() as c:
-        require(c.post('/api/documents/upload', files={'file': ('too-many.pdf', too_many_pages, 'application/pdf')}).status_code == 413,
-                'Oversized page count must fail before OCR')
+    with client(4) as c:
+        job, _ = submit_job(c, too_many_pages)
+        invalid, _ = wait_job(c, job, seconds=15)
+        require(invalid['status'] == 'failed' and '100 pages' in invalid['error'],
+                'Oversized page count must fail during bounded preflight')
     with client() as c:
         require(c.get('/api/quiz-history', headers={'Authorization': 'invalid'}).status_code == 401,
                 'Test adapter accepted unauthenticated history')
@@ -290,9 +334,58 @@ def exercise():
                         'max_seconds': round(max(samples), 3)}
     if REPORT['health']['failures'] or REPORT['health']['p95_seconds'] > 1:
         FAILURES.append('Health responsiveness target exceeded during PDF load')
+    # Deliberate process downtime is outside the preceding concurrent-load
+    # responsiveness window and is reported as a separate recovery experiment.
+    case('interrupted_background_job_recovery', lambda: recovery_cycle(parallel[0]), 90)
     with db() as owner:
         REPORT['database'] = {'history_rows_after_cleanup': owner.execute('SELECT count(*) FROM app.quiz_history').fetchone()[0],
                               'model_reservations': owner.execute('SELECT count(*) FROM billing.generation_usage').fetchone()[0]}
+    with sqlite3.connect(ROOT / 'jobs/jobs.sqlite3') as queue:
+        inputs, pending, payload = queue.execute("""SELECT count(input),
+            sum(state IN ('queued','processing')), coalesce(sum(reserved),0) FROM jobs""").fetchone()
+        REPORT['pdf_queue'] = {'raw_inputs_retained': inputs, 'pending_jobs': pending,
+                               'payload_bytes': payload, 'database_bytes': (ROOT / 'jobs/jobs.sqlite3').stat().st_size}
+        require(inputs == 0 and pending == 0 and payload <= 128 * 1024**2, 'Queue cleanup/resource boundary failed')
+
+
+def recovery_cycle(payload):
+    with client(20) as c:
+        job, admission = submit_job(c, payload)
+        job_id = job['job_id']
+        deadline = time.monotonic() + 20
+        while job['status'] != 'processing' or job['completed_pages'] < 1:
+            require(time.monotonic() < deadline, 'Recovery job never began')
+            time.sleep(.1)
+            job = c.get('/api/documents/jobs/' + job_id).json()
+    index, previous = next((i, p) for i, (name, p) in enumerate(PROCESSES) if name == 'api')
+    child_file = Path(f'/proc/{previous.pid}/task/{previous.pid}/children')
+    children = child_file.read_text().split()
+    require(children, 'Recovery experiment must interrupt a real OCR child')
+    previous.kill()
+    previous.wait(timeout=5)
+    PROCESSES.pop(index)
+    for child in children:
+        deadline = time.monotonic() + 5
+        while Path('/proc/' + child + '/stat').exists():
+            if Path('/proc/' + child + '/stat').read_text().split()[2] == 'Z':
+                break
+            require(time.monotonic() < deadline, 'OCR child survived API death')
+            time.sleep(.05)
+    spawn('api', [sys.executable, '-m', 'uvicorn', 'api_adapter:app', '--host', '127.0.0.1', '--port', '8000', '--no-access-log'], API_ENV)
+    wait_port(8000)
+    with client(20) as c:
+        require(c.get('/api/health').status_code == 200, 'API did not recover')
+        job = c.get('/api/documents/jobs/' + job_id).json()
+        completed, _ = wait_job(c, job, seconds=75)
+        require(completed['status'] == 'succeeded' and completed['result']['extractable_page_count'] == 10,
+                'Interrupted PDF did not finish after restart')
+        digest = completed['result']['pdf_sha256']
+        require(c.get('/api/documents/' + digest + '/pages/1').status_code == 200, 'Restored PDF source unavailable')
+    with sqlite3.connect(ROOT / 'jobs/jobs.sqlite3') as queue:
+        attempts = queue.execute('SELECT attempts FROM jobs WHERE id=?', (job_id,)).fetchone()[0]
+    require(attempts == 2, 'Recovery must retry exactly once')
+    return {'admission_seconds': round(admission, 3), 'attempts': attempts, 'orphan_worker': False,
+            'restored_pages': 10, 'planned_api_restart': True}
 
 
 def main():

@@ -15,9 +15,9 @@ from main import app
 
 
 async def synthetic_user(authorization: str | None = Header(default=None)):
-    if authorization not in ('Bearer capacity-1', 'Bearer capacity-2'):
+    if authorization not in tuple('Bearer capacity-' + str(n) for n in range(1, 33)):
         raise HTTPException(401, 'Synthetic capacity credential required')
-    number = int(authorization[-1])
+    number = int(authorization.rsplit('-', 1)[1])
     from uuid import UUID
     subject = str(UUID(int=number))
     return AuthenticatedUser(id='cognito:ca-central-1_Capacity:' + subject,

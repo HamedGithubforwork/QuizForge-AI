@@ -33,7 +33,8 @@ after burst capacity is exhausted.
 
 ## Reproducible measurement
 
-`.github/workflows/aws-small-capacity.yml` resolves application PR127 only after
+The capacity workflow in [PR130](https://github.com/HamedGithubforwork/QuizForge-AI/pull/130)
+(`.github/workflows/aws-small-capacity.yml`) resolves application PR127 only after
 its exact current commit passes the existing backend, frontend, browser,
 database-security, dependency and container checks. It builds the canonical
 `main:app` application code with its locked dependencies. The test adapter replaces
@@ -106,10 +107,83 @@ for the new row's UUID. The test now obtains the UUID through authenticated GET,
 matching the browser. That earlier history result is not evidence of a product
 ownership failure.
 
-The worker fix passed three focused functional tests, including a real subprocess
-timeout/termination and subsequent successful extraction. Full-stack retesting
-is in progress. Do not infer a deployment pass from image builds or the repository's
-generic required PR gate; both capacity profiles have explicit outcomes.
+The opt-in worker fix passed three focused functional tests, including a real
+subprocess timeout/termination and subsequent successful extraction. The complete
+backend CI reported 246 passed / 13 skipped; separate PostgreSQL security,
+browser integration, dependency and build checks also passed. Application PR127
+remains draft at `9346a8e57a79fe100f5995c30aadcf70919d0b6b`.
+
+The [worker retest, run 35488763989](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35488763989)
+used that exact application with controller `75b7b188f8289a67e68995b8782f3429854ab3bb`:
+
+| Metric | 2 CPU burst | 0.4 CPU sustained |
+| --- | ---: | ---: |
+| Peak whole-container memory | 695.67 MiB | 648.70 MiB |
+| Cold text, 100 pages | 1.701 s | 3.715 s |
+| Cold scan, 1 page | 3.658 s | 8.310 s |
+| Cold scan, 10 pages | 23.180 s | 52.476 s |
+| Cold scan, 30 pages | 66.599 s | HTTP 503 after worker deadline |
+| Two 10-page scans + history cycles | 46.670 s | 106.094 s |
+| Warm 10-page cached scan | 0.024 s | 0.082 s |
+| Health successes | 742 / 742 | 1492 / 1492 |
+| Health p95 | 0.003 s | 0.068 s |
+| Overall profile | PASS | FAIL: 30-page scan |
+
+Both profiles kept all services alive with no OOM kills. Twenty history cycles
+preserved ownership and left zero synthetic rows. The disabled model budget
+rejected generation with zero reservations. Three simultaneous uploads produced
+two successes and one explicit 429; the 101-page document was rejected with 413.
+The 30-page sustained failure is a real capacity limitation, not a waived test.
+
+**Decision:** the memory footprint supports the small-server proposal, and the
+process isolation fixes the observed API stalls. The USD15–20 layout is a viable
+candidate for the measured light workload, but it is not approved as an unrestricted
+production replacement. Before launch, either implement a bounded background
+upload job with progress/status and ownership protection for larger scans, or
+agree and enforce a smaller scanned-page limit. A larger-memory USD24 Lightsail
+bundle has the same baseline CPU and does not establish a fix for this deadline.
+No permanent server, paid model request, account migration or domain routing was
+started. These results are CI simulations; actual Lightsail hardware, storage,
+network, backups and recovery remain live deployment checks.
+
+## Account readiness
+
+The separate `aws-small-readiness.yml` workflow only reads the account plan and
+Canadian Lightsail bundle catalogue using an explicit read-only AWS session.
+It cannot create instances, change permissions, upgrade the account or alter DNS.
+Catalogue access alone does not prove creation permission or Free-plan eligibility.
+
+## Authorized background-processing follow-up
+
+After the sustained 30-page failure, the owner authorized durable background OCR.
+Application PR127 now includes an opt-in private SQLite queue, authenticated job
+ownership/status/cancel, page progress and browser refresh/resume. The queue uses
+one active child, four pending jobs across the host, one pending job per owner,
+four new jobs per owner per hour, 128 MiB reserved payload and one-hour retention.
+Raw PDFs are removed on success/failure/cancellation. Isolated child CPU, memory,
+file and page limits remain; background wall time is separately bounded at 600s.
+Operational details are in `docs/background-pdf-processing.md` on the app branch.
+
+The follow-up experiment retains the same synthetic PDFs, full stack, 1536 MiB
+cgroup and 2 / 0.4 CPU profiles. It adds synthetic owners to test queue fairness.
+The new contract is **HTTP 202 admission within 2 seconds** and **30-page job
+completion within 240 seconds**. The earlier failed synchronous 120-second target
+remains recorded above. The proxy now times out idle upstream responses after
+10 seconds, demonstrating that a long HTTP request is unnecessary. Existing
+completion targets for 1-page, 10-page, 100-page text and two concurrent 10-page
+scans remain. Warm completed-job reuse must finish within three seconds.
+
+Four pending jobs must be admitted and a fifth rejected with 429. Other owners
+must be unable to read/cancel them. A 101-page document is accepted for background
+validation, then fails before extraction with the existing page-limit message.
+Final checks require no retained raw input or pending jobs and bounded storage.
+
+A separate recovery case deliberately kills the API while a real child is
+processing, verifies that child stops, starts the API against the same directory
+and requires the same 10-page job to finish on its second attempt within 90 seconds.
+This planned downtime occurs after the concurrent-load health measurement window
+and is reported separately. It does not waive an unexpected health failure during
+OCR load. Results are pending; no permanent deployment has been started.
 
 Sources checked September 20, 2026:
 [Lightsail pricing](https://aws.amazon.com/lightsail/pricing/),
