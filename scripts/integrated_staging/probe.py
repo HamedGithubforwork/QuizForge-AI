@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import traceback
 from uuid import UUID
 
 import boto3
@@ -70,8 +71,10 @@ def main(phase):
             print("PASS: private RDS verified TLS, rejected cleartext, seeded synthetic history and separate restricted application roles")
         assert fingerprint(conn.execute("SELECT * FROM app.quiz_history").fetchall()) == fingerprint(fixtures())
         if phase == "verify":
+            print("PASS: eight original history fixtures remain unchanged; browser-created history removed")
             assert conn.execute("SELECT count(*) AS n FROM app.users").fetchone()["n"] == 4
             assert conn.execute("SELECT count(*) AS n FROM app.identity_challenges WHERE used_at IS NOT NULL").fetchone()["n"] == 1
+            print("PASS: four internal users and exactly one consumed enrollment confirmation")
             verify_cache(cache, bundle)
             print("PASS: browser enrollment used one confirmation; eight foreign fixtures unchanged; no browser history rows remain")
 
@@ -88,17 +91,24 @@ def verify_cache(cache, bundle):
     assert "Evaporation" in cache.get(page_key)
     assert 0 < cache.ttl(page_key) <= 86400
     assert json.loads(cache.get(documents[0] + ":source-pages"))["page_numbers"] == [1]
+    print("PASS: private document/source caches preserve the synthetic PDF and source page with valid TTLs")
     quiz = json.loads(cache.get(quizzes[0]))
     assert len(quiz["questions"]) == 5
     assert all(q["question_type"] == "multiple_choice" and q["source_pages"] == [1] for q in quiz["questions"])
     assert 0 < cache.ttl(quizzes[0]) <= 3600
+    print("PASS: private quiz cache contains five grounded multiple-choice questions with a valid TTL")
     rate = "quizforge:rate:00000000-0000-0000-0000-000000000003"
     assert cache.get(rate) == "11" and 0 < cache.ttl(rate) <= 600
-    for metric, expected in {"quiz_cache_hits_total":1, "quiz_cache_misses_total":9, "quiz_requests_total":10}.items():
-        assert int(cache.get("quizforge:metrics:" + metric) or 0) == expected, metric
+    print("PASS: private distributed quiz-rate counter is eleven with an active ten-minute window")
+    expected_metrics = {"quiz_cache_hits_total":1, "quiz_cache_misses_total":9, "quiz_requests_total":10}
+    actual_metrics = {metric:int(cache.get("quizforge:metrics:" + metric) or 0) for metric in expected_metrics}
+    if actual_metrics != expected_metrics:
+        print("ERROR: synthetic quiz counter mismatch: " + json.dumps(actual_metrics, sort_keys=True))
+    assert actual_metrics == expected_metrics
     for metric in ("document_cache_hits_total", "document_cache_misses_total"):
         assert int(cache.get("quizforge:metrics:" + metric) or 0) >= 1, metric
     assert not list(cache.scan_iter("quizforge:rate:answer-review:*"))
+    print("PASS: expected quiz/document metrics and no semantic answer-review requests")
     calls = int(cache.get(CALLS_KEY))
     assert 1 <= calls <= MAX_CALLS
     assert 1 <= cache.llen("quizforge:metrics:timing:openai_generation_latency_ms") <= calls
@@ -112,5 +122,7 @@ if __name__ == "__main__":
     try:
         main(sys.argv[1])
     except Exception as error:
-        print(f"ERROR: integration database probe failed ({type(error).__name__}, SQLSTATE={getattr(error, 'sqlstate', None)})")
+        frame = traceback.extract_tb(error.__traceback__)[-1]
+        # Location only: exception strings/source lines can contain credentials.
+        print(f"ERROR: integration database probe failed ({type(error).__name__} at {Path(frame.filename).name}:{frame.lineno}, SQLSTATE={getattr(error, 'sqlstate', None)})")
         sys.exit(1)
