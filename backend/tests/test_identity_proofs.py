@@ -8,7 +8,7 @@ import jwt
 import pytest
 
 from identity_proofs import supabase_link_proof
-from identity_app import settings
+from identity_app import settings, public_legacy_key
 
 
 def legacy_token(**changes):
@@ -79,7 +79,7 @@ def test_production_enrollment_requires_exact_reviewed_configuration(monkeypatch
     values = {"IDENTITY_ENVIRONMENT": "production", "IDENTITY_ALLOWED_ORIGIN": "https://quizfromnotes.com",
               "IDENTITY_DB_HOST": "quizforge-production.abcdef.ca-central-1.rds.amazonaws.com",
               "IDENTITY_DB_NAME": "quizforge", "IDENTITY_SUPABASE_URL": "https://vfxmsvphgcaizqnbyjip.supabase.co",
-              "IDENTITY_SUPABASE_PUBLISHABLE_KEY": "public-test-key"}
+              "IDENTITY_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_synthetic_public_key_12345"}
     monkeypatch.delenv("IDENTITY_STAGING_ENABLED", raising=False)
     for name, value in values.items(): monkeypatch.setenv(name, value)
     assert settings()[0] == values["IDENTITY_ALLOWED_ORIGIN"]
@@ -92,3 +92,12 @@ def test_production_enrollment_requires_exact_reviewed_configuration(monkeypatch
         monkeypatch.setenv(name, values[name])
     monkeypatch.setenv("IDENTITY_STAGING_ENABLED", "true")
     with pytest.raises(RuntimeError): settings()
+
+
+def test_production_configuration_rejects_privileged_legacy_keys():
+    def token(role, ref="vfxmsvphgcaizqnbyjip"):
+        return jwt.encode({"role":role,"ref":ref},"synthetic-config-only" * 3)
+    assert public_legacy_key(token("anon"))
+    for key in (token("service_role"),token("authenticated"),token("anon","foreign"),
+                "sb_secret_synthetic_secret_key_12345","bad"):
+        assert not public_legacy_key(key)

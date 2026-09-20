@@ -1,12 +1,14 @@
 """Separate opt-in enrollment authority. Never mount in the history API."""
 from contextlib import asynccontextmanager
 import os
+import re
 from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+import jwt
 from pydantic import BaseModel, ConfigDict, Field
 from psycopg_pool import AsyncConnectionPool
 
@@ -23,6 +25,17 @@ class Intent(BaseModel):
 
 class Confirmation(Intent):
     nonce: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
+
+
+def public_legacy_key(key):
+    if re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}", key):
+        return True
+    try:
+        # Classifies the public configuration key, never authorizes a user.
+        claims = jwt.decode(key, options={"verify_signature": False})
+        return claims.get("role") == "anon" and claims.get("ref") == "vfxmsvphgcaizqnbyjip"
+    except (jwt.PyJWTError, ValueError, TypeError):
+        return False
 
 
 def settings():
@@ -43,9 +56,8 @@ def settings():
                 or legacy.path or legacy.query or legacy.fragment or not key):
         raise RuntimeError("Legacy proof requires an exact HTTPS origin and a publishable key")
     if environment == "production":
-        import re
         if (origin != "https://quizfromnotes.com" or os.getenv("IDENTITY_STAGING_ENABLED") == "true"
-                or url != "https://vfxmsvphgcaizqnbyjip.supabase.co" or not key
+                or url != "https://vfxmsvphgcaizqnbyjip.supabase.co" or not public_legacy_key(key)
                 or os.getenv("IDENTITY_DB_NAME") != "quizforge"
                 or not re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com",
                                     os.getenv("IDENTITY_DB_HOST", ""))):

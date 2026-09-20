@@ -18,7 +18,7 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
   if (environment !== 'staging' && environment !== 'production') throw new Error('Cognito requires an explicit environment.')
   if (environment === 'production' && (env.VITE_COGNITO_STAGING === 'true' || origin !== 'https://quizfromnotes.com' ||
       env.VITE_API_URL !== 'https://api.quizfromnotes.com' || env.VITE_IDENTITY_API_URL !== 'https://api.quizfromnotes.com' ||
-      env.VITE_SUPABASE_URL !== 'https://vfxmsvphgcaizqnbyjip.supabase.co' || !env.VITE_SUPABASE_PUBLISHABLE_KEY)) {
+      env.VITE_SUPABASE_URL !== 'https://vfxmsvphgcaizqnbyjip.supabase.co' || !publicLegacyKey(env.VITE_SUPABASE_PUBLISHABLE_KEY || ''))) {
     throw new Error('Production authentication requires the reviewed website, API and legacy account configuration.')
   }
   const pool = env.VITE_COGNITO_USER_POOL_ID || ''
@@ -35,4 +35,15 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
     identityApi: secureEndpoint(env.VITE_IDENTITY_API_URL || ''),
     api: secureEndpoint(env.VITE_API_URL || ''),
   }
+}
+
+export function publicLegacyKey(key: string): boolean {
+  if (/^sb_publishable_[A-Za-z0-9_-]{20,}$/.test(key)) return true
+  try {
+    const parts = key.split('.')
+    if (parts.length !== 3) return false
+    // Configuration classification only; the identity server verifies user proof online.
+    const claims = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return claims?.role === 'anon' && claims?.ref === 'vfxmsvphgcaizqnbyjip'
+  } catch { return false }
 }
