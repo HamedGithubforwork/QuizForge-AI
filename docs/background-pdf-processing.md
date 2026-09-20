@@ -33,7 +33,8 @@ One PDF subprocess runs at a time. At most four jobs may be queued/running acros
 the host, with one pending job per owner and four new jobs per owner per hour.
 Duplicate submissions of an unexpired pending/completed PDF reuse the same owned
 job, including after a lost HTTP response. At most sixteen job records and
-128 MiB of reserved input/result payload are retained. Busy submissions receive
+128 MiB of reserved input/checkpoint/result payload are retained. Pending jobs
+reserve their input size plus 8 MiB for completed page text. Busy submissions receive
 429 with Retry-After; a stopped queue fails closed with 503.
 
 The existing 15 MiB file, 100 total pages, 30 scanned pages, page-dimension,
@@ -47,11 +48,16 @@ sandbox.
 
 SQLite transactions with full synchronization commit the input before acceptance.
 The singleton worker holds an OS file lock, so a second API process using the same
-directory cannot start another queue. On restart, interrupted jobs are retried
-once; a second interruption ends the job with an explicit failure. Completed
+directory cannot start another queue. Each completed OCR page is committed with
+its progress count in the same transaction. Selectable pages are batched to avoid
+one disk synchronization per page. On restart, interrupted jobs are retried
+once from those saved pages, without recognizing them again; a second interruption
+ends the job with an explicit failure. Completed
 results remain usable across a process restart and a Redis cache miss.
 
-Raw input is removed after success, failure or cancellation. All processing
+Saved page text stays private and is unavailable through the document API until
+the entire extraction succeeds. Checkpoints are removed after success, failure,
+cancellation or expiration. Raw input is removed after success, failure or cancellation. All processing
 records/results expire one hour after submission; reads enforce expiration
 immediately and the queue loop removes expired records, including at startup.
 SQLite secure deletion clears deleted payload from ordinary database pages;
@@ -68,6 +74,18 @@ SQLite main file is capped at 256 MiB; allow additional space for its transient
 rollback journal. Exclude temporary PDF jobs from retained application backups.
 Account/history backups remain a separate required operation.
 
+Queue schema version 2 migrates version 1 on startup while preserving uploads.
+Version-1 interrupted jobs have no saved page text and therefore restart from
+page one. Drain/discard temporary jobs before rolling back to an older application
+that only understands schema version 1.
+
+The isolated worker extracts selectable text once and initializes one Tesseract 5
+engine per document. It recognizes 150-DPI RGB page rasters directly, avoiding
+intermediate searchable PDFs and repeated language-model loading. Native work
+remains inside the limited child with no API, database or model-client imports.
+The production image must provide `libtesseract.so.5` and English trained data;
+the existing Tesseract package installation supplies them.
+
 The reverse proxy must enforce the 16 MiB multipart-body ceiling, upload
 connection/rate limits and request timeouts before ASGI parses incoming files.
 The API also limits concurrent in-memory upload reads to two. A host failure can
@@ -82,6 +100,10 @@ Tests exercise verified signed-token ownership, 202 admission and document resum
 cross-owner status/cancel/source rejection, concurrent admission, idempotency,
 hourly allowance, expiration, raw/result deletion, single-worker locking, bounded
 restart recovery, real child cancellation and cancellation during process creation.
+Checkpoint tests cover atomic progress, bounds, private reads, version-1 migration,
+page skipping on resume and deletion of saved bytes for every terminal state.
+The required Docker OCR check exercises small text, columns, mixed content and
+PDF rotation metadata through the real isolated worker, including interrupted resume.
 Browser tests cover progress, page refresh, restored quiz generation and cancel.
 The follow-up constrained capacity run must measure admission latency separately
 from background completion and retain the original failed synchronous result.
