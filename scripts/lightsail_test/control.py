@@ -1,5 +1,6 @@
 """Manual, bounded Lightsail laboratory. Builds never execute with AWS credentials."""
 from datetime import datetime, timedelta, timezone
+import base64
 import hashlib
 import ipaddress
 import json
@@ -16,6 +17,8 @@ from urllib.request import urlopen
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from cryptography.hazmat.primitives.serialization import (SSHCertificate, SSHCertificateType,
+                                                         load_ssh_public_identity, load_ssh_public_key)
 
 from policy import (APP_SHA, HARNESS_SHA, REGION, GROUP, ROLE, PURPOSE, BUNDLE,
                     BLUEPRINT, MAX_MONTHLY_USD, TTL_SECONDS, cleanup_policy,
@@ -221,13 +224,13 @@ def wait_ssh_details(ls, instance, wait_seconds=300):
     previous_missing = None
     while True:
         access = ls.get_instance_access_details(instanceName=instance['name'], protocol='ssh').get('accessDetails', {})
-        missing = [key for key in ('ipAddress', 'instanceName', 'username', 'expiresAt', 'privateKey', 'certKey')
+        missing = [key for key in ('ipAddress', 'instanceName', 'username', 'privateKey', 'certKey')
                    if not access.get(key)]
         host_keys = [host for host in access.get('hostKeys', [])
                      if host.get('algorithm') in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
-                     and host.get('publicKey')]
+                     and (host.get('publicKey') or host.get('fingerprintSHA256'))]
         if not host_keys:
-            missing.append('trustedHostPublicKey')
+            missing.append('trustedHostIdentity')
         if not missing:
             return access
         if time.monotonic() >= deadline:
@@ -238,23 +241,80 @@ def wait_ssh_details(ls, instance, wait_seconds=300):
         time.sleep(5)
 
 
+def validate_ssh_certificate(access):
+    # The certificate itself comes from the authenticated AWS API. Its signed
+    # validity interval remains available when the optional expiresAt is absent.
+    try:
+        certificate = load_ssh_public_identity(access['certKey'].encode())
+        require(isinstance(certificate, SSHCertificate), 'AWS SSH credential is not a certificate')
+        certificate.verify_cert_signature()
+    except RuntimeError:
+        raise
+    except Exception:
+        raise RuntimeError('Invalid AWS SSH certificate') from None
+    now = datetime.now(timezone.utc)
+    require(certificate.type == SSHCertificateType.USER, 'Unexpected SSH certificate type')
+    require(b'ubuntu' in certificate.valid_principals, 'SSH certificate does not name the expected user')
+    require(certificate.valid_after <= now.timestamp(), 'SSH certificate is not yet valid')
+    require(certificate.valid_before > now.timestamp() + 45 * 60, 'SSH credential lifetime too short')
+    if access.get('expiresAt') is not None:
+        expiry = access['expiresAt']
+        require(isinstance(expiry, datetime) and expiry > now + timedelta(minutes=45),
+                'SSH API credential lifetime too short')
+
+
+def trusted_host_lines(access, address, wait_seconds=300):
+    supported = ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256')
+    known, fingerprints = [], {}
+    for host in access.get('hostKeys', []):
+        algorithm, key = host.get('algorithm'), host.get('publicKey', '').strip()
+        if algorithm not in supported:
+            continue
+        if key:
+            if key.startswith(algorithm + ' '):
+                key = key.split()[1]
+            require(re.fullmatch(r'[A-Za-z0-9+/=]+', key), 'Invalid trusted host public key')
+            load_ssh_public_key((algorithm + ' ' + key).encode())
+            known.append(f'{address} {algorithm} {key}\n')
+        fingerprint = host.get('fingerprintSHA256', '')
+        if fingerprint:
+            require(re.fullmatch(r'SHA256:[A-Za-z0-9+/]{43}=?', fingerprint), 'Invalid AWS SHA256 host fingerprint')
+            fingerprints[algorithm] = fingerprint.rstrip('=')
+    if known:
+        return known
+    require(bool(fingerprints), 'AWS has not supplied trusted SSH host identity')
+    # Scanned keys are untrusted until their SHA256 digest matches AWS. No SSH
+    # authentication or credentials are sent during keyscan; no TOFU is used.
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        scanned = subprocess.run(['ssh-keyscan', '-T', '10', '-t', 'ed25519,ecdsa,rsa', address],
+                                 capture_output=True, text=True, timeout=35)
+        for line in scanned.stdout.splitlines():
+            fields = line.split()
+            if len(fields) != 3 or fields[0] != address or fields[1] not in fingerprints:
+                continue
+            _, algorithm, key = fields
+            try:
+                raw = base64.b64decode(key, validate=True)
+                load_ssh_public_key((algorithm + ' ' + key).encode())
+            except Exception:
+                raise RuntimeError('Invalid scanned SSH public key') from None
+            actual = 'SHA256:' + base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip('=')
+            require(actual == fingerprints[algorithm], 'SSH host fingerprint does not match AWS')
+            known.append(f'{address} {algorithm} {key}\n')
+        if known:
+            return known
+        require(time.monotonic() < deadline, 'AWS-pinned SSH host key was unavailable before deadline')
+        time.sleep(5)
+
+
 def ssh_access(ls, instance, directory):
     access = wait_ssh_details(ls, instance)
     address = str(ipaddress.IPv4Address(access['ipAddress']))
     require(address == instance['publicIpAddress'] and access['instanceName'] == instance['name'], 'SSH endpoint mismatch')
     require(access['username'] == 'ubuntu', 'Unexpected SSH account')
-    require(isinstance(access['expiresAt'], datetime), 'Invalid SSH credential expiry')
-    require(access['expiresAt'] > datetime.now(timezone.utc) + timedelta(minutes=45), 'SSH credential lifetime too short')
-    known = []
-    for host in access.get('hostKeys', []):
-        algorithm, key = host.get('algorithm'), host.get('publicKey', '').strip()
-        if algorithm not in ('ssh-ed25519', 'ssh-rsa', 'ecdsa-sha2-nistp256') or not key:
-            continue
-        if key.startswith(algorithm + ' '):
-            key = key.split()[1]
-        require(re.fullmatch(r'[A-Za-z0-9+/=]+', key), 'Invalid trusted host public key')
-        known.append(f'{address} {algorithm} {key}\n')
-    require(bool(known), 'AWS has not supplied trusted SSH host keys')
+    validate_ssh_certificate(access)
+    known = trusted_host_lines(access, address)
     for name, value in [('identity', access['privateKey']), ('identity-cert.pub', access['certKey']),
                         ('known_hosts', ''.join(known))]:
         path = directory / name
@@ -309,11 +369,15 @@ def benchmark(ls, instance, image, digest):
             subprocess.run(['scp', *options, '-r', target + ':/home/ubuntu/capacity-results', str(RESULTS)],
                 check=True, capture_output=True, timeout=90)
         reports = []
+        host_path = RESULTS / 'capacity-results' / 'host.json'
+        if host_path.is_file():
+            print(json.dumps({'capacity_host': json.loads(host_path.read_text())}), flush=True)
         for profile in ('burst', 'sustained'):
             path = RESULTS / 'capacity-results' / profile / 'capacity.json'
             report = json.loads(path.read_text())
             require(report.get('application_sha') == APP_SHA and report.get('synthetic_data') is True
                     and report.get('paid_model_calls') == 0, 'Unexpected benchmark identity/data boundary')
+            print(json.dumps({'capacity_profile': profile, 'report': report}), flush=True)
             # Preserve the original harness report byte-for-byte. This wrapper records placement.
             reports.append({'profile': profile, 'passed': report.get('passed') is True})
         exit_code = (RESULTS / 'capacity-results/exit-code.txt').read_text().strip()

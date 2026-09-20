@@ -49,8 +49,9 @@ The server receives no cloud/model/database credentials. After startup its publi
 firewall is replaced with SSH from the current runner's single IPv4 address;
 there are no published application/database ports. Until replacement, Lightsail
 may briefly have its default SSH rule. Ubuntu key authentication and subsequent
-SSH hardening apply. AWS-supplied SSH host keys are required, strict host checking
-is enabled, and temporary access keys stay in a private runner directory that is
+SSH hardening apply. SSH host keys must be supplied by AWS or match an AWS-supplied
+SHA-256 fingerprint. A network keyscan alone never establishes trust. Strict host
+checking is enabled, and temporary access keys stay in a private runner directory that is
 removed after use. The container runs as an unprivileged user, without networking,
 Linux capabilities or swap, inside the same 1536 MiB limit as the CI experiment.
 
@@ -107,8 +108,26 @@ the browser confirmation policy requires approval before dispatching a run with
 the correction. Prepare/review it first; do not silently remove the session
 boundary or add broad role permissions to overcome this denial.
 
-Until that corrected run completes, live capacity remains unverified. The prior
-CI sustained-profile timing failures remain authoritative, and the website has
+The user approved the tagging correction and PR139 was merged. The
+[first successful launch](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35518533966)
+proved creation and ordinary deletion worked, but setup stopped before measuring
+OCR. A [bounded readiness retry](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35518969921)
+confirmed that `expiresAt` and host `publicKey` remained absent for five minutes;
+the instance was deleted and absence confirmed. Neither run is a capacity result.
+
+AWS documents these response fields as optional. The controller now validates
+the AWS-issued SSH certificate's signature, user principal and validity interval,
+including the original 45-minute remaining-lifetime requirement. If AWS also
+returns `expiresAt`, that bound must pass too. When full host keys are absent,
+only a scanned key with an exact algorithm and SHA-256 fingerprint match to the
+authenticated AWS response is accepted. Missing pins, SHA-1-only data, mismatches,
+invalid certificates and expiry fail closed. This uses the same AWS API permission,
+endpoint identity and strict OpenSSH checking; it creates no persistent keys.
+Validated synthetic capacity reports and host metadata are also printed in logs
+so results remain inspectable if an artifact download cannot be materialized.
+
+Live capacity remains unverified until a complete benchmark. The prior CI
+sustained-profile timing failures remain authoritative, and the website has
 not been switched to the proposed AWS server.
 
 Provision this small prerequisite module using the existing encrypted Terraform
