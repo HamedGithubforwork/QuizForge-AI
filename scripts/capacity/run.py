@@ -132,6 +132,9 @@ http {{
   access_log off;
   client_body_temp_path {ROOT}/body;
   proxy_temp_path {ROOT}/proxy;
+  fastcgi_temp_path {ROOT}/fastcgi;
+  uwsgi_temp_path {ROOT}/uwsgi;
+  scgi_temp_path {ROOT}/scgi;
   server {{
     listen 127.0.0.1:8443 ssl;
     ssl_certificate {ROOT}/server.crt;
