@@ -289,7 +289,7 @@ def ssh_access(ls, instance, directory, pinned_host_key):
         path = directory / name
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, 'w') as handle:
-            handle.write(value)
+            handle.write(value.rstrip('\n') + '\n')
     options = ['-i', str(directory / 'identity'), '-o', 'CertificateFile=' + str(directory / 'identity-cert.pub'),
         '-o', 'UserKnownHostsFile=' + str(directory / 'known_hosts'), '-o', 'GlobalKnownHostsFile=/dev/null',
         '-o', 'StrictHostKeyChecking=yes', '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes',
@@ -302,6 +302,29 @@ def ssh_connection(ls, instance, pinned_host_key):
     # Never reuse a short-lived AWS login certificate for a later connection.
     with tempfile.TemporaryDirectory(prefix='qf-ssh-', dir=os.environ['RUNNER_TEMP']) as tmp:
         yield ssh_access(ls, instance, Path(tmp), pinned_host_key)
+
+
+def ssh_probe_status(result):
+    # Only fixed categories leave this function: stderr can contain key paths
+    # or other untrusted text and must never be copied into workflow logs.
+    if result.returncode == 0:
+        return 'ready'
+    if result.returncode == 1:
+        return 'authenticated; bootstrap not ready'
+    error = result.stderr.decode(errors='replace').lower()
+    for needles, status in (
+        (('error in libcrypto', 'invalid format'), 'private key encoding rejected'),
+        (('permission denied',), 'login rejected'),
+        (('host key verification failed', 'remote host identification has changed'), 'host identity rejected'),
+        (('no matching host key type',), 'host algorithm rejected'),
+        (('connection refused',), 'connection refused'),
+        (('timed out',), 'connection timed out'),
+        (('network is unreachable', 'no route to host'), 'network unavailable'),
+        (('connection reset', 'connection closed'), 'connection closed'),
+    ):
+        if any(needle in error for needle in needles):
+            return status
+    return 'unclassified SSH failure'
 
 
 def metrics(ls, name, start):
@@ -321,15 +344,20 @@ def metrics(ls, name, start):
 def benchmark(ls, instance, image, digest, pinned_host_key):
     print('Stage: waiting for bootstrap with fresh credentials and the pinned host key', flush=True)
     deadline = time.monotonic() + 600
+    previous_status = None
     while time.monotonic() < deadline:
         with ssh_connection(ls, instance, pinned_host_key) as (options, target):
             ready = subprocess.run(['ssh', *options, target, 'test -f /var/lib/quizforge-capacity-ready'],
                 capture_output=True, timeout=25)
+        status = ssh_probe_status(ready)
+        if status != previous_status:
+            print('SSH readiness: ' + status, flush=True)
+            previous_status = status
         if ready.returncode == 0:
             break
         time.sleep(5)
     else:
-        raise RuntimeError('Docker bootstrap/verified SSH deadline exceeded')
+        raise RuntimeError('Docker bootstrap/verified SSH deadline exceeded: ' + str(previous_status))
     print('Stage: transferring checked synthetic image', flush=True)
     with ssh_connection(ls, instance, pinned_host_key) as (options, target):
         subprocess.run(['scp', *options, str(image), target + ':/home/ubuntu/capacity-image.tar.gz'],

@@ -140,6 +140,10 @@ certificate and any API expiry must have more than 30 seconds remaining for the
 10-second connection timeout. Authentication expiry does not terminate an already
 authenticated SSH session. The 50-minute controller limit and two-hour independent
 deletion schedule remain unchanged.
+Readiness logs distinguish successful authentication with pending bootstrap from
+fixed SSH failure categories. Raw SSH errors and credentials are not printed.
+Private key and certificate files are terminated with a newline for OpenSSH
+compatibility, while retaining exclusive creation and 0600 permissions.
 No new IAM permission, persistent login key pair or open application port is needed.
 
 Validated synthetic capacity reports and host metadata are printed in logs so

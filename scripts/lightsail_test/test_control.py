@@ -119,8 +119,22 @@ class Boundaries(unittest.TestCase):
             self.assertEqual((Path(tmp) / 'known_hosts').read_text(), '203.0.113.1 ' + public + '\n')
             self.assertIn('StrictHostKeyChecking=yes', options)
             self.assertEqual(target, 'ubuntu@203.0.113.1')
+            self.assertEqual((Path(tmp) / 'identity').read_text(), 'private-value\n')
+            self.assertEqual((Path(tmp) / 'identity-cert.pub').read_text(), 'cert-value\n')
             for file in Path(tmp).iterdir():
                 self.assertEqual(file.stat().st_mode & 0o777, 0o600)
+
+    def test_ssh_readiness_reports_categories_without_echoing_stderr(self):
+        for code, stderr, expected in (
+            (0, b'', 'ready'),
+            (1, b'', 'authenticated; bootstrap not ready'),
+            (255, b'Load key /private/path: error in libcrypto\nprivate-secret', 'private key encoding rejected'),
+            (255, b'Permission denied (publickey). private-secret', 'login rejected'),
+            (255, b'Host key verification failed. private-secret', 'host identity rejected'),
+            (255, b'private-secret', 'unclassified SSH failure'),
+        ):
+            with self.subTest(code=code, expected=expected):
+                self.assertEqual(control.ssh_probe_status(control.subprocess.CompletedProcess([], code, stderr=stderr)), expected)
 
     def test_identifiers_cannot_target_production_or_inject_shell(self):
         for value in ('production', '../1234-1', '1234-1;id', '0-1', '1-0', '1-1\n', '-1-1'):
