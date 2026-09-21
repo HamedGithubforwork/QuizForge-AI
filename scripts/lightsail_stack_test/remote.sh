@@ -29,7 +29,7 @@ apt-get install -y -qq --no-install-recommends python3-venv
 python3 -m venv /home/ubuntu/stack-venv
 /home/ubuntu/stack-venv/bin/pip install --require-hashes -r stack-source/candidate/scripts/rds_rehearsal/requirements.lock >/dev/null
 set +e
-timeout --signal=TERM --kill-after=20s 750s /home/ubuntu/stack-venv/bin/python stack-source/scripts/lightsail_stack_test/fixture.py >capacity-results/synthetic.log 2>&1
+timeout --signal=TERM --kill-after=20s 750s /home/ubuntu/stack-venv/bin/python stack-source/scripts/lightsail_stack_test/fixture.py </dev/null >capacity-results/synthetic.log 2>&1
 result=$?
 set -e
 echo "$result" >capacity-results/exit-code.txt

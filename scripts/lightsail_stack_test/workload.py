@@ -15,7 +15,7 @@ def exercise(root, compose, env, *, ci):
     output = Path(os.environ.get('STACK_RESULTS', '/home/ubuntu/capacity-results'))
     output.mkdir(parents=True, exist_ok=True)
     def run(*args):
-        return subprocess.run(args, check=True, capture_output=True, text=True).stdout
+        return subprocess.run(args, check=True, stdin=subprocess.DEVNULL, capture_output=True, text=True).stdout
     # The owner credentials and fixture rows never leave the disposable machine.
     from database import options
     with psycopg.connect(**options(env)) as conn:

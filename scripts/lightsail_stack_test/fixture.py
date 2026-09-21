@@ -23,7 +23,7 @@ from lightsail_initialize import initialize
 
 
 def run(*args, **kwargs):
-    return subprocess.run(args, check=True, **kwargs)
+    return subprocess.run(args, check=True, stdin=subprocess.DEVNULL, **kwargs)
 
 
 def main():
