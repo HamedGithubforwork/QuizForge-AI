@@ -102,3 +102,9 @@ and after a service restart. A live provider canary remains a separate acceptanc
 step: use synthetic notes, an explicit small sub-allowance within USD5, bounded
 output, no automatic retries, and reconcile the provider usage with the ledger.
 The simulated tests do not measure live quiz quality, latency or provider access.
+
+The separate [before/after overhead benchmark](benchmarks/ai-budget-overhead-2026-09-21.md)
+measured about 13–14 ms added median per AI call at concurrency one and 86–94 ms
+under eight continuously active requests on a two-CPU CI fixture. It used real
+TLS database operations and a simulated provider; these are not live Lightsail
+or end-to-end quiz timings. Raw samples and conditions accompany the report.
