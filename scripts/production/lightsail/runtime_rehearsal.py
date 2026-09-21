@@ -118,10 +118,33 @@ else: raise AssertionError('Gateway did not start')
 '''
         compose('exec', '-T', 'api', 'python', '-c', probe)
         compose('run', '--rm', '--no-deps', 'web', 'caddy', 'validate', '--config', '/etc/caddy/Caddyfile')
+        # Validate production HTTPS syntax above, then exercise routing locally
+        # with automatic certificate issuance disabled and no DNS changes.
+        caddy = (root/'Caddyfile').read_text().replace('{\n    admin off', '{\n    auto_https off\n    admin off', 1)
+        caddy = caddy.replace('\nquizfromnotes.com {', '\nhttp://quizfromnotes.com:8080 {')
+        caddy = caddy.replace('\napi.quizfromnotes.com {', '\nhttp://api.quizfromnotes.com:8080 {')
+        (root/'Caddyfile').write_text(caddy)
+        site = Path('/opt/quizforge/frontend')
+        site.mkdir(parents=True, exist_ok=True)
+        (site/'index.html').write_text('<!doctype html><title>Synthetic release</title>')
+        compose('up', '-d', 'web')
+        for attempt in range(30):
+            try:
+                with urlopen(Request('http://127.0.0.1/api/health', headers={'Host': 'api.quizfromnotes.com'}), timeout=2) as response:
+                    assert response.status == 200
+                    assert response.headers['Cache-Control'] == 'no-store'
+                break
+            except OSError:
+                time.sleep(1)
+        else:
+            raise AssertionError('Web proxy did not become ready')
+        with urlopen(Request('http://127.0.0.1/auth/callback', headers={'Host': 'quizfromnotes.com'}), timeout=2) as response:
+            assert b'Synthetic release' in response.read(256)
+            assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']
         compose('restart', 'api', 'guard')
         compose('up', '-d', '--wait', 'api', 'guard')
         compose('exec', '-T', 'api', 'python', '-c', probe)
-        print('PASS: Compose startup/restart; verified TLS; separate runtime roles; disabled gateway; Caddy validation')
+        print('PASS: Compose startup/restart; verified TLS; separate runtime roles; disabled gateway; Caddy validation and local routing')
     finally:
         compose('down', '--timeout', '10')
 
