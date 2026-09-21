@@ -17,7 +17,9 @@ The owner also selected a starting **USD5/month AI allowance**, separate from
 AWS, on September 21, 2026. This is saved as `ai_monthly_budget_usd` in the private
 settings file and the public release template. The prepared gateway now enforces
 integer-dollar reservations as described in [AI cost controls](ai-cost-controls.md).
-Alerts and production model calls are not active yet.
+Alerts and production model calls are not active yet. The
+[September 21 live readiness checks](lightsail-acceptance-2026-09-21.md) confirmed
+that no AWS budget exists; saving the amount and recipient did not activate it.
 
 The [isolated live AI canary](ai-live-canary.md) passed: five questions in
 6.72728 seconds, one paid request, USD0.0006025 conservative settlement.
@@ -188,11 +190,14 @@ and plaintext database connections fail, origin-less identity access fails, the
 gateway returns 429 without an upstream model request, and Caddy validates.
 CI substitutes disposable local image tags only inside its test harness.
 
+The isolated real-model quality/speed check passed, and earlier real signup-email
+confirmation and password-recovery rehearsals have verified evidence. See the
+[acceptance report](lightsail-acceptance-2026-09-21.md) for exact runs and limits.
 Still required before the permanent public launch: exact-host capacity plus
 backup concurrency; live off-server backup/recovery/alarms and confirmed SNS
-delivery; final HTTPS and hostname checks; signup/MFA/email/password recovery;
-real model quality/speed under the approved quota; reconciled account/history
-migration and rollback. Host heartbeat checks local routes and disk capacity;
+delivery; activation of the approved AWS budget; final HTTPS and hostname checks;
+signup/MFA/email/password recovery on the final production configuration;
+reconciled account/history migration and rollback. Host heartbeat checks local routes and disk capacity;
 it does not prove public DNS/TLS, user authentication or model availability.
 Existing JWTs can remain usable until their short configured expiry after
 provider revocation; do not represent the recovery hook as immediate invalidation
