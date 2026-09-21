@@ -113,6 +113,12 @@ def verify_receipt(raw, key, bucket, account):
     payload = receipt['payload']
     if not isinstance(receipt['hmac_sha256'], str) or not hmac.compare_digest(receipt['hmac_sha256'], receipt_mac(payload, key)):
         raise ValueError('Receipt authentication failed')
+    validate_receipt_payload(payload, bucket, account)
+    return payload
+
+
+def validate_receipt_payload(payload, bucket, account):
+    backup.validate_bucket(bucket, account)
     fields = {'format', 'bucket', 'account', 'object_key', 'version_id', 'ciphertext_sha256', 'content_sha256', 'created_at'}
     if (not isinstance(payload, dict) or set(payload) != fields or payload['format'] != RECEIPT_FORMAT
             or payload['bucket'] != bucket or payload['account'] != account
@@ -123,7 +129,6 @@ def verify_receipt(raw, key, bucket, account):
             or payload['version_id'] == 'null'):
         raise ValueError('Invalid backup receipt')
     timestamp(payload['created_at'])
-    return payload
 
 
 def publish_receipt(client, snapshot, uploaded, key, bucket, account):
@@ -176,11 +181,27 @@ def health_status(directory, now=utcnow):
     try:
         state = read_state(private_directory(directory))
         attempt, success = state['last_attempt'], state['last_success']
-        if not attempt or not success or attempt['outcome'] not in ('running', 'succeeded'):
+        if (not isinstance(attempt, dict) or set(attempt) != {'started_at', 'outcome'}
+                or not isinstance(success, dict) or set(success) != {'completed_at', 'receipt'}
+                or attempt['outcome'] not in ('running', 'succeeded')):
             return False
-        age = (now() - timestamp(success['receipt']['payload']['created_at'])).total_seconds()
-        elapsed = (now() - timestamp(attempt['started_at'])).total_seconds()
+        receipt = success['receipt']
+        if not isinstance(receipt, dict) or set(receipt) != {'object_key', 'version_id', 'payload'}:
+            return False
+        payload = receipt['payload']
+        validate_receipt_payload(payload, payload['bucket'], payload['account'])
+        if (receipt['object_key'] != 'receipts/' + payload['ciphertext_sha256'] + '.json'
+                or not isinstance(receipt['version_id'], str) or not 1 <= len(receipt['version_id']) <= 1024
+                or receipt['version_id'] == 'null'):
+            return False
+        current = now()
+        created = timestamp(payload['created_at'])
+        completed = timestamp(success['completed_at'])
+        age = (current - created).total_seconds()
+        elapsed = (current - timestamp(attempt['started_at'])).total_seconds()
         return (-300 <= age <= MAX_AGE_SECONDS and elapsed >= -300
+                and (current - completed).total_seconds() >= -300
+                and (completed - created).total_seconds() >= -300
                 and (attempt['outcome'] != 'running' or elapsed <= MAX_RUNNING_SECONDS))
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return False

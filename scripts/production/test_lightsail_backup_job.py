@@ -172,6 +172,16 @@ class BackupAutomation(unittest.TestCase):
         job.write_state(self.root, state)
         self.assertTrue(job.health_status(self.root, now=lambda: NOW + timedelta(minutes=14)))
         self.assertFalse(job.health_status(self.root, now=lambda: NOW + timedelta(minutes=16)))
+        valid = backup.canonical(state)
+        for field in ('object_key', 'version_id', 'payload'):
+            malformed = json.loads(valid)
+            del malformed['last_success']['receipt'][field]
+            job.write_state(self.root, malformed)
+            self.assertFalse(job.health_status(self.root, now=lambda: NOW))
+        malformed = json.loads(valid)
+        malformed['last_success']['receipt']['version_id'] = 'null'
+        job.write_state(self.root, malformed)
+        self.assertFalse(job.health_status(self.root, now=lambda: NOW))
         (self.root / 'status.json').write_text('corrupt')
         self.assertFalse(job.health_status(self.root, now=lambda: NOW))
 

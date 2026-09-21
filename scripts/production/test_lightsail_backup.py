@@ -245,15 +245,19 @@ class PostgreSQLRecovery(unittest.TestCase):
             backup.export_snapshot(self.source)
 
     def test_restricted_reader_cannot_silently_export_a_partial_rls_backup(self):
+        before = backup.schema_state(self.source)
+        # The first exported table exercises RLS. Do not materialize default
+        # ACLs on unrelated tables: DROP OWNED does not restore a NULL ACL.
         self.source.execute("""CREATE ROLE backup_reader NOLOGIN;
-            GRANT USAGE ON SCHEMA app,billing TO backup_reader;
-            GRANT SELECT ON ALL TABLES IN SCHEMA app,billing TO backup_reader;
+            GRANT USAGE ON SCHEMA app TO backup_reader;
+            GRANT SELECT ON app.users TO backup_reader;
             SET ROLE backup_reader""")
         try:
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 backup.export_snapshot(self.source)
         finally:
             self.source.execute("RESET ROLE; DROP OWNED BY backup_reader; DROP ROLE backup_reader")
+            self.assertEqual(backup.schema_state(self.source), before)
 
 
 if __name__ == "__main__":
