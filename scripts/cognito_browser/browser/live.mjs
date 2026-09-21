@@ -17,6 +17,7 @@ const domain = `https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
 const wait = ms => new Promise(resolve => setTimeout(resolve,ms))
 let phase = 'boot', browser, server, gateway, page
 let startupLog = ''
+let frontendBuild
 let latestLoginDiagnostic
 const preflight = process.env.QUIZFORGE_PREFLIGHT === '1'
 const watchdog = setTimeout(()=>{ console.error('ERROR: rehearsal exceeded five minutes in '+phase); process.exit(1) },300000)
@@ -47,7 +48,9 @@ async function login(name, context, userOverride) {
     if (url.origin === domain && url.pathname === '/oauth2/authorize') authorization = url.searchParams
     if (url.origin === domain && url.pathname === '/oauth2/token' && r.method()==='POST') exchange = new URLSearchParams(r.postData())
   })
+  page.on('pageerror',()=>diagnostic.scriptFailure())
   page.on('response', async response => {
+    if(new URL(response.url()).origin===base && response.request().resourceType()==='script' && response.status()>=400) diagnostic.scriptResponse(response.status())
     if (response.url()===domain+'/oauth2/token' && response.request().method()==='POST') {
       diagnostic.tokenResponse(response.status())
       if(response.status()===200) {
@@ -211,10 +214,23 @@ try {
     incoming.pipe(upstream)
   })
   await new Promise(resolve=>gateway.listen(4175,'127.0.0.1',resolve))
-  server = spawn(process.execPath,['/app/frontend/node_modules/vite/bin/vite.js','--configLoader','runner','--config','/app/frontend/.rehearsal-vite.config.mjs'],{
-    stdio:['ignore','pipe','pipe'],env:{...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
-      VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:api,VITE_IDENTITY_API_URL:api,
-      VITE_SUPABASE_URL:'',VITE_SUPABASE_PUBLISHABLE_KEY:''}})
+  const frontendEnv={...process.env,VITE_AUTH_PROVIDER:'cognito',VITE_COGNITO_STAGING:'true',VITE_COGNITO_USER_POOL_ID:bundle.pool,
+    VITE_COGNITO_CLIENT_ID:bundle.client,VITE_COGNITO_DOMAIN:domain,VITE_API_URL:api,VITE_IDENTITY_API_URL:api,
+    VITE_SUPABASE_URL:'',VITE_SUPABASE_PUBLISHABLE_KEY:''}
+  const vite='/app/frontend/node_modules/vite/bin/vite.js'
+  const viteArgs=['--configLoader','runner','--config','/app/frontend/.rehearsal-vite.config.mjs']
+  // Use built assets, as the deployed site does. Vite's development dependency
+  // optimizer and HMR must not participate in real OAuth navigation tests.
+  phase='frontend production build'
+  frontendBuild=spawn(process.execPath,[vite,'build',...viteArgs,'--outDir','/tmp/cognito-built-web','--emptyOutDir'],
+    {stdio:['ignore','pipe','pipe'],env:frontendEnv})
+  let buildLog=''
+  for(const stream of [frontendBuild.stdout,frontendBuild.stderr]) stream.on('data',chunk=>{buildLog=(buildLog+chunk.toString()).slice(-12000)})
+  const buildCode=await new Promise((resolve,reject)=>{frontendBuild.once('error',reject);frontendBuild.once('exit',resolve)})
+  if(buildCode!==0) { if(preflight) console.error('Offline frontend build:',buildLog); throw new Error('Frontend build failed') }
+  phase='boot'
+  server=spawn(process.execPath,[vite,'preview',...viteArgs,'--outDir','/tmp/cognito-built-web','--host','127.0.0.1','--port','4174','--strictPort'],
+    {stdio:['ignore','pipe','pipe'],env:frontendEnv})
   for(const stream of [server.stdout,server.stderr]) stream.on('data',chunk=>{ if(phase==='boot') startupLog=(startupLog+chunk.toString()).slice(-12000) })
   const deadline = Date.now()+120000
   let ready=false, frontendStatus=0, apiStatus=0, frontendError='', apiError=''
@@ -287,11 +303,11 @@ try {
     const path=new URL(page.url()).pathname
     const known=['/login','/forgotPassword','/confirmForgotPassword','/error','/mfa','/','/auth/callback']
     const body=await page.locator('body').innerText().catch(()=>'')
-    console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body)}))
+    console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body),applicationRendered:/QuizForge|Checking account/.test(body),applicationSignInError:/Sign-in could not be verified/.test(body)}))
   }
   if(preflight&&phase==='boot') console.error('Offline frontend startup:',startupLog)
   if(page) console.error('Visible input schema:',JSON.stringify(await page.locator('input:visible').evaluateAll(nodes=>nodes.map(n=>({name:n.name,type:n.type,id:n.id}))).catch(()=>[])))
   process.exitCode=1
 } finally {
-  clearTimeout(watchdog); await browser?.close(); server?.kill('SIGTERM'); gateway?.close()
+  clearTimeout(watchdog); await browser?.close(); frontendBuild?.kill('SIGTERM'); server?.kill('SIGTERM'); gateway?.close()
 }
