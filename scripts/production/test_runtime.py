@@ -4,11 +4,13 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from uuid import uuid4
 from unittest.mock import patch
 
 import psycopg
 
 import generation_guard as guard
+from generation_costs import PRICING_KEY, maximum_cost
 import inventory
 from build import public_config
 from cloud_transfer import validate_delivery
@@ -104,13 +106,15 @@ class PersistentBudget(unittest.TestCase):
 
     def setUp(self):
         with psycopg.connect(self.dsn, autocommit=True) as owner:
-            owner.execute("TRUNCATE billing.generation_usage")
-            owner.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0")
+            owner.execute("TRUNCATE billing.generation_usage,billing.generation_reservations")
+            owner.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0, "
+                          "monthly_nano_usd=5000000000,pricing_key=%s,pricing_valid_until=current_date+1", (PRICING_KEY,))
 
     def reserve(self, _=None):
         with psycopg.connect(self.dsn, autocommit=True) as connection:
             connection.execute("SET ROLE quizforge_generation")
-            return connection.execute("SELECT billing.reserve_generation()").fetchone()[0]
+            return connection.execute("SELECT billing.reserve_generation_cost(%s,%s,%s)",
+                                      (uuid4(), maximum_cost(8192), PRICING_KEY)).fetchone()[0]
 
     def test_disabled_missing_policy_and_persistent_concurrent_cap(self):
         self.assertFalse(self.reserve())
@@ -134,11 +138,84 @@ class PersistentBudget(unittest.TestCase):
             owner.execute("UPDATE billing.generation_usage SET starts_on=starts_on-1 WHERE period='day'")
         self.assertTrue(self.reserve()); self.assertFalse(self.reserve())
 
+    def enable_cost_policy(self):
+        with psycopg.connect(self.dsn, autocommit=True) as owner:
+            owner.execute("UPDATE billing.generation_policy SET enabled=true,daily_requests=1000,monthly_requests=10000")
+
+    def reserve_cost(self, cost, attempt=None, key=PRICING_KEY):
+        with psycopg.connect(self.dsn, autocommit=True) as conn:
+            conn.execute("SET ROLE quizforge_generation")
+            return conn.execute("SELECT billing.reserve_generation_cost(%s,%s,%s)",
+                                (attempt or uuid4(),cost,key)).fetchone()[0]
+
+    def settle_cost(self, attempt, cost):
+        with psycopg.connect(self.dsn, autocommit=True) as conn:
+            conn.execute("SET ROLE quizforge_generation")
+            return conn.execute("SELECT billing.settle_generation_cost(%s,%s)", (attempt,cost)).fetchone()[0]
+
+    def test_dollar_boundary_blocks_before_exceeding_five_and_allows_exact_fit(self):
+        self.enable_cost_policy()
+        for _ in range(4): self.assertTrue(self.reserve_cost(1000000000))
+        self.assertTrue(self.reserve_cost(990000000))
+        self.assertFalse(self.reserve_cost(20000000))  # $4.99 + $0.02.
+        self.assertTrue(self.reserve_cost(10000000))
+        self.assertFalse(self.reserve_cost(1))
+        with psycopg.connect(self.dsn) as owner:
+            self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month'").fetchone()[0], 5000000000)
+
+    def test_concurrent_dollars_cannot_overspend_and_new_process_keeps_balance(self):
+        self.enable_cost_policy()
+        with ThreadPoolExecutor(max_workers=16) as workers:
+            self.assertEqual(sum(workers.map(lambda _: self.reserve_cost(500000000),range(24))),10)
+        self.assertFalse(self.reserve_cost(1))
+        # A fresh interpreter/connection sees persisted usage, not a process counter.
+        import subprocess, sys
+        code = "import sys,psycopg; from uuid import uuid4; c=psycopg.connect(sys.argv[1]); c.execute('SET ROLE quizforge_generation'); assert c.execute('SELECT billing.reserve_generation_cost(%s,%s,%s)', (uuid4(),1,sys.argv[2])).fetchone()[0] is False"
+        subprocess.run([sys.executable,'-c',code,self.dsn,PRICING_KEY],check=True)
+
+    def test_settlement_is_once_only_and_refunds_the_original_month(self):
+        self.enable_cost_policy()
+        attempt=uuid4()
+        self.assertTrue(self.reserve_cost(1000000000,attempt))
+        self.assertFalse(self.reserve_cost(1000000000,attempt))
+        self.assertFalse(self.settle_cost(attempt,1000000001))
+        # Move this outstanding reservation and its usage to the previous month.
+        with psycopg.connect(self.dsn,autocommit=True) as owner:
+            owner.execute("UPDATE billing.generation_usage SET starts_on=starts_on-interval '1 month'")
+            owner.execute("UPDATE billing.generation_reservations SET day_start=day_start-interval '1 month',month_start=month_start-interval '1 month'")
+        self.assertTrue(self.reserve_cost(1000000000))  # Fresh month has its own allowance.
+        self.assertTrue(self.settle_cost(attempt,10000000))
+        self.assertFalse(self.settle_cost(attempt,0))
+        with psycopg.connect(self.dsn) as owner:
+            self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month' ORDER BY starts_on").fetchall(),[(10000000,),(1000000000,)])
+
+    def test_no_response_retains_reservation_and_retries_consume_more(self):
+        self.enable_cost_policy()
+        self.assertTrue(self.reserve_cost(1000000000))
+        # Deliberately never settle: simulates timeout, unknown usage or crash.
+        self.assertTrue(self.reserve_cost(1000000000))
+        with psycopg.connect(self.dsn) as owner:
+            self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month'").fetchone()[0],2000000000)
+
+    def test_stale_missing_or_wrong_prices_and_invalid_money_fail_closed(self):
+        self.enable_cost_policy()
+        for cost in (None,0,-1,1000000001): self.assertFalse(self.reserve_cost(cost))
+        self.assertFalse(self.reserve_cost(1,key='unreviewed'))
+        with psycopg.connect(self.dsn,autocommit=True) as owner:
+            owner.execute("UPDATE billing.generation_policy SET pricing_valid_until=current_date")
+        self.assertFalse(self.reserve_cost(1))
+        with psycopg.connect(self.dsn,autocommit=True) as owner:
+            owner.execute("DELETE FROM billing.generation_policy")
+        self.assertFalse(self.reserve_cost(1))
+        with psycopg.connect(self.dsn,autocommit=True) as owner:
+            owner.execute("INSERT INTO billing.generation_policy VALUES(true,false,0,0)")
+
     def test_runtime_role_cannot_reset_quota_or_enable_spend(self):
         with psycopg.connect(self.dsn, autocommit=True) as connection:
             connection.execute("SET ROLE quizforge_generation")
             for statement in ("UPDATE billing.generation_policy SET enabled=true",
-                              "DELETE FROM billing.generation_usage", "TRUNCATE billing.generation_usage"):
+                              "DELETE FROM billing.generation_usage", "TRUNCATE billing.generation_usage",
+                              "DELETE FROM billing.generation_reservations"):
                 with self.assertRaises(psycopg.errors.InsufficientPrivilege): connection.execute(statement)
             connection.execute("RESET ROLE")
             allowed = connection.execute("SELECT has_function_privilege('quizforge_generation', 'billing.reserve_generation()', 'EXECUTE')").fetchone()[0]

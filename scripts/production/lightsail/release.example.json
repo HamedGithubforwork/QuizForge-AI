@@ -16,6 +16,7 @@
     "caddy": ""
   },
   "monthly_budget_usd": 20,
+  "ai_monthly_budget_usd": 5,
   "alert_email": "",
   "ssh_public_key": "",
   "admin_ipv4_cidr": "",

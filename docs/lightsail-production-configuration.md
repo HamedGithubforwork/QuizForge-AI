@@ -15,8 +15,9 @@ saved privately in `quizforge-production-settings.json` with the approved
 budget; the public release template deliberately keeps `alert_email` blank.
 The owner also selected a starting **USD5/month AI allowance**, separate from
 AWS, on September 21, 2026. This is saved as `ai_monthly_budget_usd` in the private
-settings file. It records the spending decision; it is not an active dollar
-cutoff. Alerts and production model calls are not active yet.
+settings file and the public release template. The prepared gateway now enforces
+integer-dollar reservations as described in [AI cost controls](ai-cost-controls.md).
+Alerts and production model calls are not active yet.
 
 ## Concrete configuration
 
@@ -42,16 +43,16 @@ earlier USD15–20 allowance is an estimate, not a cap. Recheck the account's ac
 bundle, plan, credits and regional availability before an activation plan.
 [AWS Lightsail pricing](https://aws.amazon.com/lightsail/pricing/), checked September 21, 2026.
 
-AWS Budgets sends alerts; it does not stop the server. AI controls count upstream
-attempts (including retries and semantic answer review), not quizzes or dollars.
-They retain the reviewed model, input/output bounds and persistent daily/monthly
-reservations. Disabled, missing or unavailable budget state blocks model calls.
-The approved USD5/month AI allowance must be translated into verified cost
-controls before enabling AI: check the selected model's current price, derive
-conservative request limits from bounded input/output costs, and verify the
-provider's billing controls. Daily/monthly request limits remain unset until
-that calculation and enforcement are tested. Do not treat an alert-only
-provider budget as a hard cutoff or an example request quota as approved.
+AWS Budgets sends alerts; it does not stop the server. AI controls reserve a
+conservative maximum USD cost atomically with daily/monthly attempt counters,
+including retries and semantic answer review. Valid provider usage releases
+unused money once; missing usage or an uncertain failure retains the maximum.
+Disabled, missing, unavailable or expired-price budget state blocks model calls.
+The prepared monthly allowance is USD5 for this gateway's model calls. It does
+not cover taxes, AWS or calls made through other keys/services. Request ceilings
+remain additional controls and are still unselected. Review current provider
+pricing before enabling AI; the prepared rate card expires October 21, 2026.
+See [AI cost controls](ai-cost-controls.md) for conservative bounds and tests.
 
 ## Resource and storage limits
 
@@ -72,14 +73,14 @@ maintenance. This configuration is not high availability or point-in-time recove
 
 1. Use the approved USD20 monthly AWS alert budget and copy the selected alert
    email from the private `quizforge-production-settings.json` into the private
-   release configuration. Derive daily/monthly model-attempt limits within the
-   approved USD5 monthly AI allowance, and supply the operator SSH public key
-   and current operator `/32`. Keep the SSH
+   release configuration. Copy `ai_monthly_budget_usd: 5` and choose additional
+   daily/monthly attempt ceilings. Supply the operator SSH public key and current
+   operator `/32`. Keep the SSH
    private key outside Terraform and the completed release configuration out of
    Git. `release.example.json` records the approved budget; its blank email is a
    public placeholder. The private settings file records owner decisions and is
-   not a complete renderer input: `ai_monthly_budget_usd` is planning metadata,
-   while the renderer accepts the derived request limits.
+   not a complete renderer input. The renderer writes the USD allowance and
+   reviewed pricing key/expiry into SQL with `enabled=false`; it never enables AI.
 2. Package the existing tested Cognito recovery hook with
    `python scripts/production/lightsail/package_recovery.py`. Initialize the new
    Terraform root with a **separate** encrypted state key
@@ -194,5 +195,6 @@ of already-issued locally verified JWTs.
 No domain cutover, user-data transfer, paid provisioning or merge is authorized
 by generating or validating this configuration. The monthly AWS alert budget is
 approved at USD20, the starting monthly AI allowance is approved at USD5, and
-the selected alert inbox is saved privately. AI remains disabled until cost
-enforcement is configured and tested within that allowance.
+the selected alert inbox is saved privately. Monetary enforcement is prepared;
+AI remains disabled until the reviewed policy is installed and live acceptance
+is completed within that allowance.

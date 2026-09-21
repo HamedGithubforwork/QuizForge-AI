@@ -133,9 +133,12 @@ class PostgreSQLRecovery(unittest.TestCase):
                 'Other owner','other.pdf',NULL,'hard','short_answer',1,1,100,'{}','{}',now());
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
-            UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100;
+            UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
             INSERT INTO billing.generation_usage VALUES ('day',current_date,7),
-                ('month',date_trunc('month',current_date)::date,27)""")
+                ('month',date_trunc('month',current_date)::date,27);
+            UPDATE billing.generation_usage SET accounted_nano_usd=10000000;
+            INSERT INTO billing.generation_reservations VALUES
+                ('20000000-0000-0000-0000-000000000001',current_date,date_trunc('month',current_date)::date,10000000,NULL)""")
 
     @classmethod
     def tearDownClass(cls):
@@ -143,8 +146,8 @@ class PostgreSQLRecovery(unittest.TestCase):
         cls.target.close()
 
     def setUp(self):
-        self.target.execute("TRUNCATE app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage")
-        self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0")
+        self.target.execute("TRUNCATE app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
+        self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0,monthly_nano_usd=0,pricing_key='',pricing_valid_until='1970-01-01'")
         self.snapshot = backup.export_snapshot(self.source)
 
     def target_rows(self):
@@ -166,14 +169,14 @@ class PostgreSQLRecovery(unittest.TestCase):
                 self.assertEqual(rows[table], restored["tables"][table])
         self.assertEqual(rows["app.identity_challenges"], [])
         policy = json.loads(rows["billing.generation_policy"][0])
-        self.assertEqual(policy, {"singleton": True, "enabled": False, "daily_requests": 10, "monthly_requests": 100})
+        self.assertEqual(policy, json.loads(restored["tables"]["billing.generation_policy"][0]) | {"enabled": False})
         self.assertEqual(len(rows["app.users"]), 3)  # Includes the account without history.
         with self.target.transaction():
             self.target.execute("SET LOCAL ROLE quizforge_app")
             self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
             self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
+                with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage,billing.generation_reservations")
         with self.target.transaction():
             self.target.execute("SET LOCAL ROLE quizforge_generation")
             self.assertFalse(self.target.execute("SELECT billing.reserve_generation()").fetchone()[0])

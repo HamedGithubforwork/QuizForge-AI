@@ -12,12 +12,13 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from build import public_config
+from generation_costs import usd_nano, PRICING_KEY, PRICING_VALID_UNTIL
 
 HERE = Path(__file__).resolve().parent
 
 
 def validate(config):
-    if set(config) != {"public", "images", "monthly_budget_usd", "alert_email", "ssh_public_key", "admin_ipv4_cidr", "ai_daily_requests", "ai_monthly_requests"}:
+    if set(config) != {"public", "images", "monthly_budget_usd", "alert_email", "ssh_public_key", "admin_ipv4_cidr", "ai_daily_requests", "ai_monthly_requests", "ai_monthly_budget_usd"}:
         raise ValueError("Use only the documented release fields; credentials are separate")
     public_config(config["public"])
     images = config["images"]
@@ -38,6 +39,7 @@ def validate(config):
     if not re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/]+={0,2}( [^\r\n]+)?", config["ssh_public_key"]):
         raise ValueError("Supply only an Ed25519 public SSH key")
     day, month = config["ai_daily_requests"], config["ai_monthly_requests"]
+    usd_nano(config["ai_monthly_budget_usd"])
     if type(day) is not int or type(month) is not int or not 0 <= day <= min(month, 1000) or not month <= 10000:
         raise ValueError("Choose request limits within 0–1000 daily and 0–10000 monthly")
     return config
@@ -108,7 +110,11 @@ def render(config, destination):
              "production.auto.tfvars.json": json.dumps({k: config[k] for k in ("monthly_budget_usd", "alert_email", "ssh_public_key", "admin_ipv4_cidr")}, indent=2) + "\n",
              "backup.auto.tfvars.json": json.dumps({"alert_email": config["alert_email"]}) + "\n",
              # Choosing limits never enables calls; separate activation after acceptance.
-             "reviewed-ai-policy.sql": f"UPDATE billing.generation_policy SET enabled=false, daily_requests={config['ai_daily_requests']}, monthly_requests={config['ai_monthly_requests']} WHERE singleton;\n"}
+             "reviewed-ai-policy.sql": (
+                 "UPDATE billing.generation_policy SET enabled=false, "
+                 f"daily_requests={config['ai_daily_requests']}, monthly_requests={config['ai_monthly_requests']}, "
+                 f"monthly_nano_usd={usd_nano(config['ai_monthly_budget_usd'])}, "
+                 f"pricing_key='{PRICING_KEY}', pricing_valid_until='{PRICING_VALID_UNTIL}' WHERE singleton;\n")}
     for name in ("postgresql.conf", "pg_hba.conf", "Caddyfile"):
         files[name] = (HERE / name).read_text().replace("__AUTH_ORIGIN__", config["public"]["auth_origin"])
     for name, content in files.items():

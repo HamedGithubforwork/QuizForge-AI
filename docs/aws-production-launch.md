@@ -121,12 +121,13 @@ See [regional assumptions](aws-production-readiness.md),
 [AWS WAF pricing](https://aws.amazon.com/waf/pricing/), and
 [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/).
 
-Proposed starting controls for review: USD100/month AWS alerts at 50%, 80%, 100%
-actual and 100% forecast; ten model attempts/day and one hundred/month. The model
-counter includes failures/retries and semantic answer review, with a fixed model,
-512 KiB request-body ceiling and 8192 output-token ceiling. These are request
-limits, not a dollar-denominated model cap. The database starts at zero/disabled
-until the owner selects the limits. AWS budget alerts do not stop AWS charges.
+The selected Lightsail track records USD20/month AWS alerts and a separate
+USD5/month AI allowance. The loopback gateway now reserves conservative USD
+costs before model calls, as well as counting failures/retries and semantic answer
+review against daily/monthly request ceilings. Valid usage settles reservations
+once; missing usage keeps the maximum. See [AI cost controls](ai-cost-controls.md)
+for pricing, scope, tests and recovery. The database starts disabled with zero
+allowances; choosing limits does not activate it. AWS alerts do not stop charges.
 
 ## Migration and account preservation
 

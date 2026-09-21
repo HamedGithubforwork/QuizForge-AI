@@ -1,21 +1,21 @@
-"""Loopback model gateway with persistent daily/monthly request ceilings.
+"""Loopback model gateway with persistent request and USD cost ceilings.
 
 Every upstream attempt consumes a committed PostgreSQL reservation, even when
 OpenAI fails. Missing/disabled/unavailable budget state prevents model calls.
-This caps requests and payload sizes, not the entire AWS invoice or USD spend.
+USD reservations cover this gateway's model calls, not AWS or other API keys.
 """
 from http.client import HTTPSConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
-import re
 import threading
+from uuid import uuid4
 
 import psycopg
 from database import options as database_options
+from generation_costs import MODEL, MAX_OUTPUT_TOKENS, PRICING_KEY, maximum_cost, accounted_cost
 
 MAX_BODY_BYTES = 524288
-MAX_OUTPUT_TOKENS = 8192
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
 
@@ -25,7 +25,7 @@ def bounded_request(raw):
     body = json.loads(raw)
     if not isinstance(body, dict) or set(body) - {"model", "input", "text", "max_output_tokens", "store"}:
         raise ValueError("Unsupported request fields")
-    if body.get("model") != "gpt-5.6-luna" or not isinstance(body.get("input"), list) or not body["input"]:
+    if body.get("model") != MODEL or not isinstance(body.get("input"), list) or not body["input"]:
         raise ValueError("Unexpected model or input")
     if any(not isinstance(m, dict) or set(m) != {"role", "content"}
            or m["role"] not in {"developer", "user"} or not isinstance(m["content"], str) for m in body["input"]):
@@ -35,6 +35,7 @@ def bounded_request(raw):
         raise ValueError("Invalid output bound")
     body["max_output_tokens"] = min(cap, MAX_OUTPUT_TOKENS)
     body["store"] = False
+    body["service_tier"] = "default"  # Never inherit a more expensive project tier.
     return json.dumps(body).encode()
 
 
@@ -47,10 +48,17 @@ def connection_options(env):
     return result
 
 
-def reserve(options):
-    # Autocommit persists the reservation before the external request begins.
+def reserve(options, attempt_id, cost):
+    # The connection context commits before the external request begins.
     with psycopg.connect(**options) as conn:
-        return conn.execute("SELECT billing.reserve_generation()").fetchone()[0] is True
+        return conn.execute("SELECT billing.reserve_generation_cost(%s,%s,%s)",
+                            (attempt_id, cost, PRICING_KEY)).fetchone()[0] is True
+
+
+def settle(options, attempt_id, cost):
+    with psycopg.connect(**options) as conn:
+        return conn.execute("SELECT billing.settle_generation_cost(%s,%s)",
+                            (attempt_id, cost)).fetchone()[0] is True
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -84,7 +92,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(raw) != size:
                 raise ValueError("Incomplete request")
             body = bounded_request(raw)
-            if not reserve(self.server.database):
+            output_limit = json.loads(body)["max_output_tokens"]
+            attempt_id = uuid4()
+            if not reserve(self.server.database, attempt_id, maximum_cost(output_limit)):
                 self.reply(429, b'{"error":{"message":"Generation usage limit reached"}}')
                 return
             upstream = HTTPSConnection("api.openai.com", timeout=100)
@@ -94,6 +104,10 @@ class Handler(BaseHTTPRequestHandler):
             data = response.read(MAX_RESPONSE_BYTES + 1)
             if len(data) > MAX_RESPONSE_BYTES or 300 <= response.status < 400:
                 raise ValueError("Unexpected upstream response")
+            cost = accounted_cost(data, output_limit) if response.status == 200 else None
+            if cost is not None:
+                # Failure here keeps the committed maximum; retrying cannot refund twice.
+                settle(self.server.database, attempt_id, cost)
             self.reply(response.status, data)
             print("Model attempt completed; status=" + str(response.status), flush=True)
         except (ValueError, UnicodeError):

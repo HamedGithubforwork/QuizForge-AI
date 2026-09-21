@@ -22,7 +22,7 @@ def fixture():
         "images": {name: ("123456789012.dkr.ecr.ca-central-1.amazonaws.com/quizforge-api" if name in ("api", "operations", "caddy") else "docker.io/library/" + name) + "@sha256:" + "a" * 64
                    for name in ("api", "operations", "postgres", "redis", "caddy")},
         "monthly_budget_usd": 20, "alert_email": "synthetic@example.com", "ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly",
-        "admin_ipv4_cidr": "192.0.2.10/32", "ai_daily_requests": 0, "ai_monthly_requests": 0}
+        "admin_ipv4_cidr": "192.0.2.10/32", "ai_daily_requests": 0, "ai_monthly_requests": 0, "ai_monthly_budget_usd": 5}
 
 
 class Configuration(unittest.TestCase):
@@ -43,7 +43,9 @@ class Configuration(unittest.TestCase):
         for key, bad in (("monthly_budget_usd", None), ("monthly_budget_usd", 5), ("alert_email", "owner@example.invalid"),
                          ("admin_ipv4_cidr", "0.0.0.0/0"), ("admin_ipv4_cidr", "::/0"),
                          ("ai_daily_requests", None), ("ai_daily_requests", True), ("ai_daily_requests", 1001),
-                         ("ai_monthly_requests", 10001), ("ssh_public_key", "PRIVATE KEY")):
+                         ("ai_monthly_requests", 10001), ("ssh_public_key", "PRIVATE KEY"),
+                         ("ai_monthly_budget_usd", 6), ("ai_monthly_budget_usd", True),
+                         ("ai_monthly_budget_usd", float("nan")), ("ai_monthly_budget_usd", 0.001)):
             with self.subTest(key=key, bad=bad), self.assertRaises((ValueError, TypeError)):
                 validate(fixture() | {key: bad})
         with self.assertRaises(ValueError): validate(fixture() | {"OPENAI_API_KEY": "secret"})
@@ -81,6 +83,7 @@ class Configuration(unittest.TestCase):
             self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
             for path in destination.iterdir(): self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             self.assertIn("enabled=false", (destination / "reviewed-ai-policy.sql").read_text())
+            self.assertIn("monthly_nano_usd=5000000000", (destination / "reviewed-ai-policy.sql").read_text())
             self.assertNotIn("__AUTH_ORIGIN__", (destination / "Caddyfile").read_text())
             with self.assertRaises(FileExistsError): render(config, destination)
 
