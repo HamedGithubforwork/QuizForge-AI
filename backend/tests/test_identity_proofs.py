@@ -101,3 +101,22 @@ def test_production_configuration_rejects_privileged_legacy_keys():
     for key in (token("service_role"),token("authenticated"),token("anon","foreign"),
                 "sb_secret_synthetic_secret_key_12345","bad"):
         assert not public_legacy_key(key)
+
+
+def test_lightsail_production_requires_explicit_target_role_port_and_ca(monkeypatch):
+    values = {"IDENTITY_ENVIRONMENT": "production", "IDENTITY_ALLOWED_ORIGIN": "https://quizfromnotes.com",
+              "IDENTITY_DB_HOST": "db.quizforge.internal", "IDENTITY_DB_NAME": "quizforge",
+              "IDENTITY_DB_USER": "quizforge_identity", "IDENTITY_DB_PORT": "5432",
+              "IDENTITY_DB_SSLROOTCERT": "/run/quizforge/db-ca.pem", "PRODUCTION_DATABASE_TARGET": "lightsail",
+              "IDENTITY_SUPABASE_URL": "https://vfxmsvphgcaizqnbyjip.supabase.co",
+              "IDENTITY_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_synthetic_public_key_12345"}
+    monkeypatch.delenv("IDENTITY_STAGING_ENABLED", raising=False)
+    for name, value in values.items(): monkeypatch.setenv(name, value)
+    assert settings()[0] == values["IDENTITY_ALLOWED_ORIGIN"]
+    for name, bad in (("PRODUCTION_DATABASE_TARGET", "rds"), ("PRODUCTION_DATABASE_TARGET", "unknown"),
+                      ("IDENTITY_DB_HOST", "localhost"), ("IDENTITY_DB_HOST", "restore-db.quizforge.internal"),
+                      ("IDENTITY_DB_USER", "quizforge_owner"), ("IDENTITY_DB_PORT", "5433"),
+                      ("IDENTITY_DB_SSLROOTCERT", "")):
+        monkeypatch.setenv(name, bad)
+        with pytest.raises(RuntimeError): settings()
+        monkeypatch.setenv(name, values[name])

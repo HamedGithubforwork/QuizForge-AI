@@ -56,11 +56,20 @@ def settings():
                 or legacy.path or legacy.query or legacy.fragment or not key):
         raise RuntimeError("Legacy proof requires an exact HTTPS origin and a publishable key")
     if environment == "production":
+        target = os.getenv("PRODUCTION_DATABASE_TARGET", "rds")
+        host = os.getenv("IDENTITY_DB_HOST", "")
+        database_allowed = (
+            target == "rds" and bool(re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com", host))
+        ) or (
+            target == "lightsail" and host == "db.quizforge.internal"
+            and os.getenv("IDENTITY_DB_PORT", "5432") == "5432"
+            and os.getenv("IDENTITY_DB_USER") == "quizforge_identity"
+            and bool(os.getenv("IDENTITY_DB_SSLROOTCERT"))
+        )
         if (origin != "https://quizfromnotes.com" or os.getenv("IDENTITY_STAGING_ENABLED") == "true"
                 or url != "https://vfxmsvphgcaizqnbyjip.supabase.co" or not public_legacy_key(key)
                 or os.getenv("IDENTITY_DB_NAME") != "quizforge"
-                or not re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com",
-                                    os.getenv("IDENTITY_DB_HOST", ""))):
+                or not database_allowed):
             raise RuntimeError("Production enrollment requires the exact reviewed domain, source and database")
     return origin, url, key
 

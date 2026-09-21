@@ -34,3 +34,10 @@ history access, isolation and logout. Lost-authenticator recovery requires an
 operator process that verifies ownership independently; an email match alone
 must never trigger MFA removal. Archive release images and retain the source
 snapshot before any traffic change.
+
+The prepared Lightsail variant explicitly sets `PRODUCTION_DATABASE_TARGET=lightsail`,
+`IDENTITY_DB_HOST=db.quizforge.internal`, port `5432`, database `quizforge`, role
+`quizforge_identity`, and `IDENTITY_DB_SSLROOTCERT` to the separately delivered
+private CA. All connections still use `verify-full`; no localhost, restore host,
+unknown target, alternate port or owner role is accepted. The default remains the
+reviewed RDS target. This opt-in is preparation only and does not start a service.
