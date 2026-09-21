@@ -1,0 +1,24 @@
+{
+  "public": {
+    "pool": "",
+    "client": "",
+    "auth_origin": "",
+    "frontend_url": "https://quizfromnotes.com",
+    "api_url": "https://api.quizfromnotes.com",
+    "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
+    "legacy_publishable_key": ""
+  },
+  "images": {
+    "api": "",
+    "operations": "",
+    "postgres": "",
+    "redis": "",
+    "caddy": ""
+  },
+  "monthly_budget_usd": null,
+  "alert_email": "",
+  "ssh_public_key": "",
+  "admin_ipv4_cidr": "",
+  "ai_daily_requests": null,
+  "ai_monthly_requests": null
+}

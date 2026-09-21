@@ -1,5 +1,7 @@
 # AWS production-readiness plan
 
+The September 21 [permanent Lightsail configuration](lightsail-production-configuration.md) now prepares the separate host, private runtime, authentication, cost alerts and disabled AI controls. It is inactive and awaits owner settings and live acceptance.
+
 Prepared September 19, 2026; evidence updated September 20. This is a review plan, not a production deployment.
 Production remains on Vercel, Render and Supabase. Application PR #97 remains
 draft and unmerged. Live rehearsal evidence is in [integrated staging](aws-integrated-staging.md).

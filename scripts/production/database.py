@@ -18,8 +18,12 @@ def options(env, source=False):
         expected = (values["HOST"] == SOURCE_HOST or (
             bool(re.fullmatch(r"aws-[0-9]+-ca-central-1\.pooler\.supabase\.com", values["HOST"]))
             and values["USER"] == "postgres.vfxmsvphgcaizqnbyjip"))
-    else:
+    elif env.get("PRODUCTION_DATABASE_TARGET", "rds") == "lightsail":
+        expected = values["HOST"] == "db.quizforge.internal" and env.get("PGPORT", "5432") == "5432"
+    elif env.get("PRODUCTION_DATABASE_TARGET", "rds") == "rds":
         expected = bool(re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com", values["HOST"]))
+    else:
+        expected = False
     if not expected or values["DATABASE"] != ("postgres" if source else "quizforge"):
         raise ValueError("Database is outside the reviewed migration boundary")
     if any(not value for value in values.values()) or not Path(values["SSLROOTCERT"]).is_file():

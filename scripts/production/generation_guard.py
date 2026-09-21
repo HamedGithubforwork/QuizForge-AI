@@ -12,6 +12,7 @@ import re
 import threading
 
 import psycopg
+from database import options as database_options
 
 MAX_BODY_BYTES = 524288
 MAX_OUTPUT_TOKENS = 8192
@@ -38,13 +39,12 @@ def bounded_request(raw):
 
 
 def connection_options(env):
-    if (not re.fullmatch(r"quizforge-production\.[a-z0-9]+\.ca-central-1\.rds\.amazonaws\.com", env["PGHOST"])
-            or env["PGDATABASE"] != "quizforge" or env["PGUSER"] != "quizforge_generation"):
-        raise ValueError("Unexpected generation budget database")
-    return {"host": env["PGHOST"], "dbname": "quizforge", "user": "quizforge_generation",
-            "password": env["PGPASSWORD"], "sslmode": "verify-full", "sslrootcert": env["PGSSLROOTCERT"],
-            "connect_timeout": 5, "autocommit": True,
-            "options": "-c statement_timeout=5000 -c lock_timeout=3000"}
+    if env.get("PGUSER") != "quizforge_generation":
+        raise ValueError("Unexpected generation budget database role")
+    result = database_options(env)
+    result.pop("row_factory")
+    result.update(connect_timeout=5, options="-c statement_timeout=5000 -c lock_timeout=3000")
+    return result
 
 
 def reserve(options):

@@ -1,5 +1,7 @@
 # Permanent AWS launch — prepared configuration
 
+The September 21 [permanent Lightsail configuration](lightsail-production-configuration.md) now prepares the separate host, private runtime, authentication, cost alerts and disabled AI controls. It is inactive and awaits owner settings and live acceptance.
+
 The owner requested a lower-cost Lightsail evaluation after reviewing this
 managed-stack estimate. See the [small-server capacity results](aws-small-server-capacity.md):
 the September 20 real Lightsail retests passed both capacity profiles, including
