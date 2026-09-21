@@ -23,6 +23,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Check that the live test key is available without displaying it
+        if: >-
+          github.run_attempt == 1 &&
+          ((github.event_name == 'workflow_dispatch' && inputs.run_live) ||
+           (github.event_name == 'push' && github.event.head_commit.message == 'test: run the approved single AI canary (2026-09-21)'))
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::The OPENAI_API_KEY repository secret is unavailable. No model request was sent."
+            exit 1
+          fi
+          echo "The live test key is available; its value will not be displayed."
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
