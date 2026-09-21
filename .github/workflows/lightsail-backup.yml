@@ -1,0 +1,60 @@
+name: Lightsail backup and restore rehearsal
+
+on:
+  pull_request:
+    paths:
+      - "scripts/production/lightsail_backup.py"
+      - "scripts/production/test_lightsail_backup.py"
+      - "scripts/production/schema.sql"
+      - "scripts/production/generation_budget.sql"
+      - "scripts/production/transfer.py"
+      - "scripts/rds_rehearsal/requirements.lock"
+      - ".github/workflows/lightsail-backup.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/production/lightsail_backup.py"
+      - "scripts/production/test_lightsail_backup.py"
+      - "scripts/production/schema.sql"
+      - "scripts/production/generation_budget.sql"
+      - "scripts/production/transfer.py"
+      - "scripts/rds_rehearsal/requirements.lock"
+      - ".github/workflows/lightsail-backup.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    name: Encrypted PostgreSQL 17 recovery and ownership
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      source:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_PASSWORD: synthetic-backup-ci
+        ports: ["55431:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+      target:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_PASSWORD: synthetic-restore-ci
+        ports: ["55432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Restore synthetic data into a separate fresh database
+        env:
+          LIGHTSAIL_BACKUP_TEST_SOURCE: postgresql://postgres:synthetic-backup-ci@127.0.0.1:55431/quizforge
+          LIGHTSAIL_BACKUP_TEST_TARGET: postgresql://postgres:synthetic-restore-ci@127.0.0.1:55432/quizforge
+        run: python -m unittest discover -s scripts/production -p test_lightsail_backup.py -v

@@ -2,9 +2,12 @@
 
 The owner requested a lower-cost Lightsail evaluation after reviewing this
 managed-stack estimate. See the [small-server capacity results](aws-small-server-capacity.md):
-the 2 GiB memory budget fits and the background-processing candidate completes
-30-page scans under sustained CPU limits. The 10-page and two-scan timing targets
-still fail in that profile; see the exact results and remaining launch requirements.
+the September 20 real Lightsail retests passed both capacity profiles, including
+the 10-page, two-scan and interrupted-recovery targets that failed earlier.
+The controlled same-host comparison also supports retaining grayscale native OCR.
+See the exact results and remaining launch requirements. The September 21
+[backup/restore preparation](lightsail-backup-restore.md) begins the small-server
+recovery work; live delivery, scheduling and full-host recovery remain pending.
 The USD88 proposal below remains unapplied and is not the selected next activation
 step.
 

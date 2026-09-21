@@ -31,6 +31,14 @@ The complete integrated staging workflow passed on September 20, including the
 corrected private rate-counter verification and independent AWS teardown. The
 production decisions and acceptance gates below remain pending.
 
+The September 21 continuation adds [encrypted Lightsail application-data backup
+and isolated restore preparation](lightsail-backup-restore.md). It preserves
+identity mappings, quiz history and usage counters and reconciles a fresh target
+transactionally, with model spending disabled after recovery. Its separate
+PostgreSQL rehearsal must pass before use. Live off-instance delivery, scheduled
+backups/alerts, key recovery and a measured full-host rebuild remain open; this
+does not close the production recovery gate or activate permanent infrastructure.
+
 ## Running cost before a cutover
 
 An always-on copy of the small rehearsal architecture would cost approximately
@@ -152,4 +160,3 @@ The next implementation milestone after the integrated rehearsal is a reviewed
 production configuration and read-only source inventory, with cost and recovery
 choices made explicit. Actual user migration and public cutover follow only after
 those results are reviewable.
-
