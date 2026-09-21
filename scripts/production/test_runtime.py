@@ -197,6 +197,20 @@ class PersistentBudget(unittest.TestCase):
         with psycopg.connect(self.dsn) as owner:
             self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month'").fetchone()[0],2000000000)
 
+    def test_real_gateway_database_adapter_commits_and_concurrent_refund_happens_once(self):
+        from psycopg.conninfo import conninfo_to_dict
+        self.enable_cost_policy()
+        settings=conninfo_to_dict(self.dsn) | {"options":"-c role=quizforge_generation"}
+        attempt=uuid4()
+        self.assertTrue(guard.reserve(settings,attempt,maximum_cost(8192)))
+        with psycopg.connect(self.dsn) as owner:
+            self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month'").fetchone()[0],539745600)
+        with ThreadPoolExecutor(max_workers=8) as workers:
+            results=list(workers.map(lambda _: guard.settle(settings,attempt,490000),range(16)))
+        self.assertEqual(sum(results),1)
+        with psycopg.connect(self.dsn) as owner:
+            self.assertEqual(owner.execute("SELECT accounted_nano_usd FROM billing.generation_usage WHERE period='month'").fetchone()[0],490000)
+
     def test_stale_missing_or_wrong_prices_and_invalid_money_fail_closed(self):
         self.enable_cost_policy()
         for cost in (None,0,-1,1000000001): self.assertFalse(self.reserve_cost(cost))
@@ -220,6 +234,10 @@ class PersistentBudget(unittest.TestCase):
             connection.execute("RESET ROLE")
             allowed = connection.execute("SELECT has_function_privilege('quizforge_generation', 'billing.reserve_generation()', 'EXECUTE')").fetchone()[0]
             self.assertTrue(allowed)
+            self.assertFalse(connection.execute("SELECT billing.reserve_generation()").fetchone()[0])
+            for function in ("billing.reserve_generation_cost(uuid,bigint,text)", "billing.settle_generation_cost(uuid,bigint)"):
+                self.assertTrue(connection.execute("SELECT has_function_privilege('quizforge_generation',%s,'EXECUTE')",(function,)).fetchone()[0])
+                self.assertFalse(connection.execute("SELECT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=%s::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE')",(function,)).fetchone()[0])
             self.assertTrue(connection.execute("""SELECT NOT EXISTS (
                 SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
                 WHERE p.oid='billing.reserve_generation()'::regprocedure AND a.grantee=0

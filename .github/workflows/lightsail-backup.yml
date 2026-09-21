@@ -13,7 +13,7 @@ on:
       - "scripts/rds_rehearsal/requirements.lock"
       - ".github/workflows/lightsail-backup.yml"
   push:
-    branches: [main]
+    branches: [main, feat/lightsail-permanent-configuration]
     paths:
       - "scripts/production/lightsail_backup*.py"
       - "scripts/production/systemd/**"
