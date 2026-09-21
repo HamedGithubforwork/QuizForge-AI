@@ -6,6 +6,12 @@ launch. This branch is stacked on backup PR154; application PR127 remains draft.
 No resources, account migration, domain records or model calls are activated by
 these files or their CI. The deployment candidate must contain both branches.
 
+The owner approved a **USD20/month AWS alert budget** on September 21, 2026.
+The release template now records that choice: actual-cost alerts above USD10,
+USD16 and USD20, plus a forecast alert above USD20, across the AWS account before
+credits. This is an alert threshold, not a spending cap or resource activation.
+Alert recipient and AI allowance remain unselected.
+
 ## Concrete configuration
 
 | Part | Prepared configuration |
@@ -54,9 +60,10 @@ maintenance. This configuration is not high availability or point-in-time recove
 
 ## Prepare the release, without activating it
 
-1. Supply the owner's AWS budget, alert email, daily/monthly model-attempt limits,
-   operator SSH public key and current operator `/32`. Keep the SSH private key
-   outside Terraform. `release.example.json` deliberately leaves decisions blank.
+1. Use the approved USD20 monthly AWS alert budget. Supply the alert email,
+   daily/monthly model-attempt limits, operator SSH public key and current operator
+   `/32`. Keep the SSH private key outside Terraform. `release.example.json`
+   records the approved budget and leaves the remaining choices blank.
 2. Package the existing tested Cognito recovery hook with
    `python scripts/production/lightsail/package_recovery.py`. Initialize the new
    Terraform root with a **separate** encrypted state key
@@ -170,4 +177,5 @@ of already-issued locally verified JWTs.
 
 No domain cutover, user-data transfer, paid provisioning or merge is authorized
 by generating or validating this configuration. Owner decisions still needed:
-monthly AWS alert budget, alert inbox, AI request allowance (or leave disabled).
+alert inbox and AI request allowance (or leave disabled). The monthly AWS alert
+budget is approved at USD20.

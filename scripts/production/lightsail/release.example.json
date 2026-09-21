@@ -15,7 +15,7 @@
     "redis": "",
     "caddy": ""
   },
-  "monthly_budget_usd": null,
+  "monthly_budget_usd": 20,
   "alert_email": "",
   "ssh_public_key": "",
   "admin_ipv4_cidr": "",
