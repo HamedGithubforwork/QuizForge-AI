@@ -19,7 +19,7 @@ def fixture():
             "frontend_url": "https://quizfromnotes.com", "api_url": "https://api.quizfromnotes.com",
             "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
             "legacy_publishable_key": "sb_publishable_synthetic_public_key_12345"},
-        "images": {name: ("123456789012.dkr.ecr.ca-central-1.amazonaws.com/quizforge-api" if name in ("api", "operations") else "docker.io/library/" + name) + "@sha256:" + "a" * 64
+        "images": {name: ("123456789012.dkr.ecr.ca-central-1.amazonaws.com/quizforge-api" if name in ("api", "operations", "caddy") else "docker.io/library/" + name) + "@sha256:" + "a" * 64
                    for name in ("api", "operations", "postgres", "redis", "caddy")},
         "monthly_budget_usd": 20, "alert_email": "synthetic@example.com", "ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly",
         "admin_ipv4_cidr": "192.0.2.10/32", "ai_daily_requests": 0, "ai_monthly_requests": 0}

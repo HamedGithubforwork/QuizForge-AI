@@ -61,7 +61,7 @@ def main():
         hosts.write('\n127.0.0.1 db.quizforge.internal\n')
     # Rehearsal images only. Production rendering always requires pinned digests.
     stack = json.loads((root/'compose.json').read_text())
-    tags = {'db': 'postgres:17', 'redis': 'redis:7', 'web': 'caddy:2', 'api': 'quizforge-ci-api',
+    tags = {'db': 'postgres:17', 'redis': 'redis:7', 'web': 'quizforge-ci-caddy', 'api': 'quizforge-ci-api',
             'identity': 'quizforge-ci-api', 'guard': 'quizforge-ci-operations'}
     for name, service in stack['services'].items():
         service['image'] = tags[name]

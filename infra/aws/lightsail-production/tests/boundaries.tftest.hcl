@@ -12,6 +12,11 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     target = data.aws_caller_identity.current
     values = { account_id = "123456789012" }
   }
+  override_resource {
+    target          = aws_sns_topic.alerts
+    override_during = plan
+    values          = { arn = "arn:aws:sns:ca-central-1:123456789012:quizforge-production-lightsail-alerts" }
+  }
   assert {
     condition     = aws_lightsail_instance.server.bundle_id == "small_3_0" && aws_lightsail_instance.server.blueprint_id == "ubuntu_24_04" && aws_lightsail_instance.server.ip_address_type == "ipv4"
     error_message = "Retain the measured 2 GB / 2 vCPU IPv4 Ubuntu layout."

@@ -24,7 +24,7 @@ def validate(config):
     if set(images) != {"api", "operations", "postgres", "redis", "caddy"}:
         raise ValueError("All five reviewed image digests are required")
     for name, value in images.items():
-        repository = (r"[0-9]{12}\.dkr\.ecr\.ca-central-1\.amazonaws\.com/quizforge-api" if name in {"api", "operations"}
+        repository = (r"[0-9]{12}\.dkr\.ecr\.ca-central-1\.amazonaws\.com/quizforge-api" if name in {"api", "operations", "caddy"}
                       else "docker.io/library/" + name)
         if not isinstance(value, str) or not re.fullmatch(repository + r"@sha256:[a-f0-9]{64}", value):
             raise ValueError("Every image must use its reviewed registry and immutable digest")

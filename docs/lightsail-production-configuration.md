@@ -72,8 +72,11 @@ maintenance. This configuration is not high availability or point-in-time recove
    auth origin from outputs. Build the frontend with `scripts/production/build.py`
    and the reviewed public configuration. Build API from PR127 including
    `807a4084237f6db544620cdb8322108ebf52251c`, and operations from this branch. Record
-   exact release SHAs and immutable image digests. Pin verified PostgreSQL 17,
-   Redis and Caddy images for Linux amd64; the generator never accepts a mutable
+   exact release SHAs and immutable image digests. Build `caddy.Dockerfile` with
+   `CADDY_BASE_IMAGE=docker.io/library/caddy@sha256:REVIEWED_DIGEST` and retain its
+   resulting ECR digest. This removes the upstream binary's unused file
+   capability so it can run on 8080/8443 with all runtime capabilities dropped.
+   Pin verified PostgreSQL 17, Redis and Caddy images for Linux amd64; the generator never accepts a mutable
    tag. Check the image's expected UID (PostgreSQL/Redis 999) before release.
 5. Run `python scripts/production/lightsail/render.py release.json NEW_DIRECTORY`.
    The renderer validates the public settings and every digest, writes private

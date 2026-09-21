@@ -53,5 +53,6 @@ jobs:
           /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
           docker build -t quizforge-ci-api application-candidate/backend
           docker build -t quizforge-ci-operations -f scripts/production/operations.Dockerfile .
+          docker build -t quizforge-ci-caddy --build-arg CADDY_BASE_IMAGE=caddy:2 -f scripts/production/lightsail/caddy.Dockerfile .
       - name: Rehearse the full private runtime with synthetic credentials and no model calls
         run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_TEMP /tmp/quizforge-runtime-venv/bin/python scripts/production/lightsail/runtime_rehearsal.py
