@@ -34,8 +34,9 @@ production decisions and acceptance gates below remain pending.
 The September 21 continuation adds [encrypted Lightsail application-data backup
 and isolated restore preparation](lightsail-backup-restore.md). It preserves
 identity mappings, quiz history and usage counters and reconciles a fresh target
-transactionally, with model spending disabled after recovery. Its separate
-PostgreSQL rehearsal must pass before use. Live off-instance delivery, scheduled
+transactionally, with model spending disabled after recovery. The separate
+[PostgreSQL rehearsal](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35548499673)
+passed all eleven tests. Live off-instance delivery, scheduled
 backups/alerts, key recovery and a measured full-host rebuild remain open; this
 does not close the production recovery gate or activate permanent infrastructure.
 

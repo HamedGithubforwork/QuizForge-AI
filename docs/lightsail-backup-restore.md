@@ -97,6 +97,15 @@ never cleans, replaces or creates a database and cannot restore in place.
 
 ## Verification and remaining recovery gates
 
+The [completed rehearsal](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35548499673)
+at implementation commit `925dfc3563cc3eeedbb10ecc978f6712ce23268c` passed **all
+eleven tests with no skips** on September 21. It used two separate PostgreSQL
+17.11 services with three synthetic users, three identity mappings and two quizzes.
+The measured encrypted roundtrip/dry-run/committed-restore and ownership assertion
+segment took 0.063 seconds; this excludes host provisioning and offsite download,
+and is not a production recovery-time claim. An intentionally restricted database
+reader was rejected instead of silently exporting only RLS-visible records.
+
 `lightsail-backup.yml` runs without AWS credentials against two disposable
 PostgreSQL 17 services. It verifies encrypted roundtrip, dry-run rollback,
 committed restore, all durable rows (including precise JSON numbers), cross-owner
