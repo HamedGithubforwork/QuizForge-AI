@@ -71,8 +71,23 @@ def verify(client, account, email, budget):
     notices = response.get("Notifications", [])
     keys = tuple(NOTIFICATIONS[0])
     canonical = lambda notice: tuple(notice.get(key) for key in keys)
-    require(len(notices) == 4 and {canonical(n) for n in notices} == {canonical(n) for n in NOTIFICATIONS},
-            "Existing notification thresholds differ; no changes made")
+    matched = len(notices) == 4 and {canonical(n) for n in notices} == {canonical(n) for n in NOTIFICATIONS}
+    if not matched:
+        # Only approved enums and finite numeric thresholds leave this diagnostic;
+        # never serialize an arbitrary AWS response or subscriber address.
+        import math
+        safe = []
+        for notice in notices:
+            value = {}
+            for key, allowed in (("NotificationType", {"ACTUAL", "FORECASTED"}),
+                    ("ComparisonOperator", {"GREATER_THAN", "LESS_THAN", "EQUAL_TO"}),
+                    ("ThresholdType", {"PERCENTAGE", "ABSOLUTE_VALUE"})):
+                value[key] = notice.get(key) if notice.get(key) in allowed else "missing_or_unknown"
+            number = notice.get("Threshold")
+            value["Threshold"] = number if type(number) in (int, float) and math.isfinite(number) else None
+            safe.append(value)
+        print("Notification threshold diagnostic: " + json.dumps(safe))
+    require(matched, "Existing notification thresholds differ; no changes made")
     for notice in notices:
         response = client.describe_subscribers_for_notification(AccountId=account, BudgetName=NAME,
             Notification={key: notice[key] for key in keys}, MaxResults=100)
