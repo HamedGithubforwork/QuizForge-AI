@@ -16,10 +16,16 @@ alternative; the small-server allowance is not a fixed bill or a live deployment
 
 The [PDF optimization retest](aws-small-server-capacity.md#real-lightsail-retest-of-the-pdf-optimizations)
 also passed both capacity profiles and confirmed deletion at 20:09:03 UTC. Its
-burst OCR was slightly faster but sustained OCR was slower than the prior run;
-treat grayscale's production speed benefit as unproven pending a controlled
-comparison. The 24-hour cache and page-selection semantics passed application
-checks; this unchanged hardware workload does not separately measure them.
+mixed cross-run OCR timings did not establish a grayscale speed benefit. The
+subsequent [controlled same-host comparison](ocr-controlled-comparison.md#completed-controlled-result)
+now supports retaining grayscale: native OCR used approximately 10% less elapsed
+and CPU time, won all six pairs in each profile/corpus and produced identical
+text on the synthetic fixtures. The unchanged full capacity suite also passed;
+its controller confirmed instance absence at 21:02:32 UTC. This is not a measured
+10% whole-request improvement and does not identify the earlier slowdown's cause.
+The 24-hour cache and page-selection semantics passed application checks; this
+unchanged hardware workload does not separately measure their benefits. PR127
+remains draft and unmerged; no production setting or public routing was changed.
 
 The complete integrated staging workflow passed on September 20, including the
 corrected private rate-counter verification and independent AWS teardown. The
