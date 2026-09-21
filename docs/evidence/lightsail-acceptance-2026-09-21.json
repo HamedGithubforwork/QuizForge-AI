@@ -104,7 +104,7 @@
         "failure": {
           "reported_phase": "mapped: mandatory TOTP",
           "error_class": "AssertionError",
-          "location": "OAuth assertions after MFA submission and redirect; exact assertion was not logged",
+          "location": "Broad phase label covered MFA return, OAuth assertions and subsequent protected-history request; exact assertion was not logged",
           "root_cause": "not established"
         },
         "cleanup_job_id": 106462076086,
@@ -121,7 +121,7 @@
       }
     ],
     "result": "passed_on_retry",
-    "reliability_caveat": "First attempt's post-MFA OAuth assertion failed; root cause unestablished; no application change between attempts."
+    "reliability_caveat": "First attempt failed under an ambiguous label; root cause unestablished; no application change between attempts."
   },
   "earlier_evidence": {
     "signup_email_confirmation": {

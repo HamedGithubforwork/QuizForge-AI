@@ -1,4 +1,7 @@
-# Lightsail acceptance checks — September 21, 2026
+# Lightsail acceptance checks — September 21, 2026 (18:36 historical snapshot)
+
+The later [launch-test follow-up](lightsail-launch-tests-2026-09-21.md) supersedes
+the budget, repeated-sign-in and current-stack capacity status below.
 
 **Permanent launch remains blocked.** A successful inventory workflow means the
 inspection completed; it does not mean the inspected prerequisites exist.
@@ -22,9 +25,9 @@ migration or permanent deployment was performed.
 
 The first authentication attempt failed in job 106460732265 after the initial
 login, enrollment and history checks passed. Its broad diagnostic label was
-`mapped: mandatory TOTP`, but the error was an `AssertionError` in the OAuth
-assertions after MFA submission and the return redirect. The exact token/PKCE/nonce
-assertion was not logged, so the root cause is **not established**. The failure
+`mapped: mandatory TOTP`, but this label remained in use through OAuth checks
+and the subsequent protected-history request. The exact failing assertion was
+not logged, so that attempt alone does not establish the failure location or root cause. The failure
 must not be described as a proven MFA bypass or a confirmed product fix. One
 bounded retry of the same job and immutable application images passed; no
 application code was changed to make it pass. Retain the intermittent failure

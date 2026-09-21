@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "reviewed_date": "2026-09-21",
+  "permanent_launch_ready": false,
+  "application_commit": "807a4084237f6db544620cdb8322108ebf52251c",
+  "configuration_commit": "62e39f33d715cc83928390cfd5ff1728008c4053",
+  "budget": {
+    "verification_run": 35646730802,
+    "verification_job": 106488959866,
+    "monthly_usd": 20,
+    "configuration_verified": true,
+    "private_recipient_verified": true,
+    "actual_percentages": [
+      50,
+      80,
+      100
+    ],
+    "forecast_percentage": 100,
+    "delivery_verified": false,
+    "spending_stop": false
+  },
+  "authentication": {
+    "development_server_failure": {
+      "run": 35645380916,
+      "job": 106485623532,
+      "phase": "mapped: access token response after MFA",
+      "callback_received": true,
+      "token_request_observed": false,
+      "root_cause_proven": false,
+      "cleanup_verified": true,
+      "cleanup_job": 106486851549
+    },
+    "built_asset_rehearsal": {
+      "run": 35647077853,
+      "job": 106491096573,
+      "passed": true,
+      "logout_signin_cycles": 3,
+      "application_changed": false,
+      "security_assertions_relaxed": false,
+      "cleanup_verified": true,
+      "cleanup_job": 106492608055,
+      "final_domain_tested": false
+    }
+  },
+  "capacity": {
+    "ci_run": 35646294016,
+    "ci_passed": true,
+    "first_aws_run": 35646836888,
+    "first_aws_workload_passed": true,
+    "first_aws_workflow_passed": false,
+    "failure": "missing exit-code.txt after child inherited remote script stdin",
+    "first_aws_cleanup_verified": true,
+    "report": "current-stack-35646836888.json",
+    "corrected_controller_pr": 162,
+    "current_application_and_configuration": true,
+    "live_s3_upload_tested": false,
+    "corrected_aws_run": 35648577830,
+    "corrected_aws_job": 106495926233,
+    "corrected_aws_workload_passed": true,
+    "corrected_aws_workflow_passed": true,
+    "corrected_aws_remote_exit_code": 0,
+    "corrected_aws_cleanup_verified": true,
+    "corrected_report": "current-stack-35648577830.json"
+  },
+  "backup_plan": {
+    "run": 35647550787,
+    "job": 106491644682,
+    "passed": true,
+    "resource_creates": 13,
+    "names_absent_before_plan": true,
+    "applied": false,
+    "host_created": false,
+    "dns_changed": false,
+    "credentials_created": false,
+    "policy_attachments": 0,
+    "actual_aws_restore_tested": false,
+    "delivered_alarms_tested": false
+  },
+  "unchanged_launch_gates": [
+    "retained backup activation and actual AWS restore",
+    "delivered failure/stale/missing-heartbeat alarms",
+    "final DNS/HTTPS and production-pool authentication",
+    "operator SSH key and IPv4 /32; extra AI request ceilings",
+    "immutable release images; migration/rollback and spend reconciliation"
+  ],
+  "changes": {
+    "aws_budget_created": true,
+    "application_pr_merged": false,
+    "permanent_configuration_pr_merged": false,
+    "permanent_host_created": false,
+    "production_dns_changed": false,
+    "user_data_migrated": false,
+    "new_paid_model_requests": 0
+  }
+}

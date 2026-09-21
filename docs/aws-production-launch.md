@@ -1,5 +1,7 @@
 # Permanent AWS launch — prepared configuration
 
+The [September 21 launch-test follow-up](lightsail-launch-tests-2026-09-21.md) records the active USD20 AWS alert budget, repeated built-asset login verification and current-stack AWS capacity evidence. Retained backup activation and final public launch remain separate gates.
+
 The September 21 [permanent Lightsail configuration](lightsail-production-configuration.md) now prepares the separate host, private runtime, authentication, cost alerts and disabled AI controls. It is inactive and awaits owner settings and live acceptance.
 
 The [isolated live AI canary](ai-live-canary.md) passed on September 21: one
@@ -22,7 +24,8 @@ step.
 Status: production preparation, not a live website. The owner selected a fully
 AWS-hosted deployment after the integrated rehearsal passed. The existing
 Vercel/Render/Supabase site is still active; no account data has been exported
-and no production resources or application DNS have been created.
+and no permanent application host or application DNS has been created. The approved
+AWS alert budget is active; its verification is recorded in the follow-up above.
 
 ## Verified starting point
 
@@ -37,8 +40,9 @@ and no production resources or application DNS have been created.
   credentials were retrieved. Recheck the inventory immediately before migration.
 - AWS [inventory run 35487422363](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35487422363)
   verified an ACTIVE FREE account plan and the existing public domain zone.
-  Only apex NS/SOA records were present. There are no production website/API
-  certificates or AWS budgets yet. This rerun resolves the earlier UNKNOWN
+  Only apex NS/SOA records were present. At that inventory time there were no
+  production website/API certificates or AWS budgets. The USD20 budget was later
+  activated and verified in run 35646730802. The historical rerun resolved the earlier UNKNOWN
   budget result; the SDK omits the list when no budgets exist. No credit balance,
   account identifier, notification recipient or budget amount was logged.
 - Application PR127 carries the exact tested PR97 implementation forward with

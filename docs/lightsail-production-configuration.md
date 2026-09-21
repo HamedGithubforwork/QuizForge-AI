@@ -17,9 +17,14 @@ The owner also selected a starting **USD5/month AI allowance**, separate from
 AWS, on September 21, 2026. This is saved as `ai_monthly_budget_usd` in the private
 settings file and the public release template. The prepared gateway now enforces
 integer-dollar reservations as described in [AI cost controls](ai-cost-controls.md).
-Alerts and production model calls are not active yet. The
-[September 21 live readiness checks](lightsail-acceptance-2026-09-21.md) confirmed
-that no AWS budget exists; saving the amount and recipient did not activate it.
+The USD20 AWS alert budget was activated and its amount, accounting settings,
+four thresholds and private recipient were verified in
+[run 35646730802](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35646730802).
+Inbox delivery remains unverified; production model calls remain disabled.
+Import this existing budget into the selected Lightsail Terraform state before
+any permanent apply, as documented in `docs/aws-budget-alert-activation.md` on
+trusted main. Preserve its direct-email notifications until the later SNS route
+is confirmed and tested. Do not create a duplicate budget.
 
 The [isolated live AI canary](ai-live-canary.md) passed: five questions in
 6.72728 seconds, one paid request, USD0.0006025 conservative settlement.
@@ -72,9 +77,14 @@ uses 20 connections, 32 MiB shared buffers and 2 MiB work memory. Only database,
 PDF job, and certificate directories are writable persistent mounts. The PDF
 store keeps the previously tested expiry, ownership and space bounds.
 
-The earlier capacity result applies to the tested synthetic stack; these exact
-per-container limits and concurrent backup overhead still require the live
-acceptance test before launch. A single host has downtime during failure or
+The current-stack test on an actual 2 GB Lightsail host passed with these
+per-container limits, aggregate cgroup and concurrent encrypted database exports
+in [run 35648577830](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35648577830).
+It processed 30 synthetic scanned pages in 28.88 seconds with no OOM or unexpected
+restart; the temporary host's deletion was verified. The backup test used 0.5 CPU
+versus the scheduled job's 0.25 CPU. Actual S3 recovery and delivered alarms remain
+untested. See the [full test scope](lightsail-launch-tests-2026-09-21.md).
+A single host has downtime during failure or
 maintenance. This configuration is not high availability or point-in-time recovery.
 
 ## Prepare the release, without activating it
@@ -192,10 +202,10 @@ CI substitutes disposable local image tags only inside its test harness.
 
 The isolated real-model quality/speed check passed, and earlier real signup-email
 confirmation and password-recovery rehearsals have verified evidence. See the
-[acceptance report](lightsail-acceptance-2026-09-21.md) for exact runs and limits.
-Still required before the permanent public launch: exact-host capacity plus
-backup concurrency; live off-server backup/recovery/alarms and confirmed SNS
-delivery; activation of the approved AWS budget; final HTTPS and hostname checks;
+[launch-test follow-up](lightsail-launch-tests-2026-09-21.md) for exact runs and limits.
+Still required before the permanent public launch: live off-server
+backup/recovery/alarms and confirmed SNS
+delivery; final HTTPS and hostname checks;
 signup/MFA/email/password recovery on the final production configuration;
 reconciled account/history migration and rollback. Host heartbeat checks local routes and disk capacity;
 it does not prove public DNS/TLS, user authentication or model availability.

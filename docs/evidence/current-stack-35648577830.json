@@ -1,0 +1,43 @@
+{
+  "environment": "aws-lightsail-2gb",
+  "synthetic_data": true,
+  "paid_model_calls": 0,
+  "application_sha": "807a4084237f6db544620cdb8322108ebf52251c",
+  "configuration_sha": "62e39f33d715cc83928390cfd5ff1728008c4053",
+  "passed": true,
+  "ocr": {
+    "pages": 30,
+    "seconds": 28.878359149999994,
+    "minimum_precision": 1.0,
+    "minimum_recall": 1.0,
+    "passed": true
+  },
+  "backup": {
+    "snapshots": 15,
+    "seconds": 30.87153782499999,
+    "maximum_archive_bytes": 5937491,
+    "encrypted_round_trip": true,
+    "aws_upload_tested": false,
+    "passed": true
+  },
+  "health_requests": 166,
+  "health_errors": 0,
+  "health_p95_seconds": 0.013361486000007972,
+  "host_min_available_kib": 734780,
+  "aggregate_peak_bytes": 813723648,
+  "oom_events": 0,
+  "oom_kills": 0,
+  "container_oom": false,
+  "unexpected_restarts": false,
+  "six_services_running": true,
+  "run_id": 35648577830,
+  "job_id": 106495926233,
+  "controller_sha": "1bd5b3a73430b48758806e7fdfc66d7c7fe3aedf",
+  "workflow_result": "success",
+  "workload_result": "passed",
+  "remote_exit_code": 0,
+  "cleanup_verified": true,
+  "backup_cpu_quota": 0.5,
+  "production_backup_cpu_quota": 0.25,
+  "source_artifact_id": 10661357522
+}
