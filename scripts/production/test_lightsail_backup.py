@@ -176,7 +176,7 @@ class PostgreSQLRecovery(unittest.TestCase):
             self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
             self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage,billing.generation_reservations")
+                with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
         with self.target.transaction():
             self.target.execute("SET LOCAL ROLE quizforge_generation")
             self.assertFalse(self.target.execute("SELECT billing.reserve_generation()").fetchone()[0])
