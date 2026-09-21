@@ -44,5 +44,21 @@ not been remeasured with this candidate. Production CI verifies the pinned
 Python/image environment separately. Raw results are in
 [evidence/pdf-ocr-options-local-2026-09-20.json](evidence/pdf-ocr-options-local-2026-09-20.json).
 
-For cache bounds, API details and schema-3 migration/rollback instructions, see
+For cache bounds, API details and schema-4 migration/rollback instructions, see
 [background-pdf-processing.md](background-pdf-processing.md).
+
+## Follow-up: overlapping page selections — September 21, 2026
+
+The AWS candidate now adds **Change pages** and per-page reuse within the existing
+private bounded result cache. A deterministic 15-page scanned-PDF test processes
+1–10, switches to 5–15 and asserts six reused pages and exactly five new OCR calls
+(11–15), including an intervening worker restart. A later subset and all-pages
+selection reuse pages from multiple results without invoking OCR again.
+
+The real native-worker quality check also changes a sparse selection with pages
+2 and 4 cached, confirms only 1 and 5 are processed, and compares the complete
+text against a fresh extraction. Tests cover owner/file/version/expiry isolation,
+fixed retention through repeated selections, cancellation and schema-3 migration.
+These verify avoided processing and correctness; they do not establish a new AWS
+wall-clock speed percentage. Cache availability, queue time and upload time still
+contribute to user-visible completion time.

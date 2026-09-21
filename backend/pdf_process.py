@@ -12,7 +12,7 @@ import sys
 import weakref
 
 from fastapi import HTTPException
-from pdf_protocol import MAX_RESULT_BYTES, validate_pages
+from pdf_protocol import MAX_RESULT_BYTES, validate_pages, validate_checkpoint, validate_next_pages
 from pdf_selection import validate_selection
 
 TIMEOUT_SECONDS = 120
@@ -28,8 +28,9 @@ class _State:
 async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None, on_checkpoint=None, page_numbers=None):
     selected = [] if page_numbers is None else validate_selection(page_numbers)
     saved = [] if checkpoint is None else checkpoint
-    resume = validate_pages(saved, total=len(selected) if selected else 100, page_numbers=selected)
+    resume = validate_checkpoint(saved, total=len(selected) if selected else 100, page_numbers=selected)
     previous = len(saved)
+    processed = {page['page_number'] for page in saved}
     expected_total = None
     progress_mode = on_progress is not None or on_checkpoint is not None
     if saved and not progress_mode:
@@ -80,7 +81,7 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
                         raise ValueError('Output after worker result')
                     if item.get('type') == 'pages':
                         batch, total = item['pages'], item['total']
-                        encoded = validate_pages(batch, start=previous + 1, total=total, page_numbers=selected)
+                        encoded = validate_next_pages(batch, processed, total=total, page_numbers=selected)
                         if not batch or (expected_total is not None and total != expected_total):
                             raise ValueError('Invalid worker progress')
                         expected_total = total
@@ -89,6 +90,7 @@ async def _execute(contents, *, timeout=None, on_progress=None, checkpoint=None,
                             raise ValueError('Worker checkpoint exceeded its bound')
                         if on_checkpoint is not None:
                             await on_checkpoint(batch, total)
+                        processed.update(page['page_number'] for page in batch)
                         previous += len(batch)
                         if on_progress is not None:
                             await on_progress(previous, total)

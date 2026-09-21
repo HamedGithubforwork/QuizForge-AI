@@ -9,6 +9,7 @@ import './App.css'
 import QuizHistory, {
   type HistoryPracticeFocus,
 } from './QuizHistory.tsx'
+import ChangePagesPanel from './components/quiz/ChangePagesPanel.tsx'
 import DocumentPanel from './components/quiz/DocumentPanel.tsx'
 import PagePreviews from './components/quiz/PagePreviews.tsx'
 import QuizSession from './components/quiz/QuizSession.tsx'
@@ -38,6 +39,7 @@ function App() {
 
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null)
+  const [isChangingPages, setIsChangingPages] = useState(false)
   const [pageSelection, setPageSelection] = useState('')
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
@@ -106,6 +108,7 @@ function App() {
 
   function resetProcessedDocument() {
     pdfUpload.clear()
+    setIsChangingPages(false)
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
@@ -126,7 +129,12 @@ function App() {
       return
     }
 
-    if (resume) setSelectedFile(null)
+    setIsChangingPages(false)
+    if (resume) {
+      setSelectedFile(null)
+      setPageSelection((resume.selected_pages ?? []).join(','))
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
     setError('')
     setDocumentResult(null)
     setQuiz(null)
@@ -150,9 +158,28 @@ function App() {
   async function handleCancelProcessing() {
     try {
       await pdfUpload.cancel()
-      setDocumentResult(null)
+      if (!isChangingPages) setDocumentResult(null)
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : 'Could not cancel processing.')
+    }
+  }
+
+  async function handleApplyPages(file: File, selection: string) {
+    setError('')
+    try {
+      const data = await pdfUpload.run(file, undefined, selection)
+      setSelectedFile(file)
+      setPageSelection(selection)
+      setDocumentResult(data)
+      setQuiz(null)
+      setGeneratedSettings(null)
+      attempt.resetAttempt()
+      resetPracticeMode()
+      setGenerationStage('')
+      setIsChangingPages(false)
+    } catch (caughtError) {
+      if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
+      setError(caughtError instanceof Error ? caughtError.message : 'Could not change pages. Please try again.')
     }
   }
 
@@ -594,6 +621,8 @@ function App() {
   function handleUploadNewPdf() {
     pdfUpload.clear()
     setSelectedFile(null)
+    setPageSelection('')
+    setIsChangingPages(false)
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
@@ -614,6 +643,8 @@ function App() {
       behavior: 'smooth',
     })
   }
+
+  const documentBusy = isProcessing || isGenerating || isWeakPracticeGenerating || attempt.isReviewingAnswers || attempt.isSavingHistory
 
   const masteryDelta =
     masteryContext
@@ -649,7 +680,9 @@ function App() {
           pageSelection={pageSelection}
           onPageSelectionChange={handlePageSelectionChange}
           supportsPageSelection={pdfUpload.supportsPageSelection}
-          selectionDisabled={isGenerating || isWeakPracticeGenerating}
+          selectionDisabled={documentBusy || isChangingPages}
+          hidePageSelection={Boolean(documentResult && pdfUpload.supportsPageReuse && pdfUpload.sourceSha256)}
+          isChangingPages={isChangingPages}
         />
 
         {error && (
@@ -667,11 +700,24 @@ function App() {
         {documentResult && (
           <>
             <DocumentPanel
-              documentResult={
-                documentResult
-              }
+              documentResult={documentResult}
+              onChangePages={pdfUpload.supportsPageReuse && pdfUpload.sourceSha256 ? () => setIsChangingPages(true) : undefined}
+              changePagesDisabled={documentBusy || isChangingPages}
             />
 
+            {isChangingPages && pdfUpload.sourceSha256 && (
+              <ChangePagesPanel
+                currentFile={selectedFile}
+                filename={documentResult.filename}
+                sourceSha256={pdfUpload.sourceSha256}
+                selection={pageSelection}
+                disabled={isProcessing}
+                onApply={handleApplyPages}
+                onCancel={() => { setIsChangingPages(false); setError('') }}
+              />
+            )}
+
+            {!isChangingPages && !isProcessing && <>
             <QuizSettingsPanel
               questionCount={questionCount}
               difficulty={difficulty}
@@ -807,6 +853,7 @@ function App() {
                 }
               />
             )}
+            </>}
           </>
         )}
 
@@ -818,7 +865,7 @@ function App() {
           canPracticeCurrentDocument={
             Boolean(
               documentResult &&
-              !documentResult.scanned_likely,
+              !documentResult.scanned_likely && !documentBusy && !isChangingPages,
             )
           }
           isPracticeGenerating={

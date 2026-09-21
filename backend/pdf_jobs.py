@@ -32,11 +32,14 @@ class PdfJobResponse(BaseModel):
     error: str | None
     result: UploadResponse | None = None
     selected_pages: list[int] = Field(default_factory=list)
+    source_sha256: str | None = None
+    reused_pages: int = 0
 
 
 class PdfJobList(BaseModel):
     jobs: list[PdfJobResponse]
     supports_page_selection: bool = True
+    supports_page_reuse: bool = True
 
 
 def enabled():
@@ -61,6 +64,7 @@ def public_job(row):
         job_id=row['id'], filename=row['filename'], status=row['state'],
         completed_pages=row['completed_pages'], total_pages=row['total_pages'],
         selected_pages=json.loads(row.get('selection', '[]')),
+        source_sha256=row.get('source_sha256') or None, reused_pages=row.get('reused_pages', 0),
         expires_at=datetime.fromtimestamp(row['expires'], timezone.utc).isoformat(), error=row['error'],
         result=build_upload_response_from_sha(filename=row['filename'], pdf_sha256=row['sha256'], pages=pages)
         if pages is not None and row['state'] == 'succeeded' else None,

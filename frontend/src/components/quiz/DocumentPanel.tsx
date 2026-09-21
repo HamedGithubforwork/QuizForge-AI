@@ -7,10 +7,14 @@ import type {
 
 type DocumentPanelProps = {
   documentResult: UploadResult
+  onChangePages?: () => void
+  changePagesDisabled?: boolean
 }
 
 function DocumentPanel({
   documentResult,
+  onChangePages,
+  changePagesDisabled,
 }: DocumentPanelProps) {
   return (
     <section className="panel document-panel">
@@ -68,6 +72,13 @@ function DocumentPanel({
 
       {documentResult.pages.some((page, index) => page.page_number !== index + 1) && (
         <p>Source pages: {documentResult.pages.map(page => page.page_number).join(', ')}.</p>
+      )}
+
+      {onChangePages && (
+        <button className="button secondary-button" type="button" onClick={onChangePages}
+          disabled={changePagesDisabled} aria-controls="change-pages-panel">
+          Change pages
+        </button>
       )}
 
       {documentResult.warning && (

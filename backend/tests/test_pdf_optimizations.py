@@ -149,7 +149,7 @@ def test_version_two_migration_preserves_checkpoint_expiry_and_admission(tmp_pat
         assert recovered['expires'] == row['expires']
         assert recovered['selection'] == '[]'
         with store.connect() as db:
-            assert db.execute('PRAGMA user_version').fetchone()[0] == 3
+            assert db.execute('PRAGMA user_version').fetchone()[0] == 4
             assert db.execute('SELECT count(*) FROM admissions').fetchone()[0] == 1
     finally:
         store.close()

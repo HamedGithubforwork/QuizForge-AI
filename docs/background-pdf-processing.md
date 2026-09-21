@@ -41,10 +41,40 @@ Partial-document identity includes both the raw PDF hash and canonical selection
 The existing `pdf_sha256` response field therefore identifies the selected view for
 partial uploads; clients must reuse that returned value. Full-document hashes remain
 unchanged. Different selections cannot reuse incompatible text, quiz or history
-results. Cache hits require the same owner, PDF and selection. Synchronous legacy
+results. Exact job hits require the same owner, PDF, selection and extraction version. Synchronous legacy
 uploads reject nonempty selections explicitly; the website displays the control
 only when job discovery explicitly advertises `supports_page_selection: true`,
 so a newer frontend cannot silently submit a selection to an older backend.
+
+## Changing pages after processing
+
+**Change pages** opens a separate form after success. Applying a valid selection
+replaces the document and resets its quiz; a failed or cancelled change preserves
+the previous document and quiz. Blank selects all pages. Generation, review and
+save operations disable page changes, and the edit form pauses quiz actions.
+The original `File` remains only in browser memory while the page is open. After
+refresh/resume the form asks for the original PDF again and checks its SHA-256
+before submitting, so a same-name replacement cannot silently switch documents.
+The whole PDF is uploaded again; the server still deletes raw bytes on completion.
+
+Jobs expose `source_sha256` (the raw file hash) and `reused_pages`. The list response
+advertises `supports_page_reuse: true`; the button requires that capability and a
+source hash. Older retained jobs without a source hash remain resumable.
+
+New selections seed their private checkpoints from completed results for the same
+verified owner, raw file hash and extraction version. For example, processing
+1–10 followed by 5–15 reuses 5–10 and OCRs only 11–15. Sparse checkpoints keep
+original numbers, survive restart and accept only the next missing pages in order.
+The worker still preflights PDF/page/scan limits, even when every page is cached.
+No separate unbounded page cache is introduced: source results remain subject to
+the existing 32 MiB LRU cache; seeded text fits the job's 8 MiB reservation.
+Changed selections count against the existing admission limits.
+
+To avoid retaining old text indefinitely through repeated selections, a result
+that reuses pages expires no later than the earliest contributing cached result.
+Only sources with more than one hour remaining seed a new job, keeping reused
+text valid through the entire pending-job lifetime. Near-expiry pages are processed
+again. Bump `EXTRACTION_VERSION` when OCR/preprocessing behavior changes.
 
 ## Bounds and recovery
 
@@ -80,8 +110,8 @@ results remain usable across a process restart and a Redis cache miss.
 Saved page text stays private and is unavailable through the document API until
 the entire extraction succeeds. Checkpoints are removed after success, failure,
 cancellation or expiration. Raw input is removed after success, failure or cancellation. All processing
-jobs expire one hour after submission. Successful extracted text expires 24 hours
-after completion, without extending its expiry on reads; it may be evicted earlier
+jobs expire one hour after submission. Successful extracted text expires at most 24 hours
+after completion (earlier when reusing pages), without extending its expiry on reads; it may be evicted earlier
 under the cache bounds. Raw PDFs are never retained for the extended cache window.
 Reads enforce expiration
 immediately and the queue loop removes expired records, including at startup.
@@ -99,8 +129,9 @@ SQLite main file is capped at 256 MiB; allow additional space for its transient
 rollback journal. Exclude temporary PDF jobs from retained application backups.
 Account/history backups remain a separate required operation.
 
-Queue schema version 3 migrates versions 1 and 2 on startup while preserving
+Queue schema version 4 migrates versions 1, 2 and 3 on startup while preserving
 uploads, checkpoints, existing expiry times and recent admission counts.
+Older completed jobs without source hashes/version metadata do not seed new selections.
 Version-1 interrupted jobs have no saved page text and therefore restart from
 page one. Drain/discard temporary jobs before rolling back to an older application
 that only understands an older queue schema.
@@ -131,7 +162,8 @@ page skipping on resume and deletion of saved bytes for every terminal state.
 The required Docker OCR check exercises small text, columns, mixed content and
 PDF rotation metadata through the real isolated worker, including interrupted resume.
 Browser tests cover progress, page refresh, restored quiz generation, page selection
-and cancellation. Cache tests cover fixed 24-hour expiry, LRU byte bounds, private
+and cancellation, plus changed selections, failed changes, wrong-file rejection,
+refresh/reupload, updated quiz identity and mobile form accessibility. Cache tests cover fixed 24-hour expiry, LRU byte bounds, private
 reads, migration and admission limits that survive eviction.
 The follow-up constrained capacity run must measure admission latency separately
 from background completion and retain the original failed synchronous result.

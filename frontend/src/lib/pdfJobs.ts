@@ -7,7 +7,9 @@ export function pdfJobMessage(job: PdfJobResponse) {
       ? `Processed ${job.completed_pages} of ${job.total_pages} pages.`
       : 'Checking your PDF…'
   }
-  if (job.status === 'succeeded') return 'Your PDF is ready.'
+  if (job.status === 'succeeded') return job.reused_pages
+    ? `Your PDF is ready. Reused ${job.reused_pages} cached ${job.reused_pages === 1 ? 'page' : 'pages'}.`
+    : 'Your PDF is ready.'
   if (job.status === 'cancelled') return 'PDF processing cancelled.'
   return job.error || 'PDF processing failed. Please try again.'
 }

@@ -84,11 +84,14 @@ export type PdfJobResponse = {
   "error": string | null
   "result"?: UploadResponse | null
   "selected_pages"?: number[]
+  "source_sha256"?: string | null
+  "reused_pages"?: number
 }
 
 export type PdfJobList = {
   "jobs": PdfJobResponse[]
   "supports_page_selection"?: boolean
+  "supports_page_reuse"?: boolean
 }
 
 export type Quiz = {

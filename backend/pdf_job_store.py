@@ -5,6 +5,7 @@ before 202 is returned; raw bytes are removed on completion/cancellation/failure
 This database is temporary processing data, not an account/history database.
 """
 from contextlib import contextmanager
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -14,8 +15,8 @@ import time
 from uuid import uuid4
 
 from fastapi import HTTPException
-from pdf_protocol import MAX_PAGE_BYTES, validate_pages
-from pdf_selection import document_identity, validate_selection
+from pdf_protocol import MAX_PAGE_BYTES, validate_pages, validate_checkpoint, validate_next_pages
+from pdf_selection import selection_identity, validate_selection
 
 MAX_UPLOAD_BYTES = 15 * 1024**2
 MAX_RESULT_BYTES = 8 * 1024**2
@@ -26,7 +27,9 @@ MAX_CACHE_BYTES = 32 * 1024**2
 MAX_PENDING = 4
 MAX_JOBS = 16
 MAX_OWNER_JOBS = 4
-METADATA = 'id, owner, sha256, filename, state, completed_pages, total_pages, created, expires, attempts, error, selection'
+# Bump whenever extraction behavior changes; old text must not seed new results.
+EXTRACTION_VERSION = 'tesseract5-eng-gray150-psm3-v1'
+METADATA = 'id, owner, sha256, filename, state, completed_pages, total_pages, created, expires, attempts, error, selection, source_sha256, reused_pages'
 
 
 class JobStore:
@@ -53,7 +56,7 @@ class JobStore:
                 os.close(fd)
             with self.connect() as db:
                 version = db.execute('PRAGMA user_version').fetchone()[0]
-                if version not in (0, 1, 2, 3):
+                if version not in (0, 1, 2, 3, 4):
                     raise RuntimeError('Unsupported PDF job database version')
                 db.execute('PRAGMA journal_mode=DELETE')
                 db.executescript('''
@@ -83,7 +86,16 @@ class JobStore:
                 if version < 3:
                     db.execute('INSERT OR IGNORE INTO admissions SELECT id,owner,created FROM jobs WHERE created>?',
                                (time.time() - RETENTION_SECONDS,))
-                db.execute('PRAGMA user_version=3')
+                for column, definition in (
+                    ('source_sha256', "TEXT NOT NULL DEFAULT ''"),
+                    ('extraction_version', "TEXT NOT NULL DEFAULT ''"),
+                    ('reused_pages', 'INTEGER NOT NULL DEFAULT 0'),
+                    ('cache_expires', 'REAL'),
+                ):
+                    if column not in columns:
+                        db.execute(f'ALTER TABLE jobs ADD COLUMN {column} {definition}')
+                db.execute('CREATE INDEX IF NOT EXISTS jobs_source ON jobs(owner,source_sha256,extraction_version)')
+                db.execute('PRAGMA user_version=4')
             self.recover()
         except BaseException:
             os.close(self.lock_fd)
@@ -165,12 +177,13 @@ class JobStore:
             raise HTTPException(413, 'PDF must be between 1 byte and 15 MB.')
         now = time.time()
         selected = [] if page_numbers is None else validate_selection(page_numbers)
-        digest = document_identity(contents, selected)
+        source_digest = hashlib.sha256(contents).hexdigest()
+        digest = selection_identity(source_digest, selected)
         with self.transaction() as db:
             self._cleanup(db, now)
-            previous = db.execute(f"""SELECT {METADATA} FROM jobs WHERE owner=? AND sha256=?
+            previous = db.execute(f"""SELECT {METADATA} FROM jobs WHERE owner=? AND sha256=? AND extraction_version=?
                 AND state IN ('queued','processing','succeeded') ORDER BY created DESC LIMIT 1""",
-                (owner, digest)).fetchone()
+                (owner, digest, EXTRACTION_VERSION)).fetchone()
             if previous is not None:
                 db.execute('UPDATE jobs SET accessed=? WHERE id=?', (now, previous['id']))
                 return dict(previous)
@@ -182,12 +195,31 @@ class JobStore:
             if own_pending or own_uploads >= MAX_OWNER_JOBS or uploads >= MAX_JOBS or pending >= MAX_PENDING:
                 raise HTTPException(429, 'PDF processing is busy or your hourly upload allowance is used. Try again later.',
                                     headers={'Retry-After': '60'})
+            # Reuse only this owner's exact file and current extraction version.
+            # A one-hour margin keeps seeds valid through the entire job lifetime.
+            seeds, seed_expiry = {}, None
+            for cached in db.execute("""SELECT result,expires FROM jobs WHERE owner=? AND source_sha256=?
+                    AND extraction_version=? AND state='succeeded' AND expires>?
+                    ORDER BY created DESC,id""", (owner, source_digest, EXTRACTION_VERSION, now + RETENTION_SECONDS)):
+                for page in json.loads(cached['result']):
+                    number = page['page_number']
+                    if number not in seeds and (not selected or number in selected):
+                        seeds[number] = page
+                        seed_expiry = min(seed_expiry or cached['expires'], cached['expires'])
+            saved = [seeds[number] for number in sorted(seeds)]
+            try:
+                validate_checkpoint(saved, total=len(selected) if selected else 100, page_numbers=selected)
+            except ValueError as error:
+                raise HTTPException(413, 'Extracted document text is too large.') from error
             self._make_room(db, reserved=reservation, jobs=1)
             job_id = str(uuid4())
-            db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,input,reserved,selection,accessed)
-                VALUES (?,?,?,?,'queued',?,?,?,?,?,?)""",
+            db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,input,reserved,selection,accessed,source_sha256,extraction_version,reused_pages,completed_pages,total_pages,cache_expires)
+                VALUES (?,?,?,?,'queued',?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job_id, owner, digest, (filename or 'Study material.pdf')[:255], now,
-                 now + RETENTION_SECONDS, contents, reservation, json.dumps(selected), now))
+                 now + RETENTION_SECONDS, contents, reservation, json.dumps(selected), now, source_digest, EXTRACTION_VERSION,
+                 len(saved), len(saved), len(selected) if selected else None, seed_expiry))
+            db.executemany('INSERT INTO checkpoints(job_id,page_number,page) VALUES (?,?,?)',
+                           [(job_id, page['page_number'], json.dumps(page, separators=(',', ':')).encode()) for page in saved])
             db.execute('INSERT INTO admissions VALUES (?,?,?)', (job_id, owner, now))
             return dict(db.execute(f'SELECT {METADATA} FROM jobs WHERE id=?', (job_id,)).fetchone())
 
@@ -230,7 +262,7 @@ class JobStore:
             result['checkpoint'] = [json.loads(page[0]) for page in db.execute(
                 'SELECT page FROM checkpoints WHERE job_id=? ORDER BY page_number', (row['id'],))]
             selected = json.loads(row['selection'])
-            validate_pages(result['checkpoint'], total=len(selected) if selected else 100, page_numbers=selected)
+            validate_checkpoint(result['checkpoint'], total=len(selected) if selected else 100, page_numbers=selected)
             return result
 
     def checkpoint(self, job_id, pages, total):
@@ -240,7 +272,8 @@ class JobStore:
                 WHERE id=? AND state='processing' AND expires>?""", (job_id, time.time())).fetchone()
             if row is None:
                 return
-            validate_pages(pages, start=row['completed_pages'] + 1, total=total, page_numbers=json.loads(row['selection']))
+            processed = {page[0] for page in db.execute('SELECT page_number FROM checkpoints WHERE job_id=?', (job_id,))}
+            validate_next_pages(pages, processed, total=total, page_numbers=json.loads(row['selection']))
             if not pages or (row['total_pages'] is not None and row['total_pages'] != total):
                 raise ValueError('Invalid checkpoint progress')
             encoded = [json.dumps(page, separators=(',', ':')).encode() for page in pages]
@@ -266,7 +299,7 @@ class JobStore:
             raise HTTPException(413, 'Extracted document text is too large.')
         with self.transaction() as db:
             now = time.time()
-            row = db.execute("SELECT selection FROM jobs WHERE id=? AND state='processing' AND expires>?", (job_id, now)).fetchone()
+            row = db.execute("SELECT selection,cache_expires FROM jobs WHERE id=? AND state='processing' AND expires>?", (job_id, now)).fetchone()
             if row is None:
                 return
             selected = json.loads(row['selection'])
@@ -275,7 +308,7 @@ class JobStore:
                 raise ValueError('Selected pages are incomplete')
             db.execute("""UPDATE jobs SET state='succeeded', completed_pages=?, total_pages=?,
                 input=NULL, result=?, reserved=?, expires=?, accessed=? WHERE id=? AND state='processing' AND expires>?""",
-                (len(pages), len(pages), raw, len(raw), now + RESULT_RETENTION_SECONDS, now, job_id, now))
+                (len(pages), len(pages), raw, len(raw), min(now + RESULT_RETENTION_SECONDS, row['cache_expires'] or float('inf')), now, job_id, now))
             db.execute('DELETE FROM checkpoints WHERE job_id=?', (job_id,))
             self._make_room(db, protect=job_id)
 

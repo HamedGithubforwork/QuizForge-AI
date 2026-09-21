@@ -1737,3 +1737,9 @@ button {
   margin: 0;
   font-size: 0.9rem;
 }
+
+.change-pages-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}

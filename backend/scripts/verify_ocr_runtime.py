@@ -179,6 +179,17 @@ async def verify_selection_and_reading_order():
         assert total == len(selected)
     restored = await extract_background(raw, page_numbers=selected, checkpoint=saved, on_checkpoint=observe)
     assert restored == [pages[number - 1] for number in selected]
+    newly_processed = []
+    async def observe_sparse(batch, total):
+        assert total == 4
+        newly_processed.extend(page['page_number'] for page in batch)
+    changed = await extract_background(raw, page_numbers=[1, 2, 4, 5],
+        checkpoint=[pages[1], pages[3]], on_checkpoint=observe_sparse)
+    assert newly_processed == [1, 5]
+    assert changed == [pages[number - 1] for number in [1, 2, 4, 5]]
+    newly_processed.clear()
+    cached = await extract_background(raw, page_numbers=[1, 2, 4, 5], checkpoint=changed, on_checkpoint=observe_sparse)
+    assert cached == changed and newly_processed == []
 
 
 if __name__ == "__main__":

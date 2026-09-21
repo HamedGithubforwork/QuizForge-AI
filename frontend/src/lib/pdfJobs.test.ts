@@ -48,3 +48,8 @@ test('polling delay resolves and a resumed completed job needs no extra read', a
   const complete = { ...queued, status: 'succeeded' as const, result }
   assert.deepEqual(await waitForPdfJob(complete, async () => { assert.fail('Already complete') }, () => {}, new AbortController().signal), result)
 })
+
+test('completed status explains how many cached pages were reused', () => {
+  assert.equal(pdfJobMessage({ ...queued, status: 'succeeded', reused_pages: 1 }), 'Your PDF is ready. Reused 1 cached page.')
+  assert.equal(pdfJobMessage({ ...queued, status: 'succeeded', reused_pages: 6 }), 'Your PDF is ready. Reused 6 cached pages.')
+})

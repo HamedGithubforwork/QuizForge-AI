@@ -132,15 +132,16 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     assert (await client.get('/api/documents/jobs')).status_code == 401
                     token = {'Authorization': 'Bearer ' + cognito.sign()}
                     other = {'Authorization': 'Bearer ' + cognito.sign(subject=str(UUID(int=202)))}
+                    raw = pdf_bytes()
                     response = await client.post('/api/documents/upload', headers=token,
                                                  data={'page_selection': selection},
-                                                 files={'file': ('notes.pdf', pdf_bytes(), 'application/pdf')})
+                                                 files={'file': ('notes.pdf', raw, 'application/pdf')})
                     assert response.status_code == 202 and response.headers['Cache-Control'] == 'no-store'
                     job = response.json()
                     path = '/api/documents/jobs/' + job['job_id']
                     assert (await client.get(path, headers=other)).status_code == 404
                     assert (await client.delete(path, headers=other)).status_code == 404
-                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': [], 'supports_page_selection': True}
+                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': [], 'supports_page_selection': True, 'supports_page_reuse': True}
                     for _ in range(150):
                         job = (await client.get(path, headers=token)).json()
                         if job['status'] == 'succeeded': break
@@ -150,6 +151,25 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     assert [page['page_number'] for page in job['result']['pages']] == numbers
                     assert job['selected_pages'] == (numbers if selection else [])
                     assert 'input' not in job and 'text' not in job['result']['pages'][0]
+                    assert job['source_sha256'] == hashlib.sha256(raw).hexdigest()
+                    assert job['reused_pages'] == 0
+                    if selection:
+                        changed = await client.post('/api/documents/upload', headers=token,
+                            data={'page_selection': '1-2'}, files={'file': ('renamed.pdf', raw, 'application/pdf')})
+                        assert changed.status_code == 202
+                        changed_job = changed.json()
+                        assert changed_job['reused_pages'] == 1
+                        changed_path = '/api/documents/jobs/' + changed_job['job_id']
+                        for _ in range(150):
+                            changed_job = (await client.get(changed_path, headers=token)).json()
+                            if changed_job['status'] == 'succeeded': break
+                            assert changed_job['status'] in ('queued', 'processing'), changed_job
+                            await asyncio.sleep(.05)
+                        assert changed_job['status'] == 'succeeded'
+                        assert [page['page_number'] for page in changed_job['result']['pages']] == [1, 2]
+                        assert changed_job['result']['pdf_sha256'] != job['result']['pdf_sha256']
+                        assert (await client.get(changed_path, headers=other)).status_code == 404
+                        assert (await client.delete(changed_path, headers=token)).status_code == 204
                     digest = job['result']['pdf_sha256']
                     await pdf_jobs.close_pdf_jobs()
                     processed_documents._memory_documents.clear()

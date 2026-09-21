@@ -4,7 +4,7 @@ import math
 import pymupdf
 
 from pdf_native_ocr import MAX_PAGE_PIXELS, OCR_DPI, OcrEngine
-from pdf_protocol import encode_pages, validate_pages
+from pdf_protocol import encode_pages, validate_checkpoint
 from pdf_text import analyze_extracted_text
 from pdf_selection import validate_selection
 
@@ -41,12 +41,15 @@ def extract(contents, *, checkpoint=None, on_pages=None, page_numbers=None):
         if len(scanned) > 30:
             raise PdfError(413, 'This server accepts up to 30 scanned pages per PDF.')
         checkpoint = [] if checkpoint is None else checkpoint
-        validate_pages(checkpoint, total=len(pages), page_numbers=selected)
-        pages[:len(checkpoint)] = checkpoint
+        validate_checkpoint(checkpoint, total=len(pages), page_numbers=selected)
+        saved = {page['page_number']: page for page in checkpoint}
+        pages = [saved.get(page['page_number'], page) for page in pages]
         engine = None
         pending = []
         try:
-            for index in range(len(checkpoint), len(pages)):
+            for index in range(len(pages)):
+                if numbers[index] in saved:
+                    continue
                 if index in scanned:
                     try:
                         if engine is None:
@@ -65,6 +68,9 @@ def extract(contents, *, checkpoint=None, on_pages=None, page_numbers=None):
                     if on_pages:
                         on_pages(pending, len(pages))
                     pending = []
+            if pending and on_pages:
+                encode_pages(pages)
+                on_pages(pending, len(pages))
         finally:
             if engine is not None:
                 engine.close()

@@ -4,7 +4,7 @@ import os
 import resource
 import sys
 
-from pdf_protocol import MAX_RESULT_BYTES, validate_pages
+from pdf_protocol import MAX_RESULT_BYTES, validate_checkpoint
 from pdf_selection import parse_selection
 
 
@@ -49,7 +49,7 @@ def main():
             if len(payload) != length:
                 raise _InputError()
             checkpoint = json.loads(payload)
-            validate_pages(checkpoint, total=len(selected) if selected else 100, page_numbers=selected)
+            validate_checkpoint(checkpoint, total=len(selected) if selected else 100, page_numbers=selected)
         raw = sys.stdin.buffer.read(15 * 1024**2 + 1)
         if len(raw) > 15 * 1024**2:
             raise PdfError(413, 'PDF exceeds the 15 MB upload limit.')

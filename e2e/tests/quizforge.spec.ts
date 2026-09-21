@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   expect,
   test,
@@ -658,3 +659,118 @@ test(
     ).toBeVisible()
   },
 )
+
+
+test('change pages reuses the browser file, preserves results on failure, and verifies reupload after refresh', async ({ page }, testInfo) => {
+  await mockSupabase(page)
+  await mockBackend(page)
+  const raw = Buffer.from('%PDF synthetic original for page changes')
+  const source = createHash('sha256').update(raw).digest('hex')
+  const file = { name: 'e2e-notes.pdf', mimeType: 'application/pdf', buffer: raw }
+  let uploads = 0
+  let cancelled = false
+  let latest: Record<string, unknown> | null = null
+  const id = (n: number) => `33333333-3333-4333-8333-${String(n).padStart(12, '0')}`
+  function complete(n: number, numbers: number[], reused: number) {
+    return { job_id: id(n), filename: file.name, source_sha256: source, status: 'succeeded',
+      selected_pages: numbers, completed_pages: numbers.length, total_pages: numbers.length,
+      reused_pages: reused, expires_at: new Date(Date.now() + 3600000).toISOString(), error: null,
+      result: { filename: file.name, pdf_sha256: String(n).repeat(64), page_count: numbers.length,
+        character_count: 1560, extractable_page_count: numbers.length, scanned_likely: false, warning: null,
+        pages: numbers.map(page_number => ({ page_number, character_count: 780, preview: sourcePageText[1] })) } }
+  }
+  await page.route('**/api-mock/api/documents/jobs', route => route.fulfill({ json: {
+    jobs: latest ? [latest] : [], supports_page_selection: true, supports_page_reuse: true,
+  } }))
+  await page.route('**/api-mock/api/documents/upload', async route => {
+    uploads += 1
+    const body = route.request().postData() ?? ''
+    expect(body).toContain(raw.toString())
+    if (uploads === 3) {
+      return route.fulfill({ status: 400, json: { detail: 'This PDF has 4 pages. Choose pages within that range.' } })
+    }
+    if (uploads === 4) return route.fulfill({ status: 202, json: { ...complete(4, [3, 4], 1), status: 'queued', result: null } })
+    const numbers = uploads === 1 ? [1, 2] : uploads === 2 ? [2, 3] : uploads === 6 ? [1, 2, 3, 4] : [1, 3]
+    if (uploads === 6) expect(body).not.toContain('name="page_selection"')
+    else expect(body).toContain(`name="page_selection"\r\n\r\n${numbers.join(',')}`)
+    latest = complete(uploads, numbers, uploads === 1 ? 0 : uploads === 2 ? 1 : 2)
+    await route.fulfill({ json: latest })
+  })
+  await page.route('**/api-mock/api/documents/jobs/*', route => {
+    if (route.request().method() === 'DELETE') {
+      cancelled = true
+      return route.fulfill({ status: 204 })
+    }
+    if (route.request().url().endsWith(id(4))) return route.fulfill({ json: { ...complete(4, [3, 4], 1), status: 'queued', result: null } })
+    return route.fulfill({ json: latest })
+  })
+  await page.route('**/api-mock/api/quizzes/generate', route => {
+    expect(route.request().postData()).toContain('name="document_sha256"\r\n\r\n' + '5'.repeat(64))
+    expect(route.request().postData()).not.toContain('filename=')
+    return route.fulfill({ json: firstQuiz })
+  })
+  await logIn(page)
+  await page.getByLabel('Study material PDF').setInputFiles(file)
+  await page.getByLabel('Pages to process (optional)').fill('1-2')
+  await page.getByRole('button', { name: 'Process PDF', exact: true }).click()
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  const selection = page.getByLabel('New pages to process (optional)')
+  await expect(selection).toHaveValue('1-2')
+  await expect(page.getByLabel('Select the same PDF again')).toHaveCount(0)
+  await selection.fill('5-2')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('ascending order')
+  expect(uploads).toBe(1)
+  await selection.fill('3,2,3')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Your PDF is ready. Reused 1 cached page.')
+  await expect(page.getByText('Source pages: 2, 3.')).toBeVisible()
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await selection.fill('5')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('This PDF has 4 pages')
+  await expect(page.getByText('Source pages: 2, 3.')).toBeVisible()
+  await selection.fill('3-4')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await page.getByRole('button', { name: 'Cancel page change' }).click()
+  await expect(page.getByRole('status')).toHaveText('PDF processing cancelled.')
+  await expect(page.getByText('Source pages: 2, 3.')).toBeVisible()
+  expect(cancelled).toBe(true)
+  await page.getByRole('button', { name: 'Keep current pages' }).click()
+  await expect(page.getByRole('button', { name: 'Generate Quiz', exact: true })).toBeEnabled()
+  await page.reload()
+  await page.getByRole('button', { name: 'Resume e2e-notes.pdf' }).click()
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await expect(selection).toHaveValue('2,3')
+  const reupload = page.getByLabel('Select the same PDF again')
+  await expect(reupload).toBeVisible()
+  await reupload.setInputFiles({ ...file, buffer: Buffer.from('%PDF different file') })
+  await selection.fill('1,3')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('This is a different PDF')
+  expect(uploads).toBe(4)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.locator('#change-pages-panel').scrollIntoViewIfNeeded()
+  await expect(page.locator('#change-pages-panel')).toBeVisible()
+  const { default: AxeBuilder } = await import('@axe-core/playwright')
+  const accessibility = await new AxeBuilder({ page }).include('#change-pages-panel').analyze()
+  expect(accessibility.violations).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('change-pages-mobile.png'), fullPage: true })
+  await reupload.setInputFiles({ ...file, name: 'renamed.pdf' })
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('status')).toHaveText('Your PDF is ready. Reused 2 cached pages.')
+  await expect(page.getByText('Source pages: 1, 3.')).toBeVisible()
+  await page.getByRole('button', { name: 'Generate Quiz', exact: true }).click()
+  await expect(page.getByRole('heading', { name: firstQuiz.title })).toBeVisible()
+  expect(uploads).toBe(5)
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await page.getByRole('button', { name: 'Keep current pages' }).click()
+  await expect(page.getByRole('heading', { name: firstQuiz.title })).toBeVisible()
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await selection.fill('')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.locator('#change-pages-panel')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: firstQuiz.title })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Generate Quiz', exact: true })).toBeEnabled()
+  expect(uploads).toBe(6)
+})

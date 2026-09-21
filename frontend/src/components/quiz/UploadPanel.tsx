@@ -25,6 +25,8 @@ type UploadPanelProps = {
   onPageSelectionChange: (value: string) => void
   supportsPageSelection: boolean
   selectionDisabled: boolean
+  hidePageSelection: boolean
+  isChangingPages: boolean
 }
 
 function UploadPanel({
@@ -41,6 +43,8 @@ function UploadPanel({
   onPageSelectionChange,
   supportsPageSelection,
   selectionDisabled,
+  hidePageSelection,
+  isChangingPages,
 }: UploadPanelProps) {
   return (
     <section className="panel upload-panel">
@@ -68,7 +72,7 @@ function UploadPanel({
         accept="application/pdf"
         aria-label="Study material PDF"
         onChange={onFileChange}
-        disabled={isProcessing}
+        disabled={isProcessing || selectionDisabled}
       />
 
       {selectedFile && (
@@ -96,7 +100,7 @@ function UploadPanel({
         </div>
       )}
 
-      {supportsPageSelection && (
+      {supportsPageSelection && !hidePageSelection && (
         <div className="page-selection">
           <label htmlFor="pdf-page-selection">Pages to process (optional)</label>
           <input
@@ -119,7 +123,7 @@ function UploadPanel({
         onClick={onProcessPdf}
         disabled={
           !selectedFile ||
-          isProcessing
+          isProcessing || selectionDisabled
         }
       >
         {isProcessing
@@ -139,7 +143,7 @@ function UploadPanel({
       )}
       {!isProcessing && recentJob && (
         <div className="pdf-job-status">
-          <button className="button secondary-button" type="button" onClick={() => onResume(recentJob)}>
+          <button className="button secondary-button" type="button" disabled={selectionDisabled} onClick={() => onResume(recentJob)}>
             Resume {getDisplayFilename(recentJob.filename)}
           </button>
           <p>Completed text can be reused for up to 24 hours, while cache space is available. Processing jobs expire after one hour.</p>
@@ -148,7 +152,7 @@ function UploadPanel({
       )}
       {((isProcessing && job) || (!isProcessing && recentJob)) && (
         <button className="button secondary-button" type="button" onClick={onCancel}>
-          Cancel and discard PDF
+          {isChangingPages ? 'Cancel page change' : 'Cancel and discard PDF'}
         </button>
       )}
     </section>

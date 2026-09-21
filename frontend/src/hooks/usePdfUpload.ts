@@ -19,6 +19,8 @@ export function usePdfUpload() {
   const [job, setJob] = useState<PdfJobResponse | null>(null)
   const [recentJob, setRecentJob] = useState<PdfJobResponse | null>(null)
   const [supportsPageSelection, setSupportsPageSelection] = useState(false)
+  const [supportsPageReuse, setSupportsPageReuse] = useState(false)
+  const [sourceSha256, setSourceSha256] = useState<string | null>(null)
   const operation = useRef<AbortController | null>(null)
   const revision = useRef(0)
 
@@ -29,7 +31,10 @@ export function usePdfUpload() {
       .then(async response => {
         if (!response.ok) return
         const data = await response.json()
-        if (!controller.signal.aborted) setSupportsPageSelection(data.supports_page_selection === true)
+        if (!controller.signal.aborted) {
+          setSupportsPageSelection(data.supports_page_selection === true)
+          setSupportsPageReuse(data.supports_page_reuse === true)
+        }
         if (!controller.signal.aborted && initialRevision === revision.current) {
           setRecentJob(data.jobs?.find((item: PdfJobResponse) => ['queued', 'processing', 'succeeded'].includes(item.status)) ?? null)
         }
@@ -65,13 +70,16 @@ export function usePdfUpload() {
         if (!response.ok) throw new Error((data as { detail?: string }).detail || 'PDF processing failed.')
       }
       controller.signal.throwIfAborted()
+      let completedSource: string | null = null
       const result = 'job_id' in data
         ? await waitForPdfJob(data, readJob, next => {
+          if (next.status === 'succeeded') completedSource = next.source_sha256 ?? null
           setJob(next)
-          setRecentJob(next)
+          setRecentJob(['queued', 'processing', 'succeeded'].includes(next.status) ? next : null)
         }, controller.signal)
         : data
       controller.signal.throwIfAborted()
+      setSourceSha256(completedSource)
       rememberCurrentDocumentIdentity(result)
       setRecentJob(null)
       return result
@@ -99,7 +107,8 @@ export function usePdfUpload() {
   function clear() {
     revision.current += 1
     setJob(null)
+    setSourceSha256(null)
   }
 
-  return { isProcessing, job, recentJob, supportsPageSelection, run, cancel, clear }
+  return { isProcessing, job, recentJob, supportsPageSelection, supportsPageReuse, sourceSha256, run, cancel, clear }
 }

@@ -30,8 +30,11 @@ def parse_selection(value):
 
 
 def document_identity(contents, numbers):
+    return selection_identity(hashlib.sha256(contents).hexdigest(), numbers)
+
+
+def selection_identity(digest, numbers):
     validate_selection(numbers)
-    digest = hashlib.sha256(contents).hexdigest()
     if not numbers:
         return digest
     # Different selections must never reuse each other's text or quiz caches.
