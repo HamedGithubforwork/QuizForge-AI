@@ -22,6 +22,19 @@ def configured():
 
 
 class Controls(unittest.TestCase):
+    def test_aws_omitted_percentage_type_is_default_but_absolute_and_null_refuse(self):
+        client = configured()
+        notices = [dict(n) for n in NOTIFICATIONS]
+        for notice in notices:
+            del notice["ThresholdType"]
+        client.describe_notifications_for_budget.return_value = {"Notifications": notices}
+        execute(client, ACCOUNT, EMAIL, "inspect")
+        for bad in ("ABSOLUTE_VALUE", None, "unknown"):
+            notices[0]["ThresholdType"] = bad
+            with self.assertRaises(ValueError):
+                execute(client, ACCOUNT, EMAIL, "inspect")
+
+
     def test_read_only_absent_never_creates(self):
         client = configured(); client.describe_budget.side_effect = absent()
         self.assertFalse(execute(client, ACCOUNT, EMAIL, "inspect")["budget_present"])
