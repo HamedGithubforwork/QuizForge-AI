@@ -1,0 +1,62 @@
+name: Single AI quiz canary
+on:
+  push:
+    branches: [feat/lightsail-permanent-configuration]
+    paths:
+      - scripts/production/ai_canary.py
+      - scripts/production/test_ai_canary.py
+      - .github/workflows/ai-live-canary.yml
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Make one paid model request using synthetic notes (maximum reservation USD0.5397456)
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: single-ai-quiz-canary
+  cancel-in-progress: false
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 807a4084237f6db544620cdb8322108ebf52251c
+          path: application-candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install the pinned application dependencies
+        run: |
+          python -m venv /tmp/quizforge-canary-venv
+          /tmp/quizforge-canary-venv/bin/pip install -r application-candidate/backend/requirements.lock
+          docker pull postgres:17
+      - name: Verify SDK parsing and blocked application retries without paid calls
+        env:
+          PYTHONPATH: scripts/production:application-candidate/backend
+        run: /tmp/quizforge-canary-venv/bin/python -m unittest test_ai_canary -v
+      - name: Validate the harness with a simulated provider and real TLS database
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ATTEMPT,RUNNER_TEMP /tmp/quizforge-canary-venv/bin/python scripts/production/ai_canary.py --simulate --application "$GITHUB_WORKSPACE/application-candidate" --output "$GITHUB_WORKSPACE/canary-results/simulated.json"
+      - name: Run the approved single live attempt
+        if: >-
+          github.run_attempt == 1 &&
+          ((github.event_name == 'workflow_dispatch' && inputs.run_live) ||
+           (github.event_name == 'push' && github.event.head_commit.message == 'test: run the approved single AI canary (2026-09-21)'))
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ATTEMPT,RUNNER_TEMP,OPENAI_API_KEY /tmp/quizforge-canary-venv/bin/python scripts/production/ai_canary.py --application "$GITHUB_WORKSPACE/application-candidate" --output "$GITHUB_WORKSPACE/canary-results/live.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: single-ai-canary-results
+          path: canary-results/*.json
+          if-no-files-found: warn
+          retention-days: 30
