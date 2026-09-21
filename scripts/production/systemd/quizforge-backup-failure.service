@@ -1,0 +1,24 @@
+[Unit]
+Description=Record a failed QuizForge backup and report it
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=quizforge-backup
+Group=quizforge-backup
+WorkingDirectory=/opt/quizforge/operations
+EnvironmentFile=/etc/quizforge/backup-health.env
+ExecStart=/opt/quizforge/backup-venv/bin/python /opt/quizforge/operations/lightsail_backup_job.py health --failed
+StateDirectory=quizforge-backup
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=2min
+MemoryMax=128M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=

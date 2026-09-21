@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly QuizForge backup freshness check
+
+[Timer]
+OnCalendar=*-*-* *:45:00 UTC
+Persistent=true
+Unit=quizforge-backup-health.service
+
+[Install]
+WantedBy=timers.target

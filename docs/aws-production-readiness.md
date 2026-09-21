@@ -40,6 +40,13 @@ passed all eleven tests. Live off-instance delivery, scheduled
 backups/alerts, key recovery and a measured full-host rebuild remain open; this
 does not close the production recovery gate or activate permanent infrastructure.
 
+The next preparation adds [scheduled off-server backups and health alerts](lightsail-backup-automation.md):
+a daily job, authenticated remote receipts, failure/staleness checks, mocked
+private storage/permission plans and a synthetic off-server restore into a separate
+PostgreSQL target. These files remain inactive; no paid resource or notification is
+created. Real delivery/alerts, independent key recovery, full-host rebuild and the
+application canary remain open before production migration.
+
 ## Running cost before a cutover
 
 An always-on copy of the small rehearsal architecture would cost approximately

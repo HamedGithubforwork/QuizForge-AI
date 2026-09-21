@@ -95,6 +95,15 @@ different isolated hosts and that the recovery database has no application
 traffic; the CLI cannot establish network separation from DNS names alone. It
 never cleans, replaces or creates a database and cannot restore in place.
 
+## Scheduled-job preparation
+
+[Backup automation preparation](lightsail-backup-automation.md) adds a proposed
+daily systemd job, authenticated off-server recovery receipts, hourly health
+publication and an unapplied private S3/CloudWatch/SNS configuration. It includes
+failure/staleness checks and recovery after local receipt loss. No timer or cloud
+resource is activated. Cadence, retention, recipient and actual delivery still
+require the launch acceptance described there.
+
 ## Verification and remaining recovery gates
 
 The [completed rehearsal](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35548499673)
