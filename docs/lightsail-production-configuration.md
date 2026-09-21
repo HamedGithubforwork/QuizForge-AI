@@ -13,7 +13,10 @@ credits. This is an alert threshold, not a spending cap or resource activation.
 The owner selected the alert recipient on September 21, 2026. The address is
 saved privately in `quizforge-production-settings.json` with the approved
 budget; the public release template deliberately keeps `alert_email` blank.
-The AI allowance remains unselected, and alerts are not active yet.
+The owner also selected a starting **USD5/month AI allowance**, separate from
+AWS, on September 21, 2026. This is saved as `ai_monthly_budget_usd` in the private
+settings file. It records the spending decision; it is not an active dollar
+cutoff. Alerts and production model calls are not active yet.
 
 ## Concrete configuration
 
@@ -43,8 +46,12 @@ AWS Budgets sends alerts; it does not stop the server. AI controls count upstrea
 attempts (including retries and semantic answer review), not quizzes or dollars.
 They retain the reviewed model, input/output bounds and persistent daily/monthly
 reservations. Disabled, missing or unavailable budget state blocks model calls.
-An owner-selected request allowance and a provider spending limit need separate
-review before enabling AI; no example quota is treated as approved.
+The approved USD5/month AI allowance must be translated into verified cost
+controls before enabling AI: check the selected model's current price, derive
+conservative request limits from bounded input/output costs, and verify the
+provider's billing controls. Daily/monthly request limits remain unset until
+that calculation and enforcement are tested. Do not treat an alert-only
+provider budget as a hard cutoff or an example request quota as approved.
 
 ## Resource and storage limits
 
@@ -65,11 +72,14 @@ maintenance. This configuration is not high availability or point-in-time recove
 
 1. Use the approved USD20 monthly AWS alert budget and copy the selected alert
    email from the private `quizforge-production-settings.json` into the private
-   release configuration. Supply the owner-selected daily/monthly model-attempt
-   limits, operator SSH public key and current operator `/32`. Keep the SSH
+   release configuration. Derive daily/monthly model-attempt limits within the
+   approved USD5 monthly AI allowance, and supply the operator SSH public key
+   and current operator `/32`. Keep the SSH
    private key outside Terraform and the completed release configuration out of
    Git. `release.example.json` records the approved budget; its blank email is a
-   public placeholder, and the AI allowance is still unselected.
+   public placeholder. The private settings file records owner decisions and is
+   not a complete renderer input: `ai_monthly_budget_usd` is planning metadata,
+   while the renderer accepts the derived request limits.
 2. Package the existing tested Cognito recovery hook with
    `python scripts/production/lightsail/package_recovery.py`. Initialize the new
    Terraform root with a **separate** encrypted state key
@@ -182,6 +192,7 @@ provider revocation; do not represent the recovery hook as immediate invalidatio
 of already-issued locally verified JWTs.
 
 No domain cutover, user-data transfer, paid provisioning or merge is authorized
-by generating or validating this configuration. The AI request allowance still
-needs an owner decision (or leave AI disabled). The monthly AWS alert budget is
-approved at USD20, and the selected alert inbox is saved privately.
+by generating or validating this configuration. The monthly AWS alert budget is
+approved at USD20, the starting monthly AI allowance is approved at USD5, and
+the selected alert inbox is saved privately. AI remains disabled until cost
+enforcement is configured and tested within that allowance.
