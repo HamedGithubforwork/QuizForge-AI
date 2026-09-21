@@ -164,10 +164,10 @@ function App() {
     }
   }
 
-  async function handleApplyPages(file: File, selection: string) {
+  async function handleApplyPages(file: File | null, selection: string) {
     setError('')
     try {
-      const data = await pdfUpload.run(file, undefined, selection)
+      const data = await pdfUpload.run(file ?? undefined, undefined, selection, pdfUpload.sourceSha256 ?? undefined)
       setSelectedFile(file)
       setPageSelection(selection)
       setDocumentResult(data)
@@ -712,6 +712,7 @@ function App() {
                 sourceSha256={pdfUpload.sourceSha256}
                 selection={pageSelection}
                 disabled={isProcessing}
+                supportsCachedSelection={pdfUpload.supportsCachedSelection}
                 onApply={handleApplyPages}
                 onCancel={() => { setIsChangingPages(false); setError('') }}
               />

@@ -170,3 +170,18 @@ from background completion and retain the original failed synchronous result.
 
 Implementation references: [Python subprocess lifecycle](https://docs.python.org/3.11/library/asyncio-subprocess.html)
 and [SQLite secure deletion](https://www.sqlite.org/pragma.html#pragma_secure_delete).
+
+### Cached selections without uploading
+
+Clients may use `POST /api/documents/jobs/reuse` when the jobs discovery response
+advertises `supports_cached_selection`. Send `{source_sha256, page_selection}` as
+JSON using the authenticated account. A completed `PdfJobResponse` means all
+requested text was available; `null` means the client needs the original PDF and
+normal upload processing. The response is `Cache-Control: no-store`. Other
+errors, including admission limits, must not silently trigger another upload.
+
+The server never starts a worker through this endpoint. Account/source/version
+isolation, fixed expiry, admission and storage bounds also apply to assembled
+selections. All-pages cache lookup requires an existing completed all-pages
+result. The client can attempt this path after refresh without holding the raw
+PDF, and still verifies any reselected file before uploading missing pages.

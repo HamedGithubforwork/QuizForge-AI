@@ -62,3 +62,42 @@ fixed retention through repeated selections, cancellation and schema-3 migration
 These verify avoided processing and correctness; they do not establish a new AWS
 wall-clock speed percentage. Cache availability, queue time and upload time still
 contribute to user-visible completion time.
+
+## Follow-up: reuse without uploading and compact quiz output
+
+The AWS candidate can now apply a fully cached selection with a small authenticated
+JSON request to `POST /api/documents/jobs/reuse`. It does not upload the PDF, queue
+a job, or start a PDF/OCR worker. After a browser refresh, a user can resume a
+completed document and apply cached pages without selecting the file again.
+A cache miss returns `null`; the browser uploads its retained original file or
+asks for that file when it is no longer available. Reselected files still require
+a matching SHA-256. Only an explicit advertised capability enables this path.
+
+The lookup is restricted to the verified owner, source hash, extraction version
+and unexpired results. A new selection assembled from several results retains
+the earliest contributing expiry. New selections consume the existing admission
+allowance and remain subject to result-byte and record caps; repeated exact hits
+return the existing record. An all-pages request requires a completed all-pages
+result: a contiguous cached prefix cannot prove the original document length.
+No raw-file retention is added, and the SQLite schema stays at version 4.
+
+Quiz generation now uses a compact model schema for multiple-choice and true/false
+questions. The model supplies choices and the correct index; the server derives
+the matching answer, its accepted-answer list and the fixed unused grading rubric.
+Short-answer rubrics, explanations and source citations retain their existing
+semantics. Mixed quizzes support both compact choices and full short answers.
+Mode-specific prompts omit instructions for types that were not requested.
+
+The expanded public API/history shape and deterministic validator are unchanged.
+Malformed structured output, bad choices, invalid source pages, duplicate questions,
+incorrect counts/types and invalid short-answer rubrics still require a bounded
+retry or fail. Tests exercise the real OpenAI SDK parser using an in-process HTTP
+fixture, without contacting a model. Multiple-choice, true/false, mixed and
+short-answer fixtures expand to exactly the expected complete quiz data.
+
+For one synthetic five-question multiple-choice fixture, the serialized model
+response shrank from **2,205 to 1,025 UTF-8 bytes (53.5%)**. This is a byte comparison,
+not a token count, live latency improvement or evaluation of model question quality.
+A real model quality/latency comparison remains pending under an approved model
+budget. No paid calls, server activation or application deployment is part of
+these code changes.

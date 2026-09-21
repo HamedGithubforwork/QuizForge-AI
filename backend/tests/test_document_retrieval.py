@@ -264,7 +264,7 @@ def test_large_document_can_reach_quiz_generation(
         ):
             captured_inputs.append(input)
             return SimpleNamespace(
-                output_parsed=quiz
+                output_parsed=text_format.model_validate(quiz.model_dump())
             )
 
     fake_client = SimpleNamespace(
@@ -321,7 +321,7 @@ def test_partial_document_generates_quiz_with_original_source_numbers(monkeypatc
     class Responses:
         async def parse(self, *, model, input, text_format):
             captured.append(input)
-            return SimpleNamespace(output_parsed=quiz)
+            return SimpleNamespace(output_parsed=text_format.model_validate(quiz.model_dump()))
     async def client(_):
         return SimpleNamespace(responses=Responses())
     monkeypatch.setenv('OPENAI_API_KEY', 'test-key')

@@ -141,7 +141,7 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     path = '/api/documents/jobs/' + job['job_id']
                     assert (await client.get(path, headers=other)).status_code == 404
                     assert (await client.delete(path, headers=other)).status_code == 404
-                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': [], 'supports_page_selection': True, 'supports_page_reuse': True}
+                    assert (await client.get('/api/documents/jobs', headers=other)).json() == {'jobs': [], 'supports_page_selection': True, 'supports_page_reuse': True, 'supports_cached_selection': True}
                     for _ in range(150):
                         job = (await client.get(path, headers=token)).json()
                         if job['status'] == 'succeeded': break
@@ -153,6 +153,19 @@ def test_real_api_uses_verified_owner_and_recovers_document_without_memory_cache
                     assert 'input' not in job and 'text' not in job['result']['pages'][0]
                     assert job['source_sha256'] == hashlib.sha256(raw).hexdigest()
                     assert job['reused_pages'] == 0
+                    reuse = {'source_sha256': job['source_sha256'], 'page_selection': str(numbers[0])}
+                    assert (await client.post('/api/documents/jobs/reuse', json=reuse)).status_code == 401
+                    assert (await client.post('/api/documents/jobs/reuse', headers=other, json=reuse)).json() is None
+                    hit = await client.post('/api/documents/jobs/reuse', headers=token, json=reuse)
+                    assert hit.status_code == 200 and hit.headers['Cache-Control'] == 'no-store'
+                    assert hit.json()['status'] == 'succeeded'
+                    assert [p['page_number'] for p in hit.json()['result']['pages']] == [numbers[0]]
+                    assert (await client.post('/api/documents/jobs/reuse', headers=token,
+                        json={**reuse, 'page_selection': '100'})).json() is None
+                    assert (await client.post('/api/documents/jobs/reuse', headers=token,
+                        json={**reuse, 'page_selection': '5-2'})).status_code == 400
+                    assert (await client.post('/api/documents/jobs/reuse', headers=token,
+                        json={**reuse, 'source_sha256': 'bad'})).status_code == 422
                     if selection:
                         changed = await client.post('/api/documents/upload', headers=token,
                             data={'page_selection': '1-2'}, files={'file': ('renamed.pdf', raw, 'application/pdf')})

@@ -17,6 +17,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from pdf_protocol import MAX_PAGE_BYTES, validate_pages, validate_checkpoint, validate_next_pages
 from pdf_selection import selection_identity, validate_selection
+from pdf_text import analyze_extracted_text
 
 MAX_UPLOAD_BYTES = 15 * 1024**2
 MAX_RESULT_BYTES = 8 * 1024**2
@@ -158,19 +159,74 @@ class JobStore:
         db.execute('DELETE FROM admissions WHERE created<=?', (now - RETENTION_SECONDS,))
 
     @staticmethod
-    def _make_room(db, *, reserved=0, jobs=0, protect=''):
+    def _make_room(db, *, reserved=0, jobs=0, cache_bytes=0, protect=''):
         # Evict only completed text, never active uploads/checkpoints. Admission
         # records survive eviction so cache churn cannot bypass hourly limits.
         while True:
             counts = db.execute('''SELECT count(*),coalesce(sum(reserved),0),
                 coalesce(sum(CASE WHEN state='succeeded' THEN length(result) ELSE 0 END),0) FROM jobs''').fetchone()
-            if counts[0] + jobs <= MAX_JOBS and counts[1] + reserved <= MAX_RESERVED_BYTES and counts[2] <= MAX_CACHE_BYTES:
+            if counts[0] + jobs <= MAX_JOBS and counts[1] + reserved <= MAX_RESERVED_BYTES and counts[2] + cache_bytes <= MAX_CACHE_BYTES:
                 return
             victim = db.execute("SELECT id FROM jobs WHERE state='succeeded' AND id!=? ORDER BY accessed,created,id LIMIT 1",
                                 (protect,)).fetchone()
             if victim is None:
                 raise HTTPException(429, 'PDF processing storage is full. Please try again later.', headers={'Retry-After': '60'})
             db.execute('DELETE FROM jobs WHERE id=?', (victim['id'],))
+
+    def reuse_selection(self, owner, source_digest, page_numbers):
+        """Return a completed owned selection, or None when an upload is needed.
+
+        A contiguous cached prefix does not prove the original PDF's page count.
+        All-pages requests therefore require a completed all-pages result.
+        """
+        selected = validate_selection(page_numbers)
+        digest = selection_identity(source_digest, selected)
+        now = time.time()
+        with self.transaction() as db:
+            self._cleanup(db, now)
+            previous = db.execute(f"""SELECT {METADATA},result FROM jobs
+                WHERE owner=? AND source_sha256=? AND sha256=? AND extraction_version=?
+                AND state='succeeded' ORDER BY created DESC LIMIT 1""",
+                (owner, source_digest, digest, EXTRACTION_VERSION)).fetchone()
+            if previous is not None:
+                db.execute('UPDATE jobs SET accessed=? WHERE id=?', (now, previous['id']))
+                result = dict(previous)
+                result['result'] = json.loads(result['result'])
+                return result
+            if not selected:
+                return None
+            seeds, expiry, filename = {}, None, None
+            for cached in db.execute("""SELECT result,expires,filename FROM jobs
+                    WHERE owner=? AND source_sha256=? AND extraction_version=? AND state='succeeded'
+                    ORDER BY created DESC,id""", (owner, source_digest, EXTRACTION_VERSION)):
+                for page in json.loads(cached['result']):
+                    number = page['page_number']
+                    if number in selected and number not in seeds:
+                        seeds[number] = page
+                        expiry = min(expiry or cached['expires'], cached['expires'])
+                        filename = filename or cached['filename']
+            if set(seeds) != set(selected):
+                return None
+            pages = [seeds[number] for number in selected]
+            raw = validate_pages(pages, total=len(selected), page_numbers=selected)
+            # Preserve the worker's subset-readability boundary.
+            if analyze_extracted_text(pages)['scanned_likely']:
+                return None
+            own_uploads = db.execute('SELECT count(*) FROM admissions WHERE owner=?', (owner,)).fetchone()[0]
+            uploads = db.execute('SELECT count(*) FROM admissions').fetchone()[0]
+            if own_uploads >= MAX_OWNER_JOBS or uploads >= MAX_JOBS:
+                raise HTTPException(429, 'Your hourly document allowance is used. Try again later.', headers={'Retry-After': '60'})
+            self._make_room(db, reserved=len(raw), jobs=1, cache_bytes=len(raw))
+            job_id = str(uuid4())
+            db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,result,reserved,
+                selection,accessed,source_sha256,extraction_version,reused_pages,completed_pages,total_pages,cache_expires)
+                VALUES (?,?,?,?,'succeeded',?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (job_id, owner, digest, filename, now, expiry, raw, len(raw), json.dumps(selected), now,
+                 source_digest, EXTRACTION_VERSION, len(pages), len(pages), len(pages), expiry))
+            db.execute('INSERT INTO admissions VALUES (?,?,?)', (job_id, owner, now))
+            result = dict(db.execute(f'SELECT {METADATA} FROM jobs WHERE id=?', (job_id,)).fetchone())
+            result['result'] = pages
+            return result
 
     def submit(self, owner, filename, contents, page_numbers=None):
         if not contents or len(contents) > MAX_UPLOAD_BYTES:

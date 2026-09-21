@@ -40,6 +40,12 @@ class PdfJobList(BaseModel):
     jobs: list[PdfJobResponse]
     supports_page_selection: bool = True
     supports_page_reuse: bool = True
+    supports_cached_selection: bool = True
+
+
+class CachedSelectionRequest(BaseModel):
+    source_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
+    page_selection: str = Field(default='', max_length=400)
 
 
 def enabled():
@@ -195,6 +201,19 @@ async def get_job(job_id: UUID, response: Response, current_user: AuthenticatedU
     response.headers['Cache-Control'] = 'no-store'
     current = manager()
     return public_job(await store_call(current.store.get_owned, current_user.id, str(job_id)))
+
+
+@router.post('/reuse', response_model=PdfJobResponse | None)
+async def reuse_selection(request: CachedSelectionRequest, response: Response,
+                          current_user: AuthenticatedUser = Depends(get_current_user)):
+    response.headers['Cache-Control'] = 'no-store'
+    current = manager()
+    try:
+        selected = parse_selection(request.page_selection)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    row = await store_call(current.store.reuse_selection, current_user.id, request.source_sha256, selected)
+    return public_job(row) if row is not None else None
 
 
 @router.delete('/{job_id}', status_code=204)

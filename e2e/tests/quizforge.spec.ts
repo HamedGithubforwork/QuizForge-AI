@@ -774,3 +774,79 @@ test('change pages reuses the browser file, preserves results on failure, and ve
   await expect(page.getByRole('button', { name: 'Generate Quiz', exact: true })).toBeEnabled()
   expect(uploads).toBe(6)
 })
+
+test('cached page changes avoid uploads after refresh and missing pages require the original PDF', async ({ page }, testInfo) => {
+  await mockSupabase(page)
+  await mockBackend(page)
+  const raw = Buffer.from('%PDF original cache-only selection fixture')
+  const source = createHash('sha256').update(raw).digest('hex')
+  const file = { name: 'cached-notes.pdf', mimeType: 'application/pdf', buffer: raw }
+  let uploads = 0
+  let cacheChecks = 0
+  let latest: ReturnType<typeof complete> | null = null
+  function complete(n: number, pages: number[]) {
+    return { job_id: `44444444-4444-4444-8444-${String(n).padStart(12, '0')}`, filename: file.name,
+      source_sha256: source, status: 'succeeded', selected_pages: pages,
+      completed_pages: pages.length, total_pages: pages.length, reused_pages: n === 1 ? 0 : pages.length,
+      expires_at: new Date(Date.now() + 3600000).toISOString(), error: null,
+      result: { filename: file.name, pdf_sha256: String(n).repeat(64), page_count: pages.length,
+        character_count: 1560, extractable_page_count: pages.length, scanned_likely: false, warning: null,
+        pages: pages.map(page_number => ({ page_number, character_count: 780, preview: sourcePageText[1] })) } }
+  }
+  await page.route('**/api-mock/api/documents/jobs', route => route.fulfill({ json: {
+    jobs: latest ? [latest] : [], supports_page_selection: true, supports_page_reuse: true, supports_cached_selection: true,
+  } }))
+  await page.route('**/api-mock/api/documents/jobs/*', route => route.fulfill({ json: latest }))
+  await page.route('**/api-mock/api/documents/jobs/reuse', route => {
+    cacheChecks += 1
+    expect(route.request().method()).toBe('POST')
+    const request = route.request().postDataJSON()
+    expect(request.source_sha256).toBe(source)
+    expect(route.request().headers()['content-type']).toBe('application/json')
+    expect(route.request().postData()).not.toContain(raw.toString())
+    if (request.page_selection === '2,3') {
+      latest = complete(2, [2, 3])
+      return route.fulfill({ json: latest })
+    }
+    return route.fulfill({ contentType: 'application/json', body: 'null' })
+  })
+  await page.route('**/api-mock/api/documents/upload', route => {
+    uploads += 1
+    expect(route.request().postData()).toContain(raw.toString())
+    latest = complete(uploads === 1 ? 1 : 3, uploads === 1 ? [1, 2, 3] : [3, 4])
+    return route.fulfill({ json: latest })
+  })
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await logIn(page)
+  await page.getByLabel('Study material PDF').setInputFiles(file)
+  await page.getByRole('button', { name: 'Process PDF', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Change pages', exact: true })).toBeVisible()
+  await page.reload()
+  await page.getByRole('button', { name: 'Resume cached-notes.pdf' }).click()
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await page.getByLabel('New pages to process (optional)').fill('2-3')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByText('Source pages: 2, 3.')).toBeVisible()
+  await expect(page.getByRole('status')).toHaveText('Your PDF is ready. Reused 2 cached pages.')
+  expect(uploads).toBe(1)
+  expect(cacheChecks).toBe(1)
+  await page.getByRole('button', { name: 'Change pages', exact: true }).click()
+  await page.getByLabel('New pages to process (optional)').fill('3-4')
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Some selected pages are not cached')
+  await expect(page.getByText('Source pages: 2, 3.')).toBeVisible()
+  expect(uploads).toBe(1)
+  expect(cacheChecks).toBe(2)
+  await page.getByLabel('Select the same PDF again').setInputFiles({ ...file, buffer: Buffer.from('%PDF wrong original') })
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByText('This is a different PDF. Select the original file to change its pages.')).toBeVisible()
+  expect(cacheChecks).toBe(2)
+  await page.getByLabel('Select the same PDF again').setInputFiles(file)
+  await page.getByRole('button', { name: 'Apply pages', exact: true }).click()
+  await expect(page.getByText('Source pages: 3, 4.')).toBeVisible()
+  expect(uploads).toBe(2)
+  expect(cacheChecks).toBe(3)
+  expect(errors).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('cached-page-selection.png'), fullPage: true })
+})

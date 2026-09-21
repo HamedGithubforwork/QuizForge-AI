@@ -9,11 +9,12 @@ type Props = {
   sourceSha256: string
   selection: string
   disabled: boolean
-  onApply: (file: File, selection: string) => Promise<void>
+  supportsCachedSelection: boolean
+  onApply: (file: File | null, selection: string) => Promise<void>
   onCancel: () => void
 }
 
-export default function ChangePagesPanel({ currentFile, filename, sourceSha256, selection, disabled, onApply, onCancel }: Props) {
+export default function ChangePagesPanel({ currentFile, filename, sourceSha256, selection, disabled, supportsCachedSelection, onApply, onCancel }: Props) {
   const [nextSelection, setNextSelection] = useState(selection)
   const [reselectedFile, setReselectedFile] = useState<File | null>(null)
   const [error, setError] = useState('')
@@ -28,8 +29,8 @@ export default function ChangePagesPanel({ currentFile, filename, sourceSha256, 
     try {
       const normalized = normalizePageSelection(nextSelection)
       const file = currentFile ?? reselectedFile
-      if (!file) throw new Error('Select the original PDF to continue.')
-      await verifySamePdf(file, sourceSha256)
+      if (!file && !supportsCachedSelection) throw new Error('Select the original PDF to continue.')
+      if (file) await verifySamePdf(file, sourceSha256)
       await onApply(file, normalized)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not change pages. Please try again.')
@@ -46,7 +47,9 @@ export default function ChangePagesPanel({ currentFile, filename, sourceSha256, 
         {!currentFile && (
           <div className="page-selection">
             <label htmlFor="change-pages-file">Select the same PDF again</label>
-            <p id="change-pages-file-help">Choose {getDisplayFilename(filename)}. The original file is only kept in this browser while the page is open.</p>
+            <p id="change-pages-file-help">{supportsCachedSelection
+              ? `You can apply cached pages without a file. Choose ${getDisplayFilename(filename)} only if additional pages need processing.`
+              : `Choose ${getDisplayFilename(filename)}. The original file is only kept in this browser while the page is open.`}</p>
             <input id="change-pages-file" className="file-input" type="file" accept="application/pdf"
               aria-describedby="change-pages-file-help" disabled={busy}
               onChange={event => { setReselectedFile(event.target.files?.[0] ?? null); setError('') }} />

@@ -92,6 +92,12 @@ export type PdfJobList = {
   "jobs": PdfJobResponse[]
   "supports_page_selection"?: boolean
   "supports_page_reuse"?: boolean
+  "supports_cached_selection"?: boolean
+}
+
+export type CachedSelectionRequest = {
+  "source_sha256": string
+  "page_selection"?: string
 }
 
 export type Quiz = {
@@ -156,6 +162,7 @@ export const API_ROUTES = [
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
   "POST /api/answers/review",
+  "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",
   "POST /api/quiz-history",
   "POST /api/quizzes/generate",

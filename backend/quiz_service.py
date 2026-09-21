@@ -6,7 +6,7 @@ from typing import Literal
 import pymupdf
 from fastapi import HTTPException
 from openai import OpenAIError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.concurrency import run_in_threadpool
 
 from observability import log_event
@@ -75,6 +75,48 @@ class QuizQuestion(BaseModel):
 class Quiz(BaseModel):
     title: str
     questions: list[QuizQuestion]
+
+
+class GeneratedChoiceQuestion(BaseModel):
+    """Only model-authored fields; fixed grading fields are filled by the server."""
+    question_type: Literal['multiple_choice', 'true_false']
+    question: str
+    choices: list[str]
+    correct_index: int = Field(ge=0, le=3)
+    explanation: str
+    source_pages: list[int] = Field(min_length=1)
+
+
+class GeneratedShortAnswerQuestion(QuizQuestion):
+    question_type: Literal['short_answer']
+
+
+class GeneratedQuiz(BaseModel):
+    title: str
+    questions: list[GeneratedChoiceQuestion | GeneratedShortAnswerQuestion]
+
+
+class GeneratedChoiceQuiz(BaseModel):
+    title: str
+    questions: list[GeneratedChoiceQuestion]
+
+
+def expand_generated_quiz(generated):
+    if isinstance(generated, Quiz):
+        return generated  # Short-answer-only generation keeps the full rubric.
+    questions = []
+    for question in generated.questions:
+        values = question.model_dump()
+        if isinstance(question, GeneratedChoiceQuestion):
+            if not 0 <= question.correct_index < len(question.choices):
+                raise ValueError('The correct choice index must refer to an existing choice.')
+            answer = question.choices[question.correct_index]
+            values.update(correct_answer=answer, accepted_answers=[answer], grading={
+                'grading_version': 2, 'grading_mode': 'none', 'answer_groups': [],
+                'required_group_count': 0, 'numeric_value': 0, 'numeric_tolerance': 0, 'numeric_unit': '',
+            })
+        questions.append(values)
+    return Quiz(title=generated.title, questions=questions)
 
 
 def validate_pdf_content_type(
@@ -313,6 +355,82 @@ def parse_avoid_questions(
     ]
 
 
+def question_mode_instructions(question_type):
+    rules = []
+    if question_type in ('multiple_choice', 'mixed'):
+        rules.append("""MULTIPLE CHOICE RULES:
+
+For a multiple-choice question:
+
+- question_type must be "multiple_choice".
+- Provide exactly four choices.
+- Exactly one choice must be correct.
+- correct_index must contain the zero-based index of the correct choice.
+- Incorrect answers should be plausible but clearly wrong.""")
+    if question_type in ('true_false', 'mixed'):
+        rules.append("""TRUE / FALSE RULES:
+
+For a True / False question:
+
+- question_type must be "true_false".
+- choices must be exactly ["True", "False"].
+- correct_index must be 0 if the answer is True.
+- correct_index must be 1 if the answer is False.
+- Avoid ambiguous statements.""")
+    if question_type in ('short_answer', 'mixed'):
+        rules.append("""SHORT ANSWER RULES:
+
+For a short-answer question:
+
+- question_type must be "short_answer".
+- choices must be an empty list.
+- correct_index must be -1.
+- correct_answer must contain a concise expected answer.
+- accepted_answers must contain the correct answer.
+- accepted_answers should include reasonable variations of the answer.
+- Include common abbreviations when clearly appropriate.
+- Include singular and plural variants when both mean the same thing.
+- Include hyphenated and non-hyphenated variants when appropriate.
+- Include concise expanded versions when appropriate.
+- If the answer is a number or code such as 404, include forms such as "404", "HTTP 404", and "404 Not Found" when supported.
+- If the answer is a technology or library name, include common phrasing variants when appropriate.
+- Do not include answers that are only partially correct.
+- Do not include unrelated synonyms.
+- Keep expected answers short enough to grade automatically.
+- Prefer objectively gradable factual answers.
+- Do not ask broad essay questions.
+
+SHORT ANSWER GRADING RUBRIC:
+
+- grading_version must be 2.
+- Choose grading_mode from "concepts", "exact", or "numeric".
+- Prefer "concepts" for ordinary factual short answers.
+- For "concepts", create one answer_group for every distinct acceptable concept the student may provide.
+- Each answer_group contains aliases that mean the SAME concept, such as a full term, a standard abbreviation, spelling variants, or an equivalent wording clearly supported by the PDF.
+- Never place two different required concepts in the same answer_group.
+- Set required_group_count to the number of distinct concepts the question requires for full credit.
+- If the question asks for all listed items, required_group_count should equal the number of required groups.
+- If the question asks for any N items from a larger valid set, include groups for the valid options and set required_group_count to N.
+- Order must not matter for concept answers.
+- A student may mix abbreviations and expanded terms across different concepts.
+- Use "exact" only when the whole answer truly needs to match one accepted wording or code-like value. For exact mode, answer_groups must be empty and required_group_count must be 0.
+- Use "numeric" when the answer is fundamentally a number. Set numeric_value to the expected value, numeric_tolerance to an appropriate non-negative tolerance supported by the question, and numeric_unit to the unit or an empty string.
+- For numeric answers with a measurement unit, numeric_unit should use a concise canonical unit such as "g", "mg", "kg", "m", "cm", "mm", "L", "mL", "s", "min", "h", "%", "°C", or "°F" when that unit is supported by the PDF.
+- Do not leave numeric_unit empty when the numeric answer requires a unit for correctness.
+- Use an empty numeric_unit only for genuinely unitless quantities.
+- The grader can convert common compatible mass, length, volume, time, percentage, and Celsius/Fahrenheit units before applying numeric_tolerance.
+- numeric_tolerance is expressed in the expected numeric_unit after conversion.
+- For non-numeric modes, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
+- For concept mode, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
+- For numeric mode, answer_groups must be empty and required_group_count must be 0.
+- Keep accepted_answers for backward compatibility and include complete fully-correct answer variants there; do not put partially correct fragments in accepted_answers.""")
+    if question_type == 'mixed':
+        rules.append('Use all three question types, with at least one of each. Distribute the remaining questions reasonably.')
+    else:
+        rules.append(f'Every question must have question_type "{question_type}".')
+    return '\n\n'.join(rules)
+
+
 async def generate_quiz_from_pages(
     *,
     pages,
@@ -484,104 +602,7 @@ Hard:
 - Require stronger understanding, comparison, application, or reasoning.
 - Questions must still be answerable only from the supplied PDF.
 
-MULTIPLE CHOICE RULES:
-
-For a multiple-choice question:
-
-- question_type must be "multiple_choice".
-- Provide exactly four choices.
-- Exactly one choice must be correct.
-- correct_index must contain the zero-based index of the correct choice.
-- correct_answer must exactly equal the correct choice text.
-- accepted_answers should contain the correct answer.
-- grading must use grading_version 2 and grading_mode "none".
-- grading.answer_groups must be an empty list.
-- grading.required_group_count must be 0.
-- grading.numeric_value and grading.numeric_tolerance must be 0.
-- grading.numeric_unit must be an empty string.
-- Incorrect answers should be plausible but clearly wrong.
-
-TRUE / FALSE RULES:
-
-For a True / False question:
-
-- question_type must be "true_false".
-- choices must be exactly ["True", "False"].
-- correct_index must be 0 if the answer is True.
-- correct_index must be 1 if the answer is False.
-- correct_answer must be exactly "True" or "False".
-- accepted_answers should contain the correct answer.
-- grading must use grading_version 2 and grading_mode "none".
-- grading.answer_groups must be an empty list.
-- grading.required_group_count must be 0.
-- grading.numeric_value and grading.numeric_tolerance must be 0.
-- grading.numeric_unit must be an empty string.
-- Avoid ambiguous statements.
-
-SHORT ANSWER RULES:
-
-For a short-answer question:
-
-- question_type must be "short_answer".
-- choices must be an empty list.
-- correct_index must be -1.
-- correct_answer must contain a concise expected answer.
-- accepted_answers must contain the correct answer.
-- accepted_answers should include reasonable variations of the answer.
-- Include common abbreviations when clearly appropriate.
-- Include singular and plural variants when both mean the same thing.
-- Include hyphenated and non-hyphenated variants when appropriate.
-- Include concise expanded versions when appropriate.
-- If the answer is a number or code such as 404, include forms such as "404", "HTTP 404", and "404 Not Found" when supported.
-- If the answer is a technology or library name, include common phrasing variants when appropriate.
-- Do not include answers that are only partially correct.
-- Do not include unrelated synonyms.
-- Keep expected answers short enough to grade automatically.
-- Prefer objectively gradable factual answers.
-- Do not ask broad essay questions.
-
-SHORT ANSWER GRADING RUBRIC:
-
-- grading_version must be 2.
-- Choose grading_mode from "concepts", "exact", or "numeric".
-- Prefer "concepts" for ordinary factual short answers.
-- For "concepts", create one answer_group for every distinct acceptable concept the student may provide.
-- Each answer_group contains aliases that mean the SAME concept, such as a full term, a standard abbreviation, spelling variants, or an equivalent wording clearly supported by the PDF.
-- Never place two different required concepts in the same answer_group.
-- Set required_group_count to the number of distinct concepts the question requires for full credit.
-- If the question asks for all listed items, required_group_count should equal the number of required groups.
-- If the question asks for any N items from a larger valid set, include groups for the valid options and set required_group_count to N.
-- Order must not matter for concept answers.
-- A student may mix abbreviations and expanded terms across different concepts.
-- Use "exact" only when the whole answer truly needs to match one accepted wording or code-like value. For exact mode, answer_groups must be empty and required_group_count must be 0.
-- Use "numeric" when the answer is fundamentally a number. Set numeric_value to the expected value, numeric_tolerance to an appropriate non-negative tolerance supported by the question, and numeric_unit to the unit or an empty string.
-- For numeric answers with a measurement unit, numeric_unit should use a concise canonical unit such as "g", "mg", "kg", "m", "cm", "mm", "L", "mL", "s", "min", "h", "%", "°C", or "°F" when that unit is supported by the PDF.
-- Do not leave numeric_unit empty when the numeric answer requires a unit for correctness.
-- Use an empty numeric_unit only for genuinely unitless quantities.
-- The grader can convert common compatible mass, length, volume, time, percentage, and Celsius/Fahrenheit units before applying numeric_tolerance.
-- numeric_tolerance is expressed in the expected numeric_unit after conversion.
-- For non-numeric modes, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
-- For concept mode, numeric_value and numeric_tolerance must be 0 and numeric_unit must be an empty string.
-- For numeric mode, answer_groups must be empty and required_group_count must be 0.
-- Keep accepted_answers for backward compatibility and include complete fully-correct answer variants there; do not put partially correct fragments in accepted_answers.
-
-REQUESTED MODE:
-
-If requested mode is "multiple_choice":
-- Every question must be multiple_choice.
-
-If requested mode is "true_false":
-- Every question must be true_false.
-
-If requested mode is "short_answer":
-- Every question must be short_answer.
-
-If requested mode is "mixed":
-- Use all three question types.
-- Include at least one multiple_choice question.
-- Include at least one true_false question.
-- Include at least one short_answer question.
-- Distribute the remaining questions reasonably among the three types.
+{question_mode_instructions(question_type)}
 """
 
     client = await get_openai_client(
@@ -631,8 +652,12 @@ Do not mention the retry or validation process in the quiz.
                         ),
                     },
                 ],
-                text_format=Quiz,
+                text_format=(GeneratedChoiceQuiz if question_type in ('multiple_choice', 'true_false')
+                             else Quiz if question_type == 'short_answer' else GeneratedQuiz),
             )
+        except ValidationError:
+            validation_errors = ['The response must match the requested structured quiz schema.']
+            continue
         except OpenAIError as error:
             log_event(
                 "openai_quiz_generation_error",
@@ -649,12 +674,16 @@ Do not mention the retry or validation process in the quiz.
                 ),
             ) from error
 
-        quiz = response.output_parsed
-
-        if quiz is None:
+        if response.output_parsed is None:
             validation_errors = [
                 "The response could not be parsed into the quiz schema."
             ]
+            continue
+
+        try:
+            quiz = expand_generated_quiz(response.output_parsed)
+        except (ValueError, ValidationError):
+            validation_errors = ['Every correct choice index must refer to an existing choice.']
             continue
 
         validation_errors = (

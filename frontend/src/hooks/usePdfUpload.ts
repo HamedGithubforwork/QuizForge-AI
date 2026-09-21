@@ -20,6 +20,7 @@ export function usePdfUpload() {
   const [recentJob, setRecentJob] = useState<PdfJobResponse | null>(null)
   const [supportsPageSelection, setSupportsPageSelection] = useState(false)
   const [supportsPageReuse, setSupportsPageReuse] = useState(false)
+  const [supportsCachedSelection, setSupportsCachedSelection] = useState(false)
   const [sourceSha256, setSourceSha256] = useState<string | null>(null)
   const operation = useRef<AbortController | null>(null)
   const revision = useRef(0)
@@ -34,6 +35,7 @@ export function usePdfUpload() {
         if (!controller.signal.aborted) {
           setSupportsPageSelection(data.supports_page_selection === true)
           setSupportsPageReuse(data.supports_page_reuse === true)
+          setSupportsCachedSelection(data.supports_cached_selection === true)
         }
         if (!controller.signal.aborted && initialRevision === revision.current) {
           setRecentJob(data.jobs?.find((item: PdfJobResponse) => ['queued', 'processing', 'succeeded'].includes(item.status)) ?? null)
@@ -45,7 +47,7 @@ export function usePdfUpload() {
     }
   }, [])
 
-  async function run(file?: File, resume?: PdfJobResponse, pageSelection = '') {
+  async function run(file?: File, resume?: PdfJobResponse, pageSelection = '', reuseSource?: string) {
     operation.current?.abort()
     const controller = new AbortController()
     operation.current = controller
@@ -53,12 +55,24 @@ export function usePdfUpload() {
     setIsProcessing(true)
     setJob(null)
     try {
-      let data: UploadResponse | PdfJobResponse
+      let data: UploadResponse | PdfJobResponse | null = null
       if (resume) {
         data = await readJob(resume.job_id, controller.signal)
-      } else {
+      } else if (reuseSource && supportsCachedSelection) {
+        const response = await apiFetch('/api/documents/jobs/reuse', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_sha256: reuseSource, page_selection: normalizePageSelection(pageSelection) }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+        })
+        const cached = await response.json()
+        if (!response.ok) throw new Error(cached.detail || 'Could not check cached pages. Please try again.')
+        data = cached
+      }
+      if (!data) {
         const formData = new FormData()
-        if (!file) throw new Error('Please choose a PDF first.')
+        if (!file) throw new Error(reuseSource
+          ? 'Some selected pages are not cached. Select the original PDF to process them.'
+          : 'Please choose a PDF first.')
         const selection = normalizePageSelection(pageSelection)
         formData.append('file', file)
         if (selection) formData.append('page_selection', selection)
@@ -70,6 +84,7 @@ export function usePdfUpload() {
         if (!response.ok) throw new Error((data as { detail?: string }).detail || 'PDF processing failed.')
       }
       controller.signal.throwIfAborted()
+      if (!data) throw new Error('The processed PDF response was invalid. Please try again.')
       let completedSource: string | null = null
       const result = 'job_id' in data
         ? await waitForPdfJob(data, readJob, next => {
@@ -110,5 +125,5 @@ export function usePdfUpload() {
     setSourceSha256(null)
   }
 
-  return { isProcessing, job, recentJob, supportsPageSelection, supportsPageReuse, sourceSha256, run, cancel, clear }
+  return { isProcessing, job, recentJob, supportsPageSelection, supportsPageReuse, supportsCachedSelection, sourceSha256, run, cancel, clear }
 }

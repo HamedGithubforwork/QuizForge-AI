@@ -43,6 +43,7 @@ PUBLIC_SCHEMA_NAMES = (
     "HistoryPage",
     "PdfJobResponse",
     "PdfJobList",
+    "CachedSelectionRequest",
     "Quiz",
     "QuizQuestion",
     "ShortAnswerGradingSpec",
