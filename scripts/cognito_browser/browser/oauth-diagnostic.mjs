@@ -2,7 +2,7 @@
 export function oauthDiagnostic(provider, application) {
   const safeErrors = new Set(['access_denied','invalid_request','invalid_grant','server_error','temporarily_unavailable','login_required','interaction_required','unauthorized_client','unsupported_response_type'])
   const result = {authorization_requested:false, callback_received:false, callback_error:null,
-    token_requested:false, token_http_status:null, token_transport_failed:false, token_json_valid:null}
+    token_requested:false, token_http_status:null, token_transport_failed:false, token_json_valid:null, script_error:false, script_http_failure:null}
   return {
     request(rawUrl, method) {
       const url = new URL(rawUrl)
@@ -18,6 +18,8 @@ export function oauthDiagnostic(provider, application) {
       result.token_http_status=Number.isInteger(status) && status >= 100 && status <= 599 ? status : null
       if(typeof validJson === 'boolean') result.token_json_valid=validJson
     },
+    scriptFailure() { result.script_error=true },
+    scriptResponse(status) { result.script_http_failure=Number.isInteger(status)&&status>=400&&status<=599?status:null },
     tokenFailure() { result.token_transport_failed=true },
     snapshot() { return {...result} },
   }
