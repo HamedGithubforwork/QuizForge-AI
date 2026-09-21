@@ -165,6 +165,9 @@ def export_snapshot(conn):
         conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         conn.execute("SET LOCAL timezone='UTC'")
         conn.execute("SET LOCAL search_path=pg_catalog")
+        # Like pg_dump, fail instead of silently backing up only rows visible
+        # through an accidentally restricted backup role or FORCE RLS policy.
+        conn.execute("SET LOCAL row_security=off")
         snapshot = {"format": FORMAT, "created_at": datetime.now(timezone.utc).isoformat(),
                     "schema": schema_state(conn), "tables": read_rows(conn)}
     snapshot["sha256"] = digest(snapshot)
@@ -196,6 +199,7 @@ def restore_snapshot(conn, snapshot, commit=False):
         conn.execute("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
         conn.execute("SET LOCAL timezone='UTC'")
         conn.execute("SET LOCAL search_path=pg_catalog")
+        conn.execute("SET LOCAL row_security=off")
         # Keep writers and concurrent restores out until all reconciliation completes.
         conn.execute(sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(
             sql.SQL(",").join(identifier(t) for t in TABLES)))

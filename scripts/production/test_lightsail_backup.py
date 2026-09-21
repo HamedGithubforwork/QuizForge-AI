@@ -222,6 +222,17 @@ class PostgreSQLRecovery(unittest.TestCase):
         with patch.object(backup, "MAX_ROWS", 1), self.assertRaises(ValueError):
             backup.export_snapshot(self.source)
 
+    def test_restricted_reader_cannot_silently_export_a_partial_rls_backup(self):
+        self.source.execute("""CREATE ROLE backup_reader NOLOGIN;
+            GRANT USAGE ON SCHEMA app,billing TO backup_reader;
+            GRANT SELECT ON ALL TABLES IN SCHEMA app,billing TO backup_reader;
+            SET ROLE backup_reader""")
+        try:
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                backup.export_snapshot(self.source)
+        finally:
+            self.source.execute("RESET ROLE; DROP OWNED BY backup_reader; DROP ROLE backup_reader")
+
 
 if __name__ == "__main__":
     unittest.main()
