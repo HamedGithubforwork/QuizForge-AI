@@ -1,12 +1,15 @@
-import copy
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch, MagicMock
+from urllib.error import HTTPError
 
 from database import options
 from generation_guard import connection_options
 from lightsail.render import compose, render, validate
+from lightsail import host_health
 
 
 def fixture():
@@ -23,6 +26,19 @@ def fixture():
 
 
 class Configuration(unittest.TestCase):
+    def test_host_heartbeat_rejects_disk_pressure_and_either_failed_service(self):
+        with patch.object(host_health.shutil, "disk_usage", return_value=SimpleNamespace(total=60 * 1024**3, free=1024**3)):
+            self.assertFalse(host_health.healthy())
+        with patch.object(host_health.shutil, "disk_usage", return_value=SimpleNamespace(total=60 * 1024**3, free=30 * 1024**3)), patch.object(host_health, "build_opener") as factory:
+            response = MagicMock()
+            response.__enter__.return_value.status = 200
+            factory.return_value.open.side_effect = [response, HTTPError("local", 403, "blocked", {}, None)]
+            self.assertTrue(host_health.healthy())
+            factory.return_value.open.side_effect = [response, OSError("offline")]
+            self.assertFalse(host_health.healthy())
+            factory.return_value.open.side_effect = OSError("offline")
+            self.assertFalse(host_health.healthy())
+
     def test_requires_owner_decisions_and_rejects_mutable_images_or_secrets(self):
         for key, bad in (("monthly_budget_usd", None), ("monthly_budget_usd", 5), ("alert_email", "owner@example.invalid"),
                          ("admin_ipv4_cidr", "0.0.0.0/0"), ("admin_ipv4_cidr", "::/0"),

@@ -1,5 +1,7 @@
 name: Permanent Lightsail configuration rehearsal
 on:
+  push:
+    branches: [feat/lightsail-permanent-configuration]
   pull_request:
     paths:
       - "infra/aws/lightsail-production/**"
