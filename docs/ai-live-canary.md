@@ -29,12 +29,13 @@ included in the report. A missing secret blocks the live test. Set it through
 the repository's Settings → Secrets and variables → Actions interface, not an
 issue, PR comment, chat message, or source file.
 
-The initial authorized push is restricted to the exact commit message recorded
-in the workflow. Other pushes only run the simulation. Workflow reruns cannot
-make a paid request. A future manually dispatched run requires selecting
-`run_live=true` and a new explicit decision to spend; inspect existing evidence
-before authorizing another attempt. Do not repeatedly run this fixture as a way
-to reset the monthly budget.
+An authorized push is restricted to the exact commit message recorded in the
+workflow. Other pushes only run the simulation. Workflow reruns cannot make a
+paid request. After supplying the missing secret, use a fresh reviewed trigger
+on this draft branch to complete the still-unused one-request authorization.
+The optional manual dispatch, where available, requires `run_live=true`.
+Inspect prior evidence first: any second paid attempt requires a new explicit
+decision to spend. Do not repeatedly run this fixture to reset the monthly budget.
 
 Reports include synthetic quiz output, generation time, provider token usage,
 reserved and settled amounts, the isolated remaining allowance, and whether the
@@ -51,5 +52,27 @@ answers against the included synthetic notes after structural validation passes.
 
 ## Evidence
 
-Pending the first CI execution. Local checks already pass for compact quiz
-parsing/expansion and suppression of an invalid-quiz regeneration attempt.
+Configuration commit: `1d2512b5cc1714bb73c1b406cd866b10b9f2b776`.
+[CI run 35570683603](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35570683603/job/106241479995)
+completed on 2026-09-21 with these results:
+
+- Both compact-parsing and application-retry-boundary tests passed.
+- The simulated provider integration passed against real TLS PostgreSQL: one
+  request, validated five-question public quiz, committed reservation, verified
+  settlement, and policy disabled at completion.
+- The live step stopped before contacting OpenAI because the `OPENAI_API_KEY`
+  secret was unavailable. **Zero paid model requests; actual test spend USD0.**
+- The overall workflow is failed because the requested live check is blocked.
+  It must not be treated as a successful live-model acceptance test.
+
+The [saved JSON evidence](benchmarks/ai-canary-2026-09-21.json) clearly separates
+simulation values from the blocked live attempt. The simulated 1.776-second
+duration and USD0.00146 settlement are harness results using invented token
+counts; neither measures real model speed or cost. Output quality from a real
+model and the real remaining token-cost balance are still untested.
+
+Next action: add `OPENAI_API_KEY` as a repository Actions secret at
+[QuizForge-AI secret settings](https://github.com/HamedGithubforwork/QuizForge-AI/settings/secrets/actions).
+Supply the key through that secret form; do not post its value in the chat.
+Afterward, a fresh trigger can use the existing authorization for one live quiz.
+Both application and permanent-infrastructure PRs remain draft and unmerged.
