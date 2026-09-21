@@ -10,7 +10,10 @@ The owner approved a **USD20/month AWS alert budget** on September 21, 2026.
 The release template now records that choice: actual-cost alerts above USD10,
 USD16 and USD20, plus a forecast alert above USD20, across the AWS account before
 credits. This is an alert threshold, not a spending cap or resource activation.
-Alert recipient and AI allowance remain unselected.
+The owner selected the alert recipient on September 21, 2026. The address is
+saved privately in `quizforge-production-settings.json` with the approved
+budget; the public release template deliberately keeps `alert_email` blank.
+The AI allowance remains unselected, and alerts are not active yet.
 
 ## Concrete configuration
 
@@ -60,10 +63,13 @@ maintenance. This configuration is not high availability or point-in-time recove
 
 ## Prepare the release, without activating it
 
-1. Use the approved USD20 monthly AWS alert budget. Supply the alert email,
-   daily/monthly model-attempt limits, operator SSH public key and current operator
-   `/32`. Keep the SSH private key outside Terraform. `release.example.json`
-   records the approved budget and leaves the remaining choices blank.
+1. Use the approved USD20 monthly AWS alert budget and copy the selected alert
+   email from the private `quizforge-production-settings.json` into the private
+   release configuration. Supply the owner-selected daily/monthly model-attempt
+   limits, operator SSH public key and current operator `/32`. Keep the SSH
+   private key outside Terraform and the completed release configuration out of
+   Git. `release.example.json` records the approved budget; its blank email is a
+   public placeholder, and the AI allowance is still unselected.
 2. Package the existing tested Cognito recovery hook with
    `python scripts/production/lightsail/package_recovery.py`. Initialize the new
    Terraform root with a **separate** encrypted state key
@@ -176,6 +182,6 @@ provider revocation; do not represent the recovery hook as immediate invalidatio
 of already-issued locally verified JWTs.
 
 No domain cutover, user-data transfer, paid provisioning or merge is authorized
-by generating or validating this configuration. Owner decisions still needed:
-alert inbox and AI request allowance (or leave disabled). The monthly AWS alert
-budget is approved at USD20.
+by generating or validating this configuration. The AI request allowance still
+needs an owner decision (or leave AI disabled). The monthly AWS alert budget is
+approved at USD20, and the selected alert inbox is saved privately.
