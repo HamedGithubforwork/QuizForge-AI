@@ -2,6 +2,12 @@
 
 The September 21 [permanent Lightsail configuration](lightsail-production-configuration.md) now prepares the separate host, private runtime, authentication, cost alerts and disabled AI controls. It is inactive and awaits owner settings and live acceptance.
 
+The [isolated live AI canary](ai-live-canary.md) passed on September 21: one
+five-question quiz in 6.72728 seconds with USD0.0006025 conservatively settled.
+Carry that single attempt and charge into September's launch usage exactly once.
+This checks the model/application/budget path on CI; it does not complete the
+remaining live AWS, final-domain, recovery, migration or cutover gates.
+
 The owner requested a lower-cost Lightsail evaluation after reviewing this
 managed-stack estimate. See the [small-server capacity results](aws-small-server-capacity.md):
 the September 20 real Lightsail retests passed both capacity profiles, including

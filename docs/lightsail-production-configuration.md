@@ -19,6 +19,12 @@ settings file and the public release template. The prepared gateway now enforces
 integer-dollar reservations as described in [AI cost controls](ai-cost-controls.md).
 Alerts and production model calls are not active yet.
 
+The [isolated live AI canary](ai-live-canary.md) passed: five questions in
+6.72728 seconds, one paid request, USD0.0006025 conservative settlement.
+Before September activation, reconcile its single attempt and 602,500 nano-USD
+into the launch usage exactly once, along with any other provider usage.
+The saved receipt has not been applied to a production database.
+
 ## Concrete configuration
 
 | Part | Prepared configuration |

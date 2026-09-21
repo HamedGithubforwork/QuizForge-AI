@@ -2,7 +2,9 @@
 
 The owner approved USD5/month for model usage, separately from the USD20 AWS
 alert budget. The private recipient/settings file and public release template
-record those decisions. No production resources or model calls are enabled.
+record those decisions. No production resources or production model calls are
+enabled. One isolated live canary passed on September 21; its conservative charge
+of USD0.0006025 must be carried into September launch accounting.
 
 ## What is enforced
 
@@ -98,10 +100,24 @@ PYTHONPATH=scripts/production:scripts/rds_rehearsal python -m unittest test_gene
 
 The database tests require the disposable CI database and must not be pointed
 at production. Existing Compose CI exercises the real disabled gateway before
-and after a service restart. A live provider canary remains a separate acceptance
-step: use synthetic notes, an explicit small sub-allowance within USD5, bounded
-output, no automatic retries, and reconcile the provider usage with the ledger.
-The simulated tests do not measure live quiz quality, latency or provider access.
+and after a service restart. The simulated tests do not measure live quiz quality,
+latency or provider access.
+
+## Completed isolated live provider check
+
+The [September 21 live canary](ai-live-canary.md) passed through the exact
+application candidate and real TLS budget database: one request, five validated
+questions, 6.72728 seconds, 634 input/370 output tokens and verified settlement.
+The budget charged USD0.0006025, leaving USD4.9993975 of the isolated starting
+allowance; generation was then disabled. There were no automatic retries.
+The token-based standard-price estimate is USD0.0005708; budget accounting
+deliberately uses the higher rate and is not an invoice reconciliation.
+
+Before September production activation, reconcile the saved receipt's single
+attempt and **602,500 nano-USD** into the current-month usage exactly once.
+The production database is not active and has not received this charge yet.
+Do not reset the allowance or drop the canary cost when moving from the
+disposable fixture to production. Real AWS/full-website acceptance remains.
 
 The separate [before/after overhead benchmark](benchmarks/ai-budget-overhead-2026-09-21.md)
 measured about 13–14 ms added median per AI call at concurrency one and 86–94 ms
