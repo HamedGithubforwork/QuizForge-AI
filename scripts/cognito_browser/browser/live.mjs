@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process'
 import { createServer, request as httpRequest } from 'node:http'
 import { setDefaultResultOrder } from 'node:dns'
 import { chromium } from '@playwright/test'
+import { oauthDiagnostic } from './oauth-diagnostic.mjs'
 
 const bundle = JSON.parse(await readFile('/run/fixture.json','utf8'))
 // Docker's localhost IPv6 entry can disagree with Node's connect-family choice.
@@ -16,6 +17,7 @@ const domain = `https://${bundle.domain}.auth.ca-central-1.amazoncognito.com`
 const wait = ms => new Promise(resolve => setTimeout(resolve,ms))
 let phase = 'boot', browser, server, gateway, page
 let startupLog = ''
+let latestLoginDiagnostic
 const preflight = process.env.QUIZFORGE_PREFLIGHT === '1'
 const watchdog = setTimeout(()=>{ console.error('ERROR: rehearsal exceeded five minutes in '+phase); process.exit(1) },300000)
 
@@ -36,15 +38,26 @@ async function login(name, context, userOverride) {
   context ||= await browser.newContext()
   context.setDefaultTimeout(30000)
   page = await context.newPage()
+  const diagnostic = oauthDiagnostic(domain,base)
+  latestLoginDiagnostic = diagnostic
   let authorization, exchange, tokens
   page.on('request',r => {
+    diagnostic.request(r.url(),r.method())
     const url = new URL(r.url())
     if (url.origin === domain && url.pathname === '/oauth2/authorize') authorization = url.searchParams
     if (url.origin === domain && url.pathname === '/oauth2/token' && r.method()==='POST') exchange = new URLSearchParams(r.postData())
   })
   page.on('response', async response => {
-    if (response.url()===domain+'/oauth2/token' && response.request().method()==='POST' && response.status()===200)
-      tokens = await response.json()
+    if (response.url()===domain+'/oauth2/token' && response.request().method()==='POST') {
+      diagnostic.tokenResponse(response.status())
+      if(response.status()===200) {
+        try { tokens=await response.json(); diagnostic.tokenResponse(200,true) }
+        catch { diagnostic.tokenResponse(200,false) }
+      }
+    }
+  })
+  page.on('requestfailed',r=>{
+    if(r.url()===domain+'/oauth2/token' && r.method()==='POST') diagnostic.tokenFailure()
   })
   await page.goto(base)
   await page.getByRole('button',{name:'Sign in or create account'}).click()
@@ -60,12 +73,18 @@ async function login(name, context, userOverride) {
   await code.fill(totp(user.totp))
   user.enrolled_at = Math.floor(Date.now()/1000)
   await page.locator('input[type="submit"]:visible,button[type="submit"]:visible').click()
+  phase = name + ': callback redirect after MFA'
   await page.waitForURL(url => url.origin===base,{timeout:60000})
+  phase = name + ': access token response after MFA'
   for(let n=0;!tokens&&n<100;n++) await wait(100)
   assert(tokens?.access_token)
+  phase = name + ': authorization response type'
   assert.equal(authorization.get('response_type'),'code')
+  phase = name + ': PKCE method'
   assert.equal(authorization.get('code_challenge_method'),'S256')
+  phase = name + ': PKCE verifier binding'
   assert.equal(createHash('sha256').update(exchange.get('code_verifier')).digest('base64url'),authorization.get('code_challenge'))
+  phase = name + ': OIDC nonce binding'
   assert.equal(JSON.parse(Buffer.from(tokens.id_token.split('.')[1],'base64url')).nonce,authorization.get('nonce'))
   return {context,page,tokens}
 }
@@ -99,8 +118,12 @@ async function logout(session, user) {
   // Same browser context: a surviving provider cookie would skip the required
   // visible password and MFA fields and make login fail, never silently pass.
   const again = await login('mapped',session.context,user)
-  assert.equal((await request(again.context,'/api/quiz-history',again.tokens.access_token)).status(),200)
+  phase='post-logout sign-in: protected history authorization'
+  const historyStatus=(await request(again.context,'/api/quiz-history',again.tokens.access_token)).status()
+  console.log('Post-logout protected history status: '+historyStatus)
+  assert.equal(historyStatus,200)
   console.log('PASS: hosted logout clears the provider cookie, revokes fresh access/refresh tokens, and same-browser sign-in requires password plus existing TOTP')
+  return again
 }
 
 async function hostedRecovery() {
@@ -249,15 +272,20 @@ try {
   assert.equal((await request(unverified.context,'/identity/session',unverified.tokens.access_token)).status(),403)
   assert.equal((await request(unverified.context,'/api/quiz-history',unverified.tokens.access_token)).status(),403)
   console.log('PASS: unverified email denied')
-  await logout(fresh,bundle.users.unmapped)
+  let returning = fresh
+  for(let cycle=0;cycle<3;cycle++) {
+    returning = await logout(returning,bundle.users.unmapped)
+    console.log('PASS: logout and sign-in cycle '+(cycle+1)+' of 3')
+  }
   console.log('PASS: live Cognito browser rehearsal complete; no OpenAI requests or production services used')
   }
 } catch(error) {
   // Playwright exceptions can contain entered values/URLs. Never emit them or a trace.
   console.error(`ERROR: live browser rehearsal failed in ${phase} (${error.constructor.name})`)
+  if(latestLoginDiagnostic) console.error('OAuth diagnostic:',JSON.stringify(latestLoginDiagnostic.snapshot()))
   if(page) {
     const path=new URL(page.url()).pathname
-    const known=['/login','/forgotPassword','/confirmForgotPassword','/error','/mfa','/']
+    const known=['/login','/forgotPassword','/confirmForgotPassword','/error','/mfa','/','/auth/callback']
     const body=await page.locator('body').innerText().catch(()=>'')
     console.error('Provider diagnostic:',JSON.stringify({path:known.includes(path)?path:'other',expired:/expired|timed out/i.test(body),genericError:/something went wrong|error was encountered/i.test(body)}))
   }

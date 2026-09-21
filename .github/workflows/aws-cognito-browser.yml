@@ -17,7 +17,7 @@ on:
       application_pr:
         description: "Application PR with passing required checks (run or hosted-recovery-start)"
         type: string
-        default: "97"
+        default: "127"
   schedule:
     - cron: "*/15 * * * *"
 
@@ -48,6 +48,7 @@ jobs:
           python -m compileall -q scripts/cognito_browser
           bash -n scripts/cognito_browser/runner.sh
           node --check scripts/cognito_browser/browser/live.mjs
+          node --test scripts/cognito_browser/browser/oauth-diagnostic.test.mjs
           node --check scripts/cognito_browser/browser/vite.config.mjs
           python scripts/cognito_browser/control.py package
       - uses: hashicorp/setup-terraform@v4
@@ -93,7 +94,7 @@ jobs:
         id: preview
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIEW_PR: ${{ inputs.application_pr || '97' }}
+          PREVIEW_PR: ${{ inputs.application_pr || '127' }}
           REQUIRE_POSTGRES_HISTORY: "1"
         run: python scripts/aws_staging_preview.py
       - uses: actions/checkout@v7
