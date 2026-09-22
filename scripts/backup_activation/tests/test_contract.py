@@ -135,6 +135,39 @@ class PlanTests(unittest.TestCase):
                 with self.assertRaises(Refused):
                     review_plan(document, SETTINGS)
 
+    def test_pinned_enabled_versioning_can_resolve_provider_unknown_block(self):
+        for current in (
+            None,
+            [],
+            [{}],
+            [{"status": "Enabled"}],
+            [{"status": "Enabled", "mfa_delete": None}],
+            [{"status": "Enabled", "mfa_delete": "Disabled"}],
+        ):
+            with self.subTest(current=current):
+                document = plan()
+                change = resource(document, "aws_s3_bucket_versioning.backups")["change"]
+                change["after"]["versioning_configuration"] = copy.deepcopy(current)
+                change["after_unknown"]["versioning_configuration"] = True
+                review_plan(document, SETTINGS)
+
+    def test_unknown_versioning_block_still_refuses_unsafe_materialized_values(self):
+        unsafe = (
+            [{"status": "Suspended"}],
+            [{"status": "Disabled"}],
+            [{"status": "Enabled", "mfa_delete": "Enabled"}],
+            [{"status": "Enabled", "unexpected": True}],
+            [{"status": "Enabled"}, {"status": "Enabled"}],
+        )
+        for current in unsafe:
+            with self.subTest(current=current):
+                document = plan()
+                change = resource(document, "aws_s3_bucket_versioning.backups")["change"]
+                change["after"]["versioning_configuration"] = copy.deepcopy(current)
+                change["after_unknown"]["versioning_configuration"] = True
+                with self.assertRaises(Refused):
+                    review_plan(document, SETTINGS)
+
     def test_unknown_boolean_recipient_policy_and_nested_safety(self):
         for address, field in ((BUCKET_ADDRESS, "force_destroy"), (OWNER_ADDRESS, "endpoint"),
                                ("aws_iam_policy.uploader", "policy"), (ALARM_ADDRESS, "treat_missing_data")):
@@ -145,14 +178,14 @@ class PlanTests(unittest.TestCase):
 
     def test_unknown_required_field_reports_only_reviewed_contract_path(self):
         document = plan()
-        change = resource(document, "aws_s3_bucket_versioning.backups")["change"]
-        change["after_unknown"]["versioning_configuration"] = [{"status": True}]
+        change = resource(document, "aws_s3_bucket_public_access_block.backups")["change"]
+        change["after_unknown"]["block_public_acls"] = True
         with self.assertRaises(Refused) as context:
             review_plan(document, SETTINGS)
         self.assertEqual(context.exception.code, "UNKNOWN_SAFETY_FIELD")
         self.assertEqual(
             context.exception.diagnostic_id,
-            "aws_s3_bucket_versioning.backups.versioning_configuration",
+            "aws_s3_bucket_public_access_block.backups.block_public_acls",
         )
         diagnostic = context.exception.diagnostic_id
         for private in (SETTINGS.email, SETTINGS.account, SETTINGS.role, SETTINGS.state_bucket):
