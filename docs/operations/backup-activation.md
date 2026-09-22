@@ -1,8 +1,8 @@
 # Retained backup activation — draft implementation
 
-**DRAFT ONLY. The 41 credential-free Python tests and pinned-source verification
-passed during repository review. Provider compatibility is checked separately in
-PR validation. This implementation has not been merged or activated in AWS.**
+**DRAFT ONLY. Credential-free validation and provider compatibility tests are
+defined for PR validation but must pass on the exact revision before merge. This
+implementation has not been activated in AWS.**
 
 This document accompanies an additive draft based on `quizforge-backup-chat-context.md`.
 It does not authorize AWS activation, additional permissions, a production launch,
@@ -168,11 +168,11 @@ mode grants `sns:Publish` or `cloudwatch:SetAlarmState`.
 
 ## Access and privacy boundaries
 
-The wrapper passes existing role/backend **variables** through explicitly named
-reusable-workflow **secret inputs**. This avoids rendering their values as ordinary
-run-step environment variables before masking. It does not rename or change stored
-repository settings. Only the three named inputs are passed; there is no
-`secrets: inherit` or new environment.
+The called workflow reads the existing role/backend repository **variables** at
+runtime and masks both before the cloud command step. The private recipient remains
+an explicitly named reusable-workflow **secret input**. This does not rename or
+change stored repository settings, and there is no `secrets: inherit` or new
+environment.
 
 Two independent OIDC sessions assume the same existing role: `qf-resources` for the
 provider, and `qf-state` for the backend. The backend profile is explicitly pinned in
