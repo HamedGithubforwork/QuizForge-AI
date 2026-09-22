@@ -22,7 +22,7 @@ The live checks and operational gates below remain required before activation.
 | Region | `ca-central-1` |
 | State key | `quizforge/lightsail-backups/terraform.tfstate` |
 | Workspace | `default` only |
-| Existing role / backend variables | `AWS_ROLE_ARN` / `TF_STATE_BUCKET` |
+| Existing role / backend settings | Existing `AWS_ROLE_ARN` / `TF_STATE_BUCKET` values; this workflow requires secret copies under the same names before live inspection |
 | Existing private recipient | Secret `AWS_BUDGET_ALERT_EMAIL`; never copy its value into source or reports |
 | Historical read-only evidence | Run `35647550787`: 13 creates, no updates/deletes, no apply |
 
@@ -168,11 +168,19 @@ mode grants `sns:Publish` or `cloudwatch:SetAlarmState`.
 
 ## Access and privacy boundaries
 
-The called workflow reads the existing role/backend repository **variables** at
-runtime and masks both before the cloud command step. The private recipient remains
-an explicitly named reusable-workflow **secret input**. This does not rename or
-change stored repository settings, and there is no `secrets: inherit` or new
-environment.
+The role ARN, backend bucket and private recipient must reach the cloud job only as
+GitHub **secrets**, so GitHub masks them before any step/environment rendering.
+The existing repository variables are not deleted or rewritten by this change, but
+before another live inspection the current role/backend values must also be stored
+as repository secrets named `AWS_ROLE_ARN` and `TF_STATE_BUCKET`. The recipient
+continues to use the existing `AWS_BUDGET_ALERT_EMAIL` secret. There is no
+`secrets: inherit` or new environment.
+
+Earlier inspection runs rendered the role/backend repository variables before the
+workflow's runtime mask command took effect. Do not repeat that pattern. Treat
+removal of those historical public workflow logs as a separate evidence-retention
+decision; deleting a run also deletes its logs/artifacts and is not performed by
+this code change.
 
 Two independent OIDC sessions assume the same existing role: `qf-resources` for the
 provider, and `qf-state` for the backend. The backend profile is explicitly pinned in
@@ -206,7 +214,10 @@ Private state, source-derived plans, binary hashes, credentials, email, account 
 backend identifiers and raw diagnostics are kept under a private temporary directory
 and are never uploaded. The public JSON report is constructed from allowlisted
 constants, booleans and enumerations. Only that exact path is uploaded. Error text
-is a static code, never a provider diagnostic. Normal/handled-failure cleanup removes
+is a static code, never a provider diagnostic. A refusal may also include a
+`diagnostic_id` made only from a reviewed Terraform resource address and expected
+field path (for example, a versioning block); it never includes plan values, ARNs,
+account IDs, recipient data, state-bucket names or provider messages. Normal/handled-failure cleanup removes
 temporary files; runner termination can prevent final cleanup/checkpoint publication.
 GitHub-hosted runner teardown is still part of the privacy assumptions.
 
@@ -253,8 +264,10 @@ not claim the preflight alone provides cross-system atomicity or collision immun
    snapshot. The inherited action version tags are not full-SHA action pins; verify
    availability/provenance and repository pinning policy before merge. Do not change
    the Terraform candidate or tool versions merely to make a check pass.
-2. **Reusable workflow and private settings.** Are these repository/organization
-   variables and recipient secret available at the expected scope? Verify the actual
+2. **Reusable workflow and private settings.** Before another live inspection,
+   copy the existing role/backend values into repository secrets `AWS_ROLE_ARN`
+   and `TF_STATE_BUCKET` without changing their values; keep
+   `AWS_BUDGET_ALERT_EMAIL` as the existing recipient secret. Verify the actual
    caller `GITHUB_WORKFLOW_REF`/`GITHUB_WORKFLOW_SHA` and OIDC claims for this nested
    workflow, and verify secret masking with synthetic values first. A role trust
    condition tied to another workflow may refuse it. Do not modify role trust or
