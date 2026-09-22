@@ -78,12 +78,10 @@ jobs:
       id-token: write
     uses: ./.github/workflows/aws-backup-activation-cloud.yml
     with:
-      operation: ${{ inputs.operation }}
-      reviewed_manifest_sha256: ${{ inputs.reviewed_manifest_sha256 }}
-      confirmation: ${{ inputs.confirmation }}
-    # Passing existing variables as reusable-workflow secrets masks the values
-    # BEFORE a run step can print its environment. No stored setting is changed.
+      operation: ${{ github.event.inputs.operation }}
+      reviewed_manifest_sha256: ${{ github.event.inputs.reviewed_manifest_sha256 }}
+      confirmation: ${{ github.event.inputs.confirmation }}
+    # Only the true secret crosses the reusable-workflow boundary. Existing
+    # repository variables are read and masked inside the called workflow.
     secrets:
-      QF_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-      QF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
       AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
