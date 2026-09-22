@@ -88,6 +88,53 @@ class PlanTests(unittest.TestCase):
         self.refused(lambda p: resource(p, "aws_s3_bucket_server_side_encryption_configuration.backups")["change"]["after"]
                      ["rule"][0]["apply_server_side_encryption_by_default"][0].update(kms_master_key_id="unapproved-key"))
 
+    def test_pinned_aes256_rule_can_resolve_provider_unknown_set(self):
+        for current in (
+            None,
+            [],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}]}],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256",
+                                                            "kms_master_key_id": None}],
+              "blocked_encryption_types": [], "bucket_key_enabled": False}],
+        ):
+            with self.subTest(current=current):
+                document = plan()
+                change = resource(
+                    document,
+                    "aws_s3_bucket_server_side_encryption_configuration.backups",
+                )["change"]
+                change["after"]["rule"] = copy.deepcopy(current)
+                change["after_unknown"]["rule"] = True
+                review_plan(document, SETTINGS)
+
+    def test_unknown_encryption_set_still_refuses_unsafe_materialized_values(self):
+        unsafe_rules = (
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "aws:kms"}]}],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256",
+                                                            "kms_master_key_id": "key"}]}],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}],
+              "bucket_key_enabled": True}],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}],
+              "blocked_encryption_types": ["SSE-C"]}],
+            [
+                {"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}]},
+                {"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}]},
+            ],
+            [{"apply_server_side_encryption_by_default": [{"sse_algorithm": "AES256"}],
+              "unexpected": True}],
+        )
+        for current in unsafe_rules:
+            with self.subTest(current=current):
+                document = plan()
+                change = resource(
+                    document,
+                    "aws_s3_bucket_server_side_encryption_configuration.backups",
+                )["change"]
+                change["after"]["rule"] = copy.deepcopy(current)
+                change["after_unknown"]["rule"] = True
+                with self.assertRaises(Refused):
+                    review_plan(document, SETTINGS)
+
     def test_unknown_boolean_recipient_policy_and_nested_safety(self):
         for address, field in ((BUCKET_ADDRESS, "force_destroy"), (OWNER_ADDRESS, "endpoint"),
                                ("aws_iam_policy.uploader", "policy"), (ALARM_ADDRESS, "treat_missing_data")):
