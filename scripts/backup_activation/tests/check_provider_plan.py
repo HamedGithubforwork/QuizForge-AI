@@ -30,6 +30,22 @@ def equal(actual, expected, code="MOCK_PROVIDER_CONFIG_MISMATCH"):
     require(actual == expected, code)
 
 
+def linked(actual: dict, key: str, expected) -> None:
+    """Mock providers may leave references to other creates unresolved.
+
+    Missing/None (or a one-element [None] ARN list) is accepted only in this
+    credential-free bridge. If the reference materializes, it must be exact.
+    The live saved-plan validator separately proves the source expression.
+    """
+    value = actual.get(key)
+    if value is None:
+        return
+    if isinstance(expected, list) and value == [None]:
+        require(len(expected) == 1, "MOCK_RESOURCE_LINK_SHAPE_MISMATCH")
+        return
+    equal(value, expected, "MOCK_RESOURCE_LINK_MISMATCH")
+
+
 def configured_contract(address: str, actual: dict, expected: dict) -> None:
     """Check values explicitly configured by the immutable Terraform source.
 
@@ -46,25 +62,26 @@ def configured_contract(address: str, actual: dict, expected: dict) -> None:
         return
 
     if address == "aws_s3_bucket_public_access_block.backups":
-        for key in ("bucket", "block_public_acls", "block_public_policy",
+        linked(actual, "bucket", expected["bucket"])
+        for key in ("block_public_acls", "block_public_policy",
                     "ignore_public_acls", "restrict_public_buckets"):
             equal(actual.get(key), expected[key])
         return
 
     if address == "aws_s3_bucket_ownership_controls.backups":
-        equal(actual.get("bucket"), expected["bucket"])
+        linked(actual, "bucket", expected["bucket"])
         rule = one(actual.get("rule"), "MOCK_OWNERSHIP_RULE_MISSING")
         equal(rule.get("object_ownership"), "BucketOwnerEnforced")
         return
 
     if address == "aws_s3_bucket_versioning.backups":
-        equal(actual.get("bucket"), expected["bucket"])
+        linked(actual, "bucket", expected["bucket"])
         rule = one(actual.get("versioning_configuration"), "MOCK_VERSIONING_RULE_MISSING")
         equal(rule.get("status"), "Enabled")
         return
 
     if address == "aws_s3_bucket_server_side_encryption_configuration.backups":
-        equal(actual.get("bucket"), expected["bucket"])
+        linked(actual, "bucket", expected["bucket"])
         rule = one(actual.get("rule"), "MOCK_ENCRYPTION_RULE_MISSING")
         default = one(rule.get("apply_server_side_encryption_by_default"),
                       "MOCK_ENCRYPTION_DEFAULT_MISSING")
@@ -72,7 +89,7 @@ def configured_contract(address: str, actual: dict, expected: dict) -> None:
         return
 
     if address == "aws_s3_bucket_lifecycle_configuration.backups":
-        equal(actual.get("bucket"), expected["bucket"])
+        linked(actual, "bucket", expected["bucket"])
         rules = actual.get("rule")
         require(isinstance(rules, list) and len(rules) == 2, "MOCK_LIFECYCLE_RULES_MISSING")
         by_id = {rule.get("id"): rule for rule in rules}
@@ -96,7 +113,7 @@ def configured_contract(address: str, actual: dict, expected: dict) -> None:
         return
 
     if address == "aws_s3_bucket_policy.backups":
-        equal(actual.get("bucket"), expected["bucket"])
+        linked(actual, "bucket", expected["bucket"])
         require(policy_canonical(actual.get("policy")) == policy_canonical(expected["policy"]),
                 "MOCK_BUCKET_POLICY_MISMATCH")
         return
@@ -122,7 +139,7 @@ def configured_contract(address: str, actual: dict, expected: dict) -> None:
         return
 
     if address == "aws_sns_topic_subscription.owner":
-        equal(actual.get("topic_arn"), expected["topic_arn"])
+        linked(actual, "topic_arn", expected["topic_arn"])
         equal(actual.get("protocol"), "email")
         equal(actual.get("endpoint"), SETTINGS.email)
         if actual.get("raw_message_delivery") is not None:
@@ -133,8 +150,10 @@ def configured_contract(address: str, actual: dict, expected: dict) -> None:
         for key in ("alarm_name", "alarm_description", "namespace", "metric_name",
                     "comparison_operator", "threshold", "period", "evaluation_periods",
                     "datapoints_to_alarm", "statistic", "treat_missing_data",
-                    "alarm_actions", "ok_actions", "dimensions", "tags"):
+                    "dimensions", "tags"):
             equal(actual.get(key), expected[key])
+        linked(actual, "alarm_actions", expected["alarm_actions"])
+        linked(actual, "ok_actions", expected["ok_actions"])
         if actual.get("actions_enabled") is not None:
             equal(actual.get("actions_enabled"), True)
         require(actual.get("insufficient_data_actions") in (None, []),
