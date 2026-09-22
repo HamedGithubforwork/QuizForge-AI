@@ -81,7 +81,9 @@ jobs:
       operation: ${{ github.event.inputs.operation }}
       reviewed_manifest_sha256: ${{ github.event.inputs.reviewed_manifest_sha256 }}
       confirmation: ${{ github.event.inputs.confirmation }}
-    # Only the true secret crosses the reusable-workflow boundary. Existing
-    # repository variables are read and masked inside the called workflow.
+    # All private configuration crosses the reusable-workflow boundary as
+    # GitHub secrets so it is masked before any step/environment rendering.
     secrets:
+      QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
