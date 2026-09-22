@@ -248,11 +248,20 @@ def main() -> int:
         code = 0
     except BaseException as error:
         error_result(report)
-        report["error_code"] = str(error) if isinstance(error, Refused) else "PRIVATE_OPERATION_FAILED"
+        if isinstance(error, Refused):
+            report["error_code"] = error.code
+            diagnostic = error.diagnostic_id
+            # Diagnostics are built only from reviewed Terraform addresses/field
+            # names. Never publish provider text, values, ARNs, recipient or state.
+            if diagnostic and re.fullmatch(r"[a-z0-9_.\[\]-]{1,200}", diagnostic):
+                report["diagnostic_id"] = diagnostic
+        else:
+            report["error_code"] = "PRIVATE_OPERATION_FAILED"
         # A new provider error never becomes public text, even when it contains
         # an ARN, the selected recipient, a signed request, or Terraform output.
         if not re.fullmatch(r"[A-Z_]{1,80}", report["error_code"]):
             report["error_code"] = "PRIVATE_OPERATION_FAILED"
+            report["diagnostic_id"] = ""
     finally:
         try:
             write_report(path, report, settings)

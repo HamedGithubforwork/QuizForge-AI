@@ -15,6 +15,10 @@ on:
         required: false
         default: ''
     secrets:
+      QF_ROLE_ARN:
+        required: true
+      QF_STATE_BUCKET:
+        required: true
       AWS_BUDGET_ALERT_EMAIL:
         required: true
 
@@ -53,25 +57,13 @@ jobs:
         with:
           terraform_version: '1.14.7'
           terraform_wrapper: false
-      - name: Mask existing private repository configuration
-        shell: bash
-        env:
-          QF_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          QF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
-        run: |
-          if [[ -z "$QF_ROLE_ARN" || -z "$QF_STATE_BUCKET" ]]; then
-            echo "Required repository configuration is unavailable." >&2
-            exit 1
-          fi
-          echo "::add-mask::$QF_ROLE_ARN"
-          echo "::add-mask::$QF_STATE_BUCKET"
       - name: Inspect, activate, or verify only the retained backup stack
         env:
           QF_OPERATION: ${{ inputs.operation }}
           QF_REVIEWED_MANIFEST: ${{ inputs.reviewed_manifest_sha256 }}
           QF_CONFIRMATION: ${{ inputs.confirmation }}
-          QF_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
-          QF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          QF_ROLE_ARN: ${{ secrets.QF_ROLE_ARN }}
+          QF_STATE_BUCKET: ${{ secrets.QF_STATE_BUCKET }}
           AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
           TF_WORKSPACE: default
           AWS_EC2_METADATA_DISABLED: 'true'

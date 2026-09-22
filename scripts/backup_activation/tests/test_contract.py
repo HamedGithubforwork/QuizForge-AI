@@ -96,6 +96,21 @@ class PlanTests(unittest.TestCase):
         self.refused(lambda p: resource(p, "aws_s3_bucket_lifecycle_configuration.backups")["change"]["after_unknown"]
                      .update(rule=[{"filter": [{"tag": True}]}, {}]))
 
+    def test_unknown_required_field_reports_only_reviewed_contract_path(self):
+        document = plan()
+        change = resource(document, "aws_s3_bucket_versioning.backups")["change"]
+        change["after_unknown"]["versioning_configuration"] = [{"status": True}]
+        with self.assertRaises(Refused) as context:
+            review_plan(document, SETTINGS)
+        self.assertEqual(context.exception.code, "UNKNOWN_SAFETY_FIELD")
+        self.assertEqual(
+            context.exception.diagnostic_id,
+            "aws_s3_bucket_versioning.backups.versioning_configuration",
+        )
+        diagnostic = context.exception.diagnostic_id
+        for private in (SETTINGS.email, SETTINGS.account, SETTINGS.role, SETTINGS.state_bucket):
+            self.assertNotIn(private, diagnostic)
+
     def test_only_reviewed_provider_computed_optional_defaults_may_be_unknown(self):
         reviewed = (
             (BUCKET_ADDRESS, "acl"), (BUCKET_ADDRESS, "object_lock_enabled"),
@@ -245,12 +260,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("github.ref == 'refs/heads/main'", main)
         self.assertIn("cancel-in-progress: false", cloud)
         self.assertIn("operation: ${{ github.event.inputs.operation }}", main)
-        self.assertIn("QF_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}", cloud)
-        self.assertIn("QF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}", cloud)
-        self.assertIn('echo "::add-mask::$QF_ROLE_ARN"', cloud)
-        self.assertIn('echo "::add-mask::$QF_STATE_BUCKET"', cloud)
-        self.assertNotIn("QF_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}", main)
-        self.assertNotIn("QF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}", main)
+        self.assertIn("QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}", main)
+        self.assertIn("QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}", main)
+        self.assertIn("QF_ROLE_ARN: ${{ secrets.QF_ROLE_ARN }}", cloud)
+        self.assertIn("QF_STATE_BUCKET: ${{ secrets.QF_STATE_BUCKET }}", cloud)
+        self.assertNotIn("${{ vars.AWS_ROLE_ARN }}", main + cloud)
+        self.assertNotIn("${{ vars.TF_STATE_BUCKET }}", main + cloud)
+        self.assertNotIn("::add-mask::", main + cloud)
         self.assertNotIn("secrets: inherit", main)
         self.assertIn("path: backup-activation-results/summary.json", cloud)
         self.assertNotIn("-lock=false", main + cloud)
