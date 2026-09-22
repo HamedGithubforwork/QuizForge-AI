@@ -96,6 +96,38 @@ class PlanTests(unittest.TestCase):
         self.refused(lambda p: resource(p, "aws_s3_bucket_lifecycle_configuration.backups")["change"]["after_unknown"]
                      .update(rule=[{"filter": [{"tag": True}]}, {}]))
 
+    def test_only_reviewed_provider_computed_optional_defaults_may_be_unknown(self):
+        reviewed = (
+            (BUCKET_ADDRESS, "acl"), (BUCKET_ADDRESS, "object_lock_enabled"),
+            (BUCKET_ADDRESS, "bucket_prefix"), (BUCKET_ADDRESS, "grant"),
+            (BUCKET_ADDRESS, "replication_configuration"), (BUCKET_ADDRESS, "website"),
+            (ALARM_ADDRESS, "evaluate_low_sample_count_percentiles"),
+            ("aws_sns_topic.alerts", "name_prefix"),
+        )
+        for address, field in reviewed:
+            with self.subTest(address=address, field=field):
+                document = plan()
+                change = resource(document, address)["change"]
+                change["after_unknown"][field] = True
+                # Unknown omitted optionals are represented by null/empty placeholders.
+                change["after"].setdefault(field, None)
+                review_plan(document, SETTINGS)
+
+    def test_other_optional_unknowns_and_unsafe_unknown_placeholders_are_refused(self):
+        for address, field in (
+            (ALARM_ADDRESS, "insufficient_data_actions"),
+            ("aws_sns_topic.alerts", "fifo_topic"),
+            (OWNER_ADDRESS, "raw_message_delivery"),
+        ):
+            with self.subTest(address=address, field=field):
+                self.refused(lambda p, a=address, f=field:
+                             resource(p, a)["change"]["after_unknown"].update({f: True}))
+        def unsafe_unknown_acl(p):
+            change = resource(p, BUCKET_ADDRESS)["change"]
+            change["after"]["acl"] = "public-read"
+            change["after_unknown"]["acl"] = True
+        self.refused(unsafe_unknown_acl)
+
     def test_proven_creation_time_resource_links_only(self):
         document = plan()
         owner = resource(document, OWNER_ADDRESS)["change"]
