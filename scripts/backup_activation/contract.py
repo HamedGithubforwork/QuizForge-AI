@@ -30,6 +30,7 @@ TOPIC_ADDRESS = "aws_sns_topic.alerts"
 OWNER_ADDRESS = "aws_sns_topic_subscription.owner"
 ALARM_ADDRESS = "aws_cloudwatch_metric_alarm.backup"
 ENCRYPTION_ADDRESS = "aws_s3_bucket_server_side_encryption_configuration.backups"
+VERSIONING_ADDRESS = "aws_s3_bucket_versioning.backups"
 POLICY_NAMES = {
     "uploader": "quizforge-production-backup-upload",
     "recovery": "quizforge-production-backup-recovery",
@@ -353,6 +354,39 @@ def resolve_pinned_encryption_rule(address: str, values: dict, mask: dict,
     mask.pop("rule", None)
 
 
+def resolve_pinned_versioning_block(address: str, values: dict, mask: dict,
+                                    expected: dict) -> None:
+    """Resolve only the provider-computed versioning block around pinned Enabled.
+
+    AWS provider 6.64.0 models `versioning_configuration` as a required one-item
+    list whose `status` is required and whose `mfa_delete` is Optional+Computed.
+    Terraform may therefore mark the whole block unknown even though the immutable
+    source fixes `status = "Enabled"`.
+
+    The exact candidate/main.tf hash is checked before live review. This exception
+    accepts only that source-proven Enabled state and refuses Suspended/Disabled
+    status, MFA-delete enablement, multiple blocks, or unexpected fields.
+    """
+    field = "versioning_configuration"
+    if address != VERSIONING_ADDRESS or not unknown(mask.get(field)):
+        return
+
+    current = values.get(field)
+    if current not in (None, []):
+        require(isinstance(current, list) and len(current) == 1,
+                "UNPROVEN_VERSIONING_CONFIGURATION", f"{address}.{field}")
+        item = current[0]
+        require(isinstance(item, dict) and set(item) <= {"status", "mfa_delete"},
+                "UNPROVEN_VERSIONING_CONFIGURATION", f"{address}.{field}")
+        require(item.get("status") in (None, "Enabled"),
+                "UNEXPECTED_VERSIONING_SETTING", f"{address}.{field}.status")
+        require(item.get("mfa_delete") in (None, "", "Disabled"),
+                "UNEXPECTED_MFA_DELETE", f"{address}.{field}.mfa_delete")
+
+    values[field] = copy.deepcopy(expected[field])
+    mask.pop(field, None)
+
+
 # The pinned AWS provider 6.64.0 marks these omitted fields Optional+Computed.
 # Their source configuration is immutable and mutually exclusive explicit fields
 # (bucket/name) are already fixed. A live plan may therefore leave only these
@@ -467,6 +501,7 @@ def review_plan(plan: dict, settings: Settings) -> dict:
         require(isinstance(values, dict) and isinstance(mask, dict), "RESOURCE_VALUES_MISSING")
         resolve_named_links(address, values, mask, configs[address].get("expressions", {}), expected[address])
         resolve_pinned_encryption_rule(address, values, mask, expected[address])
+        resolve_pinned_versioning_block(address, values, mask, expected[address])
         no_extra_settings(address, values, mask)
         compare(values, expected[address], mask, path=address)
         if address == "aws_s3_bucket_versioning.backups":
