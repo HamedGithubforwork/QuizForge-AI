@@ -29,6 +29,7 @@ BUCKET_ADDRESS = "aws_s3_bucket.backups"
 TOPIC_ADDRESS = "aws_sns_topic.alerts"
 OWNER_ADDRESS = "aws_sns_topic_subscription.owner"
 ALARM_ADDRESS = "aws_cloudwatch_metric_alarm.backup"
+ENCRYPTION_ADDRESS = "aws_s3_bucket_server_side_encryption_configuration.backups"
 POLICY_NAMES = {
     "uploader": "quizforge-production-backup-upload",
     "recovery": "quizforge-production-backup-recovery",
@@ -294,6 +295,64 @@ def resolve_named_links(address: str, values: dict, mask: dict, expression: dict
         mask.pop(field, None)
 
 
+def resolve_pinned_encryption_rule(address: str, values: dict, mask: dict,
+                                   expected: dict) -> None:
+    """Resolve only the provider-computed S3 encryption set around pinned AES256.
+
+    AWS provider 6.64.0 models `rule` as a required set whose element also contains
+    Optional+Computed fields. Because those computed values participate in set
+    identity, Terraform may mark the whole set unknown even though the immutable
+    source fixes `sse_algorithm = "AES256"`.
+
+    The exact candidate/main.tf hash is checked before live review. This exception
+    therefore accepts only that source-proven AES256 rule and refuses any
+    materialized KMS key, blocked encryption type, bucket key enablement, wrong
+    algorithm, extra rule, or unexpected field.
+    """
+    if address != ENCRYPTION_ADDRESS or not unknown(mask.get("rule")):
+        return
+
+    current = values.get("rule")
+    if current not in (None, []):
+        require(isinstance(current, list) and len(current) == 1,
+                "UNPROVEN_ENCRYPTION_RULE", f"{address}.rule")
+        rule = current[0]
+        require(isinstance(rule, dict)
+                and set(rule) <= {
+                    "apply_server_side_encryption_by_default",
+                    "blocked_encryption_types",
+                    "bucket_key_enabled",
+                },
+                "UNPROVEN_ENCRYPTION_RULE", f"{address}.rule")
+
+        apply_default = rule.get("apply_server_side_encryption_by_default")
+        if apply_default not in (None, []):
+            require(isinstance(apply_default, list) and len(apply_default) == 1
+                    and isinstance(apply_default[0], dict),
+                    "UNPROVEN_ENCRYPTION_RULE",
+                    f"{address}.rule.apply_server_side_encryption_by_default")
+            encryption = apply_default[0]
+            require(set(encryption) <= {"sse_algorithm", "kms_master_key_id"},
+                    "UNPROVEN_ENCRYPTION_RULE",
+                    f"{address}.rule.apply_server_side_encryption_by_default")
+            algorithm = encryption.get("sse_algorithm")
+            require(algorithm in (None, "AES256"), "UNEXPECTED_ENCRYPTION_SETTING",
+                    f"{address}.rule.apply_server_side_encryption_by_default.sse_algorithm")
+            require(encryption.get("kms_master_key_id") in (None, ""),
+                    "UNEXPECTED_ENCRYPTION_SETTING",
+                    f"{address}.rule.apply_server_side_encryption_by_default.kms_master_key_id")
+
+        require(rule.get("blocked_encryption_types") in (None, []),
+                "UNEXPECTED_ENCRYPTION_SETTING",
+                f"{address}.rule.blocked_encryption_types")
+        require(rule.get("bucket_key_enabled") in (None, False),
+                "UNEXPECTED_ENCRYPTION_SETTING",
+                f"{address}.rule.bucket_key_enabled")
+
+    values["rule"] = copy.deepcopy(expected["rule"])
+    mask.pop("rule", None)
+
+
 # The pinned AWS provider 6.64.0 marks these omitted fields Optional+Computed.
 # Their source configuration is immutable and mutually exclusive explicit fields
 # (bucket/name) are already fixed. A live plan may therefore leave only these
@@ -407,6 +466,7 @@ def review_plan(plan: dict, settings: Settings) -> dict:
         values, mask = copy.deepcopy(change.get("after")), copy.deepcopy(change.get("after_unknown", {}))
         require(isinstance(values, dict) and isinstance(mask, dict), "RESOURCE_VALUES_MISSING")
         resolve_named_links(address, values, mask, configs[address].get("expressions", {}), expected[address])
+        resolve_pinned_encryption_rule(address, values, mask, expected[address])
         no_extra_settings(address, values, mask)
         compare(values, expected[address], mask, path=address)
         if address == "aws_s3_bucket_versioning.backups":
