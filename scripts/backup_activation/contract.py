@@ -37,12 +37,17 @@ POLICY_NAMES = {
 
 
 class Refused(RuntimeError):
-    """A static, public-safe failure code, not a provider diagnostic."""
+    """A static public-safe code plus an optional reviewed-contract diagnostic."""
+
+    def __init__(self, code: str, diagnostic_id: str = ""):
+        super().__init__(code)
+        self.code = code
+        self.diagnostic_id = diagnostic_id
 
 
-def require(condition: bool, code: str) -> None:
+def require(condition: bool, code: str, diagnostic_id: str = "") -> None:
     if not condition:
-        raise Refused(code)
+        raise Refused(code, diagnostic_id)
 
 
 def canonical(value: Any) -> str:
@@ -217,32 +222,40 @@ def policy_canonical(value: Any) -> Any:
     return normalize(value)
 
 
-def compare(actual: Any, expected: Any, mask: Any = None, key: str = "") -> None:
-    require(mask is not True, "UNKNOWN_SAFETY_FIELD")
+def compare(actual: Any, expected: Any, mask: Any = None, key: str = "", path: str = "") -> None:
+    """Compare only reviewed fields and attach a non-sensitive contract path on refusal."""
+    here = path or key
+    require(mask is not True, "UNKNOWN_SAFETY_FIELD", here)
     if key in {"rule", "filter", "versioning_configuration", "expiration",
                "noncurrent_version_expiration", "apply_server_side_encryption_by_default"}:
-        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD")
+        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD", here)
     if key == "policy":
-        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD")
-        require(policy_canonical(actual) == policy_canonical(expected), "UNSAFE_POLICY")
+        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD", here)
+        require(policy_canonical(actual) == policy_canonical(expected), "UNSAFE_POLICY", here)
     elif isinstance(expected, dict):
-        require(isinstance(actual, dict), "SAFETY_FIELD_MISSING")
+        require(isinstance(actual, dict), "SAFETY_FIELD_MISSING", here)
         for name, value in expected.items():
-            require(name in actual, "SAFETY_FIELD_MISSING")
-            compare(actual[name], value, mask.get(name) if isinstance(mask, dict) else None, name)
+            child = f"{here}.{name}" if here else name
+            require(name in actual, "SAFETY_FIELD_MISSING", child)
+            compare(actual[name], value, mask.get(name) if isinstance(mask, dict) else None,
+                    name, child)
         if key in {"tags", "tags_all", "dimensions"}:
-            require(actual == expected, "UNEXPECTED_TAGS_OR_DIMENSIONS")
+            require(actual == expected, "UNEXPECTED_TAGS_OR_DIMENSIONS", here)
     elif isinstance(expected, list):
-        require(isinstance(actual, list) and len(actual) == len(expected), "SAFETY_LIST_MISMATCH")
+        require(isinstance(actual, list) and len(actual) == len(expected),
+                "SAFETY_LIST_MISMATCH", here)
         for index, value in enumerate(expected):
-            compare(actual[index], value, mask[index] if isinstance(mask, list) and index < len(mask) else None, key)
+            child = f"{here}[{index}]"
+            compare(actual[index], value,
+                    mask[index] if isinstance(mask, list) and index < len(mask) else None,
+                    key, child)
     else:
-        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD")
+        require(not unknown(mask), "UNKNOWN_SAFETY_FIELD", here)
         # Terraform numbers may be rendered as integer or float, but never bool.
         same_type = type(actual) is type(expected)
         if type(expected) in {int, float}:
             same_type = type(actual) in {int, float}
-        require(same_type and actual == expected, "SAFETY_VALUE_MISMATCH")
+        require(same_type and actual == expected, "SAFETY_VALUE_MISMATCH", here)
 
 
 def resolve_named_links(address: str, values: dict, mask: dict, expression: dict,
@@ -329,16 +342,19 @@ def no_extra_settings(address: str, values: dict, mask: dict) -> None:
     unknown_allowed = UNKNOWN_OPTIONAL_DEFAULTS.get(address, frozenset())
     for key, allowed in defaults.items():
         if unknown(mask.get(key)):
-            require(key in unknown_allowed, "UNKNOWN_OPTIONAL_SAFETY_FIELD")
+            require(key in unknown_allowed, "UNKNOWN_OPTIONAL_SAFETY_FIELD",
+                    f"{address}.{key}")
             # Terraform normally renders an unknown omitted optional as null/empty.
             # Refuse any simultaneously materialized unsafe value even when masked.
-            require(values.get(key) in allowed, "UNKNOWN_OPTIONAL_PLACEHOLDER_UNSAFE")
+            require(values.get(key) in allowed, "UNKNOWN_OPTIONAL_PLACEHOLDER_UNSAFE",
+                    f"{address}.{key}")
             continue
         require(values.get(key) in allowed, "UNEXPECTED_RESOURCE_SETTING")
     if "region" in values:
         require(values["region"] == REGION and not unknown(mask.get("region")), "WRONG_REGION")
     if "tags_all" in values:
-        compare(values["tags_all"], TAGS, mask.get("tags_all"), "tags_all")
+        compare(values["tags_all"], TAGS, mask.get("tags_all"), "tags_all",
+                f"{address}.tags_all")
 
 
 def review_plan(plan: dict, settings: Settings) -> dict:
@@ -392,7 +408,7 @@ def review_plan(plan: dict, settings: Settings) -> dict:
         require(isinstance(values, dict) and isinstance(mask, dict), "RESOURCE_VALUES_MISSING")
         resolve_named_links(address, values, mask, configs[address].get("expressions", {}), expected[address])
         no_extra_settings(address, values, mask)
-        compare(values, expected[address], mask)
+        compare(values, expected[address], mask, path=address)
         if address == "aws_s3_bucket_versioning.backups":
             require(values["versioning_configuration"][0].get("mfa_delete") in (None, "", "Disabled"),
                     "UNEXPECTED_MFA_DELETE")
@@ -442,7 +458,8 @@ def new_report(mode: str) -> dict:
             "scheduled_backups_verified": False, "independent_keys_verified": False,
             "separate_uploader_recovery_identities_verified": False,
             "failure_stale_missing_heartbeat_delivery_verified": False,
-            "production_routing_changes_requested": False, "policy_attachments_requested": 0}
+            "production_routing_changes_requested": False, "policy_attachments_requested": 0,
+            "diagnostic_id": ""}
 
 
 def error_result(report: dict) -> None:
