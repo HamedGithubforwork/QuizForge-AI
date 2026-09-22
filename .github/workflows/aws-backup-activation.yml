@@ -1,0 +1,87 @@
+name: Retained backup activation and verification
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/aws-backup-activation.yml
+      - .github/workflows/aws-backup-activation-cloud.yml
+      - scripts/backup_activation/**
+      - scripts/rds_rehearsal/requirements.lock
+      - infra/aws/lightsail-backups/**
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Inspect a fresh initial plan, activate it, or read back existing settings
+        type: choice
+        options: [inspect, activate, verify]
+        default: inspect
+      reviewed_manifest_sha256:
+        description: For activate only; digest of the reviewed inspection safety manifest
+        type: string
+        required: false
+        default: ''
+      confirmation:
+        description: For activate only; type ACTIVATE RETAINED BACKUPS ONLY
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      AWS_EC2_METADATA_DISABLED: 'true'
+      TF_IN_AUTOMATION: 'true'
+      TF_INPUT: 'false'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 62e39f33d715cc83928390cfd5ff1728008c4053
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.16'
+      - name: Credential-free validator and orchestration tests
+        run: python -m unittest discover -s scripts/backup_activation/tests -p 'test_*.py' -v
+      - name: Check immutable candidate and supplied source hashes
+        run: python -m scripts.backup_activation.runner check-source
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: '1.14.7'
+          terraform_wrapper: false
+      - name: Existing Terraform mock-provider boundary tests; no AWS authentication
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/backup-mock-tfdata
+        run: |
+          terraform -chdir=candidate/infra/aws/lightsail-backups init -backend=false -lockfile=readonly -input=false
+          terraform -chdir=candidate/infra/aws/lightsail-backups test -filter=tests/boundaries.tftest.hcl -json -verbose > "$RUNNER_TEMP/backup-mock.jsonl"
+          python -m scripts.backup_activation.tests.check_provider_plan "$RUNNER_TEMP/backup-mock.jsonl"
+
+  backup:
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/aws-backup-activation-cloud.yml
+    with:
+      operation: ${{ github.event.inputs.operation }}
+      reviewed_manifest_sha256: ${{ github.event.inputs.reviewed_manifest_sha256 }}
+      confirmation: ${{ github.event.inputs.confirmation }}
+    # Only the true secret crosses the reusable-workflow boundary. Existing
+    # repository variables are read and masked inside the called workflow.
+    secrets:
+      AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
