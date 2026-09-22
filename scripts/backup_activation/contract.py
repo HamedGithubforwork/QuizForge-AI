@@ -281,6 +281,21 @@ def resolve_named_links(address: str, values: dict, mask: dict, expression: dict
         mask.pop(field, None)
 
 
+# The pinned AWS provider 6.64.0 marks these omitted fields Optional+Computed.
+# Their source configuration is immutable and mutually exclusive explicit fields
+# (bucket/name) are already fixed. A live plan may therefore leave only these
+# provider-derived defaults unknown. This allowlist must not grow without checking
+# the exact pinned provider schema and create behavior.
+UNKNOWN_OPTIONAL_DEFAULTS = {
+    BUCKET_ADDRESS: frozenset({
+        "acl", "object_lock_enabled", "bucket_prefix", "grant",
+        "replication_configuration", "website",
+    }),
+    ALARM_ADDRESS: frozenset({"evaluate_low_sample_count_percentiles"}),
+    TOPIC_ADDRESS: frozenset({"name_prefix"}),
+}
+
+
 def no_extra_settings(address: str, values: dict, mask: dict) -> None:
     """Reject non-default dangerous options not requested by the pinned source."""
     defaults: dict[str, tuple] = {}
@@ -311,8 +326,14 @@ def no_extra_settings(address: str, values: dict, mask: dict) -> None:
         defaults = {"filter_policy": (None, "", "{}"), "redrive_policy": (None, "", "{}"),
                     "raw_message_delivery": (None, False), "subscription_role_arn": (None, ""),
                     "delivery_policy": (None, "", "{}"), "replay_policy": (None, "", "{}")}
+    unknown_allowed = UNKNOWN_OPTIONAL_DEFAULTS.get(address, frozenset())
     for key, allowed in defaults.items():
-        require(not unknown(mask.get(key)), "UNKNOWN_OPTIONAL_SAFETY_FIELD")
+        if unknown(mask.get(key)):
+            require(key in unknown_allowed, "UNKNOWN_OPTIONAL_SAFETY_FIELD")
+            # Terraform normally renders an unknown omitted optional as null/empty.
+            # Refuse any simultaneously materialized unsafe value even when masked.
+            require(values.get(key) in allowed, "UNKNOWN_OPTIONAL_PLACEHOLDER_UNSAFE")
+            continue
         require(values.get(key) in allowed, "UNEXPECTED_RESOURCE_SETTING")
     if "region" in values:
         require(values["region"] == REGION and not unknown(mask.get("region")), "WRONG_REGION")
