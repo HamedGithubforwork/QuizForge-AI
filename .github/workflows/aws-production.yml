@@ -39,6 +39,7 @@ jobs:
       - name: Check persistent quotas, role isolation and private archive boundaries
         env:
           PRODUCTION_TEST_DB: postgresql://postgres:synthetic-ci-only@127.0.0.1:5432/quizforge
+          PYTHONPATH: scripts/production:backend
         run: |
           python -m unittest discover -s scripts/production -p 'test_*.py' -v
           python -m unittest discover -s scripts/rds_rehearsal -p 'test_history_transfer.py' -v
