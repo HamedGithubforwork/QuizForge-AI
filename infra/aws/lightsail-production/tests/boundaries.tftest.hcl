@@ -5,9 +5,9 @@ mock_provider "aws" {
 }
 
 variables {
-  alert_email        = "synthetic@example.com"
-  ssh_public_key     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly"
-  admin_ipv4_cidr    = "192.0.2.10/32"
+  alert_email     = "synthetic@example.com"
+  ssh_public_key  = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly"
+  admin_ipv4_cidr = "192.0.2.10/32"
 }
 run "permanent_host_private_ports_auth_and_cost_controls" {
   command = plan
