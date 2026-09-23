@@ -6,7 +6,7 @@ from pathlib import Path
 import unittest
 
 from scripts.lightsail_activation.repair_review import (
-    BLUEPRINT, BUNDLE, EXISTING, FINAL, REPAIR_CREATES,
+    BLUEPRINT, BUNDLE, DEFAULT_TAGS, EXISTING, FINAL, REPAIR_CREATES,
     Refused, _safe_side_effect_diagnostics, review_plan,
 )
 from scripts.lightsail_activation.review import PROVIDER_NAME, Settings
@@ -160,6 +160,63 @@ def resource(document, address):
                 if item["address"] == address)
 
 
+def approved_refresh_drift():
+    def item(address, before, after):
+        return {
+            "address": address,
+            "mode": "managed",
+            "provider_name": PROVIDER_NAME,
+            "change": {
+                "actions": ["update"],
+                "before": before,
+                "after": after,
+            },
+        }
+
+    return [
+        item(
+            "aws_cloudwatch_log_group.recovery",
+            {"tags": None},
+            {"tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_cloudwatch_metric_alarm.status",
+            {"insufficient_data_actions": None, "tags": {}},
+            {"insufficient_data_actions": [], "tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_cognito_user_pool.browser",
+            {"domain": None, "tags": None},
+            {"domain": f"quizforge-{SETTINGS.account}", "tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_iam_policy.host_health",
+            {"tags": None},
+            {"tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_iam_role.recovery",
+            {"inline_policy": None, "tags": None},
+            {"inline_policy": [], "tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_lambda_function.recovery",
+            {"layers": None, "tags": None},
+            {"layers": [], "tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_lightsail_key_pair.operator",
+            {"tags": None},
+            {"tags": dict(DEFAULT_TAGS)},
+        ),
+        item(
+            "aws_sns_topic.alerts",
+            {"tags": None},
+            {"tags": dict(DEFAULT_TAGS)},
+        ),
+    ]
+
+
 class RepairReviewTests(unittest.TestCase):
     def refused(self, mutate, catalog=CATALOG):
         document = plan()
@@ -184,6 +241,59 @@ class RepairReviewTests(unittest.TestCase):
             SETTINGS.state_bucket, SETTINGS.ssh_key, SETTINGS.admin_cidr,
         ):
             self.assertNotIn(private, raw)
+
+    def test_exact_observed_refresh_normalizations_are_allowed(self):
+        document = plan()
+        document["resource_drift"] = approved_refresh_drift()
+        manifest = review_plan(document, SETTINGS, CATALOG)
+        self.assertEqual(manifest["approved_refresh_drift_entries"], 8)
+        self.assertTrue(manifest["approved_refresh_drift_only"])
+        self.assertEqual(manifest["updates"], 0)
+        self.assertEqual(manifest["deletes"], 0)
+        self.assertEqual(manifest["replacements"], 0)
+
+    def test_refresh_drift_wrong_values_or_actions_are_refused(self):
+        mutators = [
+            lambda drift: drift[0]["change"]["after"].update(
+                tags={"Project": "Other"}
+            ),
+            lambda drift: drift[1]["change"]["after"].update(
+                insufficient_data_actions=["arn:aws:sns:ca-central-1:123456789012:unexpected"]
+            ),
+            lambda drift: drift[2]["change"]["after"].update(
+                domain="unexpected-domain"
+            ),
+            lambda drift: drift[4]["change"]["after"].update(
+                inline_policy=[{"name": "unexpected"}]
+            ),
+            lambda drift: drift[5]["change"]["after"].update(
+                layers=["arn:aws:lambda:ca-central-1:123456789012:layer:unexpected:1"]
+            ),
+            lambda drift: drift[0]["change"].update(actions=["delete"]),
+            lambda drift: drift[0]["change"].update(replace_paths=[["tags"]]),
+            lambda drift: drift[0].update(address="aws_s3_bucket.unexpected"),
+        ]
+        for mutate in mutators:
+            with self.subTest(mutate=mutate):
+                document = plan()
+                drift = approved_refresh_drift()
+                mutate(drift)
+                document["resource_drift"] = drift
+                with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
+                    review_plan(document, SETTINGS, CATALOG)
+
+    def test_refresh_drift_can_disappear_or_reverse_without_weakening_checks(self):
+        document = plan()
+        reverse = approved_refresh_drift()[:3]
+        for item in reverse:
+            change = item["change"]
+            change["before"], change["after"] = change["after"], change["before"]
+        document["resource_drift"] = reverse
+        manifest = review_plan(document, SETTINGS, CATALOG)
+        self.assertEqual(manifest["approved_refresh_drift_entries"], 3)
+
+        clean = review_plan(plan(), SETTINGS, CATALOG)
+        self.assertEqual(clean["approved_refresh_drift_entries"], 0)
 
     def test_updates_deletes_replacements_and_imports_are_refused(self):
         target = sorted(EXISTING)[0]
