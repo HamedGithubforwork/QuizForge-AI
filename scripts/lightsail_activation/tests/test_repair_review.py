@@ -249,8 +249,18 @@ class RepairReviewTests(unittest.TestCase):
                 "mode": "managed",
                 "change": {
                     "actions": ["update"],
-                    "before": {"secret": SETTINGS.ssh_key},
-                    "after": {"email": SETTINGS.email},
+                    "before": {
+                        "arn": f"arn:synthetic:{SETTINGS.account}",
+                        "tags": {SETTINGS.email: SETTINGS.ssh_key},
+                        "kms_key_id": SETTINGS.role,
+                        "not-a-schema-field": SETTINGS.admin_cidr,
+                    },
+                    "after": {
+                        "arn": f"arn:synthetic:{SETTINGS.account}:changed",
+                        "tags": {SETTINGS.email: SETTINGS.admin_cidr},
+                        "kms_key_id": SETTINGS.role,
+                        "not-a-schema-field": SETTINGS.ssh_key,
+                    },
                 },
             },
             {
@@ -272,6 +282,10 @@ class RepairReviewTests(unittest.TestCase):
         diagnostics = _safe_side_effect_diagnostics(document)
         self.assertEqual(diagnostics["resource_drift_count"], 2)
         self.assertEqual(diagnostics["known_resource_drift_addresses"], [known])
+        self.assertEqual(
+            diagnostics["known_resource_drift_attributes"],
+            {known: ["arn", "tags"]},
+        )
         self.assertEqual(diagnostics["unexpected_resource_drift_count"], 1)
         self.assertEqual(diagnostics["deferred_change_count"], 1)
         self.assertEqual(
@@ -286,11 +300,56 @@ class RepairReviewTests(unittest.TestCase):
             SETTINGS.email, SETTINGS.account, SETTINGS.role,
             SETTINGS.state_bucket, SETTINGS.ssh_key, SETTINGS.admin_cidr,
             "aws_example.secret-looking-resource",
+            "not-a-schema-field",
         ):
             self.assertNotIn(private, raw)
 
         with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
             review_plan(document, SETTINGS, CATALOG)
+
+    def test_drift_attribute_diagnostics_never_emit_nested_keys_or_values(self):
+        document = plan()
+        known = sorted(EXISTING)[1]
+        document["resource_drift"] = [{
+            "address": known,
+            "change": {
+                "before": {
+                    "policy": {
+                        SETTINGS.email: {
+                            "credential": SETTINGS.ssh_key,
+                            "cidr": SETTINGS.admin_cidr,
+                        }
+                    },
+                    "id": SETTINGS.account,
+                },
+                "after": {
+                    "policy": {
+                        SETTINGS.email: {
+                            "credential": SETTINGS.role,
+                            "cidr": "198.51.100.2/32",
+                        }
+                    },
+                    "id": SETTINGS.account,
+                },
+            },
+        }]
+
+        diagnostics = _safe_side_effect_diagnostics(document)
+        self.assertEqual(
+            diagnostics["known_resource_drift_attributes"],
+            {known: ["policy"]},
+        )
+        raw = json.dumps(diagnostics)
+        for private in (
+            SETTINGS.email,
+            SETTINGS.account,
+            SETTINGS.role,
+            SETTINGS.ssh_key,
+            SETTINGS.admin_cidr,
+            "credential",
+            "cidr",
+        ):
+            self.assertNotIn(private, raw)
 
     def test_unavailable_catalog_or_unverified_external_budget_is_refused(self):
         for key in (

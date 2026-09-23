@@ -74,8 +74,27 @@ def _managed_addresses(root: Mapping[str, Any]) -> set[str]:
     }
 
 
+def _changed_top_level_attributes(change: Mapping[str, Any]) -> list[str]:
+    """Return only safe Terraform schema attribute names, never attribute values."""
+    before = change.get("before")
+    after = change.get("after")
+    if not isinstance(before, Mapping) or not isinstance(after, Mapping):
+        return []
+
+    names: list[str] = []
+    for key in sorted(set(before) | set(after)):
+        if (
+            isinstance(key, str)
+            and len(key) <= 80
+            and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", key)
+            and before.get(key) != after.get(key)
+        ):
+            names.append(key)
+    return names
+
+
 def _safe_side_effect_diagnostics(plan: Mapping[str, Any]) -> dict[str, Any]:
-    """Return only non-sensitive counts and reviewed Terraform addresses."""
+    """Return only non-sensitive counts, reviewed addresses, and schema field names."""
     drift = plan.get("resource_drift")
     deferred = plan.get("deferred_changes")
     invocations = plan.get("action_invocations")
@@ -88,6 +107,22 @@ def _safe_side_effect_diagnostics(plan: Mapping[str, Any]) -> dict[str, Any]:
         for item in drift_items
         if isinstance(item, dict) and item.get("address") in FINAL
     })
+    known_drift_attributes: dict[str, list[str]] = {}
+    for item in drift_items:
+        if not isinstance(item, dict) or item.get("address") not in FINAL:
+            continue
+        address = str(item["address"])
+        change = item.get("change")
+        attributes = (
+            _changed_top_level_attributes(change)
+            if isinstance(change, Mapping)
+            else []
+        )
+        known_drift_attributes.setdefault(address, [])
+        known_drift_attributes[address] = sorted(
+            set(known_drift_attributes[address]) | set(attributes)
+        )
+
     unknown_drift_count = sum(
         1 for item in drift_items
         if not isinstance(item, dict) or item.get("address") not in FINAL
@@ -112,6 +147,7 @@ def _safe_side_effect_diagnostics(plan: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "resource_drift_count": len(drift_items),
         "known_resource_drift_addresses": known_drift,
+        "known_resource_drift_attributes": known_drift_attributes,
         "unexpected_resource_drift_count": unknown_drift_count,
         "deferred_change_count": len(deferred_items),
         "known_deferred_change_addresses": known_deferred,
