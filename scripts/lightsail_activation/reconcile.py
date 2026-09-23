@@ -31,7 +31,9 @@ KEY_PAIR = "quizforge-production-operator"
 def _not_found(error: ClientError) -> bool:
     code = error.response.get("Error", {}).get("Code", "")
     return code in {
-        "NoSuchKey", "404", "NotFoundException", "ResourceNotFoundException",
+        "NoSuchKey", "404", "NotFound", "NotFoundException",
+        "ResourceNotFound", "ResourceNotFoundException",
+        "NoSuchEntity", "NoSuchEntityException",
         "AccessPointNotFoundException", "InvalidParameterValueException",
     }
 
