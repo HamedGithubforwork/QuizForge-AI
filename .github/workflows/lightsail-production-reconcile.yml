@@ -1,0 +1,90 @@
+name: Permanent Lightsail read-only reconciliation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-production-reconcile.yml"
+      - "scripts/lightsail_activation/reconcile.py"
+      - "scripts/lightsail_activation/tests/test_reconcile.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Credential-free reconciliation tests
+        run: |
+          python -m py_compile scripts/lightsail_activation/reconcile.py
+          python -m unittest discover -s scripts/lightsail_activation/tests -p 'test_reconcile.py' -v
+
+  reconcile:
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-lightsail-reconciliation
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+      LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+
+      - name: Install existing hash-locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
+      - name: Assume deployment role with read-only reconciliation boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-readonly-reconcile
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","lightsail:GetKeyPair","lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates","cognito-idp:ListUserPools","cognito-idp:DescribeUserPool","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeUserPoolDomain","sns:ListTopics","sns:GetTopicAttributes","sns:ListSubscriptionsByTopic","budgets:ViewBudget","cloudwatch:DescribeAlarms","logs:DescribeLogGroups","iam:GetRole","iam:ListRolePolicies","iam:GetRolePolicy","iam:GetPolicy","iam:GetPolicyVersion","lambda:GetFunction","lambda:GetPolicy"],"Resource":"*"},
+              {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
+            ]}
+
+      - name: Compare remote state with actual AWS resources without changes
+        run: python -m scripts.lightsail_activation.reconcile
+
+      - name: Publish only the sanitized reconciliation summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-reconciliation-summary
+          path: lightsail-reconciliation-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
