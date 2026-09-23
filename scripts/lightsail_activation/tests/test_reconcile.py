@@ -1,10 +1,20 @@
 import unittest
 
-from scripts.lightsail_activation.reconcile import classify, state_addresses
+from scripts.lightsail_activation.reconcile import _not_found, classify, state_addresses
 from scripts.lightsail_activation.review import EXPECTED
 
 
 class StateTests(unittest.TestCase):
+    def test_common_missing_resource_codes_are_not_fatal(self):
+        class FakeError:
+            def __init__(self, code):
+                self.response = {"Error": {"Code": code}}
+        for code in ("NoSuchEntity", "NoSuchEntityException", "NotFound",
+                     "NotFoundException", "ResourceNotFound",
+                     "ResourceNotFoundException", "404"):
+            with self.subTest(code=code):
+                self.assertTrue(_not_found(FakeError(code)))
+
     def test_state_addresses_uses_only_instanced_managed_resources(self):
         document = {
             "resources": [
