@@ -109,23 +109,58 @@ def _changed_top_level_attributes(change: Mapping[str, Any]) -> list[str]:
     return names
 
 
-def _empty_collection_normalization(before: Any, after: Any) -> bool:
-    return (
-        (before is None and after == [])
-        or (before == [] and after is None)
-    )
+def _null_to_empty_list(before: Any, after: Any) -> bool:
+    return before is None and after == []
 
 
-def _tag_normalization(before: Any, after: Any) -> bool:
-    allowed = (None, {}, DEFAULT_TAGS)
-    return before != after and before in allowed and after in allowed
+def _null_to_empty_tags(before: Any, after: Any) -> bool:
+    return before is None and after == {}
 
 
 def _domain_normalization(before: Any, after: Any, settings: Settings) -> bool:
     expected = f"quizforge-{settings.account}"
+    return before == "" and after == expected
+
+
+def _inline_policy_normalization(
+    plan: Mapping[str, Any],
+    before: Any,
+    after: Any,
+) -> bool:
+    if before != [] or not isinstance(after, list) or len(after) != 1:
+        return False
+    entry = after[0]
+    if not isinstance(entry, Mapping) or set(entry) != {"name", "policy"}:
+        return False
+    if not isinstance(entry.get("name"), str) or not entry.get("name"):
+        return False
+    if not isinstance(entry.get("policy"), str):
+        return False
+
+    expected = None
+    for item in plan.get("resource_changes", []) or []:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("address") != "aws_iam_role_policy.recovery":
+            continue
+        change = item.get("change")
+        if not isinstance(change, Mapping) or change.get("actions") != ["no-op"]:
+            return False
+        value = change.get("after")
+        if not isinstance(value, Mapping):
+            return False
+        expected = value
+        break
+
+    if not isinstance(expected, Mapping):
+        return False
+    expected_name = expected.get("name")
+    expected_policy = expected.get("policy")
+    if not isinstance(expected_name, str) or not isinstance(expected_policy, str):
+        return False
     return (
-        (before in (None, "") and after == expected)
-        or (after in (None, "") and before == expected)
+        entry["name"] == expected_name
+        and policy(entry["policy"]) == policy(expected_policy)
     )
 
 
@@ -180,9 +215,11 @@ def _approved_refresh_drift_count(plan: Mapping[str, Any], settings: Settings) -
             before_value = before.get(attribute)
             after_value = after.get(attribute)
             if attribute == "tags":
-                ok = _tag_normalization(before_value, after_value)
-            elif attribute in {"insufficient_data_actions", "inline_policy", "layers"}:
-                ok = _empty_collection_normalization(before_value, after_value)
+                ok = _null_to_empty_tags(before_value, after_value)
+            elif attribute in {"insufficient_data_actions", "layers"}:
+                ok = _null_to_empty_list(before_value, after_value)
+            elif attribute == "inline_policy":
+                ok = _inline_policy_normalization(plan, before_value, after_value)
             elif attribute == "domain":
                 ok = _domain_normalization(before_value, after_value, settings)
             else:

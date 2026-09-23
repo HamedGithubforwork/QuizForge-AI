@@ -241,6 +241,17 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
 
         resources[address] = entry
 
+    full_review_code = "PASS"
+    try:
+        review_plan(copy.deepcopy(plan), settings, dict(catalog))
+    except Refused as error:
+        text = str(error)
+        full_review_code = (
+            text if re.fullmatch(r"[A-Z0-9_]{1,80}", text) else "REVIEW_REFUSED"
+        )
+    except Exception:
+        full_review_code = "PRIVATE_REVIEW_FAILED"
+
     stripped_review_code = "PASS"
     try:
         stripped = copy.deepcopy(plan)
@@ -285,6 +296,7 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
         "unexpected_resource_drift_count": unexpected_resource_count,
         "deferred_change_count": len(deferred) if isinstance(deferred, list) else 0,
         "action_invocation_count": len(invocations) if isinstance(invocations, list) else 0,
+        "full_repair_review_result": full_review_code,
         "rest_of_plan_contract_after_ignoring_refresh_drift": stripped_review_code,
         "drift_resources": resources,
     }
