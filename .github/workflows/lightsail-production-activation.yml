@@ -85,7 +85,6 @@ jobs:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       AWS_EC2_METADATA_DISABLED: "true"
-      TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-tfdata
     steps:
       - uses: actions/checkout@v7
         with:
@@ -145,6 +144,7 @@ jobs:
       - name: Initialize only the permanent Lightsail state
         env:
           QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-tfdata
         run: |
           terraform -chdir=infra/aws/lightsail-production init \
             -reconfigure -input=false -lockfile=readonly \
@@ -157,6 +157,7 @@ jobs:
       - name: Create, revalidate, and apply exactly one fresh saved plan
         if: github.event.inputs.operation == 'activate'
         env:
+          TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-tfdata
           QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
           AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
@@ -218,6 +219,7 @@ jobs:
 
       - name: Read back exact state and require zero live drift
         env:
+          TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-tfdata
           QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
           AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
