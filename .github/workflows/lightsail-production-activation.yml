@@ -59,7 +59,7 @@ jobs:
           terraform_wrapper: false
       - name: Validate permanent-host Terraform without AWS credentials
         env:
-          TF_DATA_DIR: \${{ runner.temp }}/lightsail-production-activation-validation
+          TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-validation
         run: |
           terraform -chdir=infra/aws/lightsail-production init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra/aws/lightsail-production validate
@@ -80,19 +80,19 @@ jobs:
       group: quizforge-permanent-lightsail-isolated-state
       cancel-in-progress: false
     env:
-      QF_OPERATION: \${{ inputs.operation }}
-      QF_REVIEWED_MANIFEST: \${{ inputs.reviewed_manifest_sha256 }}
-      QF_CONFIRMATION: \${{ inputs.confirmation }}
-      QF_ROLE_ARN: \${{ secrets.AWS_ROLE_ARN }}
-      QF_STATE_BUCKET: \${{ secrets.TF_STATE_BUCKET }}
-      AWS_BUDGET_ALERT_EMAIL: \${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
-      LIGHTSAIL_SSH_PUBLIC_KEY: \${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
-      LIGHTSAIL_ADMIN_IPV4_CIDR: \${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+      QF_OPERATION: ${{ inputs.operation }}
+      QF_REVIEWED_MANIFEST: ${{ inputs.reviewed_manifest_sha256 }}
+      QF_CONFIRMATION: ${{ inputs.confirmation }}
+      QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+      QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+      LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
       TF_WORKSPACE: default
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
       AWS_EC2_METADATA_DISABLED: "true"
-      TF_DATA_DIR: \${{ runner.temp }}/lightsail-production-activation-tfdata
+      TF_DATA_DIR: ${{ runner.temp }}/lightsail-production-activation-tfdata
     steps:
       - uses: actions/checkout@v7
         with:
@@ -130,7 +130,7 @@ jobs:
       - name: Assume existing deployment role
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: \${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: qf-permanent-lightsail-activation
           role-duration-seconds: 1800
           aws-region: ca-central-1
