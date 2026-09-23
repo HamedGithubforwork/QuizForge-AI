@@ -5,7 +5,6 @@ mock_provider "aws" {
 }
 
 variables {
-  monthly_budget_usd = 20
   alert_email        = "synthetic@example.com"
   ssh_public_key     = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly"
   admin_ipv4_cidr    = "192.0.2.10/32"
@@ -38,8 +37,9 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
   assert {
-    condition     = aws_budgets_budget.monthly.limit_amount == "20" && length(aws_budgets_budget.monthly.notification) == 4 && !aws_budgets_budget.monthly.cost_types[0].include_credit
-    error_message = "Use the explicit account-wide gross-cost alert threshold."
+    condition = length(jsondecode(aws_sns_topic_policy.alerts.policy).Statement) == 1 &&
+      jsondecode(aws_sns_topic_policy.alerts.policy).Statement[0].Principal.Service == "cloudwatch.amazonaws.com"
+    error_message = "The Lightsail alert topic must accept publishes only from CloudWatch; the account budget is managed separately."
   }
   assert {
     condition     = aws_cloudwatch_metric_alarm.status.treat_missing_data == "breaching" && aws_cloudwatch_metric_alarm.status.namespace == "QuizForge/Host"
