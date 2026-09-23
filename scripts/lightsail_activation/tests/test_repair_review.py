@@ -66,6 +66,18 @@ def values():
              "cidrs": ["0.0.0.0/0"], "ipv6_cidrs": [], "cidr_list_aliases": []},
         ],
     }
+    recovery_policy = json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": ["cognito-idp:AdminUserGlobalSignOut"],
+            "Resource": "arn:aws:cognito-idp:ca-central-1:123456789012:userpool/synthetic",
+        }],
+    })
+    result["aws_iam_role_policy.recovery"] = {
+        "name": "synthetic-recovery-inline-policy",
+        "policy": recovery_policy,
+    }
     topic = "arn:aws:sns:ca-central-1:123456789012:quizforge-production-lightsail-alerts"
     result["aws_sns_topic_policy.alerts"] = {
         "arn": topic,
@@ -173,46 +185,54 @@ def approved_refresh_drift():
             },
         }
 
+    current = values()
+    role_policy = current["aws_iam_role_policy.recovery"]
     return [
         item(
             "aws_cloudwatch_log_group.recovery",
             {"tags": None},
-            {"tags": dict(DEFAULT_TAGS)},
+            {"tags": {}},
         ),
         item(
             "aws_cloudwatch_metric_alarm.status",
-            {"insufficient_data_actions": None, "tags": {}},
-            {"insufficient_data_actions": [], "tags": dict(DEFAULT_TAGS)},
+            {"insufficient_data_actions": None, "tags": None},
+            {"insufficient_data_actions": [], "tags": {}},
         ),
         item(
             "aws_cognito_user_pool.browser",
-            {"domain": None, "tags": None},
-            {"domain": f"quizforge-{SETTINGS.account}", "tags": dict(DEFAULT_TAGS)},
+            {"domain": "", "tags": None},
+            {"domain": f"quizforge-{SETTINGS.account}", "tags": {}},
         ),
         item(
             "aws_iam_policy.host_health",
             {"tags": None},
-            {"tags": dict(DEFAULT_TAGS)},
+            {"tags": {}},
         ),
         item(
             "aws_iam_role.recovery",
-            {"inline_policy": None, "tags": None},
-            {"inline_policy": [], "tags": dict(DEFAULT_TAGS)},
+            {"inline_policy": [], "tags": None},
+            {
+                "inline_policy": [{
+                    "name": role_policy["name"],
+                    "policy": role_policy["policy"],
+                }],
+                "tags": {},
+            },
         ),
         item(
             "aws_lambda_function.recovery",
             {"layers": None, "tags": None},
-            {"layers": [], "tags": dict(DEFAULT_TAGS)},
+            {"layers": [], "tags": {}},
         ),
         item(
             "aws_lightsail_key_pair.operator",
             {"tags": None},
-            {"tags": dict(DEFAULT_TAGS)},
+            {"tags": {}},
         ),
         item(
             "aws_sns_topic.alerts",
             {"tags": None},
-            {"tags": dict(DEFAULT_TAGS)},
+            {"tags": {}},
         ),
     ]
 
@@ -264,7 +284,13 @@ class RepairReviewTests(unittest.TestCase):
                 domain="unexpected-domain"
             ),
             lambda drift: drift[4]["change"]["after"].update(
-                inline_policy=[{"name": "unexpected"}]
+                inline_policy=[{"name": "unexpected", "policy": "{}"}]
+            ),
+            lambda drift: drift[4]["change"]["after"]["inline_policy"][0].update(
+                name="wrong-policy-name"
+            ),
+            lambda drift: drift[4]["change"]["after"]["inline_policy"][0].update(
+                policy=json.dumps({"Version": "2012-10-17", "Statement": []})
             ),
             lambda drift: drift[5]["change"]["after"].update(
                 layers=["arn:aws:lambda:ca-central-1:123456789012:layer:unexpected:1"]
@@ -282,18 +308,18 @@ class RepairReviewTests(unittest.TestCase):
                 with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
                     review_plan(document, SETTINGS, CATALOG)
 
-    def test_refresh_drift_can_disappear_or_reverse_without_weakening_checks(self):
+    def test_refresh_drift_may_disappear_but_reverse_or_changed_shapes_are_refused(self):
+        clean = review_plan(plan(), SETTINGS, CATALOG)
+        self.assertEqual(clean["approved_refresh_drift_entries"], 0)
+
         document = plan()
         reverse = approved_refresh_drift()[:3]
         for item in reverse:
             change = item["change"]
             change["before"], change["after"] = change["after"], change["before"]
         document["resource_drift"] = reverse
-        manifest = review_plan(document, SETTINGS, CATALOG)
-        self.assertEqual(manifest["approved_refresh_drift_entries"], 3)
-
-        clean = review_plan(plan(), SETTINGS, CATALOG)
-        self.assertEqual(clean["approved_refresh_drift_entries"], 0)
+        with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
+            review_plan(document, SETTINGS, CATALOG)
 
     def test_updates_deletes_replacements_and_imports_are_refused(self):
         target = sorted(EXISTING)[0]
