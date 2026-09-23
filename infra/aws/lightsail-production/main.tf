@@ -13,13 +13,6 @@ provider "aws" {
   }
 }
 data "aws_caller_identity" "current" {}
-variable "monthly_budget_usd" {
-  type = number
-  validation {
-    condition     = var.monthly_budget_usd >= 12 && var.monthly_budget_usd <= 1000
-    error_message = "Choose an explicit AWS alert budget of USD 12–1000; this is not a spending stop."
-  }
-}
 variable "alert_email" {
   type      = string
   sensitive = true

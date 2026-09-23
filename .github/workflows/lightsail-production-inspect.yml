@@ -102,7 +102,6 @@ jobs:
           from pathlib import Path
           private = Path(os.environ["RUNNER_TEMP"]) / "lightsail.tfvars.json"
           private.write_text(json.dumps({
-              "monthly_budget_usd": 20,
               "alert_email": os.environ["AWS_BUDGET_ALERT_EMAIL"],
               "ssh_public_key": os.environ["LIGHTSAIL_SSH_PUBLIC_KEY"],
               "admin_ipv4_cidr": os.environ["LIGHTSAIL_ADMIN_IPV4_CIDR"],
