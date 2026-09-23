@@ -164,10 +164,7 @@ jobs:
           path = Path("lightsail-repair-results/summary.json")
           value = json.loads(path.read_text())
           value["result"] = "blocked_no_apply_attempted"
-          value["error_code"] = (
-              "REPAIR_PLAN_HAS_NO_CHANGES" if __import__("os").environ.get("PLAN_STATUS") == "0"
-              else "TERRAFORM_REPAIR_PLAN_FAILED"
-          )
+          value["error_code"] = "TERRAFORM_REPAIR_PLAN_NOT_EXPECTED"
           path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
           PY
             echo "Permanent Lightsail repair plan was not the expected change plan; raw diagnostics remain private." >&2
