@@ -97,12 +97,12 @@ never cleans, replaces or creates a database and cannot restore in place.
 
 ## Scheduled-job preparation
 
-[Backup automation preparation](lightsail-backup-automation.md) adds a proposed
-daily systemd job, authenticated off-server recovery receipts, hourly health
-publication and an unapplied private S3/CloudWatch/SNS configuration. It includes
-failure/staleness checks and recovery after local receipt loss. No timer or cloud
-resource is activated. Cadence, retention, recipient and actual delivery still
-require the launch acceptance described there.
+[Backup automation](lightsail-backup-automation.md) provides the reviewed daily
+systemd job, authenticated off-server recovery receipts and hourly health
+publication. The private S3/CloudWatch/SNS infrastructure is now activated and the
+SNS subscription is confirmed, but the host-side units are not installed or
+enabled on a permanent Lightsail server yet. Live archive delivery, recovery,
+health metrics and alarm delivery still require host acceptance.
 
 ## Verification and remaining recovery gates
 
