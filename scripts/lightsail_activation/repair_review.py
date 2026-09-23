@@ -74,6 +74,52 @@ def _managed_addresses(root: Mapping[str, Any]) -> set[str]:
     }
 
 
+def _safe_side_effect_diagnostics(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only non-sensitive counts and reviewed Terraform addresses."""
+    drift = plan.get("resource_drift")
+    deferred = plan.get("deferred_changes")
+    invocations = plan.get("action_invocations")
+    drift_items = drift if isinstance(drift, list) else []
+    deferred_items = deferred if isinstance(deferred, list) else []
+    invocation_items = invocations if isinstance(invocations, list) else []
+
+    known_drift = sorted({
+        str(item.get("address"))
+        for item in drift_items
+        if isinstance(item, dict) and item.get("address") in FINAL
+    })
+    unknown_drift_count = sum(
+        1 for item in drift_items
+        if not isinstance(item, dict) or item.get("address") not in FINAL
+    )
+
+    known_deferred = sorted({
+        str(item.get("resource_change", {}).get("address"))
+        for item in deferred_items
+        if isinstance(item, dict)
+        and isinstance(item.get("resource_change"), dict)
+        and item["resource_change"].get("address") in FINAL
+    })
+    unknown_deferred_count = sum(
+        1 for item in deferred_items
+        if not (
+            isinstance(item, dict)
+            and isinstance(item.get("resource_change"), dict)
+            and item["resource_change"].get("address") in FINAL
+        )
+    )
+
+    return {
+        "resource_drift_count": len(drift_items),
+        "known_resource_drift_addresses": known_drift,
+        "unexpected_resource_drift_count": unknown_drift_count,
+        "deferred_change_count": len(deferred_items),
+        "known_deferred_change_addresses": known_deferred,
+        "unexpected_deferred_change_count": unknown_deferred_count,
+        "action_invocation_count": len(invocation_items),
+    }
+
+
 def _one(values: Mapping[str, Any], key: str, code: str) -> dict[str, Any]:
     item = values.get(key)
     require(isinstance(item, list) and len(item) == 1 and isinstance(item[0], dict), code)
@@ -213,8 +259,13 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
     require(plan.get("terraform_version") == TERRAFORM, "TERRAFORM_VERSION_MISMATCH")
     require(plan.get("errored") is False and plan.get("applyable") is True
             and plan.get("complete") is True, "INCOMPLETE_OR_ERRORED_PLAN")
-    require(not plan.get("deferred_changes") and not plan.get("resource_drift")
-            and not plan.get("action_invocations"), "UNEXPECTED_PLAN_SIDE_EFFECTS")
+    side_effects = _safe_side_effect_diagnostics(plan)
+    require(
+        side_effects["resource_drift_count"] == 0
+        and side_effects["deferred_change_count"] == 0
+        and side_effects["action_invocation_count"] == 0,
+        "UNEXPECTED_PLAN_SIDE_EFFECTS",
+    )
     for check in plan.get("checks", []):
         require(check.get("status") == "pass", "PLAN_CHECK_NOT_PASSED")
 
@@ -368,6 +419,7 @@ def _write(path: Path, value: dict[str, Any]) -> None:
 def main() -> int:
     root = Path.cwd()
     results = root / "lightsail-repair-results"
+    safe_diagnostics: dict[str, Any] = {}
     try:
         command = sys.argv[1] if len(sys.argv) > 1 else ""
         env = dict(os.environ)
@@ -391,6 +443,7 @@ def main() -> int:
         if command == "review" and len(sys.argv) == 4:
             plan = json.loads(Path(sys.argv[2]).read_text())
             catalog = json.loads(Path(sys.argv[3]).read_text())
+            safe_diagnostics = _safe_side_effect_diagnostics(plan)
             manifest = review_plan(plan, settings, catalog)
             report = {
                 "schema": 1,
@@ -411,14 +464,17 @@ def main() -> int:
     except Exception:
         code = "PRIVATE_REPAIR_REVIEW_FAILED"
 
-    _write(results / "summary.json", {
+    summary = {
         "schema": 1,
         "operation": "repair_inspect",
         "result": "blocked_no_apply_attempted",
         "apply_attempted": False,
         "terraform_apply_completed": False,
         "error_code": code,
-    })
+    }
+    if code == "UNEXPECTED_PLAN_SIDE_EFFECTS":
+        summary["safe_diagnostics"] = safe_diagnostics
+    _write(results / "summary.json", summary)
     print("Permanent Lightsail repair inspection refused.", file=sys.stderr)
     return 1
 

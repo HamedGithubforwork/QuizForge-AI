@@ -7,7 +7,7 @@ import unittest
 
 from scripts.lightsail_activation.repair_review import (
     BLUEPRINT, BUNDLE, EXISTING, FINAL, REPAIR_CREATES,
-    Refused, review_plan,
+    Refused, _safe_side_effect_diagnostics, review_plan,
 )
 from scripts.lightsail_activation.review import PROVIDER_NAME, Settings
 
@@ -239,6 +239,58 @@ class RepairReviewTests(unittest.TestCase):
             })
             value["policy"] = json.dumps(doc)
         self.refused(add_budget_publisher)
+
+    def test_side_effect_diagnostics_report_only_safe_counts_and_known_addresses(self):
+        document = plan()
+        known = sorted(EXISTING)[0]
+        document["resource_drift"] = [
+            {
+                "address": known,
+                "mode": "managed",
+                "change": {
+                    "actions": ["update"],
+                    "before": {"secret": SETTINGS.ssh_key},
+                    "after": {"email": SETTINGS.email},
+                },
+            },
+            {
+                "address": "aws_example.secret-looking-resource",
+                "change": {"before": {"account": SETTINGS.account}},
+            },
+        ]
+        document["deferred_changes"] = [{
+            "resource_change": {
+                "address": sorted(REPAIR_CREATES)[0],
+                "change": {"after": {"cidr": SETTINGS.admin_cidr}},
+            }
+        }]
+        document["action_invocations"] = [{
+            "address": "action.example",
+            "config_values": {"role": SETTINGS.role},
+        }]
+
+        diagnostics = _safe_side_effect_diagnostics(document)
+        self.assertEqual(diagnostics["resource_drift_count"], 2)
+        self.assertEqual(diagnostics["known_resource_drift_addresses"], [known])
+        self.assertEqual(diagnostics["unexpected_resource_drift_count"], 1)
+        self.assertEqual(diagnostics["deferred_change_count"], 1)
+        self.assertEqual(
+            diagnostics["known_deferred_change_addresses"],
+            [sorted(REPAIR_CREATES)[0]],
+        )
+        self.assertEqual(diagnostics["unexpected_deferred_change_count"], 0)
+        self.assertEqual(diagnostics["action_invocation_count"], 1)
+
+        raw = json.dumps(diagnostics)
+        for private in (
+            SETTINGS.email, SETTINGS.account, SETTINGS.role,
+            SETTINGS.state_bucket, SETTINGS.ssh_key, SETTINGS.admin_cidr,
+            "aws_example.secret-looking-resource",
+        ):
+            self.assertNotIn(private, raw)
+
+        with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
+            review_plan(document, SETTINGS, CATALOG)
 
     def test_unavailable_catalog_or_unverified_external_budget_is_refused(self):
         for key in (
