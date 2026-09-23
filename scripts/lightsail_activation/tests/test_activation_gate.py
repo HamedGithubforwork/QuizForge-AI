@@ -2,7 +2,7 @@ from pathlib import Path
 import unittest
 
 from scripts.lightsail_activation.gate import (
-    APPROVED_MANIFEST_SHA256, CONFIRMATION, Refused, fail, trusted,
+    APPROVED, CONFIRMATION, Refused, fail, trusted,
 )
 
 SHA = "a" * 40
@@ -18,7 +18,7 @@ def environment():
         "GITHUB_SHA": SHA,
         "GITHUB_WORKFLOW_SHA": SHA,
         "TF_WORKSPACE": "default",
-        "QF_REVIEWED_MANIFEST": APPROVED_MANIFEST_SHA256,
+        "QF_REVIEWED_MANIFEST": APPROVED,
         "QF_CONFIRMATION": CONFIRMATION,
     }
 
@@ -80,7 +80,7 @@ class WorkflowTests(unittest.TestCase):
         workflow = path.read_text()
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
-        self.assertIn(APPROVED_MANIFEST_SHA256, workflow)
+        self.assertIn(APPROVED, workflow)
         self.assertIn(CONFIRMATION, workflow)
         self.assertIn("inputs.operation", workflow)
         self.assertIn("terraform -chdir=infra/aws/lightsail-production apply", workflow)
