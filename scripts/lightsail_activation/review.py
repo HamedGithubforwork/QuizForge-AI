@@ -26,9 +26,9 @@ BUDGET_USD = 20
 PROVIDER_NAME = "registry.terraform.io/hashicorp/aws"
 
 SOURCE_BLOBS = {
-    "infra/aws/lightsail-production/main.tf": "26c1b9e052b5be831b12f39055a0243f4f655e8d",
+    "infra/aws/lightsail-production/main.tf": "7ff699c9423c7c33adcb2a403b7428d28ac30307",
     "infra/aws/lightsail-production/auth.tf": "ca2ccfcf747e1213a40bd50f06e6f0d1ac0f9f1c",
-    "infra/aws/lightsail-production/operations.tf": "9ab82d51a05b52f928fa22555075dde624884d38",
+    "infra/aws/lightsail-production/operations.tf": "ba73e89c9ddf8cf19805a7b89bc0f300f3c799d4",
     "infra/aws/lightsail-production/.terraform.lock.hcl": "38e6eaafe6a597b1adbdee97636732a82fedf820",
     "scripts/production/lightsail/bootstrap.sh": "377641259fdb896c3a01de76f80cf6aa46a0f208",
     "scripts/production/lightsail/package_recovery.py": "4d3763eaa51d3aacda69febfd2c26b32ca71d6fc",
