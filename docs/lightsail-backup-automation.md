@@ -1,10 +1,16 @@
-# Scheduled Lightsail backups — deployment preparation
+# Scheduled Lightsail backups — host activation runbook
 
-This candidate adds an explicit backup job, inactive systemd units and an unapplied
-storage/alert Terraform root. It creates no AWS resources, sends no alert email,
-installs no timer and accesses no real user data. It follows the
+The reviewed AWS retained-backup infrastructure was activated and read back
+successfully on September 22, 2026: private versioned S3 storage, the dedicated
+SNS topic/subscription, three unattached IAM policies and the missing-backup
+CloudWatch alarm are active. The owner confirmed the SNS subscription and a
+subsequent read-only verification reported the subscription as confirmed.
+
+The server-side backup job and systemd units in this document are still inactive:
+they are not installed or enabled on a permanent host, and no live application-data
+backup or AWS restore has yet been performed. This runbook follows the
 [encrypted application-data backup](lightsail-backup-restore.md) preparation.
-Application PR127 remains draft; production routing and migration are separate.
+Production routing and migration remain separate.
 
 ## What runs after activation
 
@@ -50,9 +56,8 @@ export starts, such as a missing key or invalid database configuration.
 
 The proposed CloudWatch alarm evaluates the hourly minimum and treats missing
 metrics as breaching. A stopped host or broken publisher therefore cannot keep
-reporting a healthy backup indefinitely. Notifications use a dedicated SNS topic,
-with the actual owner-selected email supplied only when reviewing the activation
-plan. SNS subscription confirmation and a real notification test remain required.
+reporting a healthy backup indefinitely. Notifications use the activated dedicated SNS topic. The owner-selected
+subscription is confirmed. A real alarm-delivery test remains required.
 CloudWatch evaluation and delivery introduce latency; this is not an immediate
 or exactly-one-hour delivery guarantee.
 
@@ -86,19 +91,19 @@ Actual credential delivery/rotation and attachment to reviewed separate identiti
 are still part of permanent-host preparation. Application API/identity containers
 must not receive backup keys or backup/recovery credentials.
 
-These are proposed defaults, not an approved fixed monthly bill. S3 storage and
-requests, one custom metric, one alarm and SNS notifications add usage-dependent
-charges to the hosting allowance. There is no apply workflow or recurring GitHub
-Action. A daily schedule implies potential data loss since the last successful
+These remain usage-dependent costs, not a fixed monthly bill. S3 storage and
+requests, one custom metric, one alarm and SNS notifications add to the hosting
+allowance. The infrastructure was activated through the guarded retained-backup
+workflow; there is no recurring GitHub Action for the backup job itself. A daily
+schedule implies potential data loss since the last successful
 daily snapshot; it does not implement the managed-RDS proposal's fifteen-minute
 RPO. Confirm cadence/retention, alert recipient, credential delivery and cost before
 activation. The measured full-host RTO remains open.
 
 ## Installation and recovery sequence for a reviewed launch
 
-1. Review the isolated state key `quizforge/lightsail-backups/terraform.tfstate`
-   and a read-only plan for this root, supplying the owner's actual alert email.
-   Apply and confirm subscription only as part of approved infrastructure activation.
+1. The isolated backup state, guarded activation, infrastructure readback and SNS
+   confirmation are complete. Do not re-run activation for host installation.
 2. Install the reviewed production Python/SQL files under `/opt/quizforge/operations`
    and `history_transfer.py` under `/opt/quizforge/rds_rehearsal`. Create
    `/opt/quizforge/backup-venv` with the locked, hashed operations dependencies.
@@ -136,8 +141,9 @@ activation. The measured full-host RTO remains open.
 7. Only after those checks and activation review, enable the backup and health
    timers. Confirm the next scheduled run, an off-server receipt and alert delivery.
 
-The prepared units are not installed or enabled by this repository or its CI.
-No private values belong in source, artifacts, CLI arguments or logs.
+The prepared units are not yet installed or enabled on a permanent host by this
+repository or its CI. No private values belong in source, artifacts, CLI arguments
+or logs.
 
 ## Verification scope
 
@@ -155,9 +161,10 @@ and checks preserved ownership and disabled spending. No authentication-provider
 or complete VM rebuild is claimed by that database exercise. Terraform tests use
 mocked plans; service syntax checks do not install units or start daemons.
 
-Live S3 delivery/download, alert delivery, key recovery, full host recreation and
-the application canary remain explicit launch gates. This preparation advances
-those gates without claiming that they have already passed.
+Live S3 archive/receipt delivery and download, real alarm delivery, independent
+key recovery, full host recreation and the application canary remain explicit
+launch gates. The cloud infrastructure itself and SNS subscription are verified;
+the host-side recovery evidence is not.
 
 References: [S3 conditional writes](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html),
 [CloudWatch alarms](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Alarms.html),
