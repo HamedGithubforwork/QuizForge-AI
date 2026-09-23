@@ -392,6 +392,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
 
 
 def main() -> int:
+    stage = "startup"
     report = {
         "schema": 1,
         "operation": "reconcile_read_only",
@@ -401,10 +402,13 @@ def main() -> int:
     }
     settings: Settings | None = None
     try:
+        stage = "settings"
         settings = Settings.from_env(os.environ)
         import boto3
+        stage = "remote_state"
         s3 = boto3.client("s3", region_name=REGION)
         state_present, state_lock_present, state = read_remote_state(s3, settings)
+        stage = "aws_inventory"
         live, checks = aws_inventory(settings)
 
         expected = set(EXPECTED)
@@ -428,11 +432,26 @@ def main() -> int:
         write_report(report, settings)
         return 0
     except Refused as error:
+        report["diagnostic_stage"] = stage
         report["error_code"] = (
             str(error) if re.fullmatch(r"[A-Z0-9_]{1,80}", str(error))
             else "RECONCILIATION_REFUSED"
         )
-    except Exception:
+    except ClientError as error:
+        report["diagnostic_stage"] = stage
+        code = error.response.get("Error", {}).get("Code", "")
+        report["aws_error_code"] = (
+            code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code)
+            else "UNKNOWN_AWS_ERROR"
+        )
+        report["error_code"] = "AWS_READ_FAILED"
+    except Exception as error:
+        report["diagnostic_stage"] = stage
+        name = type(error).__name__
+        report["exception_type"] = (
+            name if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", name)
+            else "UnknownException"
+        )
         report["error_code"] = "PRIVATE_READ_FAILED"
     try:
         write_report(report, settings)
