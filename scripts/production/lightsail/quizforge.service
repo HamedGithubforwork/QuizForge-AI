@@ -1,0 +1,19 @@
+[Unit]
+Description=QuizForge reviewed permanent release
+Requires=docker.service quizforge.slice
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/quizforge/launch-approved
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/quizforge/current
+ExecStart=/usr/bin/docker compose -f compose.json up -d --wait --wait-timeout 120 --pull never
+ExecStop=/usr/bin/docker compose -f compose.json stop --timeout 30
+TimeoutStartSec=180
+TimeoutStopSec=180
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

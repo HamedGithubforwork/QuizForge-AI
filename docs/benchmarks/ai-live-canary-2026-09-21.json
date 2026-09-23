@@ -1,0 +1,238 @@
+{
+  "workflow_run": 35571516905,
+  "job_id": 106243961513,
+  "evidence_url": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35571516905/job/106243961513",
+  "boundary_tests_passed": 2,
+  "live": {
+    "mode": "live",
+    "application_commit": "807a4084237f6db544620cdb8322108ebf52251c",
+    "configuration_commit": "86ea61ac8c6c39f57cafcb542a02929194d2c318",
+    "measured_at_utc": "2026-09-21T07:09:01.602831+00:00",
+    "model": "gpt-5.6-luna",
+    "sdk_requests": 1,
+    "provider_requests": 1,
+    "real_model_requests": 1,
+    "application_validation_passed": true,
+    "automatic_retries": 0,
+    "monthly_allowance_usd": 5,
+    "maximum_attempt_usd": 0.5397456,
+    "synthetic_pages": [
+      {
+        "page_number": 1,
+        "text": "TCP provides reliable, ordered delivery of a byte stream. It establishes a connection before transferring application data. TCP acknowledges received data and retransmits missing data. UDP sends independent datagrams without establishing a connection. UDP does not guarantee delivery or ordering. Applications that use UDP can implement their own reliability when required."
+      },
+      {
+        "page_number": 2,
+        "text": "DNS translates domain names into IP addresses. A DNS cache stores earlier lookup results temporarily to reduce repeated lookups. A router forwards packets between networks. An IP address identifies a network interface for packet delivery. A port number identifies an application endpoint on a host. HTTPS protects HTTP traffic using TLS encryption and authenticates the server using a certificate."
+      }
+    ],
+    "database_tls": true,
+    "scope": "One app generation on a GitHub runner; excludes OCR, browser, live AWS capacity and provider invoice reconciliation",
+    "request_bytes": 3813,
+    "request_sha256": "a243db2fd3cb698361dbe7b83a4833ec89df0e8fcfb59dd5977a54b282a68f4d",
+    "quiz": {
+      "title": "Networking Fundamentals Practice Quiz",
+      "questions": [
+        {
+          "question_type": "multiple_choice",
+          "question": "Which protocol provides reliable, ordered delivery of a byte stream?",
+          "choices": [
+            "UDP",
+            "DNS",
+            "TCP",
+            "IP"
+          ],
+          "correct_index": 2,
+          "correct_answer": "TCP",
+          "accepted_answers": [
+            "TCP"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "TCP provides reliable, ordered delivery of a byte stream and retransmits missing data.",
+          "source_pages": [
+            1
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What does UDP do before sending application data?",
+          "choices": [
+            "Establishes a connection",
+            "Translates a domain name",
+            "Does not establish a connection",
+            "Authenticates the server"
+          ],
+          "correct_index": 2,
+          "correct_answer": "Does not establish a connection",
+          "accepted_answers": [
+            "Does not establish a connection"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "UDP sends independent datagrams without establishing a connection.",
+          "source_pages": [
+            1
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What is the purpose of a DNS cache?",
+          "choices": [
+            "To forward packets between networks",
+            "To store earlier lookup results temporarily",
+            "To identify an application endpoint",
+            "To encrypt HTTP traffic"
+          ],
+          "correct_index": 1,
+          "correct_answer": "To store earlier lookup results temporarily",
+          "accepted_answers": [
+            "To store earlier lookup results temporarily"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "A DNS cache temporarily stores earlier lookup results to reduce repeated lookups.",
+          "source_pages": [
+            2
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What does a port number identify on a host?",
+          "choices": [
+            "A network interface",
+            "An application endpoint",
+            "A domain name",
+            "A router"
+          ],
+          "correct_index": 1,
+          "correct_answer": "An application endpoint",
+          "accepted_answers": [
+            "An application endpoint"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "A port number identifies an application endpoint on a host.",
+          "source_pages": [
+            2
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "How does HTTPS protect HTTP traffic?",
+          "choices": [
+            "By using TLS encryption and authenticating the server with a certificate",
+            "By sending independent datagrams without ordering",
+            "By retransmitting all missing packets",
+            "By translating domain names into IP addresses"
+          ],
+          "correct_index": 0,
+          "correct_answer": "By using TLS encryption and authenticating the server with a certificate",
+          "accepted_answers": [
+            "By using TLS encryption and authenticating the server with a certificate"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "HTTPS protects HTTP traffic using TLS encryption and authenticates the server using a certificate.",
+          "source_pages": [
+            2
+          ]
+        }
+      ]
+    },
+    "generation_seconds": 6.72728,
+    "policy_disabled_at_finish": true,
+    "reservations": [
+      {
+        "maximum_usd": 0.5397456,
+        "settled_usd": 0.0006025
+      }
+    ],
+    "accounted_usd": 0.0006025,
+    "remaining_isolated_allowance_usd": 4.9993975,
+    "sql_request_count": 1,
+    "http_status": 200,
+    "response_bytes": 6269,
+    "provider_status": "completed",
+    "returned_model": "gpt-5.6-luna",
+    "service_tier": "default",
+    "usage": {
+      "input_tokens": 634,
+      "input_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 0
+      },
+      "output_tokens": 370,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 1004
+    },
+    "settlement_verified": true,
+    "passed": true
+  },
+  "source_review": {
+    "correct_answers_supported": 5,
+    "total_questions": 5,
+    "valid_page_citations": 5,
+    "duplicate_questions": 0,
+    "findings": [
+      "All five correct answers and explanations are supported by the two synthetic source pages.",
+      "Question 2 is understandable but could be phrased more directly: Does UDP establish a connection before sending datagrams?",
+      "One easy multiple-choice sample does not establish quality for long, scanned, mixed, or short-answer quizzes."
+    ]
+  },
+  "launch_accounting": {
+    "utc_month": "2026-09-01",
+    "utc_day": "2026-09-21",
+    "attempts": 1,
+    "accounted_nano_usd": 602500,
+    "remaining_nano_usd": 4999397500,
+    "production_reconciliation_required": true,
+    "production_ledger_updated": false
+  },
+  "provider_cost_estimate": {
+    "usd": 0.0005708,
+    "input_tokens": 634,
+    "output_tokens": 370,
+    "input_usd_per_million": 0.2,
+    "output_usd_per_million": 1.2,
+    "source": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+    "note": "Calculated from reported uncached usage and reviewed standard rates; not an invoice. The budget intentionally accounts at the higher cache-write input rate."
+  }
+}

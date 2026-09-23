@@ -1,0 +1,208 @@
+{
+  "workflow_run": 35570683603,
+  "job_id": 106241479995,
+  "evidence_url": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35570683603/job/106241479995",
+  "live": {
+    "status": "blocked",
+    "reason": "OPENAI_API_KEY secret unavailable to the workflow",
+    "real_model_requests": 0,
+    "actual_test_spend_usd": 0
+  },
+  "simulation": {
+    "mode": "simulated",
+    "application_commit": "807a4084237f6db544620cdb8322108ebf52251c",
+    "configuration_commit": "1d2512b5cc1714bb73c1b406cd866b10b9f2b776",
+    "measured_at_utc": "2026-09-21T06:57:54.702559+00:00",
+    "model": "gpt-5.6-luna",
+    "sdk_requests": 1,
+    "provider_requests": 1,
+    "real_model_requests": 0,
+    "application_validation_passed": true,
+    "automatic_retries": 0,
+    "monthly_allowance_usd": 5,
+    "maximum_attempt_usd": 0.5397456,
+    "synthetic_pages": [
+      {
+        "page_number": 1,
+        "text": "TCP provides reliable, ordered delivery of a byte stream. It establishes a connection before transferring application data. TCP acknowledges received data and retransmits missing data. UDP sends independent datagrams without establishing a connection. UDP does not guarantee delivery or ordering. Applications that use UDP can implement their own reliability when required."
+      },
+      {
+        "page_number": 2,
+        "text": "DNS translates domain names into IP addresses. A DNS cache stores earlier lookup results temporarily to reduce repeated lookups. A router forwards packets between networks. An IP address identifies a network interface for packet delivery. A port number identifies an application endpoint on a host. HTTPS protects HTTP traffic using TLS encryption and authenticates the server using a certificate."
+      }
+    ],
+    "database_tls": true,
+    "scope": "One app generation on a GitHub runner; excludes OCR, browser, live AWS capacity and provider invoice reconciliation",
+    "request_bytes": 3813,
+    "request_sha256": "a243db2fd3cb698361dbe7b83a4833ec89df0e8fcfb59dd5977a54b282a68f4d",
+    "quiz": {
+      "title": "Networking basics",
+      "questions": [
+        {
+          "question_type": "multiple_choice",
+          "question": "Which protocol provides reliable, ordered delivery?",
+          "choices": [
+            "TCP",
+            "UDP",
+            "DNS",
+            "IP"
+          ],
+          "correct_index": 0,
+          "correct_answer": "TCP",
+          "accepted_answers": [
+            "TCP"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "TCP provides reliable, ordered delivery of a byte stream.",
+          "source_pages": [
+            1
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "Which protocol sends independent datagrams?",
+          "choices": [
+            "UDP",
+            "TCP",
+            "HTTPS",
+            "TLS"
+          ],
+          "correct_index": 0,
+          "correct_answer": "UDP",
+          "accepted_answers": [
+            "UDP"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "UDP sends independent datagrams without establishing a connection.",
+          "source_pages": [
+            1
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What translates domain names into IP addresses?",
+          "choices": [
+            "DNS",
+            "TCP",
+            "TLS",
+            "A port number"
+          ],
+          "correct_index": 0,
+          "correct_answer": "DNS",
+          "accepted_answers": [
+            "DNS"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "DNS translates domain names into IP addresses.",
+          "source_pages": [
+            2
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What forwards packets between networks?",
+          "choices": [
+            "A router",
+            "A DNS cache",
+            "A certificate",
+            "A port number"
+          ],
+          "correct_index": 0,
+          "correct_answer": "A router",
+          "accepted_answers": [
+            "A router"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "A router forwards packets between networks.",
+          "source_pages": [
+            2
+          ]
+        },
+        {
+          "question_type": "multiple_choice",
+          "question": "What protects HTTP traffic using encryption?",
+          "choices": [
+            "TLS",
+            "DNS",
+            "UDP",
+            "IP addressing"
+          ],
+          "correct_index": 0,
+          "correct_answer": "TLS",
+          "accepted_answers": [
+            "TLS"
+          ],
+          "grading": {
+            "grading_version": 2,
+            "grading_mode": "none",
+            "answer_groups": [],
+            "required_group_count": 0,
+            "numeric_value": 0,
+            "numeric_tolerance": 0,
+            "numeric_unit": ""
+          },
+          "explanation": "HTTPS protects HTTP traffic using TLS encryption.",
+          "source_pages": [
+            2
+          ]
+        }
+      ]
+    },
+    "generation_seconds": 1.776332,
+    "policy_disabled_at_finish": true,
+    "reservations": [
+      {
+        "maximum_usd": 0.5397456,
+        "settled_usd": 0.00146
+      }
+    ],
+    "accounted_usd": 0.00146,
+    "remaining_isolated_allowance_usd": 4.99854,
+    "sql_request_count": 1,
+    "http_status": 200,
+    "response_bytes": 1879,
+    "provider_status": "completed",
+    "returned_model": "gpt-5.6-luna",
+    "service_tier": "default",
+    "usage": {
+      "input_tokens": 2000,
+      "output_tokens": 800,
+      "total_tokens": 2800
+    },
+    "settlement_verified": true,
+    "passed": true
+  },
+  "boundary_tests_passed": 2
+}

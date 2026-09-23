@@ -1,0 +1,20 @@
+[Unit]
+Description=QuizForge bounded host health heartbeat
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=quizforge-health
+Group=quizforge-health
+EnvironmentFile=/etc/quizforge/host-health.env
+ExecStart=/opt/quizforge/backup-venv/bin/python /opt/quizforge/operations/lightsail/host_health.py
+TimeoutStartSec=60
+MemoryMax=64M
+CPUQuota=10%
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+UMask=0077

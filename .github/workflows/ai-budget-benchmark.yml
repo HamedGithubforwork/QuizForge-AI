@@ -1,0 +1,37 @@
+name: AI budget overhead comparison
+on:
+  push:
+    branches: [feat/lightsail-permanent-configuration]
+    paths:
+      - scripts/production/budget_benchmark.py
+      - .github/workflows/ai-budget-benchmark.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 27b5c6d7457cf1d72b52c9add91ceabfff03290e
+          path: budget-baseline
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/production/generation_guard.py
+            scripts/production/generation_budget.sql
+      - name: Build the same locked operations runtime
+        run: docker build -t quizforge-budget-benchmark -f scripts/production/operations.Dockerfile .
+      - name: Compare exact handlers with TLS database and a simulated provider
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_TEMP,GITHUB_SHA python3 scripts/production/budget_benchmark.py --baseline "$GITHUB_WORKSPACE/budget-baseline/scripts/production" --output "$GITHUB_WORKSPACE/benchmark-results/ai-budget-overhead.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-budget-overhead
+          path: benchmark-results/ai-budget-overhead.json
+          if-no-files-found: error
+          retention-days: 30

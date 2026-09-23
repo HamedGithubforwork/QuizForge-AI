@@ -1,0 +1,56 @@
+{
+    admin off
+    http_port 8080
+    https_port 8443
+    servers {
+        protocols h1 h2
+        timeouts {
+            read_header 10s
+            read_body 60s
+            idle 60s
+        }
+    }
+}
+quizfromnotes.com {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.quizfromnotes.com __AUTH_ORIGIN__ https://cognito-idp.ca-central-1.amazonaws.com https://vfxmsvphgcaizqnbyjip.supabase.co; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+        -Server
+        Cache-Control "no-cache"
+    }
+    root * /srv
+    @assets path /assets/*
+    header @assets Cache-Control "public, max-age=31536000, immutable"
+    try_files {path} /index.html
+    file_server
+}
+api.quizfromnotes.com {
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Cache-Control "no-store"
+        -Server
+    }
+    handle /identity/* {
+        request_body {
+            max_size 2KB
+        }
+        reverse_proxy identity:8001
+    }
+    handle /api/* {
+        request_body {
+            max_size 16MB
+        }
+        reverse_proxy api:8000 {
+            transport http {
+                response_header_timeout 120s
+            }
+        }
+    }
+    handle {
+        respond "Unknown route" 404
+    }
+}

@@ -23,6 +23,7 @@ crash.log
 crash.*.log
 .terraformrc
 terraform.rc
+infra/aws/lightsail-production/recovery.zip
 
 # Secrets
 .env
