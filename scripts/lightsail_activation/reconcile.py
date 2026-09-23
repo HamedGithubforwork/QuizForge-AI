@@ -8,7 +8,11 @@ import re
 import sys
 from typing import Any
 
-from botocore.exceptions import ClientError
+try:
+    from botocore.exceptions import ClientError
+except ModuleNotFoundError:  # Credential-free unit discovery does not install AWS SDK.
+    class ClientError(Exception):
+        pass
 
 from .review import EXPECTED, REGION, STATE_KEY, Refused, Settings, require
 
