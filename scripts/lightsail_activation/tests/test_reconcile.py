@@ -55,10 +55,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("github.ref == 'refs/heads/main'", workflow)
         self.assertIn("id-token: write", workflow)
+        self.assertIn('"s3:ListBucket"', workflow)
+        self.assertIn('"s3:GetObject"', workflow)
+        self.assertIn('quizforge/lightsail-production/terraform.tfstate.tflock', workflow)
         for forbidden in (
             "terraform apply", "terraform destroy", "terraform import",
             "put-object", "delete-object", "create-", "update-", "attach-",
-            "route53", "public_signup=true",
+            "route53", "public_signup=true", "s3:putobject", "s3:deleteobject",
+            "s3:deletebucket", "s3:putbucket",
         ):
             self.assertNotIn(forbidden, workflow.lower())
         validation = workflow.split("  validate:\n", 1)[1].split("  reconcile:\n", 1)[0]

@@ -76,7 +76,8 @@ jobs:
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[
               {"Effect":"Allow","Action":["sts:GetCallerIdentity","lightsail:GetKeyPair","lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates","cognito-idp:ListUserPools","cognito-idp:DescribeUserPool","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeUserPoolDomain","sns:ListTopics","sns:GetTopicAttributes","sns:ListSubscriptionsByTopic","budgets:ViewBudget","cloudwatch:DescribeAlarms","logs:DescribeLogGroups","iam:GetRole","iam:ListRolePolicies","iam:GetRolePolicy","iam:GetPolicy","iam:GetPolicyVersion","lambda:GetFunction","lambda:GetPolicy"],"Resource":"*"},
-              {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
+              {"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]},
+              {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}","Condition":{"StringLike":{"s3:prefix":["quizforge/lightsail-production/terraform.tfstate","quizforge/lightsail-production/terraform.tfstate.tflock"]}}}
             ]}
 
       - name: Compare remote state with actual AWS resources without changes
