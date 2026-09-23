@@ -80,14 +80,7 @@ jobs:
       group: quizforge-permanent-lightsail-isolated-state
       cancel-in-progress: false
     env:
-      QF_OPERATION: ${{ inputs.operation }}
-      QF_REVIEWED_MANIFEST: ${{ inputs.reviewed_manifest_sha256 }}
-      QF_CONFIRMATION: ${{ inputs.confirmation }}
-      QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
-      QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-      AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
-      LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
-      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+      QF_OPERATION: ${{ github.event.inputs.operation }}
       TF_WORKSPACE: default
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -106,12 +99,24 @@ jobs:
           terraform_wrapper: false
 
       - name: Validate manual authorization before any cloud request
+        env:
+          QF_REVIEWED_MANIFEST: ${{ github.event.inputs.reviewed_manifest_sha256 }}
+          QF_CONFIRMATION: ${{ github.event.inputs.confirmation }}
+          QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
         run: python -m scripts.lightsail_activation.gate preflight "$QF_OPERATION"
 
       - name: Build deterministic Cognito recovery package
         run: python scripts/production/lightsail/package_recovery.py
 
       - name: Prepare private Terraform variables
+        env:
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
         run: |
           python - <<'PY'
           import json, os
@@ -138,6 +143,8 @@ jobs:
           unset-current-credentials: true
 
       - name: Initialize only the permanent Lightsail state
+        env:
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
         run: |
           terraform -chdir=infra/aws/lightsail-production init \
             -reconfigure -input=false -lockfile=readonly \
@@ -148,7 +155,13 @@ jobs:
             -backend-config="use_lockfile=true"
 
       - name: Create, revalidate, and apply exactly one fresh saved plan
-        if: inputs.operation == 'activate'
+        if: github.event.inputs.operation == 'activate'
+        env:
+          QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
         run: |
           set +e
           terraform -chdir=infra/aws/lightsail-production plan \
@@ -204,6 +217,12 @@ jobs:
           python -m scripts.lightsail_activation.gate mark apply-complete
 
       - name: Read back exact state and require zero live drift
+        env:
+          QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
         run: |
           terraform -chdir=infra/aws/lightsail-production state list \
             >"$RUNNER_TEMP/lightsail-production-state-list.txt"
@@ -225,6 +244,12 @@ jobs:
 
       - name: Record safe failure state
         if: failure()
+        env:
+          QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
         run: python -m scripts.lightsail_activation.gate failure WORKFLOW_STAGE_FAILED || true
 
       - name: Remove private plans, variables, state diagnostics, and provider logs
