@@ -14,6 +14,8 @@ on:
     paths:
       - ".github/workflows/lightsail-repair-deep-diagnostic.yml"
       - "scripts/lightsail_activation/deep_diagnose.py"
+      - "scripts/lightsail_activation/repair_review.py"
+      - "scripts/lightsail_activation/tests/test_repair_review.py"
   workflow_dispatch:
 
 permissions:
