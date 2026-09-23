@@ -1,0 +1,7 @@
+[Unit]
+Description=QuizForge aggregate application resource limit
+
+[Slice]
+MemoryMax=1536M
+MemorySwapMax=0
+TasksMax=512

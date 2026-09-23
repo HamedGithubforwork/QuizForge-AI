@@ -31,6 +31,7 @@ MAX_ROWS = 10000
 TABLES = (
     "app.users", "app.user_identities", "app.quiz_history",
     "app.identity_challenges", "billing.generation_policy", "billing.generation_usage",
+    "billing.generation_reservations",
 )
 ROLES = ("quizforge_app", "quizforge_identity", "quizforge_generation")
 
@@ -208,7 +209,9 @@ def restore_snapshot(conn, snapshot, commit=False):
         existing = read_rows(conn)
         if any(existing[t] for t in TABLES if t != "billing.generation_policy"):
             raise ValueError("Restore destination contains application data")
-        if existing["billing.generation_policy"] != ['{"singleton":true,"enabled":false,"daily_requests":0,"monthly_requests":0}']:
+        if ([json.loads(row) for row in existing["billing.generation_policy"]] != [{
+                "singleton": True, "enabled": False, "daily_requests": 0, "monthly_requests": 0,
+                "monthly_nano_usd": 0, "pricing_key": "", "pricing_valid_until": "1970-01-01"}]):
             raise ValueError("Restore destination is not the disabled fresh bootstrap")
         conn.execute("DELETE FROM billing.generation_policy")
         for table in TABLES:

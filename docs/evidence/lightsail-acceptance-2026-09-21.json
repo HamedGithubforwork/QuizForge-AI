@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "reviewed_date": "2026-09-21",
+  "permanent_launch_ready": false,
+  "application_commit": "807a4084237f6db544620cdb8322108ebf52251c",
+  "configuration_commit": "2723c8246ba6afc9e6cfdb00cec4dc85153f3913",
+  "trusted_controller_commit": "994a68dccc2a18c0551f8969f6da819a30f5d7d4",
+  "inventory": {
+    "run_id": 35637544132,
+    "job_id": 106458626775,
+    "status": "completed",
+    "result": {
+      "account_plan": {
+        "result": {
+          "accountPlanStatus": "ACTIVE",
+          "accountPlanType": "FREE"
+        },
+        "status": "verified"
+      },
+      "api_certificates": {
+        "result": [],
+        "status": "verified"
+      },
+      "application_dns": {
+        "result": [
+          {
+            "name": "quizfromnotes.com.",
+            "type": "NS"
+          },
+          {
+            "name": "quizfromnotes.com.",
+            "type": "SOA"
+          }
+        ],
+        "status": "verified"
+      },
+      "budgets": {
+        "result": [],
+        "status": "verified"
+      },
+      "frontend_certificates": {
+        "result": [],
+        "status": "verified"
+      }
+    }
+  },
+  "domain_prerequisites": {
+    "run_id": 35637896165,
+    "job_id": 106459891653,
+    "status": "passed",
+    "public_delegation": true,
+    "staging_certificate": "ISSUED",
+    "staging_hostname_unused": true,
+    "production_https_tested": false
+  },
+  "lightsail_preflight": {
+    "run_id": 35637952319,
+    "job_id": 106460168535,
+    "result": {
+      "region": "ca-central-1",
+      "mutations": 0,
+      "checks": {
+        "account_plan": {
+          "accountPlanType": "FREE",
+          "accountPlanStatus": "ACTIVE"
+        },
+        "bundle": {
+          "bundleId": "small_3_0",
+          "price": 12,
+          "cpuCount": 2,
+          "ramSizeInGb": 2,
+          "diskSizeInGb": 60
+        },
+        "blueprint": "ubuntu_24_04",
+        "cleanup": "reviewed role and group exist; delivery still requires a real test",
+        "no_previous_test_instance": true,
+        "availability_zone": "ca-central-1a"
+      },
+      "blockers": [],
+      "application_sha": "bff2ab7612951fe1612268af3772794651ea86c8",
+      "harness_sha": "52f44f16794369601f21e429b15389efcf7d62e4",
+      "deadline_hours": 2,
+      "launch_permission_proven": false,
+      "live_test_performed": false
+    }
+  },
+  "authentication": {
+    "run_id": 35637807448,
+    "operation": "run",
+    "application_pr": 127,
+    "attempts": [
+      {
+        "attempt": 1,
+        "job_id": 106460732265,
+        "result": "failed",
+        "completed_checks": [
+          "hosted login and mandatory TOTP",
+          "OAuth PKCE/nonce and JWT/GetUser",
+          "protected history CRUD",
+          "one-use account enrollment",
+          "owner isolation",
+          "unverified email denied"
+        ],
+        "failure": {
+          "reported_phase": "mapped: mandatory TOTP",
+          "error_class": "AssertionError",
+          "location": "Broad phase label covered MFA return, OAuth assertions and subsequent protected-history request; exact assertion was not logged",
+          "root_cause": "not established"
+        },
+        "cleanup_job_id": 106462076086,
+        "cleanup_verified": true
+      },
+      {
+        "attempt": 2,
+        "job_id": 106462932488,
+        "result": "passed",
+        "cleanup_job_id": 106464309335,
+        "cleanup_verified": true,
+        "application_changed": false,
+        "all_live_browser_checks_passed": true
+      }
+    ],
+    "result": "passed_on_retry",
+    "reliability_caveat": "First attempt failed under an ambiguous label; root cause unestablished; no application change between attempts."
+  },
+  "earlier_evidence": {
+    "signup_email_confirmation": {
+      "run_id": 35220073225,
+      "job_id": 105197746013,
+      "status": "passed",
+      "cleanup_verified": true
+    },
+    "api_email_password_recovery": {
+      "run_id": 35230452791,
+      "job_id": 105232876751,
+      "status": "passed",
+      "cleanup_verified": true
+    },
+    "hosted_password_recovery": {
+      "run_id": 35408102578,
+      "job_id": 105802499051,
+      "status": "passed",
+      "cleanup_job_id": 105803727681,
+      "cleanup_verified": true
+    },
+    "runtime_and_cost_controls": {
+      "run_id": 35566589726,
+      "unit_database_tests": 29,
+      "full_compose_startup_restart": "passed",
+      "live_aws_capacity_test": false
+    },
+    "logical_backup_restore": {
+      "run_id": 35566589732,
+      "tests_passed": 21,
+      "real_postgresql": true,
+      "object_store": "local S3 protocol fixture",
+      "live_aws_s3": false,
+      "full_host_rebuild": false
+    },
+    "ai_canary": {
+      "run_id": 35571516905,
+      "real_requests": 1,
+      "generation_seconds": 6.72728,
+      "settled_nano_usd": 602500,
+      "production_ledger_reconciled": false
+    }
+  },
+  "remaining_gates": [
+    "current six-container host capacity with concurrent backup",
+    "live off-server S3 recovery and full-host rebuild",
+    "confirmed failure/stale/host alerts",
+    "activate approved USD20 AWS budget",
+    "final production HTTPS and authentication",
+    "migration and rollback reconciliation",
+    "retain and investigate first-attempt OAuth assertion if reproduced in final-domain testing"
+  ],
+  "changes": {
+    "permanent_resources_created": false,
+    "production_dns_changed": false,
+    "user_data_migrated": false,
+    "new_real_model_requests": 0,
+    "application_pr_merged": false,
+    "permanent_configuration_pr_merged": false
+  },
+  "limitations": [
+    "AWS Billing console returned Site Unavailable in this browser after a retry",
+    "legacy capacity controller still pins an older application and single-container laboratory",
+    "saved AWS budget choice is not an active AWS budget"
+  ],
+  "completed_at_utc": "2026-09-21T18:36:08.717Z"
+}

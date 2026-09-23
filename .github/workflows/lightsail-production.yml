@@ -1,0 +1,83 @@
+name: Permanent Lightsail configuration rehearsal
+on:
+  push:
+    branches: [feat/lightsail-permanent-configuration]
+  pull_request:
+    paths:
+      - "infra/aws/lightsail-production/**"
+      - "scripts/production/**"
+      - ".github/workflows/lightsail-production.yml"
+permissions:
+  contents: read
+jobs:
+  cost-control:
+    name: USD5 reservations with a simulated provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_PASSWORD: synthetic-cost-ci
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Exercise monetary reservations, concurrent limits, failures and month rollover
+        env:
+          PRODUCTION_TEST_DB: postgresql://postgres:synthetic-cost-ci@127.0.0.1:5432/quizforge
+          PYTHONPATH: scripts/production:scripts/rds_rehearsal
+        run: python -m unittest test_generation_costs test_runtime test_lightsail_configuration -v
+  configuration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+      - run: python scripts/production/lightsail/package_recovery.py
+      - working-directory: infra/aws/lightsail-production
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test
+      - name: Check inactive units without enabling them
+        run: |
+          mkdir /tmp/quizforge-permanent-units
+          cp scripts/production/lightsail/*.service scripts/production/lightsail/*.timer scripts/production/lightsail/*.slice /tmp/quizforge-permanent-units/
+          sed -i 's@^ExecStart=.*@ExecStart=/usr/bin/true@; s@^ExecStop=.*@ExecStop=/usr/bin/true@' /tmp/quizforge-permanent-units/*.service
+          systemd-analyze verify /tmp/quizforge-permanent-units/*
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: 807a4084237f6db544620cdb8322108ebf52251c
+          path: application-candidate
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: |
+          python -m venv /tmp/quizforge-runtime-venv
+          /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+          docker build -t quizforge-ci-api application-candidate/backend
+          docker build -t quizforge-ci-operations -f scripts/production/operations.Dockerfile .
+          docker build -t quizforge-ci-caddy --build-arg CADDY_BASE_IMAGE=caddy:2 -f scripts/production/lightsail/caddy.Dockerfile .
+      - name: Rehearse the full private runtime with synthetic credentials and no model calls
+        run: sudo --preserve-env=GITHUB_ACTIONS,RUNNER_TEMP /tmp/quizforge-runtime-venv/bin/python scripts/production/lightsail/runtime_rehearsal.py
