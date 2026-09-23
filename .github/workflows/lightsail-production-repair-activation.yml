@@ -140,12 +140,13 @@ jobs:
 
       - name: Verify current catalog and separately managed USD20 budget
         env:
+          QF_REPAIR_CONFIRMATION: ${{ github.event.inputs.confirmation }}
           QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
           AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
           LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
           LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
-        run: python -m scripts.lightsail_activation.repair_review catalog
+        run: python -m scripts.lightsail_activation.repair_gate catalog
 
       - name: Initialize only the permanent Lightsail state
         env:
@@ -188,7 +189,7 @@ jobs:
 
           python -m scripts.lightsail_activation.repair_gate review-plan \
             "$RUNNER_TEMP/lightsail-repair-activation-plan.json" \
-            "lightsail-repair-results/catalog.json" \
+            "lightsail-repair-activation-results/catalog.json" \
             "$RUNNER_TEMP/lightsail-repair-activation.tfplan"
 
           python - <<'PY'
@@ -266,7 +267,7 @@ jobs:
 
           python -m scripts.lightsail_activation.repair_gate verify-final-plan \
             "$RUNNER_TEMP/lightsail-repair-final-plan.json" \
-            "lightsail-repair-results/catalog.json"
+            "lightsail-repair-activation-results/catalog.json"
 
       - name: Record safe failure state
         if: failure()

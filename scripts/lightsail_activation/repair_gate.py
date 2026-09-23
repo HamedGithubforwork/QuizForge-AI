@@ -11,13 +11,20 @@ import subprocess
 import sys
 from typing import Any, Mapping
 
-from .repair_review import FINAL, EXISTING, REPAIR_CREATES, review_plan
+from .repair_review import (
+    FINAL,
+    EXISTING,
+    REPAIR_CREATES,
+    check_catalog_and_external_budget,
+    review_plan,
+)
 from .review import PROVIDER_NAME, Refused, Settings, check_source, digest, require
 
 REPOSITORY = "HamedGithubforwork/QuizForge-AI"
 WORKFLOW = ".github/workflows/lightsail-production-repair-activation.yml"
 CONFIRMATION = "ACTIVATE EXACT FOUR-RESOURCE LIGHTSAIL REPAIR"
 RESULT = Path("lightsail-repair-activation-results/summary.json")
+CATALOG = Path("lightsail-repair-activation-results/catalog.json")
 
 
 def trusted(env: Mapping[str, str]) -> None:
@@ -107,6 +114,32 @@ def preflight() -> None:
     cfg = settings()
     check_source(Path.cwd())
     write_report(base_report(), cfg)
+
+
+def verify_catalog() -> None:
+    """Run the existing catalog/budget checks under the activation workflow trust boundary."""
+    env = dict(os.environ)
+    trusted(env)
+    current = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+    require(current == env["GITHUB_SHA"], "WORKFLOW_CHECKOUT_MISMATCH")
+    cfg = settings()
+    check_source(Path.cwd())
+    value = check_catalog_and_external_budget(cfg)
+
+    raw = json.dumps(value, indent=2, sort_keys=True) + "\n"
+    for private in (
+        cfg.role,
+        cfg.account,
+        cfg.state_bucket,
+        cfg.email,
+        cfg.ssh_key,
+        cfg.admin_cidr,
+    ):
+        require(private not in raw, "PUBLIC_SUMMARY_REDACTION_FAILED")
+    CATALOG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CATALOG.with_suffix(".tmp")
+    tmp.write_text(raw, encoding="utf-8")
+    tmp.replace(CATALOG)
 
 
 def review_saved_plan(plan_json: str, catalog_json: str, plan_binary: str) -> None:
@@ -266,6 +299,8 @@ def main() -> int:
         command = sys.argv[1]
         if command == "preflight" and len(sys.argv) == 2:
             preflight()
+        elif command == "catalog" and len(sys.argv) == 2:
+            verify_catalog()
         elif command == "review-plan" and len(sys.argv) == 5:
             review_saved_plan(sys.argv[2], sys.argv[3], sys.argv[4])
         elif command == "verify-final-plan" and len(sys.argv) == 4:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 import unittest
 
 from scripts.lightsail_activation.repair_gate import (
@@ -90,6 +91,32 @@ class RepairActivationGateTests(unittest.TestCase):
                 env[name] = value
                 with self.assertRaises(Refused):
                     trusted(env)
+
+    def test_workflow_uses_activation_authorized_catalog_path(self):
+        workflow = Path(
+            ".github/workflows/lightsail-production-repair-activation.yml"
+        ).read_text()
+        self.assertIn(
+            "python -m scripts.lightsail_activation.repair_gate catalog",
+            workflow,
+        )
+        self.assertNotIn(
+            "python -m scripts.lightsail_activation.repair_review catalog",
+            workflow,
+        )
+        catalog_block = workflow.split(
+            "- name: Verify current catalog and separately managed USD20 budget",
+            1,
+        )[1].split("- name: Initialize only the permanent Lightsail state", 1)[0]
+        self.assertIn("QF_REPAIR_CONFIRMATION:", catalog_block)
+        self.assertIn(
+            "lightsail-repair-activation-results/catalog.json",
+            workflow,
+        )
+        self.assertNotIn(
+            '"lightsail-repair-results/catalog.json"',
+            workflow,
+        )
 
     def test_final_noop_plan_reuses_full_repair_safety_contract(self):
         manifest = review_final_plan(final_plan(), SETTINGS, CATALOG)
