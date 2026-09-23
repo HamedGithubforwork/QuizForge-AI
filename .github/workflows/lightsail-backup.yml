@@ -3,18 +3,22 @@ name: Lightsail backup and restore rehearsal
 on:
   pull_request:
     paths:
-      - "scripts/production/lightsail_backup.py"
-      - "scripts/production/test_lightsail_backup.py"
+      - "scripts/production/lightsail_backup*.py"
+      - "scripts/production/systemd/**"
+      - "infra/aws/lightsail-backups/**"
+      - "scripts/production/test_lightsail_backup*.py"
       - "scripts/production/schema.sql"
       - "scripts/production/generation_budget.sql"
       - "scripts/production/transfer.py"
       - "scripts/rds_rehearsal/requirements.lock"
       - ".github/workflows/lightsail-backup.yml"
   push:
-    branches: [main]
+    branches: [main, feat/lightsail-permanent-configuration]
     paths:
-      - "scripts/production/lightsail_backup.py"
-      - "scripts/production/test_lightsail_backup.py"
+      - "scripts/production/lightsail_backup*.py"
+      - "scripts/production/systemd/**"
+      - "infra/aws/lightsail-backups/**"
+      - "scripts/production/test_lightsail_backup*.py"
       - "scripts/production/schema.sql"
       - "scripts/production/generation_budget.sql"
       - "scripts/production/transfer.py"
@@ -57,4 +61,29 @@ jobs:
         env:
           LIGHTSAIL_BACKUP_TEST_SOURCE: postgresql://postgres:synthetic-backup-ci@127.0.0.1:55431/quizforge
           LIGHTSAIL_BACKUP_TEST_TARGET: postgresql://postgres:synthetic-restore-ci@127.0.0.1:55432/quizforge
-        run: python -m unittest discover -s scripts/production -p test_lightsail_backup.py -v
+        run: python -m unittest discover -s scripts/production -p 'test_lightsail_backup*.py' -v
+
+  configuration:
+    name: Backup storage, permissions and timer boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+      - name: Check private storage and alarm plans without AWS credentials
+        working-directory: infra/aws/lightsail-backups
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test
+      - name: Validate service and timer syntax without installing or enabling units
+        run: |
+          mkdir -p /tmp/quizforge-unit-check
+          cp scripts/production/systemd/* /tmp/quizforge-unit-check/
+          sed -i 's@^ExecStart=.*@ExecStart=/usr/bin/true@; s@^ExecStartPost=.*@ExecStartPost=/usr/bin/true@' /tmp/quizforge-unit-check/*.service
+          systemd-analyze verify /tmp/quizforge-unit-check/*

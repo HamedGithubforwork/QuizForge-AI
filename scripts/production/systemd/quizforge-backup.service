@@ -1,0 +1,33 @@
+[Unit]
+Description=QuizForge encrypted off-server application backup
+Wants=network-online.target
+After=network-online.target
+OnFailure=quizforge-backup-failure.service
+
+[Service]
+Type=oneshot
+User=quizforge-backup
+Group=quizforge-backup
+WorkingDirectory=/opt/quizforge/operations
+EnvironmentFile=/etc/quizforge/backup.env
+LoadCredential=backup.key:/etc/quizforge/backup.key
+ExecStart=/opt/quizforge/backup-venv/bin/python /opt/quizforge/operations/lightsail_backup_job.py run --key-file %d/backup.key
+ExecStartPost=/opt/quizforge/backup-venv/bin/python /opt/quizforge/operations/lightsail_backup_job.py health
+StateDirectory=quizforge-backup
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=10min
+MemoryMax=256M
+CPUQuota=25%
+Nice=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=

@@ -133,9 +133,12 @@ class PostgreSQLRecovery(unittest.TestCase):
                 'Other owner','other.pdf',NULL,'hard','short_answer',1,1,100,'{}','{}',now());
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
-            UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100;
+            UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
             INSERT INTO billing.generation_usage VALUES ('day',current_date,7),
-                ('month',date_trunc('month',current_date)::date,27)""")
+                ('month',date_trunc('month',current_date)::date,27);
+            UPDATE billing.generation_usage SET accounted_nano_usd=10000000;
+            INSERT INTO billing.generation_reservations VALUES
+                ('20000000-0000-0000-0000-000000000001',current_date,date_trunc('month',current_date)::date,10000000,NULL)""")
 
     @classmethod
     def tearDownClass(cls):
@@ -143,8 +146,8 @@ class PostgreSQLRecovery(unittest.TestCase):
         cls.target.close()
 
     def setUp(self):
-        self.target.execute("TRUNCATE app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage")
-        self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0")
+        self.target.execute("TRUNCATE app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
+        self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0,monthly_nano_usd=0,pricing_key='',pricing_valid_until='1970-01-01'")
         self.snapshot = backup.export_snapshot(self.source)
 
     def target_rows(self):
@@ -166,7 +169,7 @@ class PostgreSQLRecovery(unittest.TestCase):
                 self.assertEqual(rows[table], restored["tables"][table])
         self.assertEqual(rows["app.identity_challenges"], [])
         policy = json.loads(rows["billing.generation_policy"][0])
-        self.assertEqual(policy, {"singleton": True, "enabled": False, "daily_requests": 10, "monthly_requests": 100})
+        self.assertEqual(policy, json.loads(restored["tables"]["billing.generation_policy"][0]) | {"enabled": False})
         self.assertEqual(len(rows["app.users"]), 3)  # Includes the account without history.
         with self.target.transaction():
             self.target.execute("SET LOCAL ROLE quizforge_app")
@@ -180,6 +183,28 @@ class PostgreSQLRecovery(unittest.TestCase):
         print(json.dumps({"synthetic_restore_seconds": round(time.monotonic() - started, 3),
                           "users": 3, "history_rows": 2, "reconciled": True,
                           "ownership_enforced": True, "spending_disabled": True}))
+
+    def test_scheduled_offserver_receipt_recovers_into_separate_database_after_state_loss(self):
+        import lightsail_backup_job as job
+        from test_lightsail_backup_job import synthetic_s3, BUCKET, ACCOUNT
+        with tempfile.TemporaryDirectory() as directory, synthetic_s3() as fixture:
+            root = Path(directory) / 'state'
+            key = secrets.token_bytes(32)
+            job.run_backup(root, key, lambda: backup.export_snapshot(self.source), fixture.client, BUCKET, ACCOUNT)
+            for file in root.iterdir(): file.unlink()
+            root.rmdir()
+            versions = fixture.client.list_object_versions(Bucket=BUCKET, Prefix='receipts/', ExpectedBucketOwner=ACCOUNT)['Versions']
+            archive, _, receipt = job.fetch_backup(fixture.client, key, BUCKET, ACCOUNT, versions[0]['Key'], versions[0]['VersionId'])
+            restored = backup.unseal(archive, key)
+            self.assertEqual(restored['sha256'], receipt['content_sha256'])
+            self.assertTrue(backup.restore_snapshot(self.target, restored, commit=True)['reconciled'])
+            with self.target.transaction():
+                self.target.execute("SET LOCAL ROLE quizforge_app")
+                self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
+                self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
+            with self.target.transaction():
+                self.target.execute("SET LOCAL ROLE quizforge_generation")
+                self.assertFalse(self.target.execute("SELECT billing.reserve_generation()").fetchone()[0])
 
     def test_occupied_target_and_schema_or_policy_drift_leave_target_unchanged(self):
         self.target.execute("INSERT INTO app.users VALUES ('00000000-0000-0000-0000-000000000099')")
@@ -223,15 +248,19 @@ class PostgreSQLRecovery(unittest.TestCase):
             backup.export_snapshot(self.source)
 
     def test_restricted_reader_cannot_silently_export_a_partial_rls_backup(self):
+        before = backup.schema_state(self.source)
+        # The first exported table exercises RLS. Do not materialize default
+        # ACLs on unrelated tables: DROP OWNED does not restore a NULL ACL.
         self.source.execute("""CREATE ROLE backup_reader NOLOGIN;
-            GRANT USAGE ON SCHEMA app,billing TO backup_reader;
-            GRANT SELECT ON ALL TABLES IN SCHEMA app,billing TO backup_reader;
+            GRANT USAGE ON SCHEMA app TO backup_reader;
+            GRANT SELECT ON app.users TO backup_reader;
             SET ROLE backup_reader""")
         try:
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 backup.export_snapshot(self.source)
         finally:
             self.source.execute("RESET ROLE; DROP OWNED BY backup_reader; DROP ROLE backup_reader")
+            self.assertEqual(backup.schema_state(self.source), before)
 
 
 if __name__ == "__main__":
