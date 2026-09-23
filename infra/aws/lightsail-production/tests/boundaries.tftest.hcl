@@ -37,8 +37,7 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
   assert {
-    condition = length(jsondecode(aws_sns_topic_policy.alerts.policy).Statement) == 1 &&
-      jsondecode(aws_sns_topic_policy.alerts.policy).Statement[0].Principal.Service == "cloudwatch.amazonaws.com"
+    condition     = length(jsondecode(aws_sns_topic_policy.alerts.policy).Statement) == 1 && jsondecode(aws_sns_topic_policy.alerts.policy).Statement[0].Principal.Service == "cloudwatch.amazonaws.com"
     error_message = "The Lightsail alert topic must accept publishes only from CloudWatch; the account budget is managed separately."
   }
   assert {
