@@ -49,6 +49,22 @@ REPAIR_CREATES = frozenset({
 })
 EXISTING = FINAL - REPAIR_CREATES
 
+DEFAULT_TAGS = {
+    "Project": "QuizForge-AI",
+    "Environment": "production-lightsail",
+    "Temporary": "false",
+}
+APPROVED_REFRESH_DRIFT_FIELDS = {
+    "aws_cloudwatch_log_group.recovery": frozenset({"tags"}),
+    "aws_cloudwatch_metric_alarm.status": frozenset({"insufficient_data_actions", "tags"}),
+    "aws_cognito_user_pool.browser": frozenset({"domain", "tags"}),
+    "aws_iam_policy.host_health": frozenset({"tags"}),
+    "aws_iam_role.recovery": frozenset({"inline_policy", "tags"}),
+    "aws_lambda_function.recovery": frozenset({"layers", "tags"}),
+    "aws_lightsail_key_pair.operator": frozenset({"tags"}),
+    "aws_sns_topic.alerts": frozenset({"tags"}),
+}
+
 
 def trusted_invocation(env: Mapping[str, str]) -> None:
     require(env.get("GITHUB_EVENT_NAME") == "workflow_dispatch", "UNTRUSTED_INVOCATION")
@@ -91,6 +107,89 @@ def _changed_top_level_attributes(change: Mapping[str, Any]) -> list[str]:
         ):
             names.append(key)
     return names
+
+
+def _empty_collection_normalization(before: Any, after: Any) -> bool:
+    return (
+        (before is None and after == [])
+        or (before == [] and after is None)
+    )
+
+
+def _tag_normalization(before: Any, after: Any) -> bool:
+    allowed = (None, {}, DEFAULT_TAGS)
+    return before != after and before in allowed and after in allowed
+
+
+def _domain_normalization(before: Any, after: Any, settings: Settings) -> bool:
+    expected = f"quizforge-{settings.account}"
+    return (
+        (before in (None, "") and after == expected)
+        or (after in (None, "") and before == expected)
+    )
+
+
+def _approved_refresh_drift_count(plan: Mapping[str, Any], settings: Settings) -> int:
+    """Privately validate the exact known AWS/provider refresh normalizations."""
+    raw = plan.get("resource_drift")
+    if not raw:
+        return 0
+    require(isinstance(raw, list), "UNEXPECTED_PLAN_SIDE_EFFECTS")
+
+    seen: set[str] = set()
+    for item in raw:
+        require(isinstance(item, Mapping), "UNEXPECTED_PLAN_SIDE_EFFECTS")
+        address = item.get("address")
+        require(
+            isinstance(address, str)
+            and address in APPROVED_REFRESH_DRIFT_FIELDS
+            and address not in seen,
+            "UNEXPECTED_PLAN_SIDE_EFFECTS",
+        )
+        seen.add(address)
+        require(
+            item.get("mode") == "managed"
+            and item.get("provider_name") == PROVIDER_NAME,
+            "UNEXPECTED_PLAN_SIDE_EFFECTS",
+        )
+
+        change = item.get("change")
+        require(isinstance(change, Mapping), "UNEXPECTED_PLAN_SIDE_EFFECTS")
+        require(
+            change.get("actions") == ["update"]
+            and not change.get("replace_paths")
+            and not change.get("importing")
+            and not item.get("previous_address")
+            and not item.get("deposed"),
+            "UNEXPECTED_PLAN_SIDE_EFFECTS",
+        )
+        before = change.get("before")
+        after = change.get("after")
+        require(
+            isinstance(before, Mapping) and isinstance(after, Mapping),
+            "UNEXPECTED_PLAN_SIDE_EFFECTS",
+        )
+
+        changed = set(_changed_top_level_attributes(change))
+        require(
+            bool(changed)
+            and changed <= APPROVED_REFRESH_DRIFT_FIELDS[address],
+            "UNEXPECTED_PLAN_SIDE_EFFECTS",
+        )
+        for attribute in changed:
+            before_value = before.get(attribute)
+            after_value = after.get(attribute)
+            if attribute == "tags":
+                ok = _tag_normalization(before_value, after_value)
+            elif attribute in {"insufficient_data_actions", "inline_policy", "layers"}:
+                ok = _empty_collection_normalization(before_value, after_value)
+            elif attribute == "domain":
+                ok = _domain_normalization(before_value, after_value, settings)
+            else:
+                ok = False
+            require(ok, "UNEXPECTED_PLAN_SIDE_EFFECTS")
+
+    return len(raw)
 
 
 def _safe_side_effect_diagnostics(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -296,8 +395,10 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
     require(plan.get("errored") is False and plan.get("applyable") is True
             and plan.get("complete") is True, "INCOMPLETE_OR_ERRORED_PLAN")
     side_effects = _safe_side_effect_diagnostics(plan)
+    approved_refresh_drift = _approved_refresh_drift_count(plan, settings)
     require(
-        side_effects["resource_drift_count"] == 0
+        approved_refresh_drift == side_effects["resource_drift_count"]
+        and side_effects["unexpected_resource_drift_count"] == 0
         and side_effects["deferred_change_count"] == 0
         and side_effects["action_invocation_count"] == 0,
         "UNEXPECTED_PLAN_SIDE_EFFECTS",
@@ -425,6 +526,8 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
         "updates": 0,
         "deletes": 0,
         "replacements": 0,
+        "approved_refresh_drift_entries": approved_refresh_drift,
+        "approved_refresh_drift_only": True,
         "create_addresses": sorted(REPAIR_CREATES),
         "lightsail_bundle": BUNDLE,
         "lightsail_bundle_available": True,
