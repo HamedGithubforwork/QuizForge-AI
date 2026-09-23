@@ -378,6 +378,13 @@ def main() -> int:
         if command == "catalog" and len(sys.argv) == 2:
             value = check_catalog_and_external_budget(settings)
             _write(results / "catalog.json", value)
+            _write(results / "summary.json", {
+                "schema": 1,
+                "operation": "repair_inspect",
+                "result": "catalog_verified_plan_pending_no_apply",
+                "apply_attempted": False,
+                "terraform_apply_completed": False,
+            })
             print("Lightsail repair catalog and external budget checks passed.")
             return 0
 
