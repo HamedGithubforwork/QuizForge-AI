@@ -95,6 +95,15 @@ different isolated hosts and that the recovery database has no application
 traffic; the CLI cannot establish network separation from DNS names alone. It
 never cleans, replaces or creates a database and cannot restore in place.
 
+## Scheduled-job preparation
+
+[Backup automation](lightsail-backup-automation.md) provides the reviewed daily
+systemd job, authenticated off-server recovery receipts and hourly health
+publication. The private S3/CloudWatch/SNS infrastructure is now activated and the
+SNS subscription is confirmed, but the host-side units are not installed or
+enabled on a permanent Lightsail server yet. Live archive delivery, recovery,
+health metrics and alarm delivery still require host acceptance.
+
 ## Verification and remaining recovery gates
 
 The [completed rehearsal](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/35548499673)

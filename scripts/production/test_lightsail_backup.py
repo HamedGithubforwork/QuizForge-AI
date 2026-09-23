@@ -181,6 +181,28 @@ class PostgreSQLRecovery(unittest.TestCase):
                           "users": 3, "history_rows": 2, "reconciled": True,
                           "ownership_enforced": True, "spending_disabled": True}))
 
+    def test_scheduled_offserver_receipt_recovers_into_separate_database_after_state_loss(self):
+        import lightsail_backup_job as job
+        from test_lightsail_backup_job import synthetic_s3, BUCKET, ACCOUNT
+        with tempfile.TemporaryDirectory() as directory, synthetic_s3() as fixture:
+            root = Path(directory) / 'state'
+            key = secrets.token_bytes(32)
+            job.run_backup(root, key, lambda: backup.export_snapshot(self.source), fixture.client, BUCKET, ACCOUNT)
+            for file in root.iterdir(): file.unlink()
+            root.rmdir()
+            versions = fixture.client.list_object_versions(Bucket=BUCKET, Prefix='receipts/', ExpectedBucketOwner=ACCOUNT)['Versions']
+            archive, _, receipt = job.fetch_backup(fixture.client, key, BUCKET, ACCOUNT, versions[0]['Key'], versions[0]['VersionId'])
+            restored = backup.unseal(archive, key)
+            self.assertEqual(restored['sha256'], receipt['content_sha256'])
+            self.assertTrue(backup.restore_snapshot(self.target, restored, commit=True)['reconciled'])
+            with self.target.transaction():
+                self.target.execute("SET LOCAL ROLE quizforge_app")
+                self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
+                self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
+            with self.target.transaction():
+                self.target.execute("SET LOCAL ROLE quizforge_generation")
+                self.assertFalse(self.target.execute("SELECT billing.reserve_generation()").fetchone()[0])
+
     def test_occupied_target_and_schema_or_policy_drift_leave_target_unchanged(self):
         self.target.execute("INSERT INTO app.users VALUES ('00000000-0000-0000-0000-000000000099')")
         before = self.target_rows()
@@ -223,15 +245,19 @@ class PostgreSQLRecovery(unittest.TestCase):
             backup.export_snapshot(self.source)
 
     def test_restricted_reader_cannot_silently_export_a_partial_rls_backup(self):
+        before = backup.schema_state(self.source)
+        # The first exported table exercises RLS. Do not materialize default
+        # ACLs on unrelated tables: DROP OWNED does not restore a NULL ACL.
         self.source.execute("""CREATE ROLE backup_reader NOLOGIN;
-            GRANT USAGE ON SCHEMA app,billing TO backup_reader;
-            GRANT SELECT ON ALL TABLES IN SCHEMA app,billing TO backup_reader;
+            GRANT USAGE ON SCHEMA app TO backup_reader;
+            GRANT SELECT ON app.users TO backup_reader;
             SET ROLE backup_reader""")
         try:
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 backup.export_snapshot(self.source)
         finally:
             self.source.execute("RESET ROLE; DROP OWNED BY backup_reader; DROP ROLE backup_reader")
+            self.assertEqual(backup.schema_state(self.source), before)
 
 
 if __name__ == "__main__":
