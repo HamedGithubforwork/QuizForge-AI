@@ -26,7 +26,7 @@ def after_values():
         "public_key": SETTINGS.ssh_key,
     }
     values["aws_lightsail_instance.server"] = {
-        "name": "quizforge-production-lightsail",
+        "name": "quizforge-production-lightsail-server",
         "availability_zone": "ca-central-1a",
         "blueprint_id": "ubuntu_24_04",
         "bundle_id": "small_3_0",
