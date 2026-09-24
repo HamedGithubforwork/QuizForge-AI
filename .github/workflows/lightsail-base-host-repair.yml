@@ -1,0 +1,106 @@
+name: Permanent Lightsail base-host bootstrap repair
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-base-host-repair.yml"
+      - "scripts/production/lightsail/repair_base_host.py"
+      - "scripts/production/lightsail/test_repair_base_host.py"
+      - "scripts/production/lightsail/bootstrap.sh"
+      - "scripts/lightsail_activation/review.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/lightsail-base-host-repair.yml"
+      - "scripts/production/lightsail/repair_base_host.py"
+      - "scripts/production/lightsail/test_repair_base_host.py"
+      - "scripts/production/lightsail/bootstrap.sh"
+      - "scripts/lightsail_activation/review.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Validate guarded base-host repair code
+        run: |
+          python -m py_compile scripts/production/lightsail/repair_base_host.py
+          python -m unittest scripts.production.lightsail.test_repair_base_host -v
+      - name: Verify pinned permanent-host source after bootstrap fix
+        run: python -m scripts.lightsail_activation.review check-source
+
+  repair:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-lightsail-base-host-repair
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+
+      - name: Install existing hash-locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
+      - name: Assume deployment role with base-host-repair-only boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-base-host-repair
+          role-duration-seconds: 1800
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{
+              "Effect":"Allow",
+              "Action":[
+                "lightsail:GetInstance",
+                "lightsail:GetStaticIp",
+                "lightsail:GetInstancePortStates",
+                "lightsail:OpenInstancePublicPorts",
+                "lightsail:CloseInstancePublicPorts",
+                "lightsail:GetInstanceAccessDetails"
+              ],
+              "Resource":"*"
+            }]}
+
+      - name: Repair only the incomplete base-host bootstrap
+        run: python -m scripts.production.lightsail.repair_base_host
+
+      - name: Publish only sanitized base-host repair result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-base-host-repair
+          path: lightsail-base-host-repair/summary.json
+          if-no-files-found: error
+          retention-days: 14
