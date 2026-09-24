@@ -98,6 +98,10 @@ if status_path.is_file():
         status={"present":True,"last_attempt":"invalid","last_success_present":False}
 
 journal=text("journalctl","-u","quizforge-backup.service","-n","120","--no-pager","--output=cat")
+missing_modules=sorted(set(
+    match.group(1)
+    for match in re.finditer(r"No module named ['\"]([A-Za-z0-9_.-]{1,80})['\"]", journal)
+))
 result={
   "backup_user_present": run("id","-u","quizforge-backup").returncode==0,
   "operations_files_present": all(exists(p) for p in (
@@ -121,6 +125,7 @@ result={
   "services":service,
   "status":status,
   "journal_signals":signals(journal),
+  "missing_modules":missing_modules,
 }
 print("QF_RESULT="+json.dumps(result,sort_keys=True))
 PY
