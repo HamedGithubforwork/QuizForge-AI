@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from scripts.production.lightsail.stage_release import (
+    REMOTE_PREFLIGHT,
     load_pins,
     preflight_ok,
     validate_manifest,
@@ -43,6 +44,16 @@ class StageReleaseTests(unittest.TestCase):
             path.write_text(json.dumps(bad))
             with self.assertRaises(ValueError):
                 validate_manifest(path)
+
+    def test_root_only_ready_marker_is_checked_with_sudo(self):
+        self.assertIn(
+            'run("sudo","-n","test","-f","/var/lib/quizforge/base-host-ready")',
+            REMOTE_PREFLIGHT,
+        )
+        self.assertNotIn(
+            'os.path.isfile("/var/lib/quizforge/base-host-ready")',
+            REMOTE_PREFLIGHT,
+        )
 
     def test_preflight_requires_clean_hardened_host_and_capacity(self):
         value = {

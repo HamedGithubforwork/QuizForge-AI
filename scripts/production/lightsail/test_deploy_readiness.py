@@ -4,6 +4,7 @@ import json
 import unittest
 
 from scripts.production.lightsail.deploy_readiness import (
+    REMOTE_SCRIPT,
     access_shape,
     deploy_prerequisites,
     known_hosts_text,
@@ -35,6 +36,16 @@ class DeployReadinessTests(unittest.TestCase):
             "ssh_root_login_disabled": True,
             "ssh_tcp_forwarding_disabled": True,
         }
+
+    def test_root_only_ready_marker_is_checked_with_sudo(self):
+        self.assertIn(
+            'run("sudo","-n","test","-f","/var/lib/quizforge/base-host-ready")',
+            REMOTE_SCRIPT,
+        )
+        self.assertNotIn(
+            'os.path.isfile("/var/lib/quizforge/base-host-ready")',
+            REMOTE_SCRIPT,
+        )
 
     def test_access_shape_never_emits_temporary_ssh_material(self):
         access = {
