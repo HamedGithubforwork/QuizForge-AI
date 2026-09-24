@@ -67,11 +67,9 @@ def pkg(name):
 
 log=""
 for path in ("/var/log/cloud-init-output.log","/var/log/cloud-init.log"):
-    try:
-        with open(path,encoding="utf-8",errors="replace") as handle:
-            log += "\n" + handle.read()[-200000:]
-    except OSError:
-        pass
+    value=text("sudo","-n","tail","-c","200000",path)
+    if value:
+        log += "\n" + value
 lower=log.lower()
 checks={
     "docker_compose_v2_missing": ("unable to locate package docker-compose-v2" in lower),
@@ -84,6 +82,13 @@ checks={
     "disk_full": ("no space left on device" in lower),
     "docker_service_failure": ("failed to start docker" in lower or "docker.service: failed" in lower),
     "bootstrap_shell_exit_error": ("scripts-user failed" in lower or "failed to run module scripts-user" in lower),
+    "apt_release_file_error": ("release file" in lower and ("not valid" in lower or "does not have a release file" in lower)),
+    "apt_signature_error": ("the following signatures couldn't be verified" in lower or "no_pubkey" in lower),
+    "apt_tls_error": ("certificate verification failed" in lower or "could not handshake" in lower),
+    "apt_network_unreachable": ("network is unreachable" in lower),
+    "apt_http_404": ("404  not found" in lower or "404 not found" in lower),
+    "apt_index_warning": ("some index files failed to download" in lower),
+    "cloud_init_command_not_found": ("command not found" in lower),
 }
 hints=[k for k,v in checks.items() if v]
 
@@ -139,6 +144,9 @@ result={
     "apt_components": sorted(components),
     "apt_main_enabled": "main" in components,
     "apt_universe_enabled": "universe" in components,
+    "cloud_init_logs_readable_via_sudo": bool(log),
+    "apt_list_file_count": len(__import__("glob").glob("/var/lib/apt/lists/*")),
+    "apt_universe_list_present": bool(__import__("glob").glob("/var/lib/apt/lists/*universe*Packages*")),
     "docker_binary_present": bool(text("sh","-lc","command -v docker")),
     "compose_command_present": (
         bool(text("sh","-lc","command -v docker"))
