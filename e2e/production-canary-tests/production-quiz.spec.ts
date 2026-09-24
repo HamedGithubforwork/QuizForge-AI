@@ -1,22 +1,184 @@
 import {
   expect,
   test,
+  type Page,
 } from '@playwright/test'
-
 import {
-  expectAuthenticatedDeploymentBoundary,
-} from '../support/authenticatedCanary'
+  createHmac,
+} from 'node:crypto'
 
 const frontendUrl =
   process.env.CANARY_FRONTEND_URL ||
   'https://quizfromnotes.com'
-const backendUrl =
-  process.env.CANARY_BACKEND_URL ||
-  'https://api.quizfromnotes.com'
 const email =
-  process.env.QUIZFORGE_CANARY_EMAIL || ''
+  process.env.CANARY_COGNITO_EMAIL || ''
 const password =
-  process.env.QUIZFORGE_CANARY_PASSWORD || ''
+  process.env.CANARY_COGNITO_PASSWORD || ''
+const totpSecret =
+  process.env.CANARY_COGNITO_TOTP || ''
+
+function currentTotp(secret: string) {
+  const alphabet =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits = ''
+
+  for (
+    const character of secret.replace(/=+$/, '')
+  ) {
+    const index =
+      alphabet.indexOf(character)
+
+    if (index < 0) {
+      throw new Error(
+        'Invalid production canary TOTP secret.',
+      )
+    }
+
+    bits +=
+      index.toString(2).padStart(5, '0')
+  }
+
+  const chunks =
+    bits.match(/.{8}/g) ?? []
+  const key = Buffer.from(
+    chunks.map((chunk) =>
+      Number.parseInt(chunk, 2),
+    ),
+  )
+  const counter = Buffer.alloc(8)
+
+  counter.writeBigUInt64BE(
+    BigInt(
+      Math.floor(Date.now() / 30_000),
+    ),
+  )
+
+  const digest =
+    createHmac('sha1', key)
+      .update(counter)
+      .digest()
+  const offset =
+    digest[digest.length - 1] & 15
+  const code =
+    (
+      digest.readUInt32BE(offset) &
+      0x7fffffff
+    ) % 1_000_000
+
+  return String(code).padStart(6, '0')
+}
+
+async function signInAndEnrollCanary(
+  page: Page,
+) {
+  expect(email.length).toBeGreaterThan(0)
+  expect(password.length).toBeGreaterThan(0)
+  expect(totpSecret).toMatch(
+    /^[A-Z2-7]{16,128}$/,
+  )
+
+  await page.goto(frontendUrl)
+
+  const signIn =
+    page.getByRole('button', {
+      name: 'Sign in or create account',
+    })
+
+  await expect(signIn).toBeVisible({
+    timeout: 30_000,
+  })
+  await signIn.click()
+
+  const usernameInput =
+    page.locator(
+      'input[name="username"]:visible',
+    )
+  const passwordInput =
+    page.locator(
+      'input[name="password"]:visible',
+    )
+
+  await usernameInput.waitFor({
+    state: 'visible',
+    timeout: 30_000,
+  })
+  await usernameInput.fill(email)
+  await passwordInput.fill(password)
+
+  await page
+    .locator(
+      'input[name="signInSubmitButton"]:visible,button[name="signInSubmitButton"]:visible',
+    )
+    .click()
+
+  const totpInput =
+    page.locator(
+      'input[name="authentication_code"][id="totpCodeInput"]:visible',
+    )
+
+  await totpInput.waitFor({
+    state: 'visible',
+    timeout: 30_000,
+  })
+
+  // The setup OTP used by the controller cannot be reused in the
+  // same TOTP period, so always move to the next 30-second window.
+  await page.waitForTimeout(
+    31_000 - (Date.now() % 30_000),
+  )
+  await totpInput.fill(
+    currentTotp(totpSecret),
+  )
+
+  await page
+    .locator(
+      'input[type="submit"]:visible,button[type="submit"]:visible',
+    )
+    .click()
+
+  const productionOrigin =
+    new URL(frontendUrl).origin
+
+  await page.waitForURL(
+    (url) =>
+      url.origin === productionOrigin,
+    {
+      timeout: 60_000,
+    },
+  )
+
+  await expect(
+    page.getByRole('heading', {
+      name: 'Set up your account',
+    }),
+  ).toBeVisible({
+    timeout: 30_000,
+  })
+
+  await page
+    .getByLabel('Account setup')
+    .selectOption('enroll')
+
+  await page
+    .getByRole('button', {
+      name: 'Continue account setup',
+    })
+    .click()
+
+  await page
+    .getByRole('button', {
+      name: 'Confirm account setup',
+    })
+    .click()
+
+  await expect(
+    page.getByRole('heading', {
+      name: 'Upload your study material',
+    }),
+  ).toBeVisible({
+    timeout: 30_000,
+  })
+}
 
 function escapePdfText(value: string) {
   return value
@@ -104,40 +266,11 @@ function buildSyntheticStudyPdf() {
 }
 
 test(
-  'live production user can process a PDF and generate a five-question AI quiz',
+  'live production Cognito user can process a PDF and generate a five-question AI quiz',
   async ({ page }) => {
-    test.setTimeout(240_000)
+    test.setTimeout(300_000)
 
-    let authError: unknown = null
-
-    for (
-      let attempt = 0;
-      attempt < 2;
-      attempt += 1
-    ) {
-      try {
-        await expectAuthenticatedDeploymentBoundary({
-          page,
-          frontendUrl,
-          backendUrl,
-          email,
-          password,
-        })
-        authError = null
-        break
-      } catch (error) {
-        authError = error
-
-        if (attempt === 0) {
-          await page.waitForTimeout(10_000)
-          await page.goto(frontendUrl)
-        }
-      }
-    }
-
-    if (authError) {
-      throw authError
-    }
+    await signInAndEnrollCanary(page)
 
     await page
       .getByLabel('Study material PDF')
