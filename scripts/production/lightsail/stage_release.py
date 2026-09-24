@@ -75,6 +75,39 @@ except OSError:
 docker=text("sudo","-n","docker","version","--format","{{.Server.Version}}")
 compose=text("sudo","-n","docker","compose","version","--short")
 sshd=text("sudo","-n","/usr/sbin/sshd","-T")
+
+def package_installed(name):
+    return run("dpkg-query","-W","-f=\${Status}",name).stdout.strip()=="install ok installed"
+
+def candidate(name):
+    value=text("apt-cache","policy",name)
+    for line in value.splitlines():
+        line=line.strip()
+        if line.startswith("Candidate:"):
+            result=line.split(":",1)[1].strip()
+            return result if re.fullmatch(r"[A-Za-z0-9.+:~_-]{1,80}",result) else "invalid"
+    return "none"
+
+cloud_status="unknown"
+cloud_extended="unknown"
+cloud_errors=-1
+cloud_recoverable=-1
+cloud=text("cloud-init","status","--format","json")
+if cloud:
+    try:
+        value=json.loads(cloud)
+        status=value.get("status")
+        extended=value.get("extended_status")
+        if isinstance(status,str) and re.fullmatch(r"[a-z_-]{1,40}",status):
+            cloud_status=status
+        if isinstance(extended,str) and re.fullmatch(r"[a-z_ -]{1,80}",extended):
+            cloud_extended=extended
+        errors=value.get("errors")
+        recoverable=value.get("recoverable_errors")
+        cloud_errors=len(errors) if isinstance(errors,list) else 0
+        cloud_recoverable=sum(len(v) for v in recoverable.values()) if isinstance(recoverable,dict) else 0
+    except Exception:
+        pass
 settings={}
 for line in sshd.splitlines():
     parts=line.split(None,1)
@@ -101,7 +134,20 @@ result={
  "ssh_password_disabled": settings.get("passwordauthentication")=="no",
  "ssh_root_disabled": settings.get("permitrootlogin")=="no",
  "ssh_forwarding_disabled": settings.get("allowtcpforwarding")=="no",
- "disk_free_gib": free_gib
+ "disk_free_gib": free_gib,
+ "cloud_boot_finished": os.path.isfile("/var/lib/cloud/instance/boot-finished"),
+ "cloud_status": cloud_status,
+ "cloud_extended_status": cloud_extended,
+ "cloud_error_count": cloud_errors,
+ "cloud_recoverable_error_count": cloud_recoverable,
+ "docker_io_installed": package_installed("docker.io"),
+ "docker_compose_v2_installed": package_installed("docker-compose-v2"),
+ "docker_compose_plugin_installed": package_installed("docker-compose-plugin"),
+ "docker_compose_legacy_installed": package_installed("docker-compose"),
+ "docker_io_candidate": candidate("docker.io"),
+ "docker_compose_v2_candidate": candidate("docker-compose-v2"),
+ "docker_compose_plugin_candidate": candidate("docker-compose-plugin"),
+ "docker_daemon_config_present": os.path.isfile("/etc/docker/daemon.json")
 }
 print(json.dumps(result,sort_keys=True))
 PY
@@ -440,6 +486,21 @@ def main() -> int:
         report["compose_2_30_or_newer"]=remote.get("compose_ok") is True
         report["disk_capacity_ok"]=type(remote.get("disk_free_gib")) is int and remote["disk_free_gib"]>=20
         report["fresh_application_host"]=remote.get("current_release_absent") is True and remote.get("frontend_absent") is True
+        report["bootstrap_diagnostic"]={
+            "cloud_boot_finished": remote.get("cloud_boot_finished") is True,
+            "cloud_status": remote.get("cloud_status") if isinstance(remote.get("cloud_status"),str) else "unknown",
+            "cloud_extended_status": remote.get("cloud_extended_status") if isinstance(remote.get("cloud_extended_status"),str) else "unknown",
+            "cloud_error_count": remote.get("cloud_error_count") if type(remote.get("cloud_error_count")) is int else -1,
+            "cloud_recoverable_error_count": remote.get("cloud_recoverable_error_count") if type(remote.get("cloud_recoverable_error_count")) is int else -1,
+            "docker_io_installed": remote.get("docker_io_installed") is True,
+            "docker_compose_v2_installed": remote.get("docker_compose_v2_installed") is True,
+            "docker_compose_plugin_installed": remote.get("docker_compose_plugin_installed") is True,
+            "docker_compose_legacy_installed": remote.get("docker_compose_legacy_installed") is True,
+            "docker_io_candidate": remote.get("docker_io_candidate") if isinstance(remote.get("docker_io_candidate"),str) else "unknown",
+            "docker_compose_v2_candidate": remote.get("docker_compose_v2_candidate") if isinstance(remote.get("docker_compose_v2_candidate"),str) else "unknown",
+            "docker_compose_plugin_candidate": remote.get("docker_compose_plugin_candidate") if isinstance(remote.get("docker_compose_plugin_candidate"),str) else "unknown",
+            "docker_daemon_config_present": remote.get("docker_daemon_config_present") is True,
+        }
         if not report["host_preflight_ok"]:
             raise ValueError("Host staging prerequisites incomplete")
 
