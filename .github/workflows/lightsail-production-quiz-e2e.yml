@@ -1,0 +1,85 @@
+name: Permanent Lightsail production quiz E2E
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-production-quiz-e2e.yml"
+      - "e2e/production-canary-tests/**"
+      - "e2e/playwright.production-canary.config.ts"
+      - "e2e/support/authenticatedCanary.ts"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-production-quiz-e2e.yml"
+      - "e2e/production-canary-tests/**"
+      - "e2e/playwright.production-canary.config.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install browser-test dependencies
+        run: npm ci --prefix e2e
+      - name: Parse the production canary without executing it
+        env:
+          QUIZFORGE_CANARY_EMAIL: placeholder@example.invalid
+          QUIZFORGE_CANARY_PASSWORD: placeholder-password
+        run: >-
+          npx --prefix e2e playwright test
+          --config=e2e/playwright.production-canary.config.ts
+          --list
+
+  production-e2e:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: quizforge-permanent-production-paid-e2e
+      cancel-in-progress: false
+    env:
+      CANARY_FRONTEND_URL: https://quizfromnotes.com
+      CANARY_BACKEND_URL: https://api.quizfromnotes.com
+      QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
+      QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Require dedicated canary credentials before any paid generation
+        run: |
+          if [ -z "$QUIZFORGE_CANARY_EMAIL" ] || [ -z "$QUIZFORGE_CANARY_PASSWORD" ]; then
+            echo "::error::Dedicated canary credentials are not configured; no paid production test was attempted."
+            exit 1
+          fi
+      - name: Install browser-test dependencies
+        run: npm ci --prefix e2e
+      - name: Install Chromium
+        run: npx --prefix e2e playwright install --with-deps chromium
+      - name: Run one real production PDF-to-quiz browser canary
+        run: >-
+          npx --prefix e2e playwright test
+          --config=e2e/playwright.production-canary.config.ts
