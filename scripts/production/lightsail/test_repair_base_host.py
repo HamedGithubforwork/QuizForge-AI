@@ -24,6 +24,12 @@ class BaseHostRepairTests(unittest.TestCase):
         self.assertNotIn("route53", REMOTE_REPAIR.lower())
         self.assertNotIn("openai", REMOTE_REPAIR.lower())
 
+        self.assertNotIn("! command -v docker", REMOTE_REPAIR)
+        self.assertNotIn("! systemctl is-active --quiet docker", REMOTE_REPAIR)
+        self.assertIn("dpkg -s docker.io", REMOTE_REPAIR)
+        self.assertIn("dpkg -s docker-compose-v2", REMOTE_REPAIR)
+        self.assertIn("apt-get install -y -qq --no-install-recommends", REMOTE_REPAIR)
+
     def test_public_summary_rejects_ip_and_private_values(self):
         with tempfile.TemporaryDirectory() as root:
             target=Path(root)/"summary.json"
