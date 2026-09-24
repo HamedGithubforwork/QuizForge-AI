@@ -461,9 +461,11 @@ test(
     })
 
     await expect(
-      page.getByText('5 questions', {
-        exact: true,
-      }),
+      page
+        .locator('#quiz-start')
+        .getByText('5 questions', {
+          exact: true,
+        }),
     ).toBeVisible()
 
     const questionCards =
