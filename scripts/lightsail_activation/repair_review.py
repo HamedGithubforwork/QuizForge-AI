@@ -20,7 +20,7 @@ BUNDLE = "small_3_0"
 BLUEPRINT = "ubuntu_24_04"
 BUDGET_NAME = "quizforge-monthly-account-cost"
 BASE_NAME = "quizforge-production-lightsail"
-INSTANCE_NAME = "${BASE_NAME}-server"
+INSTANCE_NAME = f"{BASE_NAME}-server"
 
 FINAL = frozenset({
     "aws_lightsail_key_pair.operator",
