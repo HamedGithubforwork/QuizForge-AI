@@ -81,6 +81,12 @@ def signals(value):
         "no_space": "no space left" in low,
         "uvicorn_started": "uvicorn running" in low or "application startup complete" in low,
         "caddy_error": "caddy" in low and ("error" in low or "failed" in low),
+        "dependency_unhealthy": "dependency failed to start" in low or "dependency failed" in low or "is unhealthy" in low,
+        "port_conflict": "port is already allocated" in low or "address already in use" in low,
+        "image_missing": "no such image" in low or "pull access denied" in low,
+        "daemon_error": "error response from daemon" in low,
+        "service_failed": "failed with result" in low or "main process exited" in low,
+        "mount_error": "invalid mount" in low or "mount source path" in low,
     }
     return sorted(name for name,hit in checks.items() if hit)
 
@@ -99,6 +105,9 @@ def listener(port):
             owner=candidate
             break
     return {"listening": True, "owner": owner}
+
+journal_text=combined("sudo","-n","journalctl","-u","quizforge.service","-n","200","--no-pager","-o","cat")
+journal_signals=signals(journal_text)
 
 services={}
 ids=text("docker","compose","-f",compose,"ps","-a","-q").splitlines()
@@ -138,6 +147,7 @@ print("QF_RESULT="+json.dumps({
     "systemd": systemd,
     "configured_services": configured_services,
     "listeners": {"80": listener(80), "443": listener(443)},
+    "journal_signals": journal_signals,
     "services": services,
 },sort_keys=True))
 PY
@@ -231,6 +241,7 @@ def main() -> int:
             or not isinstance(state.get("services"),dict)
             or not isinstance(state.get("configured_services"),list)
             or not isinstance(state.get("listeners"),dict)
+            or not isinstance(state.get("journal_signals"),list)
         ):
             raise ValueError("invalid diagnostic state")
         report["diagnostic"]=state
