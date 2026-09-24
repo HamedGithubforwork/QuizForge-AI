@@ -1,4 +1,4 @@
-name: Permanent Lightsail four-resource repair activation
+name: Permanent Lightsail three-resource repair activation
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       confirmation:
-        description: Type ACTIVATE EXACT FOUR-RESOURCE LIGHTSAIL REPAIR
+        description: Type ACTIVATE EXACT THREE-RESOURCE LIGHTSAIL REPAIR
         type: string
         required: true
         default: ''
@@ -132,7 +132,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: qf-lightsail-four-resource-repair
+          role-session-name: qf-lightsail-three-resource-repair
           role-duration-seconds: 2100
           aws-region: ca-central-1
           mask-aws-account-id: true
@@ -161,7 +161,7 @@ jobs:
             -backend-config="encrypt=true" \
             -backend-config="use_lockfile=true"
 
-      - name: Create and revalidate one exact four-resource repair plan
+      - name: Create and revalidate one exact three-resource repair plan
         env:
           TF_DATA_DIR: ${{ runner.temp }}/lightsail-repair-activation-live
           QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
@@ -179,7 +179,7 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 2 ]; then
-            python -m scripts.lightsail_activation.repair_gate failure REPAIR_PLAN_NOT_EXACTLY_FOUR_CREATES
+            python -m scripts.lightsail_activation.repair_gate failure REPAIR_PLAN_NOT_EXACTLY_THREE_CREATES
             exit 1
           fi
 
@@ -293,14 +293,14 @@ jobs:
             "$RUNNER_TEMP/lightsail-repair-final.tfplan" \
             "$RUNNER_TEMP/lightsail-repair-final-plan.json" \
             "$RUNNER_TEMP/lightsail-repair-final-plan.log" \
-            lightsail-repair-results/catalog.json \
+            lightsail-repair-activation-results/catalog.json \
             infra/aws/lightsail-production/recovery.zip
 
       - name: Publish only the sanitized repair activation summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: permanent-lightsail-four-resource-repair-activation-summary
+          name: permanent-lightsail-three-resource-repair-activation-summary
           path: lightsail-repair-activation-results/summary.json
           if-no-files-found: error
           retention-days: 30
