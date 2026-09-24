@@ -9,8 +9,14 @@ import subprocess
 import tempfile
 from typing import Any, Mapping
 
-import boto3
-from botocore.exceptions import ClientError
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+except ModuleNotFoundError:
+    boto3 = None
+
+    class ClientError(Exception):
+        response: dict[str, Any] = {}
 
 from scripts.production.lightsail.stage_release import (
     INSTANCE_NAME,
@@ -152,6 +158,8 @@ def main() -> int:
     lightsail=None
     temp=None
     try:
+        if boto3 is None:
+            raise RuntimeError("AWS SDK missing")
         admin=os.environ["LIGHTSAIL_ADMIN_IPV4_CIDR"]
         pins=load_pins(Path("scripts/production/lightsail/ssh-host-pins.json"))
         lightsail=boto3.client("lightsail",region_name=REGION)
