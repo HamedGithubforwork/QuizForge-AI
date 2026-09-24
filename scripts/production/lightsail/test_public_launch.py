@@ -9,8 +9,10 @@ from unittest.mock import patch
 from scripts.production.lightsail.public_launch import (
     API_DOMAIN,
     DOMAIN,
-    REMOTE_LAUNCH,
+    REMOTE_COMMIT,
+    REMOTE_PRELAUNCH,
     REMOTE_ROLLBACK,
+    PUBLIC_RESOLVERS,
     cutover_changes,
     desired_record,
     relevant_records,
@@ -50,16 +52,22 @@ class PublicLaunchTests(unittest.TestCase):
         changes = restore_changes(current, original)
         self.assertEqual([c["Action"] for c in changes], ["DELETE", "DELETE", "CREATE", "CREATE"])
 
-    def test_remote_launch_keeps_ai_disabled_and_has_explicit_rollback(self):
-        self.assertIn("disabled-until-explicit-activation-", REMOTE_LAUNCH)
-        self.assertIn("systemctl enable quizforge.service", REMOTE_LAUNCH)
-        self.assertIn("systemctl start quizforge.service", REMOTE_LAUNCH)
+    def test_remote_launch_phases_startup_keeps_ai_disabled_and_has_explicit_rollback(self):
+        self.assertIn("disabled-until-explicit-activation-", REMOTE_PRELAUNCH)
+        self.assertIn("up -d --wait --wait-timeout 120 --pull never db redis", REMOTE_PRELAUNCH)
+        self.assertIn("up -d --wait --wait-timeout 120 --pull never api identity guard", REMOTE_PRELAUNCH)
+        self.assertIn("up -d --pull never web", REMOTE_PRELAUNCH)
+        self.assertNotIn("launch-approved", REMOTE_PRELAUNCH)
+        self.assertIn("systemctl enable quizforge.service", REMOTE_COMMIT)
+        self.assertIn("systemctl start quizforge.service", REMOTE_COMMIT)
         self.assertIn("systemctl stop quizforge.service", REMOTE_ROLLBACK)
         self.assertIn("systemctl disable quizforge.service", REMOTE_ROLLBACK)
         self.assertIn("rm -f /etc/quizforge/launch-approved", REMOTE_ROLLBACK)
-        self.assertIn("! grep -q '^OPENAI_API_KEY=sk-'", REMOTE_LAUNCH)
-        self.assertNotIn("tee /etc/quizforge/generation.env", REMOTE_LAUNCH)
-        self.assertNotIn("enabled=true", REMOTE_LAUNCH)
+        self.assertIn("! grep -q '^OPENAI_API_KEY=sk-'", REMOTE_PRELAUNCH)
+        self.assertIn("! grep -q '^OPENAI_API_KEY=sk-'", REMOTE_COMMIT)
+        self.assertNotIn("tee /etc/quizforge/generation.env", REMOTE_PRELAUNCH + REMOTE_COMMIT)
+        self.assertNotIn("enabled=true", REMOTE_PRELAUNCH + REMOTE_COMMIT)
+        self.assertEqual(PUBLIC_RESOLVERS, ("1.1.1.1", "8.8.8.8"))
 
     def test_public_summary_rejects_ip_and_private_values(self):
         with tempfile.TemporaryDirectory() as root:
