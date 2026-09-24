@@ -154,6 +154,11 @@ missing_modules=sorted(set(
     match.group(1)
     for match in re.finditer(r"No module named ['\"]([A-Za-z0-9_.-]{1,80})['\"]", journal)
 ))
+error_classes=re.findall(
+    r"ERROR: backup operation stopped \(([A-Za-z][A-Za-z0-9_]{0,79})\);",
+    journal,
+)
+latest_error_class=error_classes[-1] if error_classes else "none"
 result={
   "backup_user_present": run("id","-u","quizforge-backup").returncode==0,
   "operations_files_present": all(exists(p) for p in (
@@ -178,6 +183,7 @@ result={
   "status":status,
   "journal_signals":signals(journal),
   "missing_modules":missing_modules,
+  "latest_backup_error_class":latest_error_class,
   "read_only_preflight":preflight,
 }
 print("QF_RESULT="+json.dumps(result,sort_keys=True))
