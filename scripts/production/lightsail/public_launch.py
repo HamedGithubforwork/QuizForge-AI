@@ -48,23 +48,69 @@ RESULT = Path("lightsail-public-launch-results/summary.json")
 RELEASE_RE = re.compile(r"^[0-9a-f]{40}$")
 TRAFFIC_TYPES = {"A", "AAAA", "CNAME"}
 
-REMOTE_LAUNCH = r"""set -euo pipefail
+REMOTE_PRELAUNCH = r"""set -euo pipefail
 release_sha="$1"
 case "$release_sha" in *[!0-9a-f]*|'') exit 31;; esac
 test "$(printf %s "$release_sha" | wc -c)" -eq 40
 
+compose=/opt/quizforge/current/compose.json
 test -f /var/lib/quizforge/base-host-ready
 test -f /etc/quizforge/database-initialized
 test "$(readlink -f /opt/quizforge/current)" = "/opt/quizforge/releases/$release_sha"
-test -s /opt/quizforge/current/compose.json
+test -s "$compose"
 test -s /opt/quizforge/frontend/index.html
 test ! -e /etc/quizforge/launch-approved
 ! systemctl is-active --quiet quizforge.service
 ! systemctl is-enabled --quiet quizforge.service
-
 grep -q '^OPENAI_API_KEY=disabled-until-explicit-activation-' /etc/quizforge/generation.env
 ! grep -q '^OPENAI_API_KEY=sk-' /etc/quizforge/generation.env
-test -z "$(docker compose -f /opt/quizforge/current/compose.json ps --status running -q)"
+test -z "$(docker compose -f "$compose" ps --status running -q)"
+
+cleanup() {
+  docker compose -f "$compose" stop --timeout 30 web guard api identity db redis >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker compose -f "$compose" up -d --wait --wait-timeout 120 --pull never db redis >/dev/null
+docker compose -f "$compose" up -d --wait --wait-timeout 120 --pull never api identity guard >/dev/null
+docker compose -f "$compose" up -d --pull never web >/dev/null
+
+for _ in $(seq 1 30); do
+  if [ "$(docker inspect --format '{{.State.Status}}' quizforge-production-web-1 2>/dev/null || true)" = running ]; then
+    break
+  fi
+  sleep 1
+done
+test "$(docker inspect --format '{{.State.Status}}' quizforge-production-web-1)" = running
+
+services="$(docker compose -f "$compose" ps --services --status running | sort)"
+expected="$(printf '%s\n' api db guard identity redis web | sort)"
+test "$services" = "$expected"
+
+trap - EXIT
+python3 - <<'PY'
+import json
+print("QF_RESULT="+json.dumps({
+  "prelaunch_services_running": True,
+  "ai_key_placeholder_only": True,
+  "launch_marker_absent": True,
+  "systemd_service_inactive": True,
+  "systemd_service_disabled": True,
+},sort_keys=True))
+PY
+"""
+
+REMOTE_COMMIT = r"""set -euo pipefail
+release_sha="$1"
+compose=/opt/quizforge/current/compose.json
+test "$(readlink -f /opt/quizforge/current)" = "/opt/quizforge/releases/$release_sha"
+test ! -e /etc/quizforge/launch-approved
+! systemctl is-active --quiet quizforge.service
+! systemctl is-enabled --quiet quizforge.service
+
+services="$(docker compose -f "$compose" ps --services --status running | sort)"
+expected="$(printf '%s\n' api db guard identity redis web | sort)"
+test "$services" = "$expected"
 
 printf '%s\n' "$release_sha" | sudo tee /etc/quizforge/launch-approved >/dev/null
 sudo chmod 0600 /etc/quizforge/launch-approved
@@ -74,10 +120,8 @@ sudo systemctl start quizforge.service
 systemctl is-active --quiet quizforge.service
 systemctl is-enabled --quiet quizforge.service
 test -f /etc/quizforge/launch-approved
-
-services="$(docker compose -f /opt/quizforge/current/compose.json ps --services --status running | sort)"
-expected="$(printf '%s\n' api db guard identity redis web | sort)"
-test "$services" = "$expected"
+grep -q '^OPENAI_API_KEY=disabled-until-explicit-activation-' /etc/quizforge/generation.env
+! grep -q '^OPENAI_API_KEY=sk-' /etc/quizforge/generation.env
 
 python3 - <<'PY'
 import json
@@ -204,6 +248,27 @@ def authoritative_dns_ready(nameservers: list[str], ip: str) -> bool:
     return True
 
 
+PUBLIC_RESOLVERS = ("1.1.1.1", "8.8.8.8")
+
+
+def recursive_dns_ready(ip: str) -> bool:
+    for server in PUBLIC_RESOLVERS:
+        if dig("A", DOMAIN, server) != [ip]:
+            return False
+        if dig("A", API_DOMAIN, server) != [ip]:
+            return False
+    return True
+
+
+def wait_recursive_dns(ip: str, timeout: int = 900) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if recursive_dns_ready(ip):
+            return
+        time.sleep(10)
+    raise TimeoutError("public recursive DNS did not converge")
+
+
 def https_status(host: str, path: str, ip: str) -> int:
     completed = subprocess.run(
         [
@@ -256,7 +321,9 @@ def main() -> int:
         "operation": "lightsail_public_dns_cutover_and_launch",
         "result": "launch_failed",
         "dns_cutover_performed": False,
+        "recursive_dns_propagated": False,
         "application_launch_attempted": False,
+        "prelaunch_services_started": False,
         "application_started": False,
         "public_https_verified": False,
         "ai_enabled": False,
@@ -347,6 +414,8 @@ def main() -> int:
 
         if not authoritative_dns_ready(nameservers, ip):
             raise ValueError("authoritative production DNS not ready")
+        wait_recursive_dns(ip)
+        report["recursive_dns_propagated"] = True
 
         runner = runner_ipv4()
         forbidden.append(runner)
@@ -384,11 +453,11 @@ def main() -> int:
         report["application_launch_attempted"] = True
         completed = subprocess.run(
             ssh_command(key, cert, hosts, username, ip, "bash", "-s", "--", release_sha),
-            input=REMOTE_LAUNCH,
+            input=REMOTE_PRELAUNCH,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=240,
+            timeout=360,
             check=True,
         )
         values = [
@@ -397,8 +466,43 @@ def main() -> int:
             if line.startswith("QF_RESULT=")
         ]
         if len(values) != 1:
-            raise ValueError("unexpected launch result")
-        state = json.loads(values[0])
+            raise ValueError("unexpected prelaunch result")
+        prelaunch = json.loads(values[0])
+        if not all(prelaunch.get(name) is True for name in (
+            "prelaunch_services_running",
+            "ai_key_placeholder_only",
+            "launch_marker_absent",
+            "systemd_service_inactive",
+            "systemd_service_disabled",
+        )):
+            raise ValueError("private prelaunch incomplete")
+        report["prelaunch_services_started"] = True
+
+        public = verify_public_https(ip)
+        report["frontend_https_passed"] = public["frontend"]
+        report["api_health_https_passed"] = public["api_health"]
+        report["identity_guard_https_passed"] = public["identity_guard"]
+        if not all(public.values()):
+            raise ValueError("public HTTPS verification failed before persistence")
+        report["public_https_verified"] = True
+
+        committed = subprocess.run(
+            ssh_command(key, cert, hosts, username, ip, "bash", "-s", "--", release_sha),
+            input=REMOTE_COMMIT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=180,
+            check=True,
+        )
+        commit_values = [
+            line.removeprefix("QF_RESULT=")
+            for line in committed.stdout.splitlines()
+            if line.startswith("QF_RESULT=")
+        ]
+        if len(commit_values) != 1:
+            raise ValueError("unexpected persistence result")
+        state = json.loads(commit_values[0])
         if not all(state.get(name) is True for name in (
             "launch_marker_present",
             "systemd_service_active",
@@ -406,17 +510,8 @@ def main() -> int:
             "all_six_services_running",
             "ai_key_placeholder_only",
         )):
-            raise ValueError("service launch incomplete")
+            raise ValueError("service persistence incomplete")
         report["application_started"] = True
-
-        public = verify_public_https(ip)
-        report["frontend_https_passed"] = public["frontend"]
-        report["api_health_https_passed"] = public["api_health"]
-        report["identity_guard_https_passed"] = public["identity_guard"]
-        if not all(public.values()):
-            raise ValueError("public HTTPS verification failed")
-
-        report["public_https_verified"] = True
         report["result"] = "public_launch_verified_ai_disabled"
     except ClientError as error:
         report["error_code"] = "AWS_LAUNCH_FAILED"
