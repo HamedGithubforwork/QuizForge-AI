@@ -1,4 +1,4 @@
-"""Fail-closed gate for the exact four-resource permanent Lightsail repair."""
+"""Fail-closed gate for the exact remaining three-resource permanent Lightsail repair."""
 from __future__ import annotations
 
 import copy
@@ -22,7 +22,7 @@ from .review import PROVIDER_NAME, Refused, Settings, check_source, digest, requ
 
 REPOSITORY = "HamedGithubforwork/QuizForge-AI"
 WORKFLOW = ".github/workflows/lightsail-production-repair-activation.yml"
-CONFIRMATION = "ACTIVATE EXACT FOUR-RESOURCE LIGHTSAIL REPAIR"
+CONFIRMATION = "ACTIVATE EXACT THREE-RESOURCE LIGHTSAIL REPAIR"
 RESULT = Path("lightsail-repair-activation-results/summary.json")
 CATALOG = Path("lightsail-repair-activation-results/catalog.json")
 
@@ -52,7 +52,7 @@ def settings() -> Settings:
 def base_report() -> dict[str, Any]:
     return {
         "schema": 1,
-        "operation": "four_resource_repair_activate",
+        "operation": "three_resource_repair_activate",
         "result": "blocked_no_apply_attempted",
         "apply_attempted": False,
         "terraform_apply_completed": False,
@@ -208,7 +208,7 @@ def review_final_plan(plan: dict[str, Any], cfg: Settings, catalog: dict[str, An
             "FINAL_PLAN_NOT_ALL_NOOP",
         )
 
-    # Reuse the complete four-create safety reviewer by converting only the
+    # Reuse the complete remaining three-create safety reviewer by converting only the
     # already-verified final/no-op shape into its equivalent review fixture.
     synthetic = copy.deepcopy(plan)
     synthetic["applyable"] = True
@@ -253,7 +253,7 @@ def verify_final(plan_json: str, catalog_json: str) -> None:
     report["final_verification_manifest_sha256"] = digest(manifest)
     report["final_managed_resources"] = manifest["final_managed_resources"]
     report["final_infrastructure_verified"] = True
-    report["result"] = "four_resource_repair_completed_and_verified"
+    report["result"] = "three_resource_repair_completed_and_verified"
     write_report(report, cfg)
 
 
@@ -319,14 +319,14 @@ def main() -> int:
             record_failure(str(error))
         except Exception:
             RESULT.unlink(missing_ok=True)
-        print("Permanent Lightsail four-resource repair gate refused.", file=sys.stderr)
+        print("Permanent Lightsail three-resource repair gate refused.", file=sys.stderr)
         return 1
     except Exception:
         try:
             record_failure("PRIVATE_REPAIR_ACTIVATION_FAILED")
         except Exception:
             RESULT.unlink(missing_ok=True)
-        print("Permanent Lightsail four-resource repair gate failed privately.", file=sys.stderr)
+        print("Permanent Lightsail three-resource repair gate failed privately.", file=sys.stderr)
         return 1
 
 
