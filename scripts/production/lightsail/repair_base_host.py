@@ -33,64 +33,48 @@ REGION = "ca-central-1"
 RESULT = Path("lightsail-base-host-repair/summary.json")
 
 REMOTE_REPAIR = r"""set -euo pipefail
-python3 - <<'PY'
-import json, os, subprocess
-
-def run(*args):
-    return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-
-def text(*args):
-    p=run(*args)
-    return p.stdout.strip() if p.returncode == 0 else ""
-
-sshd=text("sudo","-n","/usr/sbin/sshd","-T")
-settings={}
-for line in sshd.splitlines():
-    parts=line.split(None,1)
-    if len(parts)==2:
-        settings[parts[0].lower()]=parts[1].strip().lower()
-
-before={
-    "base_host_ready": os.path.isfile("/var/lib/quizforge/base-host-ready"),
-    "docker_binary_present": bool(text("sh","-lc","command -v docker")),
-    "docker_active": run("systemctl","is-active","--quiet","docker").returncode==0,
-    "current_release_present": os.path.lexists("/opt/quizforge/current"),
-    "frontend_present": os.path.lexists("/opt/quizforge/frontend"),
-    "launch_marker_present": os.path.exists("/etc/quizforge/launch-approved"),
-    "ssh_password_disabled": settings.get("passwordauthentication")=="no",
-    "ssh_root_disabled": settings.get("permitrootlogin")=="no",
-    "ssh_forwarding_disabled": settings.get("allowtcpforwarding")=="no",
-}
-print(json.dumps(before,sort_keys=True))
-PY
-
-test ! -e /var/lib/quizforge/base-host-ready
 test ! -e /opt/quizforge/current
 test ! -e /opt/quizforge/frontend
 test ! -e /etc/quizforge/launch-approved
-! command -v docker >/dev/null 2>&1
-! systemctl is-active --quiet docker
 sudo -n /usr/sbin/sshd -t
 
-sudo install -d -m 0755 /etc/docker
-printf '%s\n' '{"log-driver":"local","log-opts":{"max-size":"5m","max-file":"2"},"exec-opts":["native.cgroupdriver=systemd"]}' \
-  | sudo tee /etc/docker/daemon.json >/dev/null
+sshd_effective="$(sudo -n /usr/sbin/sshd -T)"
+printf '%s\n' "$sshd_effective" | grep -qx 'passwordauthentication no'
+printf '%s\n' "$sshd_effective" | grep -qx 'permitrootlogin no'
+printf '%s\n' "$sshd_effective" | grep -qx 'allowtcpforwarding no'
 
-sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
+expected_daemon='{"log-driver":"local","log-opts":{"max-size":"5m","max-file":"2"},"exec-opts":["native.cgroupdriver=systemd"]}'
 
-docker_candidate="$(apt-cache policy docker.io | awk '/Candidate:/ && !found {print $2; found=1}')"
-compose_candidate="$(apt-cache policy docker-compose-v2 | awk '/Candidate:/ && !found {print $2; found=1}')"
-test -n "$docker_candidate"
-test "$docker_candidate" != "(none)"
-test -n "$compose_candidate"
-test "$compose_candidate" != "(none)"
-dpkg --compare-versions "$compose_candidate" ge "2.30"
+if [ -e /var/lib/quizforge/base-host-ready ]; then
+    command -v docker >/dev/null 2>&1
+    systemctl is-active --quiet docker
+    test "$(sudo cat /etc/docker/daemon.json)" = "$expected_daemon"
+else
+    if ! command -v docker >/dev/null 2>&1; then
+        sudo install -d -m 0755 /etc/docker
+        printf '%s\n' "$expected_daemon" | sudo tee /etc/docker/daemon.json >/dev/null
 
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-  docker.io docker-compose-v2 unattended-upgrades
+        sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null
 
-sudo swapoff -a
-sudo systemctl enable --now docker
+        docker_candidate="$(apt-cache policy docker.io | awk '/Candidate:/ && !found {print $2; found=1}')"
+        compose_candidate="$(apt-cache policy docker-compose-v2 | awk '/Candidate:/ && !found {print $2; found=1}')"
+        test -n "$docker_candidate"
+        test "$docker_candidate" != "(none)"
+        test -n "$compose_candidate"
+        test "$compose_candidate" != "(none)"
+        dpkg --compare-versions "$compose_candidate" ge "2.30"
+
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+          docker.io docker-compose-v2 unattended-upgrades >/dev/null
+    else
+        dpkg-query -W -f='${Status}\n' docker.io | grep -qx 'install ok installed'
+        dpkg-query -W -f='${Status}\n' docker-compose-v2 | grep -qx 'install ok installed'
+        test "$(sudo cat /etc/docker/daemon.json)" = "$expected_daemon"
+    fi
+
+    sudo swapoff -a
+    sudo systemctl enable --now docker
+fi
 
 docker_version="$(sudo docker version --format '{{.Server.Version}}')"
 compose_version="$(sudo docker compose version --short)"
@@ -101,8 +85,13 @@ test "$(stat -fc %T /sys/fs/cgroup)" = "cgroup2fs"
 test -z "$(swapon --noheadings)"
 sudo test "$(stat -c %a /etc/quizforge)" = "700"
 sudo test "$(stat -c %a /var/lib/quizforge)" = "700"
+systemctl is-active --quiet docker
 
 sudo touch /var/lib/quizforge/base-host-ready
+sudo test -f /var/lib/quizforge/base-host-ready
+test ! -e /opt/quizforge/current
+test ! -e /opt/quizforge/frontend
+test ! -e /etc/quizforge/launch-approved
 
 python3 - "$docker_version" "$compose_version" <<'PY'
 import json,re,sys
@@ -110,7 +99,7 @@ docker,compose=sys.argv[1:3]
 safe=r"^[A-Za-z0-9._+~-]{1,80}$"
 assert re.fullmatch(safe,docker)
 assert re.fullmatch(safe,compose)
-print(json.dumps({
+value={
     "base_host_ready": True,
     "docker_active": True,
     "docker_version": docker,
@@ -119,7 +108,8 @@ print(json.dumps({
     "cgroup_v2": True,
     "swap_disabled": True,
     "application_still_inactive": True,
-},sort_keys=True))
+}
+print("QF_RESULT="+json.dumps(value,sort_keys=True))
 PY
 """
 
@@ -209,23 +199,14 @@ def main() -> int:
             cmd,input=REMOTE_REPAIR,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
             timeout=900,check=True,
         )
-        lines=[line for line in completed.stdout.splitlines() if line.strip()]
-        if len(lines)!=2:
-            raise ValueError("unexpected repair output")
-        before_state=json.loads(lines[0])
-        after_state=json.loads(lines[1])
-        if not (
-            before_state.get("base_host_ready") is False
-            and before_state.get("docker_binary_present") is False
-            and before_state.get("docker_active") is False
-            and before_state.get("current_release_present") is False
-            and before_state.get("frontend_present") is False
-            and before_state.get("launch_marker_present") is False
-            and before_state.get("ssh_password_disabled") is True
-            and before_state.get("ssh_root_disabled") is True
-            and before_state.get("ssh_forwarding_disabled") is True
-        ):
-            raise ValueError("pre-repair host state was not exact")
+        results=[
+            line.removeprefix("QF_RESULT=")
+            for line in completed.stdout.splitlines()
+            if line.startswith("QF_RESULT=")
+        ]
+        if len(results)!=1:
+            raise ValueError("unexpected repair result output")
+        after_state=json.loads(results[0])
         if not all(after_state.get(k) is True for k in (
             "base_host_ready","docker_active","compose_2_30_or_newer",
             "cgroup_v2","swap_disabled","application_still_inactive",
