@@ -45,7 +45,6 @@ REPAIR_CREATES = frozenset({
     "aws_lightsail_instance.server",
     "aws_lightsail_instance_public_ports.server",
     "aws_lightsail_static_ip_attachment.server",
-    "aws_sns_topic_policy.alerts",
 })
 EXISTING = FINAL - REPAIR_CREATES
 
@@ -511,7 +510,7 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
 
     server = after["aws_lightsail_instance.server"]
     for name, expected in {
-        "name": "quizforge-production-lightsail",
+        "name": "quizforge-production-lightsail-server",
         "availability_zone": "ca-central-1a",
         "blueprint_id": BLUEPRINT,
         "bundle_id": BUNDLE,
