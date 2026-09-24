@@ -55,7 +55,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -79,7 +79,7 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: qf-lightsail-public-launch
-          role-duration-seconds: 1200
+          role-duration-seconds: 1800
           aws-region: ca-central-1
           mask-aws-account-id: true
           unset-current-credentials: true
@@ -99,7 +99,7 @@ jobs:
                 "route53:GetChange"
               ],"Resource":"*"}
             ]}
-      - name: Cut over production DNS, launch reviewed release, and verify HTTPS
+      - name: Cut over DNS, wait recursive propagation, preflight services, verify HTTPS, and persist launch
         run: python -m scripts.production.lightsail.public_launch
       - name: Publish only sanitized launch result
         if: always()
