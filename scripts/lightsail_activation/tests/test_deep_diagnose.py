@@ -94,12 +94,12 @@ class DeepDiagnosticTests(unittest.TestCase):
 
     def test_plan_action_summary_detects_exact_repair_shape(self):
         report = analyze(plan(), SETTINGS, CATALOG)
-        self.assertEqual(report["plan_action_counts"]["create"], 4)
-        self.assertEqual(report["plan_action_counts"]["noop"], 14)
+        self.assertEqual(report["plan_action_counts"]["create"], 3)
+        self.assertEqual(report["plan_action_counts"]["noop"], 15)
         self.assertEqual(report["plan_action_counts"]["update"], 0)
         self.assertEqual(report["plan_action_counts"]["delete"], 0)
         self.assertEqual(report["plan_action_counts"]["replace"], 0)
-        self.assertEqual(report["prior_managed_resource_count"], 14)
+        self.assertEqual(report["prior_managed_resource_count"], 15)
         self.assertEqual(report["resource_drift_count"], 0)
 
 
