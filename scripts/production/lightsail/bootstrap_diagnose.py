@@ -148,7 +148,7 @@ except Exception:
     status_json={"status":"unavailable"}
 
 result={
-    "base_host_ready": os.path.isfile("/var/lib/quizforge/base-host-ready"),
+    "base_host_ready": run("sudo","-n","test","-f","/var/lib/quizforge/base-host-ready").returncode == 0,
     "boot_finished": os.path.isfile("/var/lib/cloud/instance/boot-finished"),
     "cloud_init": status_json,
     "cloud_final": unit("cloud-final.service"),
