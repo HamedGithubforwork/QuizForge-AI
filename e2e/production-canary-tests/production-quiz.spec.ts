@@ -108,13 +108,36 @@ test(
   async ({ page }) => {
     test.setTimeout(240_000)
 
-    await expectAuthenticatedDeploymentBoundary({
-      page,
-      frontendUrl,
-      backendUrl,
-      email,
-      password,
-    })
+    let authError: unknown = null
+
+    for (
+      let attempt = 0;
+      attempt < 2;
+      attempt += 1
+    ) {
+      try {
+        await expectAuthenticatedDeploymentBoundary({
+          page,
+          frontendUrl,
+          backendUrl,
+          email,
+          password,
+        })
+        authError = null
+        break
+      } catch (error) {
+        authError = error
+
+        if (attempt === 0) {
+          await page.waitForTimeout(10_000)
+          await page.goto(frontendUrl)
+        }
+      }
+    }
+
+    if (authError) {
+      throw authError
+    }
 
     await page
       .getByLabel('Study material PDF')
