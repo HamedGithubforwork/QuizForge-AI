@@ -4,6 +4,7 @@ import json
 import unittest
 
 from scripts.production.lightsail.deploy_readiness import (
+    access_shape,
     deploy_prerequisites,
     known_hosts_text,
     validate_remote,
@@ -34,6 +35,30 @@ class DeployReadinessTests(unittest.TestCase):
             "ssh_root_login_disabled": True,
             "ssh_tcp_forwarding_disabled": True,
         }
+
+    def test_access_shape_never_emits_temporary_ssh_material(self):
+        access = {
+            "privateKey": "PRIVATE-MATERIAL",
+            "certKey": "CERT-MATERIAL",
+            "ipAddress": "198.51.100.20",
+            "username": "ubuntu",
+            "protocol": "ssh",
+            "hostKeys": [
+                {
+                    "algorithm": "ssh-ed25519",
+                    "publicKey": "ssh-ed25519 PUBLIC-MATERIAL",
+                }
+            ],
+        }
+        shape = access_shape(access)
+        self.assertTrue(shape["has_private_key"])
+        self.assertTrue(shape["has_cert_key"])
+        self.assertEqual(shape["host_key_count"], 1)
+        self.assertEqual(shape["host_key_algorithms"], ["ssh-ed25519"])
+        self.assertEqual(shape["host_key_public_prefixed_count"], 1)
+        raw = json.dumps(shape)
+        for private in ("PRIVATE-MATERIAL", "CERT-MATERIAL", "198.51.100.20", "PUBLIC-MATERIAL"):
+            self.assertNotIn(private, raw)
 
     def test_known_hosts_uses_only_lightsail_witnessed_host_keys(self):
         access = {
