@@ -33,9 +33,26 @@ REGION = "ca-central-1"
 RESULT = Path("lightsail-base-host-repair/summary.json")
 
 REMOTE_REPAIR = r"""set -euo pipefail
-test ! -e /opt/quizforge/current
-test ! -e /opt/quizforge/frontend
 test ! -e /etc/quizforge/launch-approved
+! systemctl is-active --quiet quizforge.service
+! systemctl is-enabled --quiet quizforge.service
+
+application_state="clean"
+if [ -e /opt/quizforge/current ] || [ -e /opt/quizforge/frontend ]; then
+    test -L /opt/quizforge/current
+    test -s /opt/quizforge/current/compose.json
+    test -s /opt/quizforge/frontend/index.html
+    release_target="$(readlink -f /opt/quizforge/current)"
+    case "$release_target" in
+        /opt/quizforge/releases/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*)
+            ;;
+        *)
+            exit 52
+            ;;
+    esac
+    application_state="staged"
+fi
+
 sudo -n /usr/sbin/sshd -t
 
 sshd_effective="$(sudo -n /usr/sbin/sshd -T)"
@@ -89,13 +106,21 @@ systemctl is-active --quiet docker
 
 sudo touch /var/lib/quizforge/base-host-ready
 sudo test -f /var/lib/quizforge/base-host-ready
-test ! -e /opt/quizforge/current
-test ! -e /opt/quizforge/frontend
 test ! -e /etc/quizforge/launch-approved
+! systemctl is-active --quiet quizforge.service
+! systemctl is-enabled --quiet quizforge.service
+if [ "$application_state" = "staged" ]; then
+    test -L /opt/quizforge/current
+    test -s /opt/quizforge/current/compose.json
+    test -s /opt/quizforge/frontend/index.html
+else
+    test ! -e /opt/quizforge/current
+    test ! -e /opt/quizforge/frontend
+fi
 
-python3 - "$docker_version" "$compose_version" <<'PY'
+python3 - "$docker_version" "$compose_version" "$application_state" <<'PY'
 import json,re,sys
-docker,compose=sys.argv[1:3]
+docker,compose,application_state=sys.argv[1:4]
 safe=r"^[A-Za-z0-9._+~-]{1,80}$"
 assert re.fullmatch(safe,docker)
 assert re.fullmatch(safe,compose)
@@ -108,6 +133,7 @@ value={
     "cgroup_v2": True,
     "swap_disabled": True,
     "application_still_inactive": True,
+    "application_state": application_state,
 }
 print("QF_RESULT="+json.dumps(value,sort_keys=True))
 PY
