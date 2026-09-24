@@ -71,8 +71,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-docker compose -f "$compose" up -d --wait --wait-timeout 120 --pull never db redis >/dev/null
-docker compose -f "$compose" up -d --wait --wait-timeout 120 --pull never api identity guard >/dev/null
+wait_health() {
+  service="$1"; timeout="$2"; elapsed=0
+  while [ "$elapsed" -lt "$timeout" ]; do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "quizforge-production-$service-1" 2>/dev/null || true)"
+    case "$status" in
+      healthy|running) return 0 ;;
+      unhealthy|exited|dead) return 1 ;;
+    esac
+    sleep 2
+    elapsed=$((elapsed+2))
+  done
+  return 2
+}
+
+docker compose -f "$compose" up -d --pull never db redis >/dev/null
+wait_health db 90
+wait_health redis 90
+
+docker compose -f "$compose" up -d --pull never api identity guard >/dev/null
+wait_health api 90
+wait_health identity 90
+
 docker compose -f "$compose" up -d --pull never web >/dev/null
 
 for _ in $(seq 1 30); do
