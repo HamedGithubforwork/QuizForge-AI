@@ -196,7 +196,7 @@ except HTTPError as e:
 else:
     raise AssertionError("identity accepted unauthenticated request")
 
-probe="""import urllib.request,urllib.error,json
+probe='''import urllib.request,urllib.error,json
 body=json.dumps({"model":"gpt-5.6-luna","input":[{"role":"user","content":"local disabled-budget acceptance"}]}).encode()
 try:
  urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8002/v1/responses",body,{"Authorization":"Bearer production-budget-guard","Content-Type":"application/json"}),timeout=5)
@@ -204,7 +204,7 @@ except urllib.error.HTTPError as e:
  assert e.code==429,e.code
 else:
  raise AssertionError("disabled budget allowed generation")
-"""
+'''
 subprocess.run(["docker","compose","-f","/opt/quizforge/current/compose.json","exec","-T","api","python","-c",probe],check=True,stdout=subprocess.DEVNULL)
 PY
 
