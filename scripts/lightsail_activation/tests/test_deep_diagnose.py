@@ -5,7 +5,7 @@ import json
 import unittest
 
 from scripts.lightsail_activation.deep_diagnose import analyze
-from scripts.lightsail_activation.repair_review import DEFAULT_TAGS
+from scripts.lightsail_activation.repair_review import DEFAULT_TAGS, EXISTING, REPAIR_CREATES
 from scripts.lightsail_activation.review import PROVIDER_NAME
 from scripts.lightsail_activation.tests.test_repair_review import (
     CATALOG,
@@ -94,12 +94,12 @@ class DeepDiagnosticTests(unittest.TestCase):
 
     def test_plan_action_summary_detects_exact_repair_shape(self):
         report = analyze(plan(), SETTINGS, CATALOG)
-        self.assertEqual(report["plan_action_counts"]["create"], 4)
-        self.assertEqual(report["plan_action_counts"]["noop"], 14)
+        self.assertEqual(report["plan_action_counts"]["create"], len(REPAIR_CREATES))
+        self.assertEqual(report["plan_action_counts"]["noop"], len(EXISTING))
         self.assertEqual(report["plan_action_counts"]["update"], 0)
         self.assertEqual(report["plan_action_counts"]["delete"], 0)
         self.assertEqual(report["plan_action_counts"]["replace"], 0)
-        self.assertEqual(report["prior_managed_resource_count"], 14)
+        self.assertEqual(report["prior_managed_resource_count"], len(EXISTING))
         self.assertEqual(report["resource_drift_count"], 0)
 
 
