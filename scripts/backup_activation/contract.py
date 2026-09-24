@@ -110,9 +110,9 @@ class Settings:
 def trusted_invocation(env: Mapping[str, str], mode: str) -> None:
     require(mode in {"inspect", "activate", "verify"}, "MODE_INVALID")
     event = env.get("GITHUB_EVENT_NAME")
-    push_inspect = event == "push" and mode == "inspect"
+    push_verify = event == "push" and mode == "verify"
     manual = event == "workflow_dispatch"
-    require((manual or push_inspect)
+    require((manual or push_verify)
             and env.get("GITHUB_REF") == "refs/heads/main"
             and env.get("GITHUB_REPOSITORY") == REPOSITORY
             and env.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
@@ -122,10 +122,10 @@ def trusted_invocation(env: Mapping[str, str], mode: str) -> None:
             and env.get("GITHUB_WORKFLOW_SHA") == sha, "UNTRUSTED_WORKFLOW_REVISION")
     require(env.get("TF_WORKSPACE", "default") == "default", "NONDEFAULT_WORKSPACE")
     if event == "push":
-        require(mode == "inspect"
+        require(mode == "verify"
                 and not env.get("QF_REVIEWED_MANIFEST")
                 and not env.get("QF_CONFIRMATION"),
-                "PUSH_MAY_ONLY_INSPECT")
+                "PUSH_MAY_ONLY_VERIFY")
     if mode == "activate":
         require(event == "workflow_dispatch", "ACTIVATION_MUST_BE_MANUAL")
         require(env.get("GITHUB_RUN_ATTEMPT") == "1", "ACTIVATION_RERUN_REFUSED")
@@ -133,7 +133,7 @@ def trusted_invocation(env: Mapping[str, str], mode: str) -> None:
         require(bool(re.fullmatch(r"[0-9a-f]{64}", env.get("QF_REVIEWED_MANIFEST", ""))),
                 "REVIEWED_MANIFEST_REQUIRED")
     if mode == "verify":
-        require(event == "workflow_dispatch", "VERIFY_MUST_BE_MANUAL")
+        require(event in {"workflow_dispatch", "push"}, "VERIFY_INVOCATION_INVALID")
     require(not env.get("ACTIONS_STEP_DEBUG") and not env.get("RUNNER_DEBUG"), "DEBUG_MODE_REFUSED")
 
 

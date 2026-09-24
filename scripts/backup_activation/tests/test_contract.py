@@ -267,13 +267,13 @@ class InvocationTests(unittest.TestCase):
                 trusted_invocation(env, "inspect")
         push = environment()
         push["GITHUB_EVENT_NAME"] = "push"
-        trusted_invocation(push, "inspect")
-        for forbidden_mode in ("activate", "verify"):
+        trusted_invocation(push, "verify")
+        for forbidden_mode in ("activate", "inspect"):
             with self.subTest(mode=forbidden_mode), self.assertRaises(Refused):
                 trusted_invocation(push, forbidden_mode)
         push_with_confirmation = dict(push, QF_CONFIRMATION=CONFIRMATION)
         with self.assertRaises(Refused):
-            trusted_invocation(push_with_confirmation, "inspect")
+            trusted_invocation(push_with_confirmation, "verify")
         for mode in ("destroy", "notify", "apply", "inspect; echo unsafe"):
             with self.assertRaises(Refused):
                 trusted_invocation(environment(), mode)
@@ -347,11 +347,11 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("default: inspect", main)
         self.assertIn("github.event_name == 'workflow_dispatch'", main)
         self.assertIn("github.event_name == 'push'", main)
-        self.assertIn("github.event_name == 'push' && 'inspect'", main)
-        self.assertIn("inputs.operation == 'inspect'", cloud)
+        self.assertIn("github.event_name == 'push' && 'verify'", main)
+        self.assertIn("inputs.operation == 'verify'", cloud)
         self.assertIn("github.ref == 'refs/heads/main'", main)
         self.assertIn("cancel-in-progress: false", cloud)
-        self.assertIn("operation: ${{ github.event_name == 'push' && 'inspect' || github.event.inputs.operation }}", main)
+        self.assertIn("operation: ${{ github.event_name == 'push' && 'verify' || github.event.inputs.operation }}", main)
         self.assertIn("QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}", main)
         self.assertIn("QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}", main)
         self.assertIn("QF_ROLE_ARN: ${{ secrets.QF_ROLE_ARN }}", cloud)
