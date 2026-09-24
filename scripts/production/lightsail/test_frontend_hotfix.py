@@ -9,7 +9,7 @@ class FrontendHotfixTests(unittest.TestCase):
         self.assertIn("/opt/quizforge/frontend", REMOTE_APPLY)
         self.assertIn(".frontend-rollback-", REMOTE_APPLY)
         self.assertIn("mv /opt/quizforge/frontend", REMOTE_APPLY)
-        self.assertIn("mv "$backup" /opt/quizforge/frontend", REMOTE_APPLY)
+        self.assertIn('mv "$backup" /opt/quizforge/frontend', REMOTE_APPLY)
         self.assertIn("--force-recreate --no-deps web", REMOTE_APPLY)
         self.assertIn("Sign in or create account", REMOTE_APPLY)
         self.assertIn("quizfromnotes.com:443:127.0.0.1", REMOTE_APPLY)
