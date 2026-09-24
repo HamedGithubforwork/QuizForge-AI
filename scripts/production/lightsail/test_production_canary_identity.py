@@ -5,6 +5,7 @@ import unittest
 from scripts.production.lightsail.production_canary_identity import (
     REMOTE_CLEANUP,
     canary_email,
+    discover,
     totp,
     validate_fixture,
 )
@@ -24,6 +25,29 @@ class ProductionCanaryIdentityTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             canary_email("bad-run-id")
+
+    def test_discovery_uses_exact_named_pool_and_client_without_optional_describe_fields(self):
+        class FakeCognito:
+            def list_user_pools(self, **_):
+                return {
+                    "UserPools": [{
+                        "Name": "quizforge-production-lightsail",
+                        "Id": "ca-central-1_Abc123",
+                    }]
+                }
+
+            def list_user_pool_clients(self, **_):
+                return {
+                    "UserPoolClients": [{
+                        "ClientName": "quizforge-production-pkce",
+                        "ClientId": "abc123",
+                    }]
+                }
+
+        self.assertEqual(
+            discover(FakeCognito()),
+            ("ca-central-1_Abc123", "abc123"),
+        )
 
     def test_fixture_validation_is_exact(self):
         value = {
