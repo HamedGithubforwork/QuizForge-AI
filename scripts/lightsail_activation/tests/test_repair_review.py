@@ -49,7 +49,7 @@ def values():
         "admin_create_user_config": [{"allow_admin_create_user_only": True}],
     }
     result["aws_lightsail_instance.server"] = {
-        "name": "quizforge-production-lightsail",
+        "name": "quizforge-production-lightsail-server",
         "availability_zone": "ca-central-1a",
         "blueprint_id": BLUEPRINT,
         "bundle_id": BUNDLE,
@@ -244,11 +244,11 @@ class RepairReviewTests(unittest.TestCase):
         with self.assertRaises(Refused):
             review_plan(document, SETTINGS, catalog)
 
-    def test_exact_four_create_repair_passes(self):
+    def test_exact_current_repair_passes(self):
         manifest = review_plan(plan(), SETTINGS, CATALOG)
-        self.assertEqual(manifest["prior_state_managed_resources"], 14)
-        self.assertEqual(manifest["existing_resources_noop"], 14)
-        self.assertEqual(manifest["creates"], 4)
+        self.assertEqual(manifest["prior_state_managed_resources"], len(EXISTING))
+        self.assertEqual(manifest["existing_resources_noop"], len(EXISTING))
+        self.assertEqual(manifest["creates"], len(REPAIR_CREATES))
         self.assertEqual(manifest["updates"], 0)
         self.assertEqual(manifest["deletes"], 0)
         self.assertEqual(manifest["replacements"], 0)
