@@ -94,7 +94,6 @@ tar -xzf "$archive" -C "$stage"
 install -d -o root -g root -m 0755 /opt/quizforge/operations
 install -m 0644 "$stage/operations/lightsail_backup.py" /opt/quizforge/operations/lightsail_backup.py
 install -m 0644 "$stage/operations/lightsail_backup_job.py" /opt/quizforge/operations/lightsail_backup_job.py
-install -m 0644 "$stage/operations/transfer.py" /opt/quizforge/operations/transfer.py
 install -m 0644 "$stage/requirements.lock" /opt/quizforge/operations/requirements.lock
 install -m 0644 /etc/quizforge/db-ca.pem /opt/quizforge/operations/db-ca.pem
 
@@ -333,7 +332,6 @@ def build_bundle(root: Path) -> Path:
     members = {
         "scripts/production/lightsail_backup.py": "operations/lightsail_backup.py",
         "scripts/production/lightsail_backup_job.py": "operations/lightsail_backup_job.py",
-        "scripts/production/transfer.py": "operations/transfer.py",
         "scripts/rds_rehearsal/requirements.lock": "requirements.lock",
         "scripts/production/systemd/quizforge-backup.service": "systemd/quizforge-backup.service",
         "scripts/production/systemd/quizforge-backup.timer": "systemd/quizforge-backup.timer",
