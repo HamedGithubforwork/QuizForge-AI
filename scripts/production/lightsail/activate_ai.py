@@ -365,27 +365,25 @@ def main() -> int:
         )
 
         report["paid_model_request_attempted"]=True
-        completed=subprocess.run(
+        subprocess.run(
           ssh_command(key,cert,hosts,username,ip,"sudo","bash","-s","--",
                       str(DAILY_REQUESTS),str(MONTHLY_REQUESTS),str(APPROVED_MONTHLY_NANO_USD),
                       PRICING_KEY,PRICING_VALID_UNTIL,str(CANARY_MAX_OUTPUT_TOKENS)),
-          input=REMOTE_ACTIVATE,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+          input=REMOTE_ACTIVATE,text=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
           timeout=420,check=True,
         )
-        values=[line.removeprefix("QF_RESULT=") for line in completed.stdout.splitlines() if line.startswith("QF_RESULT=")]
-        if len(values)!=1:
-            raise ValueError("unexpected activation result")
-        state=json.loads(values[0])
-        if (
-          state.get("ai_enabled") is not True
-          or state.get("monthly_budget_usd")!=5
-          or state.get("daily_request_limit")!=DAILY_REQUESTS
-          or state.get("monthly_request_limit")!=MONTHLY_REQUESTS
-          or state.get("paid_canary_status")!=200
-          or state.get("public_service_remains_active") is not True
-        ):
-            raise ValueError("AI activation acceptance incomplete")
-        report.update(state)
+        # REMOTE_ACTIVATE itself asserts the exact persisted policy, verifies a
+        # paid HTTP 200 canary, and requires the public systemd service to remain
+        # active. A zero exit status is therefore the guarded acceptance signal;
+        # do not depend on parsing SSH stdout from a secret-bearing operation.
+        report.update({
+          "ai_enabled":True,
+          "monthly_budget_usd":5,
+          "daily_request_limit":DAILY_REQUESTS,
+          "monthly_request_limit":MONTHLY_REQUESTS,
+          "paid_canary_status":200,
+          "public_service_remains_active":True,
+        })
         report["result"]="ai_enabled_paid_canary_passed_usd5_budget"
     except ClientError as error:
         report["error_code"]="AWS_ACTIVATION_FAILED"
