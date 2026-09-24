@@ -1,0 +1,271 @@
+name: Permanent Lightsail application inactive staging
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-app-stage.yml"
+      - "scripts/production/lightsail/stage_release.py"
+      - "scripts/production/lightsail/test_stage_release.py"
+      - "scripts/production/lightsail/ssh-host-pins.json"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/lightsail-app-stage.yml"
+      - "scripts/production/lightsail/stage_release.py"
+      - "scripts/production/lightsail/test_stage_release.py"
+      - "scripts/production/lightsail/ssh-host-pins.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Compile and test staging gate without cloud credentials
+        run: |
+          python -m py_compile scripts/production/lightsail/stage_release.py
+          python -m unittest scripts.production.lightsail.test_stage_release -v
+      - name: Validate pinned release lock is public-safe and AI-disabled
+        run: |
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          assert lock["schema"]==1
+          assert re.fullmatch(r"[0-9a-f]{40}",lock["release_sha"])
+          assert re.fullmatch(r"[0-9a-f]{40}",lock["application_candidate_sha"])
+          assert lock["ecr_repository"]=="quizforge-api"
+          assert lock["public_configuration_validated"] is True
+          assert lock["ai_enabled"] is False
+          assert set(lock["image_digests"])=={"api","operations","caddy","postgres","redis","caddy_base"}
+          for value in lock["image_digests"].values():
+              assert re.fullmatch(r"sha256:[a-f0-9]{64}",value)
+          PY
+
+  stage:
+    needs: validate
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-lightsail-application-stage
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ca-central-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+      LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+      AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Read and validate immutable release lock
+        id: release
+        run: |
+          python - <<'PY'
+          import json,re,os
+          from pathlib import Path
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          assert lock["schema"]==1 and lock["public_configuration_validated"] is True
+          assert lock["ai_enabled"] is False
+          assert re.fullmatch(r"[0-9a-f]{40}",lock["release_sha"])
+          assert re.fullmatch(r"[0-9a-f]{40}",lock["application_candidate_sha"])
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+              out.write("release_sha="+lock["release_sha"]+"\n")
+          PY
+
+      - name: Check out the exact reviewed release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.release_sha }}
+          path: release-source
+          persist-credentials: false
+
+      - name: Install existing hash-locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
+      - name: Assume deployment role with staging-only boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-app-stage
+          role-duration-seconds: 3300
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":[
+                "sts:GetCallerIdentity",
+                "cognito-idp:ListUserPools",
+                "cognito-idp:ListUserPoolClients",
+                "cognito-idp:DescribeUserPoolDomain",
+                "lightsail:GetInstance",
+                "lightsail:GetStaticIp",
+                "lightsail:GetInstancePortStates",
+                "lightsail:OpenInstancePublicPorts",
+                "lightsail:CloseInstancePublicPorts",
+                "lightsail:GetInstanceAccessDetails",
+                "ecr:GetAuthorizationToken",
+                "ecr:DescribeImages",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
+              ],"Resource":"*"}
+            ]}
+
+      - name: Discover exact public production configuration
+        run: |
+          python release-source/scripts/production/lightsail/release_candidate.py public-config \
+            release-source/scripts/production/lightsail/public-source.json \
+            "$RUNNER_TEMP/lightsail-public.json" \
+            > "$RUNNER_TEMP/lightsail-public-summary.json"
+
+      - name: Build frontend from exact reviewed source
+        env:
+          CI: "true"
+        run: |
+          python release-source/scripts/production/build.py \
+            "$RUNNER_TEMP/lightsail-public.json" \
+            release-source/frontend \
+            "$RUNNER_TEMP/frontend-build"
+
+      - name: Render exact inactive production stack and staging manifest
+        run: |
+          python - <<'PY'
+          import hashlib,json,os,re
+          from pathlib import Path
+          import boto3
+
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          public=json.loads(Path(os.environ["RUNNER_TEMP"]+"/lightsail-public.json").read_text())
+          account=boto3.client("sts",region_name="ca-central-1").get_caller_identity()["Account"]
+          assert re.fullmatch(r"[0-9]{12}",account)
+          registry=f"{account}.dkr.ecr.ca-central-1.amazonaws.com/quizforge-api"
+          dig=lock["image_digests"]
+          config={
+              "public":public,
+              "images":{
+                  "api":f"{registry}@{dig['api']}",
+                  "operations":f"{registry}@{dig['operations']}",
+                  "postgres":f"docker.io/library/postgres@{dig['postgres']}",
+                  "redis":f"docker.io/library/redis@{dig['redis']}",
+                  "caddy":f"{registry}@{dig['caddy']}",
+              },
+              "monthly_budget_usd":20,
+              "alert_email":os.environ["AWS_BUDGET_ALERT_EMAIL"],
+              "ssh_public_key":os.environ["LIGHTSAIL_SSH_PUBLIC_KEY"],
+              "admin_ipv4_cidr":os.environ["LIGHTSAIL_ADMIN_IPV4_CIDR"],
+              "ai_daily_requests":0,
+              "ai_monthly_requests":0,
+              "ai_monthly_budget_usd":5,
+          }
+          private=Path(os.environ["RUNNER_TEMP"])/"stage-config.json"
+          private.write_text(json.dumps(config)+"\n")
+          private.chmod(0o600)
+
+          root=Path(os.environ["RUNNER_TEMP"])/"frontend-build"/"dist"
+          h=hashlib.sha256()
+          for path in sorted(p for p in root.rglob("*") if p.is_file()):
+              rel=path.relative_to(root).as_posix().encode()
+              h.update(rel+b"\0")
+              h.update(hashlib.sha256(path.read_bytes()).digest())
+          tree=h.hexdigest()
+
+          manifest={
+              "schema":1,
+              "release_sha":lock["release_sha"],
+              "application_candidate_sha":lock["application_candidate_sha"],
+              "frontend_tree_sha256":tree,
+              "images":[config["images"][name] for name in ("api","operations","caddy","postgres","redis")],
+          }
+          path=Path(os.environ["RUNNER_TEMP"])/"stage-manifest.json"
+          path.write_text(json.dumps(manifest,indent=2,sort_keys=True)+"\n")
+          PY
+
+          python release-source/scripts/production/lightsail/render.py \
+            "$RUNNER_TEMP/stage-config.json" \
+            "$RUNNER_TEMP/rendered-release"
+
+      - name: Package only reviewed release files and exact frontend
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/stage-bundle"
+          mkdir -p "$root/release" "$root/frontend" "$root/operations" "$root/systemd"
+
+          cp "$RUNNER_TEMP/rendered-release/compose.json" "$root/release/"
+          cp "$RUNNER_TEMP/rendered-release/Caddyfile" "$root/release/"
+          cp "$RUNNER_TEMP/rendered-release/postgresql.conf" "$root/release/"
+          cp "$RUNNER_TEMP/rendered-release/pg_hba.conf" "$root/release/"
+          cp "$RUNNER_TEMP/rendered-release/reviewed-ai-policy.sql" "$root/release/"
+          cp -a "$RUNNER_TEMP/frontend-build/dist/." "$root/frontend/"
+
+          cp release-source/scripts/production/lightsail_initialize.py "$root/operations/"
+          cp release-source/scripts/production/schema.sql "$root/operations/"
+          cp release-source/scripts/production/generation_budget.sql "$root/operations/"
+          cp release-source/scripts/production/database.py "$root/operations/"
+          cp release-source/scripts/production/transfer.py "$root/operations/"
+
+          cp release-source/scripts/production/lightsail/quizforge.service "$root/systemd/"
+          cp release-source/scripts/production/lightsail/quizforge.slice "$root/systemd/"
+          cp "$RUNNER_TEMP/stage-manifest.json" "$root/manifest.json"
+
+          tar -C "$root" -czf "$RUNNER_TEMP/quizforge-stage-bundle.tar.gz" .
+
+      - name: Stage release on host without launching services
+        run: |
+          python scripts/production/lightsail/stage_release.py \
+            "$RUNNER_TEMP/quizforge-stage-bundle.tar.gz" \
+            "$RUNNER_TEMP/stage-manifest.json" \
+            scripts/production/lightsail/ssh-host-pins.json
+
+      - name: Remove private build and staging material
+        if: always()
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/lightsail-public.json" \
+            "$RUNNER_TEMP/lightsail-public-summary.json" \
+            "$RUNNER_TEMP/stage-config.json" \
+            "$RUNNER_TEMP/stage-manifest.json" \
+            "$RUNNER_TEMP/quizforge-stage-bundle.tar.gz"
+          rm -rf \
+            "$RUNNER_TEMP/frontend-build" \
+            "$RUNNER_TEMP/rendered-release" \
+            "$RUNNER_TEMP/stage-bundle"
+
+      - name: Publish only sanitized inactive staging result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-application-stage-summary
+          path: lightsail-app-stage-results/summary.json
+          if-no-files-found: error
+          retention-days: 14
