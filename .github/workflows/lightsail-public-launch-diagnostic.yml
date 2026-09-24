@@ -1,0 +1,78 @@
+name: Permanent Lightsail public launch failure diagnostic
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-public-launch-diagnostic.yml"
+      - "scripts/production/lightsail/public_launch_diagnose.py"
+      - "scripts/production/lightsail/test_public_launch_diagnose.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-public-launch-diagnostic.yml"
+      - "scripts/production/lightsail/public_launch_diagnose.py"
+      - "scripts/production/lightsail/test_public_launch_diagnose.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Validate read-only launch diagnostic
+        run: |
+          python -m py_compile scripts/production/lightsail/public_launch_diagnose.py
+          python -m unittest scripts.production.lightsail.test_public_launch_diagnose -v
+
+  diagnose:
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Assume read-only host diagnostic boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-launch-diagnostic
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
+              "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
+            ],"Resource":"*"}]}
+      - name: Inspect rolled-back service/container state without changes
+        run: python -m scripts.production.lightsail.public_launch_diagnose
+      - name: Publish sanitized diagnostic
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-public-launch-diagnostic
+          path: lightsail-public-launch-diagnostic/summary.json
+          if-no-files-found: error
+          retention-days: 14
