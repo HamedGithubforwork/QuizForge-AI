@@ -116,7 +116,7 @@ for line in sshd.splitlines():
 stat=os.statvfs("/")
 free_gib=int((stat.f_bavail*stat.f_frsize)/(1024**3))
 result={
- "base_host_ready": os.path.isfile("/var/lib/quizforge/base-host-ready"),
+ "base_host_ready": run("sudo","-n","test","-f","/var/lib/quizforge/base-host-ready").returncode == 0,
  "ubuntu_24_04": os_release.get("ID")=="ubuntu" and os_release.get("VERSION_ID")=="24.04",
  "sudo_noninteractive": run("sudo","-n","true").returncode==0,
  "docker_active": run("systemctl","is-active","--quiet","docker").returncode==0,
