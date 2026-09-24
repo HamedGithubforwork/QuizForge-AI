@@ -52,7 +52,10 @@ class FirstProductionBackupTests(unittest.TestCase):
     def test_activation_does_not_touch_application_or_ai(self):
         lowered = REMOTE_INSTALL_AND_RUN.lower()
         self.assertNotIn("route53", lowered)
-        self.assertNotIn("launch-approved\n", lowered)
+        self.assertIn("test -f /etc/quizforge/launch-approved", lowered)
+        self.assertNotIn("touch /etc/quizforge/launch-approved", lowered)
+        self.assertNotIn("rm -f /etc/quizforge/launch-approved", lowered)
+        self.assertNotIn("tee /etc/quizforge/launch-approved", lowered)
         self.assertNotIn("openai_api_key", lowered)
         self.assertNotIn("generation_policy", lowered)
         self.assertNotIn("quizforge.service start", lowered)
