@@ -24,6 +24,7 @@ from .review import (
     Refused,
     Settings,
     check_source,
+    policy,
 )
 
 WORKFLOW = ".github/workflows/lightsail-repair-deep-diagnostic.yml"
@@ -137,6 +138,22 @@ def _role_inline_policy_check(
     return result
 
 
+def _policy_check(value: Any, separate_policy: Any) -> dict[str, Any]:
+    result = _shape(value)
+    result["matches_separate_policy"] = False
+    if not isinstance(value, str) or not isinstance(separate_policy, str):
+        return result
+    try:
+        result["matches_separate_policy"] = (
+            policy(value) == policy(separate_policy)
+        )
+    except Refused:
+        result["parseable"] = False
+        return result
+    result["parseable"] = True
+    return result
+
+
 def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, Any]) -> dict[str, Any]:
     changes = _resource_change_map(plan)
     drift = plan.get("resource_drift")
@@ -176,6 +193,15 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
             role_policy_after = role_policy_change.get("after")
             if isinstance(role_policy_after, Mapping):
                 separate_role_policy = role_policy_after.get("policy")
+
+    separate_sns_policy = None
+    sns_policy_item = changes.get("aws_sns_topic_policy.alerts")
+    if isinstance(sns_policy_item, Mapping):
+        sns_policy_change = sns_policy_item.get("change")
+        if isinstance(sns_policy_change, Mapping):
+            sns_policy_after = sns_policy_change.get("after")
+            if isinstance(sns_policy_after, Mapping):
+                separate_sns_policy = sns_policy_after.get("policy")
 
     expected_domain_prefix = f"quizforge-{settings.account}"
     expected_domain_host = f"{expected_domain_prefix}.auth.{REGION}.amazoncognito.com"
@@ -237,6 +263,11 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
                 "after_matches_expected_prefix": after_domain == expected_domain_prefix,
                 "before_matches_expected_host": before_domain == expected_domain_host,
                 "after_matches_expected_host": after_domain == expected_domain_host,
+            }
+        if "policy" in fields and address == "aws_sns_topic.alerts":
+            entry["policy"] = {
+                "before": _policy_check(before_map.get("policy"), separate_sns_policy),
+                "after": _policy_check(after_map.get("policy"), separate_sns_policy),
             }
 
         resources[address] = entry
