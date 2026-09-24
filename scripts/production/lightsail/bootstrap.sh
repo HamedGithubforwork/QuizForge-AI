@@ -12,7 +12,14 @@ X11Forwarding no
 AllowTcpForwarding no
 EOF
 /usr/sbin/sshd -t
-systemctl reload-or-restart ssh
+if [ "$(systemctl show ssh.service --property=LoadState --value 2>/dev/null || true)" = "loaded" ]; then
+    systemctl reload ssh.service
+elif [ "$(systemctl show sshd.service --property=LoadState --value 2>/dev/null || true)" = "loaded" ]; then
+    systemctl reload sshd.service
+else
+    echo "No loaded OpenSSH service unit found" >&2
+    exit 1
+fi
 cat > /etc/docker/daemon.json <<'EOF'
 {"log-driver":"local","log-opts":{"max-size":"5m","max-file":"2"},"exec-opts":["native.cgroupdriver=systemd"]}
 EOF
