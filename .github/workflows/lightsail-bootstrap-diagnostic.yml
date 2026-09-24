@@ -85,7 +85,7 @@ jobs:
             }]}
 
       - name: Diagnose failed base-host bootstrap without modifying host files
-        run: python scripts/production/lightsail/bootstrap_diagnose.py
+        run: python -m scripts.production.lightsail.bootstrap_diagnose
 
       - name: Publish only sanitized bootstrap findings
         if: always()
