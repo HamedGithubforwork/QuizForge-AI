@@ -28,7 +28,12 @@ RESULT = Path("lightsail-backup-host-diagnostic/summary.json")
 
 REMOTE_DIAG = r"""set -euo pipefail
 
-python3 - <<'PY'
+set -a
+. /etc/quizforge/backup.env
+set +a
+export PYTHONPATH=/opt/quizforge/operations
+
+/opt/quizforge/backup-venv/bin/python - <<'PY'
 import json
 from pathlib import Path
 import re
@@ -98,6 +103,52 @@ if status_path.is_file():
     except Exception:
         status={"present":True,"last_attempt":"invalid","last_success_present":False}
 
+preflight={
+  "backup_key_valid":False,
+  "state_directory_valid":False,
+  "connection_options_valid":False,
+  "database_connects":False,
+  "schema_fingerprint_valid":False,
+  "bounded_export_valid":False,
+  "in_memory_encryption_valid":False,
+  "bucket_versioning_visible":False,
+}
+try:
+    import os,stat
+    import boto3
+    import psycopg
+    import lightsail_backup as backup
+
+    key=backup.private_read("/etc/quizforge/backup.key",32)
+    preflight["backup_key_valid"]=len(key)==32
+
+    state=Path("/var/lib/quizforge-backup")
+    user_id=int(text("id","-u","quizforge-backup"))
+    info=state.stat()
+    preflight["state_directory_valid"]=(stat.S_ISDIR(info.st_mode) and info.st_uid==user_id and (stat.S_IMODE(info.st_mode)&0o077)==0)
+
+    options=backup.connection_options(os.environ)
+    preflight["connection_options_valid"]=True
+    with psycopg.connect(**options) as conn:
+        preflight["database_connects"]=True
+        backup.schema_state(conn)
+        preflight["schema_fingerprint_valid"]=True
+        snapshot=backup.export_snapshot(conn)
+        preflight["bounded_export_valid"]=True
+        archive=backup.seal(snapshot,key)
+        backup.unseal(archive,key)
+        preflight["in_memory_encryption_valid"]=True
+
+    account=os.environ.get("BACKUP_ACCOUNT","")
+    bucket=os.environ.get("BACKUP_BUCKET","")
+    backup.validate_bucket(bucket,account)
+    s3=boto3.client("s3",region_name="ca-central-1")
+    preflight["bucket_versioning_visible"]=(
+        s3.get_bucket_versioning(Bucket=bucket,ExpectedBucketOwner=account).get("Status")=="Enabled"
+    )
+except Exception:
+    pass
+
 journal=text("journalctl","-u","quizforge-backup.service","-n","120","--no-pager","--output=cat")
 missing_modules=sorted(set(
     match.group(1)
@@ -127,6 +178,7 @@ result={
   "status":status,
   "journal_signals":signals(journal),
   "missing_modules":missing_modules,
+  "read_only_preflight":preflight,
 }
 print("QF_RESULT="+json.dumps(result,sort_keys=True))
 PY
