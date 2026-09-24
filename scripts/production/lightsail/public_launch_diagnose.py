@@ -84,6 +84,22 @@ def signals(value):
     }
     return sorted(name for name,hit in checks.items() if hit)
 
+configured=json.load(open(compose,encoding="utf-8")).get("services",{})
+configured_services=sorted(name for name in configured if name in {"api","identity","guard","db","redis","web"})
+
+def listener(port):
+    raw=combined("sudo","-n","ss","-H","-ltnp")
+    rows=[line.lower() for line in raw.splitlines() if (":" + str(port)) in line]
+    if not rows:
+        return {"listening": False, "owner": "none"}
+    joined=" ".join(rows)
+    owner="other"
+    for candidate in ("nginx","apache2","caddy","docker-proxy"):
+        if candidate in joined:
+            owner=candidate
+            break
+    return {"listening": True, "owner": owner}
+
 services={}
 ids=text("docker","compose","-f",compose,"ps","-a","-q").splitlines()
 for cid in ids:
@@ -120,6 +136,8 @@ for cid in ids:
 
 print("QF_RESULT="+json.dumps({
     "systemd": systemd,
+    "configured_services": configured_services,
+    "listeners": {"80": listener(80), "443": listener(443)},
     "services": services,
 },sort_keys=True))
 PY
@@ -208,7 +226,12 @@ def main() -> int:
         if len(values)!=1:
             raise ValueError("unexpected diagnostic output")
         state=json.loads(values[0])
-        if not isinstance(state.get("systemd"),dict) or not isinstance(state.get("services"),dict):
+        if (
+            not isinstance(state.get("systemd"),dict)
+            or not isinstance(state.get("services"),dict)
+            or not isinstance(state.get("configured_services"),list)
+            or not isinstance(state.get("listeners"),dict)
+        ):
             raise ValueError("invalid diagnostic state")
         report["diagnostic"]=state
         report["result"]="diagnostic_complete_no_changes"
