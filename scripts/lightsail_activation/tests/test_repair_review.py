@@ -6,7 +6,8 @@ from pathlib import Path
 import unittest
 
 from scripts.lightsail_activation.repair_review import (
-    BLUEPRINT, BUNDLE, DEFAULT_TAGS, EXISTING, FINAL, REPAIR_CREATES,
+    BASE_NAME, BLUEPRINT, BUNDLE, DEFAULT_TAGS, EXISTING, FINAL, INSTANCE_NAME,
+    REPAIR_CREATES,
     Refused, _safe_side_effect_diagnostics, review_plan,
 )
 from scripts.lightsail_activation.review import PROVIDER_NAME, Settings
@@ -40,16 +41,16 @@ def values():
         "public_key": SETTINGS.ssh_key,
     }
     result["aws_lightsail_static_ip.server"] = {
-        "name": "quizforge-production-lightsail",
+        "name": BASE_NAME,
     }
     result["aws_cognito_user_pool.browser"] = {
-        "name": "quizforge-production-lightsail",
+        "name": BASE_NAME,
         "deletion_protection": "ACTIVE",
         "mfa_configuration": "ON",
         "admin_create_user_config": [{"allow_admin_create_user_only": True}],
     }
     result["aws_lightsail_instance.server"] = {
-        "name": "quizforge-production-lightsail",
+        "name": INSTANCE_NAME,
         "availability_zone": "ca-central-1a",
         "blueprint_id": BLUEPRINT,
         "bundle_id": BUNDLE,
@@ -244,11 +245,11 @@ class RepairReviewTests(unittest.TestCase):
         with self.assertRaises(Refused):
             review_plan(document, SETTINGS, catalog)
 
-    def test_exact_four_create_repair_passes(self):
+    def test_exact_three_create_repair_passes(self):
         manifest = review_plan(plan(), SETTINGS, CATALOG)
-        self.assertEqual(manifest["prior_state_managed_resources"], 14)
-        self.assertEqual(manifest["existing_resources_noop"], 14)
-        self.assertEqual(manifest["creates"], 4)
+        self.assertEqual(manifest["prior_state_managed_resources"], 15)
+        self.assertEqual(manifest["existing_resources_noop"], 15)
+        self.assertEqual(manifest["creates"], 3)
         self.assertEqual(manifest["updates"], 0)
         self.assertEqual(manifest["deletes"], 0)
         self.assertEqual(manifest["replacements"], 0)
