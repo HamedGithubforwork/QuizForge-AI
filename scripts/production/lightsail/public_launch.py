@@ -171,6 +171,20 @@ def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
     return text if re.fullmatch(r"[A-Za-z0-9._:+~-]{1,120}", text) else fallback
 
 
+def root_bash_command(
+    key: Path,
+    cert: Path,
+    known: Path,
+    username: str,
+    ip: str,
+    *args: str,
+) -> list[str]:
+    return ssh_command(
+        key, cert, known, username, ip,
+        "sudo", "bash", "-s", *args,
+    )
+
+
 def desired_record(name: str, ip: str) -> dict[str, Any]:
     return {
         "Name": name.rstrip(".") + ".",
@@ -472,7 +486,7 @@ def main() -> int:
 
         report["application_launch_attempted"] = True
         completed = subprocess.run(
-            ssh_command(key, cert, hosts, username, ip, "bash", "-s", "--", release_sha),
+            root_bash_command(key, cert, hosts, username, ip, "--", release_sha),
             input=REMOTE_PRELAUNCH,
             text=True,
             stdout=subprocess.PIPE,
@@ -507,7 +521,7 @@ def main() -> int:
         report["public_https_verified"] = True
 
         committed = subprocess.run(
-            ssh_command(key, cert, hosts, username, ip, "bash", "-s", "--", release_sha),
+            root_bash_command(key, cert, hosts, username, ip, "--", release_sha),
             input=REMOTE_COMMIT,
             text=True,
             stdout=subprocess.PIPE,
@@ -550,7 +564,7 @@ def main() -> int:
                 key, cert, hosts, username, ip = ssh_context
                 try:
                     subprocess.run(
-                        ssh_command(key, cert, hosts, username, ip, "bash", "-s"),
+                        root_bash_command(key, cert, hosts, username, ip),
                         input=REMOTE_ROLLBACK,
                         text=True,
                         stdout=subprocess.DEVNULL,
