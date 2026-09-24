@@ -6,13 +6,16 @@ on:
       - ".github/workflows/lightsail-production-quiz-e2e.yml"
       - "e2e/production-canary-tests/**"
       - "e2e/playwright.production-canary.config.ts"
-      - "e2e/support/authenticatedCanary.ts"
+      - "scripts/production/lightsail/production_canary_identity.py"
+      - "scripts/production/lightsail/test_production_canary_identity.py"
   push:
     branches: [main]
     paths:
       - ".github/workflows/lightsail-production-quiz-e2e.yml"
       - "e2e/production-canary-tests/**"
       - "e2e/playwright.production-canary.config.ts"
+      - "scripts/production/lightsail/production_canary_identity.py"
+      - "scripts/production/lightsail/test_production_canary_identity.py"
 
 permissions:
   contents: read
@@ -21,6 +24,8 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,12 +35,20 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Validate production Cognito canary controller
+        run: |
+          python -m py_compile scripts/production/lightsail/production_canary_identity.py
+          python -m unittest scripts.production.lightsail.test_production_canary_identity -v
       - name: Install browser-test dependencies
         run: npm ci --prefix e2e
       - name: Parse the production canary without executing it
         env:
-          QUIZFORGE_CANARY_EMAIL: placeholder@example.invalid
-          QUIZFORGE_CANARY_PASSWORD: placeholder-password
+          CANARY_FIXTURE_PATH: /tmp/nonexistent-production-canary-fixture.json
         run: >-
           npx --prefix e2e playwright test
           --config=e2e/playwright.production-canary.config.ts
@@ -49,17 +62,18 @@ jobs:
       github.repository == 'HamedGithubforwork/QuizForge-AI' &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     permissions:
       contents: read
+      id-token: write
     concurrency:
       group: quizforge-permanent-production-paid-e2e
       cancel-in-progress: false
     env:
       CANARY_FRONTEND_URL: https://quizfromnotes.com
-      CANARY_BACKEND_URL: https://api.quizfromnotes.com
-      QUIZFORGE_CANARY_EMAIL: ${{ secrets.QUIZFORGE_CANARY_EMAIL }}
-      QUIZFORGE_CANARY_PASSWORD: ${{ secrets.QUIZFORGE_CANARY_PASSWORD }}
+      CANARY_FIXTURE_PATH: ${{ runner.temp }}/production-canary-identity.json
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -69,17 +83,45 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: e2e/package-lock.json
-      - name: Require dedicated canary credentials before any paid generation
-        run: |
-          if [ -z "$QUIZFORGE_CANARY_EMAIL" ] || [ -z "$QUIZFORGE_CANARY_PASSWORD" ]; then
-            echo "::error::Dedicated canary credentials are not configured; no paid production test was attempted."
-            exit 1
-          fi
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
       - name: Install browser-test dependencies
         run: npm ci --prefix e2e
       - name: Install Chromium
         run: npx --prefix e2e playwright install --with-deps chromium
-      - name: Run one real production PDF-to-quiz browser canary
+      - name: Assume production-canary identity boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-production-browser-canary
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolClient",
+              "cognito-idp:CreateUserPoolClient","cognito-idp:DeleteUserPoolClient",
+              "cognito-idp:AdminCreateUser","cognito-idp:AdminGetUser","cognito-idp:AdminSetUserPassword",
+              "cognito-idp:AdminInitiateAuth","cognito-idp:AssociateSoftwareToken","cognito-idp:VerifySoftwareToken",
+              "cognito-idp:AdminRespondToAuthChallenge","cognito-idp:AdminSetUserMFAPreference",
+              "cognito-idp:GetUser","cognito-idp:AdminDeleteUser",
+              "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
+              "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
+            ],"Resource":"*"}]}
+      - name: Prepare one synthetic production Cognito user with mandatory TOTP
+        run: >-
+          python -m scripts.production.lightsail.production_canary_identity
+          prepare "$CANARY_FIXTURE_PATH"
+      - name: Run one real production Cognito PDF-to-quiz browser canary
         run: >-
           npx --prefix e2e playwright test
           --config=e2e/playwright.production-canary.config.ts
+      - name: Remove exact synthetic Cognito user and empty local identity
+        if: always()
+        run: >-
+          python -m scripts.production.lightsail.production_canary_identity
+          cleanup "$CANARY_FIXTURE_PATH"
