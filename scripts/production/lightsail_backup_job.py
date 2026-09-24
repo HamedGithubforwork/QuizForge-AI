@@ -156,18 +156,26 @@ def run_backup(directory, key, exporter, client, bucket, account, now=utcnow):
         state = read_state(root)
         state['last_attempt'] = {'started_at': now().isoformat(), 'outcome': 'running'}
         write_state(root, state)
+        stage = 'export'
         try:
             snapshot = exporter()
+            stage = 'timestamp'
             age = (now() - timestamp(snapshot['created_at'])).total_seconds()
             if not -300 <= age <= MAX_RUNNING_SECONDS:
                 raise ValueError('Export timestamp is outside this backup attempt')
+            stage = 'seal'
             archive = backup.seal(snapshot, key)
+            stage = 'archive_upload'
             uploaded = backup.upload_archive(client, bucket, account, archive)
+            stage = 'receipt_upload'
             receipt = publish_receipt(client, snapshot, uploaded, key, bucket, account)
+            stage = 'record_success'
             state['last_success'] = {'completed_at': now().isoformat(), 'receipt': receipt}
             state['last_attempt']['outcome'] = 'succeeded'
             write_state(root, state)
         except Exception:
+            # Fixed stage names only; never print data, keys, credentials or exception text.
+            print('QF_BACKUP_FAILED_STAGE=' + stage, file=sys.stderr, flush=True)
             # Never replace the previous recovery point with a partial upload.
             previous = read_state(root)
             previous['last_attempt']['outcome'] = 'failed'
