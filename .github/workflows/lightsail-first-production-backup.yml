@@ -40,7 +40,7 @@ jobs:
         run: |
           python -m py_compile scripts/production/lightsail/activate_backup_host.py
           python -m unittest scripts.production.lightsail.test_activate_backup_host -v
-          python -m unittest scripts.production.test_lightsail_backup scripts.production.test_lightsail_backup_job -v
+          PYTHONPATH=scripts/production python -m unittest scripts.production.test_lightsail_backup scripts.production.test_lightsail_backup_job -v
       - name: Validate prepared systemd units without installing them
         run: |
           mkdir -p /tmp/quizforge-backup-unit-check
@@ -91,7 +91,7 @@ jobs:
                 "iam:GetUser","iam:CreateUser","iam:TagUser","iam:ListAttachedUserPolicies","iam:AttachUserPolicy",
                 "iam:ListUserPolicies","iam:ListGroupsForUser","iam:ListAccessKeys","iam:CreateAccessKey","iam:DeleteAccessKey"
               ],"Resource":["arn:aws:iam::*:user/quizforge-production-backup-*","arn:aws:iam::*:policy/quizforge-production-backup-*"]},
-              {"Effect":"Allow","Action":["ssm:GetParameter","ssm:PutParameter"],"Resource":"arn:aws:ssm:ca-central-1:*:parameter/quizforge/production/backup-*"},
+              {"Effect":"Allow","Action":["ssm:GetParameter","ssm:PutParameter","ssm:AddTagsToResource"],"Resource":"arn:aws:ssm:ca-central-1:*:parameter/quizforge/production/backup-*"},
               {"Effect":"Allow","Action":[
                 "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
                 "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
