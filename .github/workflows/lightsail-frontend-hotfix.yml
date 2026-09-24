@@ -1,0 +1,144 @@
+name: Permanent Lightsail Cognito frontend correction
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-frontend-hotfix.yml"
+      - "scripts/production/lightsail/frontend_hotfix.py"
+      - "scripts/production/lightsail/test_frontend_hotfix.py"
+      - ".github/workflows/lightsail-release-candidate-build.yml"
+      - ".github/workflows/lightsail-app-stage.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-frontend-hotfix.yml"
+      - "scripts/production/lightsail/frontend_hotfix.py"
+      - "scripts/production/lightsail/test_frontend_hotfix.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Validate bounded frontend correction
+        run: |
+          python -m py_compile scripts/production/lightsail/frontend_hotfix.py
+          python -m unittest scripts.production.lightsail.test_frontend_hotfix -v
+
+  deploy:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-cognito-frontend-correction
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Read pinned application candidate
+        id: release
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          sha=lock["application_candidate_sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}",sha)
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+              out.write("application_sha="+sha+"\n")
+          PY
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.application_sha }}
+          path: application-candidate
+          persist-credentials: false
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Assume frontend-correction-only cloud boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-cognito-frontend-correction
+          role-duration-seconds: 1200
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "sts:GetCallerIdentity",
+              "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolDomain",
+              "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
+              "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
+            ],"Resource":"*"}]}
+      - name: Discover exact public production configuration
+        run: >-
+          python scripts/production/lightsail/release_candidate.py public-config
+          scripts/production/lightsail/public-source.json
+          "$RUNNER_TEMP/lightsail-public.json"
+      - name: Build the exact tested Cognito frontend candidate
+        env:
+          CI: "true"
+        run: >-
+          python scripts/production/build.py
+          "$RUNNER_TEMP/lightsail-public.json"
+          application-candidate/frontend
+          "$RUNNER_TEMP/frontend-build"
+      - name: Package frontend and compute deterministic tree digest
+        run: |
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"frontend-build"/"dist"
+          h=hashlib.sha256()
+          for path in sorted(p for p in root.rglob("*") if p.is_file()):
+              rel=path.relative_to(root).as_posix().encode()
+              h.update(rel+b"\0")
+              h.update(hashlib.sha256(path.read_bytes()).digest())
+          (Path(os.environ["RUNNER_TEMP"])/"frontend.tree").write_text(h.hexdigest()+"\n")
+          PY
+          tar -C "$RUNNER_TEMP/frontend-build/dist" -czf "$RUNNER_TEMP/frontend-hotfix.tar.gz" .
+      - name: Atomically replace only the live frontend and verify HTTPS
+        run: >-
+          python -m scripts.production.lightsail.frontend_hotfix
+          "$RUNNER_TEMP/frontend-hotfix.tar.gz"
+          "$(cat "$RUNNER_TEMP/frontend.tree")"
+          scripts/production/lightsail/ssh-host-pins.json
+      - name: Remove private build material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/lightsail-public.json" "$RUNNER_TEMP/frontend.tree" "$RUNNER_TEMP/frontend-hotfix.tar.gz"
+          rm -rf "$RUNNER_TEMP/frontend-build"
+      - name: Publish sanitized frontend correction result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-cognito-frontend-correction
+          path: lightsail-frontend-hotfix-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
