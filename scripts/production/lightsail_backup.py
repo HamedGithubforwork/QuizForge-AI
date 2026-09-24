@@ -50,14 +50,19 @@ def identifier(table):
 
 def connection_options(env, restore=False):
     expected = "restore-db.quizforge.internal" if restore else "db.quizforge.internal"
+    hostaddr = env.get("PGHOSTADDR")
     if (env.get("PGHOST") != expected or env.get("PGDATABASE") != "quizforge"
             or env.get("PGUSER") != "quizforge_owner" or env.get("PGPORT", "5432") != "5432"
+            or (hostaddr is not None and hostaddr != "127.0.0.1")
             or not env.get("PGPASSWORD") or not Path(env.get("PGSSLROOTCERT", "")).is_file()):
         raise ValueError("Expected the explicit private database and verified TLS credentials")
-    return dict(host=expected, port=5432, dbname="quizforge", user="quizforge_owner",
-                password=env["PGPASSWORD"], sslmode="verify-full", sslrootcert=env["PGSSLROOTCERT"],
-                connect_timeout=10, autocommit=True,
-                options="-c statement_timeout=30000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=30000")
+    result = dict(host=expected, port=5432, dbname="quizforge", user="quizforge_owner",
+                  password=env["PGPASSWORD"], sslmode="verify-full", sslrootcert=env["PGSSLROOTCERT"],
+                  connect_timeout=10, autocommit=True,
+                  options="-c statement_timeout=30000 -c lock_timeout=5000 -c idle_in_transaction_session_timeout=30000")
+    if hostaddr is not None:
+        result["hostaddr"] = hostaddr
+    return result
 
 
 def schema_state(conn):
