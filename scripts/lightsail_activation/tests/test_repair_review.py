@@ -187,6 +187,7 @@ def approved_refresh_drift():
 
     current = values()
     role_policy = current["aws_iam_role_policy.recovery"]
+    sns_policy = current["aws_sns_topic_policy.alerts"]["policy"]
     return [
         item(
             "aws_cloudwatch_log_group.recovery",
@@ -231,8 +232,18 @@ def approved_refresh_drift():
         ),
         item(
             "aws_sns_topic.alerts",
-            {"tags": None},
-            {"tags": {}},
+            {
+                "policy": json.dumps({
+                    "Version": "2012-10-17",
+                    "Statement": [{
+                        "Effect": "Allow",
+                        "Principal": {"AWS": "*"},
+                        "Action": "SNS:GetTopicAttributes",
+                        "Resource": "*",
+                    }],
+                }),
+            },
+            {"policy": sns_policy},
         ),
     ]
 
@@ -294,6 +305,12 @@ class RepairReviewTests(unittest.TestCase):
             ),
             lambda drift: drift[5]["change"]["after"].update(
                 layers=["arn:aws:lambda:ca-central-1:123456789012:layer:unexpected:1"]
+            ),
+            lambda drift: drift[7]["change"]["after"].update(
+                policy=json.dumps({"Version": "2012-10-17", "Statement": []})
+            ),
+            lambda drift: drift[7]["change"]["before"].update(
+                policy=drift[7]["change"]["after"]["policy"]
             ),
             lambda drift: drift[0]["change"].update(actions=["delete"]),
             lambda drift: drift[0]["change"].update(replace_paths=[["tags"]]),
