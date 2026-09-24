@@ -8,6 +8,12 @@ on:
       - scripts/backup_activation/**
       - scripts/rds_rehearsal/requirements.lock
       - infra/aws/lightsail-backups/**
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/aws-backup-activation.yml
+      - .github/workflows/aws-backup-activation-cloud.yml
+      - scripts/backup_activation/**
   workflow_dispatch:
     inputs:
       operation:
@@ -70,7 +76,7 @@ jobs:
   backup:
     needs: validate
     if: >-
-      github.event_name == 'workflow_dispatch' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     permissions:
@@ -78,9 +84,9 @@ jobs:
       id-token: write
     uses: ./.github/workflows/aws-backup-activation-cloud.yml
     with:
-      operation: ${{ github.event.inputs.operation }}
-      reviewed_manifest_sha256: ${{ github.event.inputs.reviewed_manifest_sha256 }}
-      confirmation: ${{ github.event.inputs.confirmation }}
+      operation: ${{ github.event_name == 'push' && 'inspect' || github.event.inputs.operation }}
+      reviewed_manifest_sha256: ${{ github.event_name == 'push' && '' || github.event.inputs.reviewed_manifest_sha256 }}
+      confirmation: ${{ github.event_name == 'push' && '' || github.event.inputs.confirmation }}
     # All private configuration crosses the reusable-workflow boundary as
     # GitHub secrets so it is masked before any step/environment rendering.
     secrets:
