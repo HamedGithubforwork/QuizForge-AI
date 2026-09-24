@@ -71,7 +71,7 @@ jobs:
       cancel-in-progress: false
     env:
       CANARY_FRONTEND_URL: https://quizfromnotes.com
-      CANARY_FIXTURE_PATH: ${{ runner.temp }}/production-canary-identity.json
+      CANARY_FIXTURE_PATH: /tmp/production-canary-identity.json
       AWS_EC2_METADATA_DISABLED: "true"
       LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
     steps:
