@@ -60,6 +60,10 @@ class FirstProductionBackupTests(unittest.TestCase):
             "/etc/quizforge/backup.key",
             REMOTE_INSTALL_AND_RUN,
         )
+        self.assertNotIn(
+            "transfer.py",
+            REMOTE_INSTALL_AND_RUN,
+        )
 
     def test_activation_does_not_touch_application_or_ai(self):
         lowered = REMOTE_INSTALL_AND_RUN.lower()
