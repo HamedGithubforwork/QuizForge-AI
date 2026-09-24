@@ -54,9 +54,15 @@ class PublicLaunchTests(unittest.TestCase):
 
     def test_remote_launch_phases_startup_keeps_ai_disabled_and_has_explicit_rollback(self):
         self.assertIn("disabled-until-explicit-activation-", REMOTE_PRELAUNCH)
-        self.assertIn("up -d --wait --wait-timeout 120 --pull never db redis", REMOTE_PRELAUNCH)
-        self.assertIn("up -d --wait --wait-timeout 120 --pull never api identity guard", REMOTE_PRELAUNCH)
+        self.assertIn("wait_health()", REMOTE_PRELAUNCH)
+        self.assertIn("up -d --pull never db redis", REMOTE_PRELAUNCH)
+        self.assertIn("wait_health db 90", REMOTE_PRELAUNCH)
+        self.assertIn("wait_health redis 90", REMOTE_PRELAUNCH)
+        self.assertIn("up -d --pull never api identity guard", REMOTE_PRELAUNCH)
+        self.assertIn("wait_health api 90", REMOTE_PRELAUNCH)
+        self.assertIn("wait_health identity 90", REMOTE_PRELAUNCH)
         self.assertIn("up -d --pull never web", REMOTE_PRELAUNCH)
+        self.assertNotIn("--wait --wait-timeout", REMOTE_PRELAUNCH)
         self.assertIn("test ! -e /etc/quizforge/launch-approved", REMOTE_PRELAUNCH)
         self.assertNotIn("tee /etc/quizforge/launch-approved", REMOTE_PRELAUNCH)
         self.assertNotIn("touch /etc/quizforge/launch-approved", REMOTE_PRELAUNCH)
