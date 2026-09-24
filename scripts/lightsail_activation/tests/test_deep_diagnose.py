@@ -108,6 +108,65 @@ class DeepDiagnosticTests(unittest.TestCase):
         ):
             self.assertNotIn(private, raw)
 
+    def test_final_instance_refresh_compares_live_ip_without_emitting_it(self):
+        document = plan()
+        old_ip = "198.51.100.10"
+        static_ip = "198.51.100.20"
+        document["resource_drift"] = [{
+            "address": "aws_lightsail_instance.server",
+            "mode": "managed",
+            "provider_name": PROVIDER_NAME,
+            "change": {
+                "actions": ["update"],
+                "before": {
+                    "is_static_ip": False,
+                    "public_ip_address": old_ip,
+                    "tags": None,
+                },
+                "after": {
+                    "is_static_ip": True,
+                    "public_ip_address": static_ip,
+                    "tags": {},
+                },
+            },
+        }]
+        live = {
+            "summary": {
+                "instance_exists": True,
+                "static_ip_exists": True,
+                "instance_blueprint_expected": True,
+                "instance_bundle_expected": True,
+                "instance_availability_zone_expected": True,
+                "instance_reports_static_ip": True,
+                "static_ip_attached_to_expected_instance": True,
+                "instance_public_ip_matches_static_ip": True,
+                "public_ports_contract_ok": True,
+            },
+            "_instance_public_ip": static_ip,
+            "_static_public_ip": static_ip,
+            "_instance_is_static_ip": True,
+        }
+
+        report = analyze(document, SETTINGS, CATALOG, live)
+        item = report["drift_resources"]["aws_lightsail_instance.server"]
+        self.assertEqual(
+            item["changed_attributes"],
+            ["is_static_ip", "public_ip_address", "tags"],
+        )
+        self.assertFalse(item["is_static_ip"]["before"])
+        self.assertTrue(item["is_static_ip"]["after"])
+        self.assertTrue(item["is_static_ip"]["after_matches_live"])
+        self.assertTrue(item["public_ip_address"]["changed"])
+        self.assertTrue(item["public_ip_address"]["after_matches_live_instance"])
+        self.assertTrue(item["public_ip_address"]["after_matches_live_static_ip"])
+        self.assertFalse(item["public_ip_address"]["before_matches_live_instance"])
+        self.assertFalse(item["public_ip_address"]["before_matches_live_static_ip"])
+        self.assertTrue(report["live_lightsail"]["public_ports_contract_ok"])
+
+        raw = json.dumps(report)
+        self.assertNotIn(old_ip, raw)
+        self.assertNotIn(static_ip, raw)
+
     def test_plan_action_summary_detects_exact_repair_shape(self):
         report = analyze(plan(), SETTINGS, CATALOG)
         self.assertEqual(report["plan_action_counts"]["create"], len(REPAIR_CREATES))

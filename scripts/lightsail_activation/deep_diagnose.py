@@ -154,7 +154,73 @@ def _policy_check(value: Any, separate_policy: Any) -> dict[str, Any]:
     return result
 
 
-def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, Any]) -> dict[str, Any]:
+def read_live_lightsail(settings: Settings) -> dict[str, Any]:
+    """Read only the live instance/static-IP/firewall relationship; never publish IP values."""
+    import boto3
+
+    lightsail = boto3.client("lightsail", region_name=REGION)
+    instance = lightsail.get_instance(
+        instanceName="quizforge-production-lightsail-server"
+    )["instance"]
+    static_ip = lightsail.get_static_ip(
+        staticIpName="quizforge-production-lightsail"
+    )["staticIp"]
+    port_states = lightsail.get_instance_port_states(
+        instanceName="quizforge-production-lightsail-server"
+    ).get("portStates", [])
+
+    normalized_ports = {
+        (
+            item.get("fromPort"),
+            item.get("toPort"),
+            item.get("protocol"),
+            tuple(sorted(item.get("cidrs") or [])),
+            tuple(sorted(item.get("ipv6Cidrs") or [])),
+            tuple(sorted(item.get("cidrListAliases") or [])),
+        )
+        for item in port_states
+        if isinstance(item, Mapping)
+    }
+    expected_ports = {
+        (22, 22, "tcp", (settings.admin_cidr,), (), ()),
+        (80, 80, "tcp", ("0.0.0.0/0",), (), ()),
+        (443, 443, "tcp", ("0.0.0.0/0",), (), ()),
+    }
+
+    instance_public_ip = instance.get("publicIpAddress")
+    static_public_ip = static_ip.get("ipAddress")
+    return {
+        "summary": {
+            "instance_exists": True,
+            "static_ip_exists": True,
+            "instance_blueprint_expected": instance.get("blueprintId") == "ubuntu_24_04",
+            "instance_bundle_expected": instance.get("bundleId") == "small_3_0",
+            "instance_availability_zone_expected": (
+                instance.get("location", {}).get("availabilityZone") == "ca-central-1a"
+            ),
+            "instance_reports_static_ip": instance.get("isStaticIp") is True,
+            "static_ip_attached_to_expected_instance": (
+                static_ip.get("attachedTo") == "quizforge-production-lightsail-server"
+            ),
+            "instance_public_ip_matches_static_ip": (
+                isinstance(instance_public_ip, str)
+                and bool(instance_public_ip)
+                and instance_public_ip == static_public_ip
+            ),
+            "public_ports_contract_ok": normalized_ports == expected_ports,
+        },
+        "_instance_public_ip": instance_public_ip,
+        "_static_public_ip": static_public_ip,
+        "_instance_is_static_ip": instance.get("isStaticIp"),
+    }
+
+
+def analyze(
+    plan: Mapping[str, Any],
+    settings: Settings,
+    catalog: Mapping[str, Any],
+    live: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     changes = _resource_change_map(plan)
     drift = plan.get("resource_drift")
     drift_items = drift if isinstance(drift, list) else []
@@ -269,6 +335,48 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
                 "before": _policy_check(before_map.get("policy"), separate_sns_policy),
                 "after": _policy_check(after_map.get("policy"), separate_sns_policy),
             }
+        if address == "aws_lightsail_instance.server":
+            if "is_static_ip" in fields:
+                entry["is_static_ip"] = {
+                    "before": before_map.get("is_static_ip")
+                    if isinstance(before_map.get("is_static_ip"), bool)
+                    else None,
+                    "after": after_map.get("is_static_ip")
+                    if isinstance(after_map.get("is_static_ip"), bool)
+                    else None,
+                    "after_matches_live": (
+                        live is not None
+                        and after_map.get("is_static_ip") == live.get("_instance_is_static_ip")
+                    ),
+                }
+            if "public_ip_address" in fields:
+                before_ip = before_map.get("public_ip_address")
+                after_ip = after_map.get("public_ip_address")
+                entry["public_ip_address"] = {
+                    "before": _shape(before_ip),
+                    "after": _shape(after_ip),
+                    "changed": before_ip != after_ip,
+                    "after_matches_live_instance": (
+                        live is not None
+                        and isinstance(after_ip, str)
+                        and after_ip == live.get("_instance_public_ip")
+                    ),
+                    "after_matches_live_static_ip": (
+                        live is not None
+                        and isinstance(after_ip, str)
+                        and after_ip == live.get("_static_public_ip")
+                    ),
+                    "before_matches_live_instance": (
+                        live is not None
+                        and isinstance(before_ip, str)
+                        and before_ip == live.get("_instance_public_ip")
+                    ),
+                    "before_matches_live_static_ip": (
+                        live is not None
+                        and isinstance(before_ip, str)
+                        and before_ip == live.get("_static_public_ip")
+                    ),
+                }
 
         resources[address] = entry
 
@@ -329,6 +437,11 @@ def analyze(plan: Mapping[str, Any], settings: Settings, catalog: Mapping[str, A
         "action_invocation_count": len(invocations) if isinstance(invocations, list) else 0,
         "full_repair_review_result": full_review_code,
         "rest_of_plan_contract_after_ignoring_refresh_drift": stripped_review_code,
+        "live_lightsail": (
+            dict(live.get("summary", {}))
+            if isinstance(live, Mapping) and isinstance(live.get("summary"), Mapping)
+            else {"available": False}
+        ),
         "drift_resources": resources,
     }
 
@@ -349,7 +462,8 @@ def main() -> int:
         check_source(root)
         catalog = check_catalog_and_external_budget(settings)
         plan = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-        report = analyze(plan, settings, catalog)
+        live = read_live_lightsail(settings)
+        report = analyze(plan, settings, catalog, live)
         write_json(output, report)
         print("Lightsail repair deep diagnostic completed; no apply was attempted.")
         return 0
