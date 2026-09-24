@@ -57,7 +57,8 @@ class PublicLaunchTests(unittest.TestCase):
         self.assertIn("systemctl stop quizforge.service", REMOTE_ROLLBACK)
         self.assertIn("systemctl disable quizforge.service", REMOTE_ROLLBACK)
         self.assertIn("rm -f /etc/quizforge/launch-approved", REMOTE_ROLLBACK)
-        self.assertNotIn("OPENAI_API_KEY=sk-", REMOTE_LAUNCH)
+        self.assertIn("! grep -q '^OPENAI_API_KEY=sk-'", REMOTE_LAUNCH)
+        self.assertNotIn("tee /etc/quizforge/generation.env", REMOTE_LAUNCH)
         self.assertNotIn("enabled=true", REMOTE_LAUNCH)
 
     def test_public_summary_rejects_ip_and_private_values(self):
