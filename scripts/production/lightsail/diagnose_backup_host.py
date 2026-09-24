@@ -31,6 +31,7 @@ REMOTE_DIAG = r"""set -euo pipefail
 python3 - <<'PY'
 import json
 from pathlib import Path
+import re
 import subprocess
 
 def run(*args):
