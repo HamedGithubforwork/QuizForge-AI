@@ -237,6 +237,38 @@ def approved_refresh_drift():
     ]
 
 
+def current_sns_policy_refresh():
+    current = values()
+    managed = current["aws_sns_topic_policy.alerts"]["policy"]
+    legacy = json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "cloudwatch.amazonaws.com"},
+                "Action": "SNS:Publish",
+                "Resource": current["aws_sns_topic_policy.alerts"]["arn"],
+            },
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "budgets.amazonaws.com"},
+                "Action": "SNS:Publish",
+                "Resource": current["aws_sns_topic_policy.alerts"]["arn"],
+            },
+        ],
+    })
+    return [{
+        "address": "aws_sns_topic.alerts",
+        "mode": "managed",
+        "provider_name": PROVIDER_NAME,
+        "change": {
+            "actions": ["update"],
+            "before": {"policy": legacy},
+            "after": {"policy": managed},
+        },
+    }]
+
+
 class RepairReviewTests(unittest.TestCase):
     def refused(self, mutate, catalog=CATALOG):
         document = plan()
@@ -261,6 +293,48 @@ class RepairReviewTests(unittest.TestCase):
             SETTINGS.state_bucket, SETTINGS.ssh_key, SETTINGS.admin_cidr,
         ):
             self.assertNotIn(private, raw)
+
+    def test_current_sns_topic_policy_readback_normalization_is_allowed(self):
+        document = plan()
+        document["resource_drift"] = current_sns_policy_refresh()
+        manifest = review_plan(document, SETTINGS, CATALOG)
+        self.assertEqual(manifest["approved_refresh_drift_entries"], 1)
+        self.assertTrue(manifest["approved_refresh_drift_only"])
+        self.assertEqual(manifest["updates"], 0)
+        self.assertEqual(manifest["deletes"], 0)
+        self.assertEqual(manifest["replacements"], 0)
+
+    def test_sns_topic_policy_readback_requires_exact_managed_policy(self):
+        cases = []
+
+        wrong_after = current_sns_policy_refresh()
+        wrong_after[0]["change"]["after"]["policy"] = json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [],
+        })
+        cases.append(wrong_after)
+
+        unparsable_before = current_sns_policy_refresh()
+        unparsable_before[0]["change"]["before"]["policy"] = "not-json"
+        cases.append(unparsable_before)
+
+        same_before_after = current_sns_policy_refresh()
+        same_before_after[0]["change"]["before"]["policy"] = (
+            same_before_after[0]["change"]["after"]["policy"]
+        )
+        cases.append(same_before_after)
+
+        extra_field = current_sns_policy_refresh()
+        extra_field[0]["change"]["before"]["display_name"] = ""
+        extra_field[0]["change"]["after"]["display_name"] = "unexpected"
+        cases.append(extra_field)
+
+        for drift in cases:
+            with self.subTest(drift=drift):
+                document = plan()
+                document["resource_drift"] = drift
+                with self.assertRaisesRegex(Refused, "UNEXPECTED_PLAN_SIDE_EFFECTS"):
+                    review_plan(document, SETTINGS, CATALOG)
 
     def test_exact_observed_refresh_normalizations_are_allowed(self):
         document = plan()
