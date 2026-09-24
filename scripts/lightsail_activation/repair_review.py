@@ -61,7 +61,7 @@ APPROVED_REFRESH_DRIFT_FIELDS = {
     "aws_iam_role.recovery": frozenset({"inline_policy", "tags"}),
     "aws_lambda_function.recovery": frozenset({"layers", "tags"}),
     "aws_lightsail_key_pair.operator": frozenset({"tags"}),
-    "aws_sns_topic.alerts": frozenset({"tags"}),
+    "aws_sns_topic.alerts": frozenset({"policy", "tags"}),
 }
 
 
@@ -119,6 +119,41 @@ def _null_to_empty_tags(before: Any, after: Any) -> bool:
 def _domain_normalization(before: Any, after: Any, settings: Settings) -> bool:
     expected = f"quizforge-{settings.account}"
     return before == "" and after == expected
+
+
+def _sns_topic_policy_normalization(
+    plan: Mapping[str, Any],
+    before: Any,
+    after: Any,
+) -> bool:
+    """Allow only a stale topic-policy readback converging to the managed policy."""
+    if not isinstance(before, str) or not isinstance(after, str) or before == after:
+        return False
+
+    expected_policy = None
+    for item in plan.get("resource_changes", []) or []:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("address") != "aws_sns_topic_policy.alerts":
+            continue
+        change = item.get("change")
+        if not isinstance(change, Mapping) or change.get("actions") != ["no-op"]:
+            return False
+        value = change.get("after")
+        if not isinstance(value, Mapping):
+            return False
+        expected_policy = value.get("policy")
+        break
+
+    if not isinstance(expected_policy, str):
+        return False
+    try:
+        refreshed = policy(after)
+        stale = policy(before)
+        expected = policy(expected_policy)
+    except Refused:
+        return False
+    return refreshed == expected and stale != expected
 
 
 def _inline_policy_normalization(
@@ -219,6 +254,10 @@ def _approved_refresh_drift_count(plan: Mapping[str, Any], settings: Settings) -
                 ok = _null_to_empty_list(before_value, after_value)
             elif attribute == "inline_policy":
                 ok = _inline_policy_normalization(plan, before_value, after_value)
+            elif attribute == "policy" and address == "aws_sns_topic.alerts":
+                ok = _sns_topic_policy_normalization(
+                    plan, before_value, after_value
+                )
             elif attribute == "domain":
                 ok = _domain_normalization(before_value, after_value, settings)
             else:
