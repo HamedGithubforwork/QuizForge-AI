@@ -108,6 +108,8 @@ result={
       "/opt/quizforge/operations/db-ca.pem",
   )),
   "backup_venv_present": exists("/opt/quizforge/backup-venv/bin/python"),
+  "backup_venv_imports_ok": run("/opt/quizforge/backup-venv/bin/python","-c","import boto3,cryptography,psycopg").returncode==0,
+  "backup_venv_pip_check_ok": run("/opt/quizforge/backup-venv/bin/python","-m","pip","check").returncode==0,
   "backup_key_present": exists("/etc/quizforge/backup.key"),
   "backup_env_present": exists("/etc/quizforge/backup.env"),
   "health_env_present": exists("/etc/quizforge/backup-health.env"),
