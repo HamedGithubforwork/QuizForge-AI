@@ -172,35 +172,94 @@ async function signInAndEnrollCanary(
     },
   )
 
-  await expect(
+  const setupHeading =
     page.getByRole('heading', {
       name: 'Set up your account',
-    }),
-  ).toBeVisible({
-    timeout: 30_000,
-  })
-
-  await page
-    .getByLabel('Account setup')
-    .selectOption('enroll')
-
-  await page
-    .getByRole('button', {
-      name: 'Continue account setup',
     })
-    .click()
-
-  await page
-    .getByRole('button', {
-      name: 'Confirm account setup',
-    })
-    .click()
-
-  await expect(
+  const uploadHeading =
     page.getByRole('heading', {
       name: 'Upload your study material',
-    }),
-  ).toBeVisible({
+    })
+
+  await page.waitForTimeout(2_000)
+
+  const setupVisible =
+    await setupHeading
+      .isVisible()
+      .catch(() => false)
+  const uploadVisible =
+    await uploadHeading
+      .isVisible()
+      .catch(() => false)
+
+  if (!setupVisible && !uploadVisible) {
+    const signInVisible =
+      await page
+        .getByRole('button', {
+          name: 'Sign in or create account',
+        })
+        .isVisible()
+        .catch(() => false)
+    const alertText =
+      await page
+        .getByRole('alert')
+        .first()
+        .textContent()
+        .catch(() => null)
+
+    let errorClass = 'none'
+
+    if (alertText?.includes(
+      'Sign-in could not be verified',
+    )) {
+      errorClass =
+        'identity_verification_failed'
+    } else if (alertText?.includes(
+      'session is invalid',
+    )) {
+      errorClass = 'invalid_session'
+    } else if (alertText?.includes(
+      'temporarily unavailable',
+    )) {
+      errorClass =
+        'auth_service_unavailable'
+    } else if (alertText?.includes(
+      'Untrusted request origin',
+    )) {
+      errorClass = 'untrusted_origin'
+    } else if (alertText) {
+      errorClass = 'other_error'
+    }
+
+    console.log(
+      'PRODUCTION_CANARY_POST_LOGIN_STATE ' +
+      JSON.stringify({
+        path: new URL(page.url()).pathname,
+        signInVisible,
+        errorClass,
+      }),
+    )
+  }
+
+  if (setupVisible) {
+    await page
+      .getByLabel('Account setup')
+      .selectOption('enroll')
+
+    await page
+      .getByRole('button', {
+        name: 'Continue account setup',
+      })
+      .click()
+
+    await page
+      .getByRole('button', {
+        name: 'Confirm account setup',
+      })
+      .click()
+  }
+
+  await expect(uploadHeading).toBeVisible({
     timeout: 30_000,
   })
 }
