@@ -19,6 +19,8 @@ WORKFLOW = ".github/workflows/lightsail-production-repair-inspect.yml"
 BUNDLE = "small_3_0"
 BLUEPRINT = "ubuntu_24_04"
 BUDGET_NAME = "quizforge-monthly-account-cost"
+BASE_NAME = "quizforge-production-lightsail"
+INSTANCE_NAME = "${BASE_NAME}-server"
 
 FINAL = frozenset({
     "aws_lightsail_key_pair.operator",
@@ -45,7 +47,6 @@ REPAIR_CREATES = frozenset({
     "aws_lightsail_instance.server",
     "aws_lightsail_instance_public_ports.server",
     "aws_lightsail_static_ip_attachment.server",
-    "aws_sns_topic_policy.alerts",
 })
 EXISTING = FINAL - REPAIR_CREATES
 
@@ -498,10 +499,10 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
     require(key.get("name") == "quizforge-production-operator"
             and key.get("public_key") == settings.ssh_key, "SSH_KEY_MISMATCH")
     require(after["aws_lightsail_static_ip.server"].get("name")
-            == "quizforge-production-lightsail", "STATIC_IP_NAME_MISMATCH")
+            == BASE_NAME, "STATIC_IP_NAME_MISMATCH")
 
     pool = after["aws_cognito_user_pool.browser"]
-    require(pool.get("name") == "quizforge-production-lightsail"
+    require(pool.get("name") == BASE_NAME
             and pool.get("deletion_protection") == "ACTIVE"
             and pool.get("mfa_configuration") == "ON",
             "COGNITO_POOL_MISMATCH")
@@ -511,7 +512,7 @@ def review_plan(plan: dict[str, Any], settings: Settings, catalog: dict[str, Any
 
     server = after["aws_lightsail_instance.server"]
     for name, expected in {
-        "name": "quizforge-production-lightsail",
+        "name": INSTANCE_NAME,
         "availability_zone": "ca-central-1a",
         "blueprint_id": BLUEPRINT,
         "bundle_id": BUNDLE,
