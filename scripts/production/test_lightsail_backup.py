@@ -23,6 +23,18 @@ def synthetic_snapshot():
     return value
 
 
+class PrivateFileBoundaryTests(unittest.TestCase):
+    def test_private_io_is_self_contained_and_rejects_public_files(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "private.bin"
+            backup.private_write(path, b"abc")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(backup.private_read(path, 3), b"abc")
+            path.chmod(0o644)
+            with self.assertRaises(ValueError):
+                backup.private_read(path, 3)
+
+
 class BackupBoundaries(unittest.TestCase):
     def test_authenticated_encryption_rejects_corruption_truncation_wrong_key_and_plaintext(self):
         key = secrets.token_bytes(32)
