@@ -64,6 +64,22 @@ for key,value in zip(keys,show):
     else:
         systemd[key]="unknown"
 
+def signals(value):
+    low=value.lower()
+    checks={
+        "traceback": "traceback" in low,
+        "module_error": "modulenotfounderror" in low or "importerror" in low,
+        "permission_error": "permission denied" in low or "permissionerror" in low,
+        "db_connection_error": "operationalerror" in low or "connection refused" in low or "password authentication failed" in low,
+        "tls_error": "certificate verify failed" in low or "ssl error" in low,
+        "address_in_use": "address already in use" in low,
+        "oom_signal": "out of memory" in low or "oom" in low or "killed" in low,
+        "no_space": "no space left" in low,
+        "uvicorn_started": "uvicorn running" in low or "application startup complete" in low,
+        "caddy_error": "caddy" in low and ("error" in low or "failed" in low),
+    }
+    return sorted(name for name,hit in checks.items() if hit)
+
 services={}
 ids=text("docker","compose","-f",compose,"ps","-a","-q").splitlines()
 for cid in ids:
@@ -80,11 +96,22 @@ for cid in ids:
     name=labels.get("com.docker.compose.service")
     if name not in {"api","identity","guard","db","redis","web"}:
         continue
+    log_text=text("docker","logs","--tail","200",cid)
+    health_raw=text("docker","inspect","--format",'{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}',cid)
+    health_signals=[]
+    try:
+        for item in json.loads(health_raw or "[]")[-3:]:
+            if isinstance(item,dict):
+                health_signals.extend(signals(str(item.get("Output",""))))
+    except Exception:
+        pass
     services[name]={
         "status": status if status in {"created","running","paused","restarting","removing","exited","dead"} else "unknown",
         "exit_code": int(exit_code) if exit_code.isdigit() else -1,
         "oom_killed": oom.lower()=="true",
         "health": health if health in {"none","starting","healthy","unhealthy"} else "unknown",
+        "log_signals": signals(log_text),
+        "health_signals": sorted(set(health_signals)),
     }
 
 print("QF_RESULT="+json.dumps({
