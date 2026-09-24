@@ -34,7 +34,7 @@ jobs:
         run: |
           python -m py_compile scripts/production/lightsail/activate_ai.py
           python -m unittest scripts.production.lightsail.test_activate_ai -v
-          python -m unittest scripts.production.test_generation_costs -v
+          PYTHONPATH=scripts/production python -m unittest scripts.production.test_generation_costs -v
 
   activate:
     needs: validate
