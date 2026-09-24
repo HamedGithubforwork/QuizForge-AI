@@ -351,7 +351,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("inputs.operation == 'inspect'", cloud)
         self.assertIn("github.ref == 'refs/heads/main'", main)
         self.assertIn("cancel-in-progress: false", cloud)
-        self.assertIn("operation: ${{ github.event.inputs.operation }}", main)
+        self.assertIn("operation: ${{ github.event_name == 'push' && 'inspect' || github.event.inputs.operation }}", main)
         self.assertIn("QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}", main)
         self.assertIn("QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}", main)
         self.assertIn("QF_ROLE_ARN: ${{ secrets.QF_ROLE_ARN }}", cloud)
