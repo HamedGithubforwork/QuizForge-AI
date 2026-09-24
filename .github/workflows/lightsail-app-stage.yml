@@ -100,6 +100,7 @@ jobs:
           assert re.fullmatch(r"[0-9a-f]{40}",lock["application_candidate_sha"])
           with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
               out.write("release_sha="+lock["release_sha"]+"\n")
+              out.write("application_sha="+lock["application_candidate_sha"]+"\n")
           PY
 
       - name: Check out the exact reviewed release source
@@ -107,6 +108,13 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.release_sha }}
           path: release-source
+          persist-credentials: false
+
+      - name: Check out the exact tested application candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release.outputs.application_sha }}
+          path: application-candidate
           persist-credentials: false
 
       - name: Install existing hash-locked AWS SDK dependencies
@@ -155,7 +163,7 @@ jobs:
         run: |
           python release-source/scripts/production/build.py \
             "$RUNNER_TEMP/lightsail-public.json" \
-            release-source/frontend \
+            application-candidate/frontend \
             "$RUNNER_TEMP/frontend-build"
 
       - name: Render exact inactive production stack and staging manifest
