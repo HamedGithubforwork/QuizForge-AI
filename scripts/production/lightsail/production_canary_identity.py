@@ -251,7 +251,8 @@ def prepare(path: Path) -> None:
     fixture_client = None
     username = None
     try:
-        stage = "create_fixture_client"\n        created_client = cognito.create_user_pool_client(
+        stage = "create_fixture_client"
+        created_client = cognito.create_user_pool_client(
             UserPoolId=pool_id,
             ClientName=f"quizforge-production-canary-{run_id}",
             GenerateSecret=False,
@@ -274,7 +275,8 @@ def prepare(path: Path) -> None:
         if not CLIENT_RE.fullmatch(str(fixture_client)):
             raise ValueError("Unexpected fixture client id")
 
-        stage = "create_user"\n        cognito.admin_create_user(
+        stage = "create_user"
+        cognito.admin_create_user(
             UserPoolId=pool_id,
             Username=email,
             MessageAction="SUPPRESS",
@@ -283,17 +285,20 @@ def prepare(path: Path) -> None:
                 {"Name": "email_verified", "Value": "true"},
             ],
         )
-        stage = "read_user"\n        created = cognito.admin_get_user(UserPoolId=pool_id, Username=email)
+        stage = "read_user"
+        created = cognito.admin_get_user(UserPoolId=pool_id, Username=email)
         username = created["Username"]
         if not isinstance(username, str) or not username or len(username) > 128:
             raise ValueError("Unexpected Cognito username")
-        stage = "set_password"\n        cognito.admin_set_user_password(
+        stage = "set_password"
+        cognito.admin_set_user_password(
             UserPoolId=pool_id,
             Username=username,
             Password=password,
             Permanent=True,
         )
-        stage = "begin_mfa"\n        login = cognito.admin_initiate_auth(
+        stage = "begin_mfa"
+        login = cognito.admin_initiate_auth(
             UserPoolId=pool_id,
             ClientId=fixture_client,
             AuthFlow="ADMIN_USER_PASSWORD_AUTH",
@@ -302,17 +307,20 @@ def prepare(path: Path) -> None:
         if login.get("ChallengeName") != "MFA_SETUP" or not login.get("Session"):
             raise ValueError("Mandatory MFA setup did not start")
         challenge_username = login.get("ChallengeParameters", {}).get("USERNAME", email)
-        stage = "associate_totp"\n        association = cognito.associate_software_token(Session=login["Session"])
+        stage = "associate_totp"
+        association = cognito.associate_software_token(Session=login["Session"])
         secret = str(association.get("SecretCode", ""))
         if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
             raise ValueError("Unexpected TOTP secret")
-        stage = "verify_totp"\n        verified = cognito.verify_software_token(
+        stage = "verify_totp"
+        verified = cognito.verify_software_token(
             Session=association["Session"],
             UserCode=totp(secret),
         )
         if verified.get("Status") != "SUCCESS" or not verified.get("Session"):
             raise ValueError("TOTP setup failed")
-        stage = "finish_mfa"\n        result = cognito.admin_respond_to_auth_challenge(
+        stage = "finish_mfa"
+        result = cognito.admin_respond_to_auth_challenge(
             UserPoolId=pool_id,
             ClientId=fixture_client,
             ChallengeName="MFA_SETUP",
@@ -322,7 +330,8 @@ def prepare(path: Path) -> None:
         access = result.get("AccessToken")
         if not isinstance(access, str) or not access:
             raise ValueError("MFA setup did not produce an access token")
-        stage = "read_subject"\n        user = cognito.get_user(AccessToken=access)
+        stage = "read_subject"
+        user = cognito.get_user(AccessToken=access)
         subject = next(
             (
                 item.get("Value")
@@ -332,12 +341,14 @@ def prepare(path: Path) -> None:
             None,
         )
         subject = str(UUID(str(subject)))
-        stage = "set_mfa_preference"\n        cognito.admin_set_user_mfa_preference(
+        stage = "set_mfa_preference"
+        cognito.admin_set_user_mfa_preference(
             UserPoolId=pool_id,
             Username=username,
             SoftwareTokenMfaSettings={"Enabled": True, "PreferredMfa": True},
         )
-        stage = "write_fixture"\n        private_write(
+        stage = "write_fixture"
+        private_write(
             path,
             {
                 "schema": 1,
