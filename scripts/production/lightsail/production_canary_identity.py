@@ -236,16 +236,22 @@ def validate_fixture(value: dict[str, Any]) -> dict[str, str]:
     return strings
 
 
+class PrepareFailed(Exception):
+    pass
+
+
 def prepare(path: Path) -> None:
+    stage = "run_id"
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     email = canary_email(run_id)
     password = "Qf9!" + secrets.token_urlsafe(32)
     cognito = boto3.client("cognito-idp", region_name=REGION)
+    stage = "discover"
     pool_id, production_client = discover(cognito)
     fixture_client = None
     username = None
     try:
-        created_client = cognito.create_user_pool_client(
+        stage = "create_fixture_client"\n        created_client = cognito.create_user_pool_client(
             UserPoolId=pool_id,
             ClientName=f"quizforge-production-canary-{run_id}",
             GenerateSecret=False,
@@ -268,7 +274,7 @@ def prepare(path: Path) -> None:
         if not CLIENT_RE.fullmatch(str(fixture_client)):
             raise ValueError("Unexpected fixture client id")
 
-        cognito.admin_create_user(
+        stage = "create_user"\n        cognito.admin_create_user(
             UserPoolId=pool_id,
             Username=email,
             MessageAction="SUPPRESS",
@@ -277,17 +283,17 @@ def prepare(path: Path) -> None:
                 {"Name": "email_verified", "Value": "true"},
             ],
         )
-        created = cognito.admin_get_user(UserPoolId=pool_id, Username=email)
+        stage = "read_user"\n        created = cognito.admin_get_user(UserPoolId=pool_id, Username=email)
         username = created["Username"]
         if not isinstance(username, str) or not username or len(username) > 128:
             raise ValueError("Unexpected Cognito username")
-        cognito.admin_set_user_password(
+        stage = "set_password"\n        cognito.admin_set_user_password(
             UserPoolId=pool_id,
             Username=username,
             Password=password,
             Permanent=True,
         )
-        login = cognito.admin_initiate_auth(
+        stage = "begin_mfa"\n        login = cognito.admin_initiate_auth(
             UserPoolId=pool_id,
             ClientId=fixture_client,
             AuthFlow="ADMIN_USER_PASSWORD_AUTH",
@@ -296,17 +302,17 @@ def prepare(path: Path) -> None:
         if login.get("ChallengeName") != "MFA_SETUP" or not login.get("Session"):
             raise ValueError("Mandatory MFA setup did not start")
         challenge_username = login.get("ChallengeParameters", {}).get("USERNAME", email)
-        association = cognito.associate_software_token(Session=login["Session"])
+        stage = "associate_totp"\n        association = cognito.associate_software_token(Session=login["Session"])
         secret = str(association.get("SecretCode", ""))
         if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
             raise ValueError("Unexpected TOTP secret")
-        verified = cognito.verify_software_token(
+        stage = "verify_totp"\n        verified = cognito.verify_software_token(
             Session=association["Session"],
             UserCode=totp(secret),
         )
         if verified.get("Status") != "SUCCESS" or not verified.get("Session"):
             raise ValueError("TOTP setup failed")
-        result = cognito.admin_respond_to_auth_challenge(
+        stage = "finish_mfa"\n        result = cognito.admin_respond_to_auth_challenge(
             UserPoolId=pool_id,
             ClientId=fixture_client,
             ChallengeName="MFA_SETUP",
@@ -316,7 +322,7 @@ def prepare(path: Path) -> None:
         access = result.get("AccessToken")
         if not isinstance(access, str) or not access:
             raise ValueError("MFA setup did not produce an access token")
-        user = cognito.get_user(AccessToken=access)
+        stage = "read_subject"\n        user = cognito.get_user(AccessToken=access)
         subject = next(
             (
                 item.get("Value")
@@ -326,12 +332,12 @@ def prepare(path: Path) -> None:
             None,
         )
         subject = str(UUID(str(subject)))
-        cognito.admin_set_user_mfa_preference(
+        stage = "set_mfa_preference"\n        cognito.admin_set_user_mfa_preference(
             UserPoolId=pool_id,
             Username=username,
             SoftwareTokenMfaSettings={"Enabled": True, "PreferredMfa": True},
         )
-        private_write(
+        stage = "write_fixture"\n        private_write(
             path,
             {
                 "schema": 1,
@@ -358,7 +364,8 @@ def prepare(path: Path) -> None:
             except Exception:
                 pass
         path.unlink(missing_ok=True)
-        raise
+        code = "PREPARE_" + re.sub(r"[^A-Z0-9_]", "_", stage.upper())
+        raise PrepareFailed(code) from None
 
 
 def cleanup_local_identity(pool_id: str, subject: str) -> None:
@@ -505,6 +512,8 @@ def main() -> int:
         else:
             cleanup(Path(sys.argv[2]))
         return 0
+    except PrepareFailed as error:
+        print(f"Production canary identity operation failed: {error}", file=sys.stderr)
     except ClientError as error:
         code = error.response.get("Error", {}).get("Code", "AWS_ERROR")
         code = code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", str(code)) else "AWS_ERROR"
