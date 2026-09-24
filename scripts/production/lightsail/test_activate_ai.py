@@ -28,6 +28,12 @@ class ActivateAITests(unittest.TestCase):
         self.assertNotIn("sk-", REMOTE_ACTIVATE)
         self.assertNotIn("user notes", REMOTE_ACTIVATE.lower())
 
+    def test_remote_zero_exit_is_sufficient_after_remote_acceptance_assertions(self):
+        self.assertIn('test "$canary_status" = "200"', REMOTE_ACTIVATE)
+        self.assertIn('assert row["enabled"] is True', REMOTE_ACTIVATE)
+        self.assertIn('assert used >= 1', REMOTE_ACTIVATE)
+        self.assertIn("systemctl is-active --quiet quizforge.service", REMOTE_ACTIVATE)
+
     def test_failure_path_disables_policy_and_replaces_key(self):
         self.assertIn("SET enabled=false,daily_requests=0,monthly_requests=0", REMOTE_DISABLE)
         self.assertIn("disabled-until-explicit-activation-", REMOTE_DISABLE)
