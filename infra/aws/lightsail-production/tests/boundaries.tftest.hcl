@@ -25,6 +25,10 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "Retain the measured 2 GB / 2 vCPU IPv4 Ubuntu layout."
   }
   assert {
+    condition     = aws_lightsail_instance.server.name == "quizforge-production-lightsail-server" && aws_lightsail_static_ip.server.name == "quizforge-production-lightsail" && aws_lightsail_instance.server.name != aws_lightsail_static_ip.server.name
+    error_message = "Lightsail resource names must remain regionally unique; do not reuse the static-IP name for the instance."
+  }
+  assert {
     condition     = length(aws_lightsail_instance_public_ports.server.port_info) == 3 && alltrue([for p in aws_lightsail_instance_public_ports.server.port_info : contains([22, 80, 443], p.from_port) && p.from_port == p.to_port && p.protocol == "tcp" && (p.from_port != 22 || (length(p.cidrs) == 1 && contains(p.cidrs, "192.0.2.10/32")))])
     error_message = "Only HTTP/HTTPS and one operator SSH source may be public."
   }
