@@ -174,7 +174,7 @@ jobs:
             "$RUNNER_TEMP/lightsail-repair.tfplan" \
             >"$RUNNER_TEMP/lightsail-repair-plan.json"
 
-      - name: Review exact four-create repair plan
+      - name: Review exact three-create repair plan
         env:
           QF_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
           QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
