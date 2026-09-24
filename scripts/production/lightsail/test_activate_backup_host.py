@@ -7,10 +7,14 @@ from scripts.production.lightsail.activate_backup_host import (
     RECOVERY_USER,
     REMOTE_INSTALL_AND_RUN,
     UPLOADER_USER,
+    BACKUP_RUNTIME_RETRY_REVISION,
 )
 
 
 class FirstProductionBackupTests(unittest.TestCase):
+    def test_reviewed_retry_revision_is_explicit(self):
+        self.assertEqual(BACKUP_RUNTIME_RETRY_REVISION, 1)
+
     def test_three_backup_identities_are_separate(self):
         self.assertEqual(
             len({UPLOADER_USER, HEALTH_USER, RECOVERY_USER}),
