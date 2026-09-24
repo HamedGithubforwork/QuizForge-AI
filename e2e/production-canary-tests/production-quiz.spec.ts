@@ -6,16 +6,47 @@ import {
 import {
   createHmac,
 } from 'node:crypto'
+import {
+  readFileSync,
+} from 'node:fs'
 
 const frontendUrl =
   process.env.CANARY_FRONTEND_URL ||
   'https://quizfromnotes.com'
-const email =
-  process.env.CANARY_COGNITO_EMAIL || ''
-const password =
-  process.env.CANARY_COGNITO_PASSWORD || ''
-const totpSecret =
-  process.env.CANARY_COGNITO_TOTP || ''
+
+type CanaryFixture = {
+  email: string
+  password: string
+  totp: string
+}
+
+function readCanaryFixture(): CanaryFixture {
+  const path =
+    process.env.CANARY_FIXTURE_PATH || ''
+
+  expect(path.length).toBeGreaterThan(0)
+
+  const value =
+    JSON.parse(
+      readFileSync(path, 'utf8'),
+    ) as Partial<CanaryFixture>
+
+  expect(value.email).toMatch(
+    /^qf-prod-canary-[0-9]+@example\.invalid$/,
+  )
+  expect(value.password?.length).toBeGreaterThan(
+    20,
+  )
+  expect(value.totp).toMatch(
+    /^[A-Z2-7]{16,128}$/,
+  )
+
+  return {
+    email: value.email!,
+    password: value.password!,
+    totp: value.totp!,
+  }
+}
 
 function currentTotp(secret: string) {
   const alphabet =
@@ -70,13 +101,8 @@ function currentTotp(secret: string) {
 
 async function signInAndEnrollCanary(
   page: Page,
+  fixture: CanaryFixture,
 ) {
-  expect(email.length).toBeGreaterThan(0)
-  expect(password.length).toBeGreaterThan(0)
-  expect(totpSecret).toMatch(
-    /^[A-Z2-7]{16,128}$/,
-  )
-
   await page.goto(frontendUrl)
 
   const signIn =
@@ -102,8 +128,8 @@ async function signInAndEnrollCanary(
     state: 'visible',
     timeout: 30_000,
   })
-  await usernameInput.fill(email)
-  await passwordInput.fill(password)
+  await usernameInput.fill(fixture.email)
+  await passwordInput.fill(fixture.password)
 
   await page
     .locator(
@@ -121,13 +147,12 @@ async function signInAndEnrollCanary(
     timeout: 30_000,
   })
 
-  // The setup OTP used by the controller cannot be reused in the
-  // same TOTP period, so always move to the next 30-second window.
+  // The setup OTP cannot be reused in the same period.
   await page.waitForTimeout(
     31_000 - (Date.now() % 30_000),
   )
   await totpInput.fill(
-    currentTotp(totpSecret),
+    currentTotp(fixture.totp),
   )
 
   await page
@@ -270,7 +295,13 @@ test(
   async ({ page }) => {
     test.setTimeout(300_000)
 
-    await signInAndEnrollCanary(page)
+    const fixture =
+      readCanaryFixture()
+
+    await signInAndEnrollCanary(
+      page,
+      fixture,
+    )
 
     await page
       .getByLabel('Study material PDF')
