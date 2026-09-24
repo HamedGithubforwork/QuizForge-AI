@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "instance_name": "quizforge-production-lightsail-server",
+  "trust_basis": "two_independent_github_runner_network_observations",
+  "observed_at_utc": "2026-09-24T03:59:00Z",
+  "host_keys": [
+    {
+      "algorithm": "ecdsa-sha2-nistp256",
+      "fingerprint_sha256": "SHA256:Lt7ZI72e+I5Mv6tJLHFWI7Zkmeqe4O/8wkAr9F0onUI"
+    },
+    {
+      "algorithm": "ssh-ed25519",
+      "fingerprint_sha256": "SHA256:6wE7UDuWZl8XqLeIaC/TpwIkklj1vU1qMJV3Ts5i8Ao"
+    },
+    {
+      "algorithm": "ssh-rsa",
+      "fingerprint_sha256": "SHA256:L8+dRU3HJzcoOuMVOXW5RSgNdoFX5vfLXlc9JdOLW7w"
+    }
+  ]
+}
