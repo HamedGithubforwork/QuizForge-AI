@@ -159,6 +159,11 @@ error_classes=re.findall(
     journal,
 )
 latest_error_class=error_classes[-1] if error_classes else "none"
+failed_stages=re.findall(
+    r"QF_BACKUP_FAILED_STAGE=(export|timestamp|seal|archive_upload|receipt_upload|record_success)",
+    journal,
+)
+latest_failed_stage=failed_stages[-1] if failed_stages else "none"
 result={
   "backup_user_present": run("id","-u","quizforge-backup").returncode==0,
   "operations_files_present": all(exists(p) for p in (
@@ -184,6 +189,7 @@ result={
   "journal_signals":signals(journal),
   "missing_modules":missing_modules,
   "latest_backup_error_class":latest_error_class,
+  "latest_failed_stage":latest_failed_stage,
   "read_only_preflight":preflight,
 }
 print("QF_RESULT="+json.dumps(result,sort_keys=True))

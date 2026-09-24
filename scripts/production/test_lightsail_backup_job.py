@@ -103,6 +103,16 @@ def synthetic_s3():
         fixture.close()
 
 
+class FailureStageTests(unittest.TestCase):
+    def test_run_backup_uses_only_fixed_failure_stage_names(self):
+        import inspect
+        source = inspect.getsource(job.run_backup)
+        for name in ("export", "timestamp", "seal", "archive_upload", "receipt_upload", "record_success"):
+            self.assertIn("stage = '" + name + "'", source)
+        self.assertIn("QF_BACKUP_FAILED_STAGE=", source)
+        self.assertNotIn("str(error)", source)
+
+
 class BackupAutomation(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
