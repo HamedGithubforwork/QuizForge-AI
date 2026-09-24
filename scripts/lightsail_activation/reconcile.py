@@ -14,10 +14,12 @@ except ModuleNotFoundError:  # Credential-free unit discovery does not install A
     class ClientError(Exception):
         pass
 
-from .review import EXPECTED, REGION, STATE_KEY, Refused, Settings, require
+from .repair_review import FINAL
+from .review import REGION, STATE_KEY, Refused, Settings, require
 
 RESULT = Path("lightsail-reconciliation-results/summary.json")
 NAME = "quizforge-production-lightsail"
+INSTANCE_NAME = f"{NAME}-server"
 TOPIC_NAME = f"{NAME}-alerts"
 BUDGET_NAME = "quizforge-monthly-account-cost"
 ALARM_NAME = f"{NAME}-status-failed"
@@ -59,7 +61,7 @@ def state_addresses(document: dict[str, Any]) -> set[str]:
 def classify(state: set[str], live: set[str]) -> str:
     if not state and not live:
         return "no_resources_found"
-    if state == set(EXPECTED) and live == set(EXPECTED):
+    if state == set(FINAL) and live == set(FINAL):
         return "state_and_live_complete"
     if state == live:
         return "matching_partial_state_and_live_resources"
@@ -170,7 +172,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
             raise
 
     try:
-        instance = lightsail.get_instance(instanceName=NAME)["instance"]
+        instance = lightsail.get_instance(instanceName=INSTANCE_NAME)["instance"]
         live.add("aws_lightsail_instance.server")
         checks["instance_contract_ok"] = (
             instance.get("blueprintId") == "ubuntu_24_04"
@@ -184,7 +186,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
     try:
         static = lightsail.get_static_ip(staticIpName=NAME)["staticIp"]
         live.add("aws_lightsail_static_ip.server")
-        if static.get("attachedTo") == NAME:
+        if static.get("attachedTo") == INSTANCE_NAME:
             live.add("aws_lightsail_static_ip_attachment.server")
             checks["static_ip_attached"] = True
     except ClientError as error:
@@ -192,7 +194,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
             raise
 
     try:
-        states = lightsail.get_instance_port_states(instanceName=NAME).get("portStates", [])
+        states = lightsail.get_instance_port_states(instanceName=INSTANCE_NAME).get("portStates", [])
         normalized = {
             (
                 p.get("fromPort"), p.get("toPort"), p.get("protocol"),
@@ -260,7 +262,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
         live.add("aws_sns_topic.alerts")
         attrs = sns.get_topic_attributes(TopicArn=topic).get("Attributes", {})
         policy_text = attrs.get("Policy", "")
-        if "budgets.amazonaws.com" in policy_text and "cloudwatch.amazonaws.com" in policy_text:
+        if "cloudwatch.amazonaws.com" in policy_text and "budgets.amazonaws.com" not in policy_text:
             live.add("aws_sns_topic_policy.alerts")
             checks["sns_topic_policy_contract_ok"] = True
 
@@ -291,7 +293,6 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
         budget = budgets.describe_budget(
             AccountId=account, BudgetName=BUDGET_NAME
         )["Budget"]
-        live.add("aws_budgets_budget.monthly")
         notifications = budgets.describe_notifications_for_budget(
             AccountId=account, BudgetName=BUDGET_NAME
         ).get("Notifications", [])
@@ -411,7 +412,7 @@ def main() -> int:
         stage = "aws_inventory"
         live, checks = aws_inventory(settings)
 
-        expected = set(EXPECTED)
+        expected = set(FINAL)
         report.update({
             "result": classify(state, live),
             "state_object_present": state_present,
