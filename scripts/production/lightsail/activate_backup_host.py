@@ -98,10 +98,14 @@ install -m 0644 "$stage/operations/transfer.py" /opt/quizforge/operations/transf
 install -m 0644 "$stage/requirements.lock" /opt/quizforge/operations/requirements.lock
 install -m 0644 /etc/quizforge/db-ca.pem /opt/quizforge/operations/db-ca.pem
 
-if [ ! -x /opt/quizforge/backup-venv/bin/python ]; then
+if ! /opt/quizforge/backup-venv/bin/python -m pip --version >/dev/null 2>&1; then
+  DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-venv >/dev/null
+  rm -rf /opt/quizforge/backup-venv
   python3 -m venv /opt/quizforge/backup-venv
 fi
-/opt/quizforge/backup-venv/bin/python -m pip install --disable-pip-version-check --require-hashes   -r /opt/quizforge/operations/requirements.lock >/dev/null
+/opt/quizforge/backup-venv/bin/python -m pip install --disable-pip-version-check --require-hashes -r /opt/quizforge/operations/requirements.lock >/dev/null
+/opt/quizforge/backup-venv/bin/python -m pip check >/dev/null
 
 install -m 0600 "$backup_key" /etc/quizforge/backup.key
 
@@ -137,6 +141,7 @@ backup={
     "BACKUP_BUCKET":bucket,
     "BACKUP_ACCOUNT":account,
     "PGHOST":"db.quizforge.internal",
+    "PGHOSTADDR":"127.0.0.1",
     "PGDATABASE":"quizforge",
     "PGUSER":"quizforge_owner",
     "PGPASSWORD":owner,
