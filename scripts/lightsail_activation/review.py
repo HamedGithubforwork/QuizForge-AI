@@ -30,7 +30,7 @@ SOURCE_BLOBS = {
     "infra/aws/lightsail-production/auth.tf": "ca2ccfcf747e1213a40bd50f06e6f0d1ac0f9f1c",
     "infra/aws/lightsail-production/operations.tf": "ba73e89c9ddf8cf19805a7b89bc0f300f3c799d4",
     "infra/aws/lightsail-production/.terraform.lock.hcl": "38e6eaafe6a597b1adbdee97636732a82fedf820",
-    "scripts/production/lightsail/bootstrap.sh": "377641259fdb896c3a01de76f80cf6aa46a0f208",
+    "scripts/production/lightsail/bootstrap.sh": "fb256c9b717ce50ab90fd3eb976bad83486ab9a8",
     "scripts/production/lightsail/package_recovery.py": "4d3763eaa51d3aacda69febfd2c26b32ca71d6fc",
     "scripts/cognito_browser/identity_triggers.py": "c559f11344e16f5243872ff1e9f60b30decba6ac",
     "scripts/cognito_browser/pre_signup.py": "9f67d2f62cd06827ee7505220b263205ecf88c7d",
