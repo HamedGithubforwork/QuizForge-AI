@@ -155,7 +155,7 @@ jobs:
         run: |
           python scripts/production/build.py \
             "$RUNNER_TEMP/lightsail-public.json" \
-            frontend \
+            application-candidate/frontend \
             "$RUNNER_TEMP/frontend-build"
           tar -C "$RUNNER_TEMP/frontend-build/dist" -czf "$RUNNER_TEMP/frontend.tar.gz" .
           sha256sum "$RUNNER_TEMP/frontend.tar.gz" | awk '{print $1}' > "$RUNNER_TEMP/frontend.sha256"
