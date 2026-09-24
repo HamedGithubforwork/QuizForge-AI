@@ -78,8 +78,8 @@ printf '%s\n' '{"log-driver":"local","log-opts":{"max-size":"5m","max-file":"2"}
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq
 
-docker_candidate="$(apt-cache policy docker.io | awk '/Candidate:/ {print $2; exit}')"
-compose_candidate="$(apt-cache policy docker-compose-v2 | awk '/Candidate:/ {print $2; exit}')"
+docker_candidate="$(apt-cache policy docker.io | awk '/Candidate:/ && !found {print $2; found=1}')"
+compose_candidate="$(apt-cache policy docker-compose-v2 | awk '/Candidate:/ && !found {print $2; found=1}')"
 test -n "$docker_candidate"
 test "$docker_candidate" != "(none)"
 test -n "$compose_candidate"
