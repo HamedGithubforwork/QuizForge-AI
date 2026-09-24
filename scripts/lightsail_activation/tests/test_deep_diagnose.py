@@ -26,6 +26,8 @@ class DeepDiagnosticTests(unittest.TestCase):
                 "Resource": f"arn:aws:cognito-idp:ca-central-1:{SETTINGS.account}:userpool/example",
             }],
         })
+        sns_separate = resource(document, "aws_sns_topic_policy.alerts")
+        sns_policy = sns_separate["change"]["after"]["policy"]
         document["resource_drift"] = [
             {
                 "address": "aws_iam_role.recovery",
@@ -54,6 +56,16 @@ class DeepDiagnosticTests(unittest.TestCase):
                 },
             },
             {
+                "address": "aws_sns_topic.alerts",
+                "mode": "managed",
+                "provider_name": PROVIDER_NAME,
+                "change": {
+                    "actions": ["update"],
+                    "before": {"policy": None},
+                    "after": {"policy": sns_policy},
+                },
+            },
+            {
                 "address": "aws_example.private_resource_name",
                 "mode": "managed",
                 "provider_name": PROVIDER_NAME,
@@ -66,7 +78,7 @@ class DeepDiagnosticTests(unittest.TestCase):
         ]
 
         report = analyze(document, SETTINGS, CATALOG)
-        self.assertEqual(report["resource_drift_count"], 3)
+        self.assertEqual(report["resource_drift_count"], 4)
         self.assertEqual(report["unexpected_resource_drift_count"], 1)
         self.assertEqual(
             report["rest_of_plan_contract_after_ignoring_refresh_drift"],
@@ -78,6 +90,10 @@ class DeepDiagnosticTests(unittest.TestCase):
         self.assertEqual(role["tags"]["after"]["kind"], "exact_default_tags")
         pool = report["drift_resources"]["aws_cognito_user_pool.browser"]
         self.assertTrue(pool["domain"]["after_matches_expected_prefix"])
+        topic = report["drift_resources"]["aws_sns_topic.alerts"]
+        self.assertEqual(topic["changed_attributes"], ["policy"])
+        self.assertTrue(topic["policy"]["after"]["matches_separate_policy"])
+        self.assertEqual(topic["policy"]["before"]["kind"], "null")
 
         raw = json.dumps(report)
         for private in (
