@@ -1,7 +1,7 @@
 import unittest
 
 from scripts.lightsail_activation.reconcile import _not_found, classify, state_addresses
-from scripts.lightsail_activation.review import EXPECTED
+from scripts.lightsail_activation.repair_review import FINAL
 
 
 class StateTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class StateTests(unittest.TestCase):
         )
 
     def test_classification(self):
-        expected = set(EXPECTED)
+        expected = set(FINAL)
         self.assertEqual(classify(set(), set()), "no_resources_found")
         self.assertEqual(
             classify(expected, expected), "state_and_live_complete"
