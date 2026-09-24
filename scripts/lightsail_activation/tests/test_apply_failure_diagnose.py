@@ -71,7 +71,7 @@ class ApplyFailureDiagnosticTests(unittest.TestCase):
         self.assertNotIn(SETTINGS.account, raw)
         self.assertNotIn("quizforge-production-operator", raw)
         self.assertNotIn("quizforge-production-lightsail", raw)
-        self.assertIn("<KEY_PAIR>", raw)
+        self.assertIn("<VALUE>", raw)
         self.assertIn("<INSTANCE>", raw)
 
     def test_request_shape_compares_safe_create_parameters_only(self):
