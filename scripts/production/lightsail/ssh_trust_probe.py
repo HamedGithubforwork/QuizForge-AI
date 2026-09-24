@@ -149,6 +149,7 @@ def main() -> int:
         if network.version != 4 or network.prefixlen != 32:
             raise ValueError("Admin CIDR must be /32")
 
+        report["diagnostic_stage"] = "live_contract"
         lightsail = boto3.client("lightsail", region_name=REGION)
         instance = lightsail.get_instance(instanceName=INSTANCE_NAME)["instance"]
         static = lightsail.get_static_ip(staticIpName=STATIC_IP_NAME)["staticIp"]
@@ -162,11 +163,13 @@ def main() -> int:
         if not baseline_expected(before, admin_cidr):
             raise ValueError("Baseline firewall mismatch")
 
+        report["diagnostic_stage"] = "runner_ipv4"
         runner = runner_ipv4()
         runner_cidr = runner + "/32"
         if runner_cidr == admin_cidr:
             raise ValueError("Runner unexpectedly equals operator CIDR")
 
+        report["diagnostic_stage"] = "open_temporary_ssh"
         lightsail.open_instance_public_ports(
             instanceName=INSTANCE_NAME,
             portInfo={
@@ -181,13 +184,23 @@ def main() -> int:
         report["changes_performed"] = True
         report["temporary_ssh_rule_opened"] = True
 
+        report["diagnostic_stage"] = "verify_temporary_ssh_rule"
         during = lightsail.get_instance_port_states(instanceName=INSTANCE_NAME).get("portStates", [])
-        during_norm = normalized_ports(during)
-        runner_rule = (22, 22, "tcp", (runner_cidr,), (), ())
-        if runner_rule not in during_norm:
+        runner_visible = any(
+            isinstance(item, Mapping)
+            and item.get("fromPort") == 22
+            and item.get("toPort") == 22
+            and item.get("protocol") == "tcp"
+            and runner_cidr in (item.get("cidrs") or [])
+            for item in during
+        )
+        report["temporary_ssh_rule_visible"] = runner_visible
+        if not runner_visible:
             raise ValueError("Temporary runner SSH rule not visible")
 
+        report["diagnostic_stage"] = "ssh_keyscan"
         keys = scan(ip)
+        report["diagnostic_stage"] = "host_keys_observed"
         report["host_keys"] = keys
         report["observed_key_count"] = len(keys)
         report["ed25519_observed"] = any(item["algorithm"] == "ssh-ed25519" for item in keys)
