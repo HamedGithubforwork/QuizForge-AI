@@ -10,7 +10,10 @@ class PublicLaunchDiagnosticTests(unittest.TestCase):
         self.assertNotIn("systemctl start", REMOTE_DIAG)
         self.assertNotIn("systemctl enable", REMOTE_DIAG)
         self.assertNotIn("systemctl stop", REMOTE_DIAG)
-        self.assertNotIn("launch-approved", REMOTE_DIAG.replace('"launch_marker_present"', ""))
+        self.assertIn("/etc/quizforge/launch-approved", REMOTE_DIAG)
+        self.assertNotIn("touch /etc/quizforge/launch-approved", REMOTE_DIAG)
+        self.assertNotIn("rm -f /etc/quizforge/launch-approved", REMOTE_DIAG)
+        self.assertNotIn("tee /etc/quizforge/launch-approved", REMOTE_DIAG)
         self.assertNotIn("route53", REMOTE_DIAG.lower())
 
 if __name__=="__main__":
