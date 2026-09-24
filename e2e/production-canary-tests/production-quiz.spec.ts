@@ -290,6 +290,7 @@ function buildSyntheticStudyPdf() {
   return Buffer.from(pdf, 'ascii')
 }
 
+// This live canary intentionally performs exactly one paid quiz generation.
 test(
   'live production Cognito user can process a PDF and generate a five-question AI quiz',
   async ({ page }) => {
