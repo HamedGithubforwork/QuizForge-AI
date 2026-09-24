@@ -76,6 +76,8 @@ lower=log.lower()
 checks={
     "docker_compose_v2_missing": ("unable to locate package docker-compose-v2" in lower),
     "docker_io_missing": ("unable to locate package docker.io" in lower),
+    "docker_compose_v2_no_candidate": ("package 'docker-compose-v2' has no installation candidate" in lower),
+    "docker_io_no_candidate": ("package 'docker.io' has no installation candidate" in lower),
     "apt_dns_failure": ("temporary failure resolving" in lower or "could not resolve" in lower),
     "apt_fetch_failure": ("failed to fetch" in lower),
     "apt_lock_failure": ("could not get lock" in lower or "unable to acquire the dpkg frontend lock" in lower),
@@ -84,6 +86,30 @@ checks={
     "bootstrap_shell_exit_error": ("scripts-user failed" in lower or "failed to run module scripts-user" in lower),
 }
 hints=[k for k,v in checks.items() if v]
+
+components=set()
+for path in ["/etc/apt/sources.list"]:
+    try:
+        with open(path,encoding="utf-8",errors="replace") as handle:
+            for line in handle:
+                line=line.strip()
+                if line.startswith("deb "):
+                    for item in line.split()[3:]:
+                        if item in {"main","restricted","universe","multiverse"}:
+                            components.add(item)
+    except OSError:
+        pass
+try:
+    import glob
+    for path in glob.glob("/etc/apt/sources.list.d/*.sources"):
+        with open(path,encoding="utf-8",errors="replace") as handle:
+            for line in handle:
+                if line.startswith("Components:"):
+                    for item in line.split(":",1)[1].split():
+                        if item in {"main","restricted","universe","multiverse"}:
+                            components.add(item)
+except OSError:
+    pass
 
 status_json={}
 try:
@@ -110,6 +136,9 @@ result={
     "docker_compose_v2": pkg("docker-compose-v2"),
     "docker_compose_plugin": pkg("docker-compose-plugin"),
     "unattended_upgrades": pkg("unattended-upgrades"),
+    "apt_components": sorted(components),
+    "apt_main_enabled": "main" in components,
+    "apt_universe_enabled": "universe" in components,
     "docker_binary_present": bool(text("sh","-lc","command -v docker")),
     "compose_command_present": (
         bool(text("sh","-lc","command -v docker"))
