@@ -250,7 +250,7 @@ def review_plan(plan: dict, settings: Settings) -> dict:
 
     server = values["aws_lightsail_instance.server"]
     for name, expected in {
-        "name": "quizforge-production-lightsail",
+        "name": "quizforge-production-lightsail-server",
         "availability_zone": "ca-central-1a",
         "blueprint_id": "ubuntu_24_04",
         "bundle_id": "small_3_0",
