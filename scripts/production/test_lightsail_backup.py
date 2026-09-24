@@ -49,6 +49,11 @@ class BackupBoundaries(unittest.TestCase):
             env = {"PGHOST": "db.quizforge.internal", "PGDATABASE": "quizforge", "PGUSER": "quizforge_owner",
                    "PGPASSWORD": "synthetic", "PGSSLROOTCERT": ca.name}
             self.assertEqual(backup.connection_options(env)["sslmode"], "verify-full")
+            loopback = backup.connection_options(env | {"PGHOSTADDR": "127.0.0.1"})
+            self.assertEqual(loopback["host"], "db.quizforge.internal")
+            self.assertEqual(loopback["hostaddr"], "127.0.0.1")
+            with self.assertRaises(ValueError):
+                backup.connection_options(env | {"PGHOSTADDR": "203.0.113.8"})
             with self.assertRaises(ValueError): backup.connection_options(env, restore=True)
             recovery = env | {"PGHOST": "restore-db.quizforge.internal"}
             self.assertEqual(backup.connection_options(recovery, restore=True)["host"], recovery["PGHOST"])

@@ -41,6 +41,18 @@ class FirstProductionBackupTests(unittest.TestCase):
             REMOTE_INSTALL_AND_RUN,
         )
         self.assertIn(
+            '"PGHOSTADDR":"127.0.0.1"',
+            REMOTE_INSTALL_AND_RUN,
+        )
+        self.assertIn(
+            "python3-venv",
+            REMOTE_INSTALL_AND_RUN,
+        )
+        self.assertIn(
+            "python -m pip check",
+            REMOTE_INSTALL_AND_RUN,
+        )
+        self.assertIn(
             "systemctl start quizforge-backup.service",
             REMOTE_INSTALL_AND_RUN,
         )
