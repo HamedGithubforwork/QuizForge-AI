@@ -1,0 +1,320 @@
+name: Permanent Lightsail release candidate build
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-release-candidate-build.yml"
+      - "scripts/production/lightsail/public-source.json"
+      - "scripts/production/lightsail/release_candidate.py"
+      - "scripts/production/lightsail/test_release_candidate.py"
+      - "scripts/production/lightsail/caddy.Dockerfile"
+      - "scripts/production/operations.Dockerfile"
+      - "scripts/production/build.py"
+      - "frontend/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/lightsail-release-candidate-build.yml"
+      - "scripts/production/lightsail/public-source.json"
+      - "scripts/production/lightsail/release_candidate.py"
+      - "scripts/production/lightsail/test_release_candidate.py"
+      - "scripts/production/lightsail/caddy.Dockerfile"
+      - "scripts/production/operations.Dockerfile"
+      - "scripts/production/build.py"
+      - "frontend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ca-central-1
+  ECR_REPOSITORY: quizforge-api
+  APPLICATION_CANDIDATE_SHA: 807a4084237f6db544620cdb8322108ebf52251c
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Validate public release configuration code
+        run: |
+          python -m py_compile scripts/production/lightsail/release_candidate.py
+          python -m unittest scripts.production.lightsail.test_release_candidate -v
+      - name: Require public source configuration only
+        run: |
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          value=json.loads(Path("scripts/production/lightsail/public-source.json").read_text())
+          assert set(value)=={"legacy_url","legacy_publishable_key"}
+          assert value["legacy_url"]=="https://vfxmsvphgcaizqnbyjip.supabase.co"
+          assert re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}", value["legacy_publishable_key"])
+          PY
+      - name: Verify exact tested application candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.APPLICATION_CANDIDATE_SHA }}
+          path: application-candidate
+          persist-credentials: false
+      - name: Require identity-capable backend candidate
+        run: |
+          test -f application-candidate/backend/Dockerfile
+          test -f application-candidate/backend/main.py
+          test -f application-candidate/backend/identity_app.py
+          test -f application-candidate/backend/identity_database.py
+          test -f application-candidate/backend/identity_proofs.py
+
+  build-release:
+    needs: validate
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-lightsail-release-candidate-build
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.APPLICATION_CANDIDATE_SHA }}
+          path: application-candidate
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Install existing hash-locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
+      - name: Assume deployment role with release-build-only boundary
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-release-build
+          role-duration-seconds: 2700
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":[
+                "sts:GetCallerIdentity",
+                "cognito-idp:ListUserPools",
+                "cognito-idp:ListUserPoolClients",
+                "cognito-idp:DescribeUserPoolDomain",
+                "ecr:GetAuthorizationToken",
+                "ecr:DescribeRepositories",
+                "ecr:DescribeImages",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage",
+                "ecr:InitiateLayerUpload",
+                "ecr:UploadLayerPart",
+                "ecr:CompleteLayerUpload",
+                "ecr:PutImage"
+              ],"Resource":"*"}
+            ]}
+
+      - name: Require existing ECR repository
+        run: aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" >/dev/null
+
+      - name: Discover exact public Cognito configuration without logging identifiers
+        run: |
+          python scripts/production/lightsail/release_candidate.py public-config \
+            scripts/production/lightsail/public-source.json \
+            "$RUNNER_TEMP/lightsail-public.json" \
+            > "$RUNNER_TEMP/public-summary.json"
+
+      - name: Build production frontend from validated public configuration
+        env:
+          CI: "true"
+        run: |
+          python scripts/production/build.py \
+            "$RUNNER_TEMP/lightsail-public.json" \
+            frontend \
+            "$RUNNER_TEMP/frontend-build"
+          tar -C "$RUNNER_TEMP/frontend-build/dist" -czf "$RUNNER_TEMP/frontend.tar.gz" .
+          sha256sum "$RUNNER_TEMP/frontend.tar.gz" | awk '{print $1}' > "$RUNNER_TEMP/frontend.sha256"
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: true
+
+      - name: Resolve immutable official image digests
+        run: |
+          set -euo pipefail
+          resolve() {
+            local tag="$1"
+            local name="$2"
+            docker pull "$tag" >/dev/null
+            local repo_digest
+            repo_digest="$(docker image inspect "$tag" --format '{{index .RepoDigests 0}}')"
+            local digest="${repo_digest##*@}"
+            echo "$digest" | grep -Eq '^sha256:[a-f0-9]{64}$'
+            printf '%s\n' "$digest" > "$RUNNER_TEMP/$name.digest"
+          }
+          resolve docker.io/library/postgres:17 postgres
+          resolve docker.io/library/redis:7 redis
+          resolve docker.io/library/caddy:2 caddy-base
+
+      - name: Build or reuse immutable application images
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          set -euo pipefail
+          api_tag="lightsail-api-${GITHUB_SHA}"
+          operations_tag="lightsail-operations-${GITHUB_SHA}"
+          caddy_tag="lightsail-caddy-${GITHUB_SHA}"
+
+          existing_digest() {
+            aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=$1" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text 2>/dev/null || true
+          }
+
+          push_if_missing() {
+            local tag="$1"
+            local local_image="$2"
+            local digest
+            digest="$(existing_digest "$tag")"
+            if [ -n "$digest" ] && [ "$digest" != "None" ]; then
+              echo "$digest"
+              return
+            fi
+            docker push "$local_image" >/dev/null
+            aws ecr describe-images \
+              --repository-name "$ECR_REPOSITORY" \
+              --image-ids "imageTag=$tag" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text
+          }
+
+          api_existing="$(existing_digest "$api_tag")"
+          if [ -z "$api_existing" ] || [ "$api_existing" = "None" ]; then
+            docker build \
+              --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$api_tag" \
+              application-candidate/backend
+          fi
+          api_digest="$(push_if_missing "$api_tag" "$ECR_REGISTRY/$ECR_REPOSITORY:$api_tag")"
+          echo "$api_digest" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          printf '%s\n' "$api_digest" > "$RUNNER_TEMP/api.digest"
+
+          operations_existing="$(existing_digest "$operations_tag")"
+          if [ -z "$operations_existing" ] || [ "$operations_existing" = "None" ]; then
+            docker build \
+              --file scripts/production/operations.Dockerfile \
+              --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$operations_tag" \
+              .
+          fi
+          operations_digest="$(push_if_missing "$operations_tag" "$ECR_REGISTRY/$ECR_REPOSITORY:$operations_tag")"
+          echo "$operations_digest" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          printf '%s\n' "$operations_digest" > "$RUNNER_TEMP/operations.digest"
+
+          caddy_existing="$(existing_digest "$caddy_tag")"
+          if [ -z "$caddy_existing" ] || [ "$caddy_existing" = "None" ]; then
+            caddy_base="$(cat "$RUNNER_TEMP/caddy-base.digest")"
+            docker build \
+              --build-arg "CADDY_BASE_IMAGE=docker.io/library/caddy@$caddy_base" \
+              --file scripts/production/lightsail/caddy.Dockerfile \
+              --tag "$ECR_REGISTRY/$ECR_REPOSITORY:$caddy_tag" \
+              .
+          fi
+          caddy_digest="$(push_if_missing "$caddy_tag" "$ECR_REGISTRY/$ECR_REPOSITORY:$caddy_tag")"
+          echo "$caddy_digest" | grep -Eq '^sha256:[a-f0-9]{64}$'
+          printf '%s\n' "$caddy_digest" > "$RUNNER_TEMP/caddy.digest"
+
+          printf '%s\n' "$api_tag" > "$RUNNER_TEMP/api.tag"
+          printf '%s\n' "$operations_tag" > "$RUNNER_TEMP/operations.tag"
+          printf '%s\n' "$caddy_tag" > "$RUNNER_TEMP/caddy.tag"
+
+      - name: Validate built backend includes production identity application
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          api_tag="$(cat "$RUNNER_TEMP/api.tag")"
+          docker run --rm --entrypoint python \
+            "$ECR_REGISTRY/$ECR_REPOSITORY:$api_tag" \
+            -c "import main, identity_app, identity_database, identity_proofs; print('identity-capable API image verified')"
+
+      - name: Write public-safe release lock
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          temp=Path(os.environ["RUNNER_TEMP"])
+          def line(name, pattern):
+              value=(temp/name).read_text().strip()
+              assert re.fullmatch(pattern, value)
+              return value
+
+          value={
+              "schema": 1,
+              "release_sha": os.environ["GITHUB_SHA"],
+              "application_candidate_sha": os.environ["APPLICATION_CANDIDATE_SHA"],
+              "ecr_repository": os.environ["ECR_REPOSITORY"],
+              "ecr_tags": {
+                  "api": line("api.tag", r"lightsail-api-[0-9a-f]{40}"),
+                  "operations": line("operations.tag", r"lightsail-operations-[0-9a-f]{40}"),
+                  "caddy": line("caddy.tag", r"lightsail-caddy-[0-9a-f]{40}"),
+              },
+              "image_digests": {
+                  "api": line("api.digest", r"sha256:[a-f0-9]{64}"),
+                  "operations": line("operations.digest", r"sha256:[a-f0-9]{64}"),
+                  "caddy": line("caddy.digest", r"sha256:[a-f0-9]{64}"),
+                  "postgres": line("postgres.digest", r"sha256:[a-f0-9]{64}"),
+                  "redis": line("redis.digest", r"sha256:[a-f0-9]{64}"),
+                  "caddy_base": line("caddy-base.digest", r"sha256:[a-f0-9]{64}"),
+              },
+              "frontend_archive_sha256": line("frontend.sha256", r"[a-f0-9]{64}"),
+              "public_configuration_validated": True,
+              "ai_enabled": False,
+          }
+          Path("lightsail-release-candidate").mkdir(exist_ok=True)
+          Path("lightsail-release-candidate/release-lock.json").write_text(
+              json.dumps(value, indent=2, sort_keys=True)+"\n"
+          )
+          PY
+
+      - name: Remove public build configuration containing deploy-time identifiers
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/lightsail-public.json" "$RUNNER_TEMP/public-summary.json"
+          rm -rf "$RUNNER_TEMP/frontend-build"
+          rm -f "$RUNNER_TEMP/frontend.tar.gz"
+
+      - name: Publish only public-safe immutable release lock
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-release-lock
+          path: lightsail-release-candidate/release-lock.json
+          if-no-files-found: error
+          retention-days: 30
