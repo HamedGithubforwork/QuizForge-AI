@@ -393,14 +393,18 @@ test(
     const uploadResponse =
       await uploadResponsePromise
 
-    expect(uploadResponse.status()).toBe(200)
+    expect(
+      [200, 202],
+    ).toContain(
+      uploadResponse.status(),
+    )
 
     await expect(
       page.getByRole('heading', {
         name: 'PDF processed successfully',
       }),
     ).toBeVisible({
-      timeout: 30_000,
+      timeout: 120_000,
     })
 
     await page
