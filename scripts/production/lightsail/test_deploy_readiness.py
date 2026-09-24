@@ -39,7 +39,7 @@ class DeployReadinessTests(unittest.TestCase):
 
     def test_root_only_ready_marker_is_checked_with_sudo(self):
         self.assertIn(
-            'run("sudo", "-n", "test", "-f", "/var/lib/quizforge/base-host-ready")',
+            'run("sudo","-n","test","-f","/var/lib/quizforge/base-host-ready")',
             REMOTE_SCRIPT,
         )
         self.assertNotIn(
