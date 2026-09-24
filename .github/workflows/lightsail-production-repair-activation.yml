@@ -293,7 +293,7 @@ jobs:
             "$RUNNER_TEMP/lightsail-repair-final.tfplan" \
             "$RUNNER_TEMP/lightsail-repair-final-plan.json" \
             "$RUNNER_TEMP/lightsail-repair-final-plan.log" \
-            lightsail-repair-results/catalog.json \
+            lightsail-repair-activation-results/catalog.json \
             infra/aws/lightsail-production/recovery.zip
 
       - name: Publish only the sanitized repair activation summary
