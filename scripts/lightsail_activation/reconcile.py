@@ -170,7 +170,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
             raise
 
     try:
-        instance = lightsail.get_instance(instanceName=NAME)["instance"]
+        instance = lightsail.get_instance(instanceName=INSTANCE_NAME)["instance"]
         live.add("aws_lightsail_instance.server")
         checks["instance_contract_ok"] = (
             instance.get("blueprintId") == "ubuntu_24_04"
@@ -182,9 +182,9 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
             raise
 
     try:
-        static = lightsail.get_static_ip(staticIpName=NAME)["staticIp"]
+        static = lightsail.get_static_ip(staticIpName=STATIC_IP_NAME)["staticIp"]
         live.add("aws_lightsail_static_ip.server")
-        if static.get("attachedTo") == NAME:
+        if static.get("attachedTo") == INSTANCE_NAME:
             live.add("aws_lightsail_static_ip_attachment.server")
             checks["static_ip_attached"] = True
     except ClientError as error:
@@ -192,7 +192,7 @@ def aws_inventory(settings: Settings) -> tuple[set[str], dict[str, Any]]:
             raise
 
     try:
-        states = lightsail.get_instance_port_states(instanceName=NAME).get("portStates", [])
+        states = lightsail.get_instance_port_states(instanceName=INSTANCE_NAME).get("portStates", [])
         normalized = {
             (
                 p.get("fromPort"), p.get("toPort"), p.get("protocol"),
