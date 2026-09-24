@@ -157,6 +157,28 @@ class RepairActivationGateTests(unittest.TestCase):
             workflow,
         )
 
+    def test_workflow_reviews_final_plan_json_for_exit_code_zero_or_two(self):
+        workflow = Path(
+            ".github/workflows/lightsail-production-repair-activation.yml"
+        ).read_text()
+        final_block = workflow.split(
+            "- name: Require exact final state and a no-change live plan",
+            1,
+        )[1].split("- name: Record safe failure state", 1)[0]
+        self.assertIn('if [ "$status" -eq 1 ]; then', final_block)
+        self.assertIn(
+            'if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then',
+            final_block,
+        )
+        self.assertIn(
+            "python -m scripts.lightsail_activation.repair_gate verify-final-plan",
+            final_block,
+        )
+        self.assertNotIn(
+            'if [ "$status" -ne 0 ]; then',
+            final_block,
+        )
+
     def test_final_noop_plan_accepts_only_verified_post_attachment_refresh(self):
         manifest = review_final_plan(
             final_plan(),
