@@ -111,7 +111,10 @@ result={
     "docker_compose_plugin": pkg("docker-compose-plugin"),
     "unattended_upgrades": pkg("unattended-upgrades"),
     "docker_binary_present": bool(text("sh","-lc","command -v docker")),
-    "compose_command_present": run("docker","compose","version").returncode==0,
+    "compose_command_present": (
+        bool(text("sh","-lc","command -v docker"))
+        and run("docker","compose","version").returncode==0
+    ),
     "daemon_json_present": os.path.isfile("/etc/docker/daemon.json"),
     "bootstrap_failure_hints": hints,
 }
