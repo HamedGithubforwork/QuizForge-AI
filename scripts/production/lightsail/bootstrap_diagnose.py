@@ -71,6 +71,22 @@ for path in ("/var/log/cloud-init-output.log","/var/log/cloud-init.log"):
     if value:
         log += "\n" + value
 lower=log.lower()
+sanitized_error_lines=[]
+for line in log.splitlines():
+    low=line.lower()
+    if not any(token in low for token in (
+        "error", "failed", "unable", "could not", "no installation candidate",
+        "temporary failure", "release file", "command not found", "not found",
+    )):
+        continue
+    safe=re.sub(r"https?://\S+", "<URL>", line)
+    safe=re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "<IP>", safe)
+    safe=re.sub(r"\b\d{12}\b", "<ACCOUNT>", safe)
+    safe=re.sub(r"\s+", " ", safe).strip()
+    if safe and len(safe)<=300 and safe not in sanitized_error_lines:
+        sanitized_error_lines.append(safe)
+    if len(sanitized_error_lines)>=8:
+        break
 checks={
     "docker_compose_v2_missing": ("unable to locate package docker-compose-v2" in lower),
     "docker_io_missing": ("unable to locate package docker.io" in lower),
@@ -154,6 +170,7 @@ result={
     ),
     "daemon_json_present": os.path.isfile("/etc/docker/daemon.json"),
     "bootstrap_failure_hints": hints,
+    "sanitized_error_lines": sanitized_error_lines,
 }
 print(json.dumps(result,sort_keys=True))
 PY
