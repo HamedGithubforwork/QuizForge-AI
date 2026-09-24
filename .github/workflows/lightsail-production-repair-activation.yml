@@ -256,8 +256,12 @@ jobs:
             >"$RUNNER_TEMP/lightsail-repair-final-plan.log" 2>&1
           status=$?
           set -e
-          if [ "$status" -ne 0 ]; then
-            python -m scripts.lightsail_activation.repair_gate failure FINAL_PLAN_HAS_CONFIGURATION_CHANGES
+          if [ "$status" -eq 1 ]; then
+            python -m scripts.lightsail_activation.repair_gate failure FINAL_PLAN_FAILED
+            exit 1
+          fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            python -m scripts.lightsail_activation.repair_gate failure FINAL_PLAN_EXIT_STATUS_UNEXPECTED
             exit 1
           fi
 

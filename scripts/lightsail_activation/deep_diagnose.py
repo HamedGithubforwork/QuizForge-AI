@@ -18,6 +18,7 @@ from .repair_review import (
     check_catalog_and_external_budget,
     review_plan,
 )
+from .repair_gate import review_final_plan
 from .review import (
     PROVIDER_NAME,
     REGION,
@@ -380,6 +381,22 @@ def analyze(
 
         resources[address] = entry
 
+    final_verification_code = "PASS"
+    try:
+        review_final_plan(
+            copy.deepcopy(plan),
+            settings,
+            dict(catalog),
+            live=live,
+        )
+    except Refused as error:
+        text = str(error)
+        final_verification_code = (
+            text if re.fullmatch(r"[A-Z0-9_]{1,80}", text) else "FINAL_REVIEW_REFUSED"
+        )
+    except Exception:
+        final_verification_code = "PRIVATE_FINAL_REVIEW_FAILED"
+
     full_review_code = "PASS"
     try:
         review_plan(copy.deepcopy(plan), settings, dict(catalog))
@@ -435,6 +452,7 @@ def analyze(
         "unexpected_resource_drift_count": unexpected_resource_count,
         "deferred_change_count": len(deferred) if isinstance(deferred, list) else 0,
         "action_invocation_count": len(invocations) if isinstance(invocations, list) else 0,
+        "final_verification_result": final_verification_code,
         "full_repair_review_result": full_review_code,
         "rest_of_plan_contract_after_ignoring_refresh_drift": stripped_review_code,
         "live_lightsail": (

@@ -25,6 +25,8 @@ WORKFLOW = ".github/workflows/lightsail-production-repair-activation.yml"
 CONFIRMATION = "ACTIVATE EXACT THREE-RESOURCE LIGHTSAIL REPAIR"
 RESULT = Path("lightsail-repair-activation-results/summary.json")
 CATALOG = Path("lightsail-repair-activation-results/catalog.json")
+INSTANCE_NAME = "quizforge-production-lightsail-server"
+STATIC_IP_NAME = "quizforge-production-lightsail"
 
 
 def trusted(env: Mapping[str, str]) -> None:
@@ -180,7 +182,170 @@ def _managed_addresses(root: Mapping[str, Any]) -> set[str]:
     }
 
 
-def review_final_plan(plan: dict[str, Any], cfg: Settings, catalog: dict[str, Any]) -> dict[str, Any]:
+def _changed_top_level_attributes(change: Mapping[str, Any]) -> set[str]:
+    before = change.get("before")
+    after = change.get("after")
+    require(
+        isinstance(before, Mapping) and isinstance(after, Mapping),
+        "FINAL_REFRESH_VALUES_MISSING",
+    )
+    return {
+        str(key)
+        for key in set(before) | set(after)
+        if isinstance(key, str) and before.get(key) != after.get(key)
+    }
+
+
+def read_final_live_lightsail(cfg: Settings) -> dict[str, Any]:
+    """Read the final Lightsail contract without publishing either IP address."""
+    import boto3
+
+    lightsail = boto3.client("lightsail", region_name="ca-central-1")
+    instance = lightsail.get_instance(instanceName=INSTANCE_NAME)["instance"]
+    static_ip = lightsail.get_static_ip(staticIpName=STATIC_IP_NAME)["staticIp"]
+    port_states = lightsail.get_instance_port_states(
+        instanceName=INSTANCE_NAME
+    ).get("portStates", [])
+
+    normalized_ports = {
+        (
+            item.get("fromPort"),
+            item.get("toPort"),
+            item.get("protocol"),
+            tuple(sorted(item.get("cidrs") or [])),
+            tuple(sorted(item.get("ipv6Cidrs") or [])),
+            tuple(sorted(item.get("cidrListAliases") or [])),
+        )
+        for item in port_states
+        if isinstance(item, Mapping)
+    }
+    expected_ports = {
+        (22, 22, "tcp", (cfg.admin_cidr,), (), ()),
+        (80, 80, "tcp", ("0.0.0.0/0",), (), ()),
+        (443, 443, "tcp", ("0.0.0.0/0",), (), ()),
+    }
+
+    instance_public_ip = instance.get("publicIpAddress")
+    static_public_ip = static_ip.get("ipAddress")
+    return {
+        "summary": {
+            "instance_exists": True,
+            "static_ip_exists": True,
+            "instance_blueprint_expected": instance.get("blueprintId") == "ubuntu_24_04",
+            "instance_bundle_expected": instance.get("bundleId") == "small_3_0",
+            "instance_availability_zone_expected": (
+                instance.get("location", {}).get("availabilityZone") == "ca-central-1a"
+            ),
+            "instance_reports_static_ip": instance.get("isStaticIp") is True,
+            "static_ip_attached_to_expected_instance": (
+                static_ip.get("attachedTo") == INSTANCE_NAME
+            ),
+            "instance_public_ip_matches_static_ip": (
+                isinstance(instance_public_ip, str)
+                and bool(instance_public_ip)
+                and instance_public_ip == static_public_ip
+            ),
+            "public_ports_contract_ok": normalized_ports == expected_ports,
+        },
+        "_instance_public_ip": instance_public_ip,
+        "_static_public_ip": static_public_ip,
+        "_instance_is_static_ip": instance.get("isStaticIp"),
+    }
+
+
+def _validate_final_refresh_drift(
+    plan: Mapping[str, Any],
+    cfg: Settings,
+    live: Mapping[str, Any] | None = None,
+) -> int:
+    deferred = plan.get("deferred_changes")
+    invocations = plan.get("action_invocations")
+    require(not deferred, "FINAL_DEFERRED_CHANGE_REFUSED")
+    require(not invocations, "FINAL_ACTION_INVOCATION_REFUSED")
+
+    if live is None:
+        live = read_final_live_lightsail(cfg)
+    summary = live.get("summary")
+    require(isinstance(summary, Mapping), "FINAL_LIVE_READBACK_MISSING")
+    require(
+        summary.get("instance_exists") is True
+        and summary.get("static_ip_exists") is True
+        and summary.get("instance_blueprint_expected") is True
+        and summary.get("instance_bundle_expected") is True
+        and summary.get("instance_availability_zone_expected") is True
+        and summary.get("instance_reports_static_ip") is True
+        and summary.get("static_ip_attached_to_expected_instance") is True
+        and summary.get("instance_public_ip_matches_static_ip") is True
+        and summary.get("public_ports_contract_ok") is True,
+        "FINAL_LIGHTSAIL_LIVE_CONTRACT_MISMATCH",
+    )
+
+    drift = plan.get("resource_drift")
+    if not drift:
+        return 0
+    require(isinstance(drift, list) and len(drift) == 1, "FINAL_REFRESH_DRIFT_MISMATCH")
+    item = drift[0]
+    require(isinstance(item, Mapping), "FINAL_REFRESH_DRIFT_MISMATCH")
+    require(
+        item.get("address") == "aws_lightsail_instance.server"
+        and item.get("mode") == "managed"
+        and item.get("provider_name") == PROVIDER_NAME
+        and not item.get("previous_address")
+        and not item.get("deposed"),
+        "FINAL_REFRESH_DRIFT_MISMATCH",
+    )
+    change = item.get("change")
+    require(isinstance(change, Mapping), "FINAL_REFRESH_DRIFT_MISMATCH")
+    require(
+        change.get("actions") == ["update"]
+        and not change.get("replace_paths")
+        and not change.get("importing"),
+        "FINAL_REFRESH_DRIFT_MISMATCH",
+    )
+    require(
+        _changed_top_level_attributes(change)
+        == {"is_static_ip", "public_ip_address", "tags"},
+        "FINAL_REFRESH_FIELDS_MISMATCH",
+    )
+
+    before = change["before"]
+    after = change["after"]
+    require(
+        before.get("is_static_ip") is False
+        and after.get("is_static_ip") is True
+        and live.get("_instance_is_static_ip") is True,
+        "FINAL_STATIC_IP_FLAG_MISMATCH",
+    )
+    require(
+        before.get("tags") is None and after.get("tags") == {},
+        "FINAL_INSTANCE_TAG_REFRESH_MISMATCH",
+    )
+
+    before_ip = before.get("public_ip_address")
+    after_ip = after.get("public_ip_address")
+    live_instance_ip = live.get("_instance_public_ip")
+    live_static_ip = live.get("_static_public_ip")
+    require(
+        isinstance(before_ip, str)
+        and bool(before_ip)
+        and isinstance(after_ip, str)
+        and bool(after_ip)
+        and before_ip != after_ip
+        and after_ip == live_instance_ip
+        and after_ip == live_static_ip
+        and before_ip != live_instance_ip
+        and before_ip != live_static_ip,
+        "FINAL_PUBLIC_IP_REFRESH_MISMATCH",
+    )
+    return 1
+
+
+def review_final_plan(
+    plan: dict[str, Any],
+    cfg: Settings,
+    catalog: dict[str, Any],
+    live: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Require all 18 final resources to be no-op, then reuse the repair safety contract."""
     prior = plan.get("prior_state", {}).get("values", {}).get("root_module", {})
     require(isinstance(prior, Mapping) and not prior.get("child_modules"),
@@ -208,10 +373,15 @@ def review_final_plan(plan: dict[str, Any], cfg: Settings, catalog: dict[str, An
             "FINAL_PLAN_NOT_ALL_NOOP",
         )
 
+    final_refresh_drift = _validate_final_refresh_drift(plan, cfg, live)
+
     # Reuse the complete three-create safety reviewer by converting only the
     # already-verified final/no-op shape into its equivalent review fixture.
+    # Final refresh-only drift is validated independently above and removed
+    # from the synthetic pre-apply review shape.
     synthetic = copy.deepcopy(plan)
     synthetic["applyable"] = True
+    synthetic["resource_drift"] = []
 
     synthetic_prior = (
         synthetic["prior_state"]["values"]["root_module"]["resources"]
@@ -238,6 +408,8 @@ def review_final_plan(plan: dict[str, Any], cfg: Settings, catalog: dict[str, An
         "deletes": 0,
         "replacements": 0,
         "approved_refresh_drift_entries": repair_manifest["approved_refresh_drift_entries"],
+        "approved_final_refresh_drift_entries": final_refresh_drift,
+        "live_lightsail_contract_verified": True,
         "repair_contract_reused": True,
     }
 
