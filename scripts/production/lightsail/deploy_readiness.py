@@ -127,6 +127,39 @@ def private_values(access: Mapping[str, Any]) -> list[str]:
     return values
 
 
+def access_shape(access: Mapping[str, Any]) -> dict[str, Any]:
+    host_keys = access.get("hostKeys") or []
+    algorithms = []
+    prefixed = 0
+    for item in host_keys:
+        if not isinstance(item, Mapping):
+            continue
+        algorithm = item.get("algorithm")
+        public = item.get("publicKey")
+        if (
+            isinstance(algorithm, str)
+            and re.fullmatch(r"[A-Za-z0-9@._+-]{3,80}", algorithm)
+        ):
+            algorithms.append(algorithm)
+            if isinstance(public, str) and public.startswith(algorithm + " "):
+                prefixed += 1
+    protocol = access.get("protocol")
+    return {
+        "has_private_key": isinstance(access.get("privateKey"), str)
+        and bool(access.get("privateKey")),
+        "has_cert_key": isinstance(access.get("certKey"), str)
+        and bool(access.get("certKey")),
+        "has_username": isinstance(access.get("username"), str)
+        and bool(access.get("username")),
+        "has_ip_address": isinstance(access.get("ipAddress"), str)
+        and bool(access.get("ipAddress")),
+        "protocol": protocol if protocol in {"ssh", "rdp"} else "unknown",
+        "host_key_count": len(host_keys) if isinstance(host_keys, list) else 0,
+        "host_key_algorithms": sorted(set(algorithms)),
+        "host_key_public_prefixed_count": prefixed,
+    }
+
+
 def known_hosts_text(access: Mapping[str, Any]) -> str:
     ip = access.get("ipAddress")
     if not isinstance(ip, str) or not re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", ip):
@@ -306,13 +339,16 @@ def main() -> int:
         "changes_performed": False,
     }
     access: Mapping[str, Any] = {}
+    stage = "startup"
     try:
         if boto3 is None:
             raise RuntimeError("AWS SDK missing")
+        stage = "aws_identity"
         sts = boto3.client("sts", region_name=REGION)
         caller = sts.get_caller_identity()
         report["aws_identity_verified"] = bool(caller.get("Account"))
 
+        stage = "lightsail_instance_contract"
         lightsail = boto3.client("lightsail", region_name=REGION)
         instance = lightsail.get_instance(instanceName=INSTANCE_NAME)["instance"]
         static = lightsail.get_static_ip(staticIpName=STATIC_IP_NAME)["staticIp"]
@@ -327,6 +363,7 @@ def main() -> int:
             "instance_reports_static_ip": instance.get("isStaticIp") is True,
         }
 
+        stage = "ecr_repository"
         ecr = boto3.client("ecr", region_name=REGION)
         try:
             response = ecr.describe_repositories(repositoryNames=[ECR_REPOSITORY])
@@ -338,11 +375,15 @@ def main() -> int:
             else:
                 raise
 
+        stage = "lightsail_access_details"
         access = lightsail.get_instance_access_details(
             instanceName=INSTANCE_NAME,
             protocol="ssh",
         )["accessDetails"]
+        report["access_shape"] = access_shape(access)
+        stage = "ssh_probe"
         remote = ssh_probe(access)
+        stage = "evaluate_prerequisites"
         report["host"] = remote
         report["prerequisites"] = deploy_prerequisites(remote, ecr_exists)
         report["result"] = (
@@ -353,16 +394,20 @@ def main() -> int:
         write_report(report, private_values(access))
         return 0
     except ClientError as error:
+        report["diagnostic_stage"] = stage
         report["error_code"] = "AWS_READ_FAILED"
         report["aws_error_code"] = safe_code(
             error.response.get("Error", {}).get("Code"),
             "UNKNOWN_AWS_ERROR",
         )
     except subprocess.CalledProcessError:
+        report["diagnostic_stage"] = stage
         report["error_code"] = "SSH_PROBE_FAILED"
     except subprocess.TimeoutExpired:
+        report["diagnostic_stage"] = stage
         report["error_code"] = "SSH_PROBE_TIMEOUT"
     except Exception as error:
+        report["diagnostic_stage"] = stage
         report["error_code"] = "PRIVATE_READINESS_FAILED"
         report["exception_type"] = safe_code(type(error).__name__, "UnknownException")
     try:
