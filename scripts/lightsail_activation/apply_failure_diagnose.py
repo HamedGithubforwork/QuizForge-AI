@@ -122,6 +122,76 @@ def denied_action_from_message(message: str) -> str | None:
     return None
 
 
+def invalid_input_detail(message: str) -> dict[str, Any]:
+    """Expose only a redacted template and fixed keyword booleans for InvalidInput errors."""
+    lower = message.lower()
+    mentions = {
+        "account": any(x in lower for x in ("account", "subscription")),
+        "availability_zone": any(x in lower for x in ("availability zone", "availabilityzone", "zone")),
+        "blueprint": "blueprint" in lower or "image" in lower,
+        "bundle": "bundle" in lower or "plan" in lower,
+        "instance_name": any(x in lower for x in ("instance name", "instancename")),
+        "ip_address": any(x in lower for x in ("ip address", "ipaddresstype", "ipv4", "ipv6", "dualstack")),
+        "key_pair": any(x in lower for x in ("key pair", "keypair", "keypairname")),
+        "limit_or_quota": any(x in lower for x in ("limit", "quota", "maximum", "too many")),
+        "region": "region" in lower,
+        "tag": "tag" in lower,
+        "unsupported": any(x in lower for x in ("unsupported", "not supported")),
+        "user_data": any(x in lower for x in ("user data", "userdata", "launch script")),
+    }
+
+    sanitized = message
+    sanitized = re.sub(r"arn:aws[a-zA-Z-]*:[^\s,;]+", "<ARN>", sanitized)
+    sanitized = re.sub(r"\b\d{12}\b", "<ACCOUNT>", sanitized)
+    sanitized = re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b", "<IP>", sanitized)
+    sanitized = re.sub(r"[^@\s]+@[^@\s]+\.[^@\s]+", "<EMAIL>", sanitized)
+    sanitized = sanitized.replace(INSTANCE_NAME, "<INSTANCE>")
+    sanitized = sanitized.replace("quizforge-production-operator", "<KEY_PAIR>")
+    sanitized = re.sub(r'"[^"\n]{1,160}"', '"<VALUE>"', sanitized)
+    sanitized = re.sub(r"'[^'\n]{1,160}'", "'<VALUE>'", sanitized)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    if len(sanitized) > 500:
+        sanitized = sanitized[:500] + "…"
+
+    return {
+        "message_length": len(message),
+        "mentions": mentions,
+        "sanitized_message_template": sanitized,
+    }
+
+
+def request_shape(params: Mapping[str, Any]) -> dict[str, Any]:
+    allowed = {
+        "availabilityZone",
+        "blueprintId",
+        "bundleId",
+        "instanceNames",
+        "ipAddressType",
+        "keyPairName",
+        "tags",
+        "userData",
+        "addOns",
+    }
+    keys = {str(k) for k in params}
+    return {
+        "safe_present_parameter_names": sorted(keys & allowed),
+        "unexpected_parameter_name_count": len(keys - allowed),
+        "has_key_pair_name": isinstance(params.get("keyPairName"), str)
+        and bool(params.get("keyPairName")),
+        "key_pair_name_expected": params.get("keyPairName") == "quizforge-production-operator",
+        "has_user_data": isinstance(params.get("userData"), str)
+        and bool(params.get("userData")),
+        "user_data_length": len(params.get("userData"))
+        if isinstance(params.get("userData"), str) else 0,
+        "ip_address_type": (
+            params.get("ipAddressType")
+            if params.get("ipAddressType") in {"ipv4", "ipv6", "dualstack"}
+            else "unknown_or_absent"
+        ),
+        "has_add_ons": bool(params.get("addOns")),
+    }
+
+
 def parse_tags(params: Mapping[str, Any]) -> dict[str, Any]:
     raw = params.get("tags")
     pairs: dict[str, Any] = {}
@@ -225,6 +295,8 @@ def incident_cloudtrail(cloudtrail, settings: Settings) -> dict[str, Any]:
             "failure_class": classify_error(code, message) if failed else "none",
             "configured_role_session": event_identity_matches(payload, settings.role),
         }
+        if code == "InvalidInputException" and message:
+            entry["invalid_input_detail"] = invalid_input_detail(message)
         denied = denied_action_from_message(message)
         if denied:
             entry["denied_action"] = denied
@@ -239,6 +311,7 @@ def incident_cloudtrail(cloudtrail, settings: Settings) -> dict[str, Any]:
                 "requested_known_instance_name": (
                     params.get("instanceNames") == [INSTANCE_NAME]
                 ),
+                "request_shape": request_shape(params),
                 "tags": tags,
             })
         events.append(entry)
@@ -274,6 +347,10 @@ def recent_create_history(cloudtrail, settings: Settings) -> dict[str, Any]:
         "same_configured_role_success_count": 0,
         "success_with_purpose_tag_count": 0,
         "success_with_default_tags_count": 0,
+        "success_with_key_pair_count": 0,
+        "success_with_user_data_count": 0,
+        "success_with_ipv4_count": 0,
+        "success_with_dualstack_count": 0,
     }
     for wrapper in wrappers:
         payload = parse_cloudtrail_payload(wrapper)
@@ -288,11 +365,21 @@ def recent_create_history(cloudtrail, settings: Settings) -> dict[str, Any]:
         if event_identity_matches(payload, settings.role):
             stats["same_configured_role_success_count"] += 1
         params = payload.get("requestParameters")
-        tags = parse_tags(params if isinstance(params, Mapping) else {})
+        params = params if isinstance(params, Mapping) else {}
+        tags = parse_tags(params)
+        shape = request_shape(params)
         if tags["purpose_tag_present"]:
             stats["success_with_purpose_tag_count"] += 1
         if tags["default_tags_exact"]:
             stats["success_with_default_tags_count"] += 1
+        if shape["has_key_pair_name"]:
+            stats["success_with_key_pair_count"] += 1
+        if shape["has_user_data"]:
+            stats["success_with_user_data_count"] += 1
+        if shape["ip_address_type"] == "ipv4":
+            stats["success_with_ipv4_count"] += 1
+        if shape["ip_address_type"] == "dualstack":
+            stats["success_with_dualstack_count"] += 1
     return stats
 
 
@@ -343,6 +430,8 @@ def current_lightsail(client) -> dict[str, Any]:
         "instance_exists": False,
         "bundle_available": False,
         "blueprint_available": False,
+        "key_pair_exists": False,
+        "availability_zone_available": False,
     }
     try:
         try:
@@ -352,6 +441,20 @@ def current_lightsail(client) -> dict[str, Any]:
             code = safe_code(error.response.get("Error", {}).get("Code"))
             if code not in {"NotFoundException", "ResourceNotFoundException"}:
                 result["instance_lookup_error_code"] = code
+
+        try:
+            client.get_key_pair(keyPairName="quizforge-production-operator")
+            result["key_pair_exists"] = True
+        except ClientError:
+            pass
+
+        regions = client.get_regions(includeAvailabilityZones=True).get("regions", [])
+        result["availability_zone_available"] = any(
+            zone.get("zoneName") == "ca-central-1a"
+            for region in regions
+            for zone in (region.get("availabilityZones") or [])
+            if isinstance(zone, Mapping)
+        )
 
         bundles = client.get_bundles(includeInactive=False).get("bundles", [])
         result["bundle_available"] = any(

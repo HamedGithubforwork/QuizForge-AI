@@ -9,8 +9,10 @@ from scripts.lightsail_activation.apply_failure_diagnose import (
     classify_error,
     denied_action_from_message,
     incident_cloudtrail,
+    invalid_input_detail,
     parse_tags,
     recent_create_history,
+    request_shape,
     safe_condition_keys,
 )
 from scripts.lightsail_activation.tests.test_repair_review import SETTINGS
@@ -53,6 +55,46 @@ class ApplyFailureDiagnosticTests(unittest.TestCase):
             "lightsail:CreateInstances",
         )
         self.assertIsNone(denied_action_from_message("secret action custom:DoThing"))
+
+    def test_invalid_input_detail_redacts_dynamic_values_but_preserves_reason(self):
+        message = (
+            f"Invalid key pair 'quizforge-production-operator' for account {SETTINGS.account}; "
+            f"instance name quizforge-production-lightsail in region ca-central-1 is unsupported"
+        )
+        result = invalid_input_detail(message)
+        self.assertTrue(result["mentions"]["key_pair"])
+        self.assertTrue(result["mentions"]["account"])
+        self.assertTrue(result["mentions"]["instance_name"])
+        self.assertTrue(result["mentions"]["region"])
+        self.assertTrue(result["mentions"]["unsupported"])
+        raw = json.dumps(result)
+        self.assertNotIn(SETTINGS.account, raw)
+        self.assertNotIn("quizforge-production-operator", raw)
+        self.assertNotIn("quizforge-production-lightsail", raw)
+        self.assertIn("<VALUE>", raw)
+        self.assertIn("<INSTANCE>", raw)
+
+    def test_request_shape_compares_safe_create_parameters_only(self):
+        params = {
+            "availabilityZone": "ca-central-1a",
+            "blueprintId": "ubuntu_24_04",
+            "bundleId": "small_3_0",
+            "instanceNames": ["quizforge-production-lightsail"],
+            "ipAddressType": "ipv4",
+            "keyPairName": "quizforge-production-operator",
+            "userData": "#!/bin/sh\necho ok",
+            "tags": [],
+            "SecretProviderField": SETTINGS.ssh_key,
+        }
+        result = request_shape(params)
+        self.assertTrue(result["has_key_pair_name"])
+        self.assertTrue(result["key_pair_name_expected"])
+        self.assertTrue(result["has_user_data"])
+        self.assertEqual(result["ip_address_type"], "ipv4")
+        self.assertEqual(result["unexpected_parameter_name_count"], 1)
+        raw = json.dumps(result)
+        self.assertNotIn("SecretProviderField", raw)
+        self.assertNotIn(SETTINGS.ssh_key, raw)
 
     def test_tag_parser_reports_only_safe_shape(self):
         params = {
@@ -151,6 +193,10 @@ class ApplyFailureDiagnosticTests(unittest.TestCase):
         self.assertEqual(report["same_configured_role_success_count"], 1)
         self.assertEqual(report["success_with_purpose_tag_count"], 1)
         self.assertEqual(report["success_with_default_tags_count"], 0)
+        self.assertEqual(report["success_with_key_pair_count"], 0)
+        self.assertEqual(report["success_with_user_data_count"], 0)
+        self.assertEqual(report["success_with_ipv4_count"], 0)
+        self.assertEqual(report["success_with_dualstack_count"], 0)
         self.assertNotIn("private-id", json.dumps(report))
 
     def test_condition_key_summary_only_allows_known_keys(self):
