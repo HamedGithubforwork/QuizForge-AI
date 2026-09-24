@@ -45,6 +45,10 @@ def text(*args):
     p=subprocess.run(args,text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
     return p.stdout.strip() if p.returncode==0 else ""
 
+def combined(*args):
+    p=subprocess.run(args,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+    return p.stdout.strip()
+
 service_active=subprocess.run(["systemctl","is-active","--quiet","quizforge.service"]).returncode==0
 service_enabled=subprocess.run(["systemctl","is-enabled","--quiet","quizforge.service"]).returncode==0
 show=text("systemctl","show","quizforge.service","--property=Result,ExecMainStatus,ActiveState,SubState","--value").splitlines()
@@ -70,7 +74,7 @@ def signals(value):
         "traceback": "traceback" in low,
         "module_error": "modulenotfounderror" in low or "importerror" in low,
         "permission_error": "permission denied" in low or "permissionerror" in low,
-        "db_connection_error": "operationalerror" in low or "connection refused" in low or "password authentication failed" in low,
+        "db_connection_error": "operationalerror" in low or "connection refused" in low or "connectionrefusederror" in low or "password authentication failed" in low,
         "tls_error": "certificate verify failed" in low or "ssl error" in low,
         "address_in_use": "address already in use" in low,
         "oom_signal": "out of memory" in low or "oom" in low or "killed" in low,
@@ -96,7 +100,7 @@ for cid in ids:
     name=labels.get("com.docker.compose.service")
     if name not in {"api","identity","guard","db","redis","web"}:
         continue
-    log_text=text("docker","logs","--tail","200",cid)
+    log_text=combined("docker","logs","--tail","200",cid)
     health_raw=text("docker","inspect","--format",'{{if .State.Health}}{{json .State.Health.Log}}{{else}}[]{{end}}',cid)
     health_signals=[]
     try:
