@@ -6,6 +6,9 @@ class PublicLaunchDiagnosticTests(unittest.TestCase):
     def test_diagnostic_is_read_only_and_bounded(self):
         self.assertIn('text("docker","compose"', REMOTE_DIAG)
         self.assertIn('text("docker","inspect"', REMOTE_DIAG)
+        self.assertIn('text("docker","logs","--tail","200"', REMOTE_DIAG)
+        self.assertIn("log_signals", REMOTE_DIAG)
+        self.assertIn("health_signals", REMOTE_DIAG)
         self.assertIn('text("systemctl","show"', REMOTE_DIAG)
         self.assertNotIn("systemctl start", REMOTE_DIAG)
         self.assertNotIn("systemctl enable", REMOTE_DIAG)
