@@ -59,7 +59,7 @@ class ApplyFailureDiagnosticTests(unittest.TestCase):
     def test_invalid_input_detail_redacts_dynamic_values_but_preserves_reason(self):
         message = (
             f"Invalid key pair 'quizforge-production-operator' for account {SETTINGS.account}; "
-            f"instance quizforge-production-lightsail in region ca-central-1 is unsupported"
+            f"instance name quizforge-production-lightsail in region ca-central-1 is unsupported"
         )
         result = invalid_input_detail(message)
         self.assertTrue(result["mentions"]["key_pair"])
