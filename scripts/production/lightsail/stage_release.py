@@ -422,6 +422,21 @@ def main() -> int:
         base=ssh_command(key,cert,known,username,ip,"bash","-s")
         remote=remote_json(base,REMOTE_PREFLIGHT)
         report["host_preflight_ok"]=preflight_ok(remote)
+        report["host_contract"]={
+            "base_host_ready": remote.get("base_host_ready") is True,
+            "ubuntu_24_04": remote.get("ubuntu_24_04") is True,
+            "sudo_noninteractive": remote.get("sudo_noninteractive") is True,
+            "docker_active": remote.get("docker_active") is True,
+            "cgroup_v2": remote.get("cgroup_v2") is True,
+            "swap_disabled": remote.get("swap_disabled") is True,
+            "etc_private": remote.get("etc_private") is True,
+            "var_private": remote.get("var_private") is True,
+            "ssh_password_disabled": remote.get("ssh_password_disabled") is True,
+            "ssh_root_disabled": remote.get("ssh_root_disabled") is True,
+            "ssh_forwarding_disabled": remote.get("ssh_forwarding_disabled") is True,
+        }
+        compose_version=str(remote.get("compose_version",""))
+        report["compose_version"]=compose_version if re.fullmatch(r"[A-Za-z0-9._+~-]{1,80}",compose_version) else "invalid"
         report["compose_2_30_or_newer"]=remote.get("compose_ok") is True
         report["disk_capacity_ok"]=type(remote.get("disk_free_gib")) is int and remote["disk_free_gib"]>=20
         report["fresh_application_host"]=remote.get("current_release_absent") is True and remote.get("frontend_absent") is True
