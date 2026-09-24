@@ -17,6 +17,7 @@ from scripts.production.lightsail.public_launch import (
     desired_record,
     relevant_records,
     restore_changes,
+    root_bash_command,
     write_report,
 )
 
@@ -76,6 +77,18 @@ class PublicLaunchTests(unittest.TestCase):
         self.assertNotIn("tee /etc/quizforge/generation.env", REMOTE_PRELAUNCH + REMOTE_COMMIT)
         self.assertNotIn("enabled=true", REMOTE_PRELAUNCH + REMOTE_COMMIT)
         self.assertEqual(PUBLIC_RESOLVERS, ("1.1.1.1", "8.8.8.8"))
+
+    def test_launch_remote_scripts_run_under_noninteractive_root_shell(self):
+        command = root_bash_command(
+            Path("/tmp/key"),
+            Path("/tmp/cert"),
+            Path("/tmp/known"),
+            "ubuntu",
+            "198.51.100.20",
+            "--",
+            "a" * 40,
+        )
+        self.assertEqual(command[-5:], ["sudo", "bash", "-s", "--", "a" * 40])
 
     def test_public_summary_rejects_ip_and_private_values(self):
         with tempfile.TemporaryDirectory() as root:
