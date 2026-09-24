@@ -40,9 +40,10 @@ variable "public_signup" {
   default = false
 }
 locals {
-  name   = "quizforge-production-lightsail"
-  origin = "https://quizfromnotes.com"
-  domain = "quizforge-${data.aws_caller_identity.current.account_id}"
+  name          = "quizforge-production-lightsail"
+  instance_name = "${local.name}-server"
+  origin        = "https://quizfromnotes.com"
+  domain        = "quizforge-${data.aws_caller_identity.current.account_id}"
 }
 resource "aws_lightsail_key_pair" "operator" {
   name       = "quizforge-production-operator"
@@ -50,7 +51,7 @@ resource "aws_lightsail_key_pair" "operator" {
   lifecycle { prevent_destroy = true }
 }
 resource "aws_lightsail_instance" "server" {
-  name              = local.name
+  name              = local.instance_name
   availability_zone = "ca-central-1a"
   blueprint_id      = "ubuntu_24_04"
   bundle_id         = "small_3_0"
