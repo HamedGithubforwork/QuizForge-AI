@@ -78,6 +78,10 @@ class DeepDiagnosticTests(unittest.TestCase):
         ]
 
         report = analyze(document, SETTINGS, CATALOG)
+        self.assertEqual(
+            report["final_verification_result"],
+            "FINAL_STATE_RESOURCE_SET_MISMATCH",
+        )
         self.assertEqual(report["resource_drift_count"], 4)
         self.assertEqual(report["unexpected_resource_drift_count"], 1)
         self.assertEqual(
@@ -148,6 +152,10 @@ class DeepDiagnosticTests(unittest.TestCase):
         }
 
         report = analyze(document, SETTINGS, CATALOG, live)
+        self.assertEqual(
+            report["final_verification_result"],
+            "FINAL_STATE_RESOURCE_SET_MISMATCH",
+        )
         item = report["drift_resources"]["aws_lightsail_instance.server"]
         self.assertEqual(
             item["changed_attributes"],
