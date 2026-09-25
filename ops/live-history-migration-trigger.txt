@@ -1,1 +1,1 @@
-2026-09-25T05:29Z isolated live migration retry with proven key-only SSH fallback
+2026-09-25T06:27Z isolated live migration retry with validated propagated SSH material
