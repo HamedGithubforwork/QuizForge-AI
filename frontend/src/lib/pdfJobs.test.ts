@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { pdfJobMessage, pausePdfPolling, waitForPdfJob } from './pdfJobs.ts'
+import { pdfErrorMessage, pdfJobMessage, pausePdfPolling, waitForPdfJob } from './pdfJobs.ts'
 import type { PdfJobResponse, UploadResponse } from '../types/api.generated.ts'
 
 const result: UploadResponse = { filename: 'notes.pdf', pdf_sha256: 'a'.repeat(64), page_count: 30,
@@ -52,4 +52,17 @@ test('polling delay resolves and a resumed completed job needs no extra read', a
 test('completed status explains how many cached pages were reused', () => {
   assert.equal(pdfJobMessage({ ...queued, status: 'succeeded', reused_pages: 1 }), 'Your PDF is ready. Reused 1 cached page.')
   assert.equal(pdfJobMessage({ ...queued, status: 'succeeded', reused_pages: 6 }), 'Your PDF is ready. Reused 6 cached pages.')
+})
+
+
+test('singular PDF page-count errors use correct copy', () => {
+  const raw = 'This PDF has 1 pages. Choose pages within that range.'
+  assert.equal(
+    pdfErrorMessage(raw),
+    'This PDF has 1 page. Choose pages within that range.',
+  )
+  assert.equal(
+    pdfJobMessage({ ...queued, status: 'failed', error: raw }),
+    'This PDF has 1 page. Choose pages within that range.',
+  )
 })

@@ -179,7 +179,11 @@ function App() {
       setIsChangingPages(false)
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
-      setError(caughtError instanceof Error ? caughtError.message : 'Could not change pages. Please try again.')
+      // ChangePagesPanel owns page-change validation errors so the current
+      // successfully processed document does not appear globally broken.
+      throw caughtError instanceof Error
+        ? caughtError
+        : new Error('Could not change pages. Please try again.')
     }
   }
 
