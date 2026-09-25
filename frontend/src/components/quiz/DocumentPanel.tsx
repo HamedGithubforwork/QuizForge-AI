@@ -8,12 +8,14 @@ import type {
 type DocumentPanelProps = {
   documentResult: UploadResult
   onChangePages?: () => void
+  onChooseDifferentPdf?: () => void
   changePagesDisabled?: boolean
 }
 
 function DocumentPanel({
   documentResult,
   onChangePages,
+  onChooseDifferentPdf,
   changePagesDisabled,
 }: DocumentPanelProps) {
   return (
@@ -74,11 +76,21 @@ function DocumentPanel({
         <p>Source pages: {documentResult.pages.map(page => page.page_number).join(', ')}.</p>
       )}
 
-      {onChangePages && (
-        <button className="button secondary-button" type="button" onClick={onChangePages}
-          disabled={changePagesDisabled} aria-controls="change-pages-panel">
-          Change pages
-        </button>
+      {(onChangePages || onChooseDifferentPdf) && (
+        <div className="document-actions">
+          {onChangePages && (
+            <button className="button secondary-button" type="button" onClick={onChangePages}
+              disabled={changePagesDisabled} aria-controls="change-pages-panel">
+              Change pages
+            </button>
+          )}
+          {onChooseDifferentPdf && (
+            <button className="button ghost-button" type="button" onClick={onChooseDifferentPdf}
+              disabled={changePagesDisabled}>
+              Choose a different PDF
+            </button>
+          )}
+        </div>
       )}
 
       {documentResult.warning && (

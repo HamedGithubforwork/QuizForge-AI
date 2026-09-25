@@ -702,6 +702,7 @@ function App() {
             <DocumentPanel
               documentResult={documentResult}
               onChangePages={pdfUpload.supportsPageReuse && pdfUpload.sourceSha256 ? () => setIsChangingPages(true) : undefined}
+              onChooseDifferentPdf={handleUploadNewPdf}
               changePagesDisabled={documentBusy || isChangingPages}
             />
 
