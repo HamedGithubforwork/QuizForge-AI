@@ -164,6 +164,11 @@ failed_stages=re.findall(
     journal,
 )
 latest_failed_stage=failed_stages[-1] if failed_stages else "none"
+main_stages=re.findall(
+    r"QF_BACKUP_MAIN_FAILED_STAGE=(parse_arguments|health|bucket_validation|key_read|run_backup|fetch_backup)",
+    journal,
+)
+latest_main_failed_stage=main_stages[-1] if main_stages else "none"
 result={
   "backup_user_present": run("id","-u","quizforge-backup").returncode==0,
   "operations_files_present": all(exists(p) for p in (
@@ -190,6 +195,7 @@ result={
   "missing_modules":missing_modules,
   "latest_backup_error_class":latest_error_class,
   "latest_failed_stage":latest_failed_stage,
+  "latest_main_failed_stage":latest_main_failed_stage,
   "read_only_preflight":preflight,
 }
 print("QF_RESULT="+json.dumps(result,sort_keys=True))

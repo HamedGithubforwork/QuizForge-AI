@@ -27,6 +27,7 @@ MAX_AGE_SECONDS = 26 * 3600
 MAX_RUNNING_SECONDS = 15 * 60
 NAMESPACE = 'QuizForge/Backup'
 DIMENSIONS = [{'Name': 'Deployment', 'Value': 'production-lightsail'}]
+MAIN_STAGE = 'startup'
 
 
 def utcnow():
@@ -252,6 +253,8 @@ def aws_client(service):
 
 
 def main(argv=None):
+    global MAIN_STAGE
+    MAIN_STAGE = 'parse_arguments'
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=('run', 'health', 'fetch'))
     parser.add_argument('--state-dir', default='/var/lib/quizforge-backup')
@@ -267,6 +270,7 @@ def main(argv=None):
     if args.failed and args.operation != 'health':
         raise ValueError('Failure marking is only available for health reporting')
     if args.operation == 'health':
+        MAIN_STAGE = 'health'
         if args.failed:
             root = private_directory(args.state_dir)
             with job_lock(root):
@@ -277,15 +281,19 @@ def main(argv=None):
         publish_health(aws_client('cloudwatch'), fresh)
         print(json.dumps({'backup_fresh': fresh}))
         return 0 if fresh else 1
+    MAIN_STAGE = 'bucket_validation'
     backup.validate_bucket(args.bucket, args.account)
+    MAIN_STAGE = 'key_read'
     key = backup.private_read(args.key_file, 32)
     if args.operation == 'run':
+        MAIN_STAGE = 'run_backup'
         def export():
             with psycopg.connect(**backup.connection_options(os.environ)) as conn:
                 return backup.export_snapshot(conn)
         run_backup(args.state_dir, key, export, aws_client('s3'), args.bucket, args.account)
         print('PASS: encrypted archive and authenticated recovery receipt stored off-server')
     else:
+        MAIN_STAGE = 'fetch_backup'
         if not args.archive or not args.receipt_file or args.archive == args.receipt_file:
             raise ValueError('Provide separate new private archive and receipt paths')
         archive, raw, receipt = fetch_backup(aws_client('s3'), key, args.bucket, args.account,
@@ -300,5 +308,6 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except Exception as error:
+        print('QF_BACKUP_MAIN_FAILED_STAGE=' + MAIN_STAGE, file=sys.stderr, flush=True)
         print('ERROR: backup operation stopped (' + type(error).__name__ + '); data and credentials omitted', file=sys.stderr)
         raise SystemExit(1) from None

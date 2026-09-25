@@ -60,7 +60,7 @@ UPLOADER_PARAM = "/quizforge/production/backup-uploader-credentials-v1"
 HEALTH_PARAM = "/quizforge/production/backup-health-credentials-v1"
 
 # Explicitly tracks a reviewed retry of the guarded one-shot backup runtime.
-BACKUP_RUNTIME_RETRY_REVISION = 1
+BACKUP_RUNTIME_RETRY_REVISION = 2
 
 REMOTE_INSTALL_AND_RUN = r"""set -euo pipefail
 archive="$1"
