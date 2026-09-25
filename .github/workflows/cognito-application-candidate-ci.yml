@@ -1,0 +1,54 @@
+name: Cognito application candidate CI
+
+on:
+  pull_request:
+    branches:
+      - feat/aws-production-auth
+    paths:
+      - "frontend/**"
+      - "e2e/cognito-tests/**"
+      - "e2e/playwright.cognito.config.ts"
+      - ".github/workflows/cognito-application-candidate-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run test:coverage
+      - run: npm run lint
+      - run: npm run build
+
+  cognito-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm ci --prefix e2e
+      - run: npx --prefix e2e playwright install --with-deps chromium
+      - run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
