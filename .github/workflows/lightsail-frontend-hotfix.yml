@@ -6,8 +6,10 @@ on:
       - ".github/workflows/lightsail-frontend-hotfix.yml"
       - "scripts/production/lightsail/frontend_hotfix.py"
       - "scripts/production/lightsail/test_frontend_hotfix.py"
+      - "scripts/production/lightsail/release-lock.json"
       - ".github/workflows/lightsail-release-candidate-build.yml"
       - ".github/workflows/lightsail-app-stage.yml"
+      - "scripts/production/lightsail/release-lock.json"
   push:
     branches: [main]
     paths:
