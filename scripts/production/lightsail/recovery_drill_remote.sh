@@ -82,7 +82,8 @@ openssl x509 -req -sha256 -days 2 \
   -CAcreateserial -extfile "$work/db-tls/server.ext" -out "$work/db-tls/server.crt" >/dev/null 2>&1
 openssl verify -CAfile "$work/db-tls/ca.crt" "$work/db-tls/server.crt" >/dev/null
 rm -f "$work/db-tls/ca.key" "$work/db-tls/server.csr" "$work/db-tls/server.ext" "$work/db-tls/ca.srl"
-chown 999:999 "$work/db-tls/server.key" "$work/db-tls/server.crt"
+chown 999:999 "$work/db-tls" "$work/db-tls/server.key" "$work/db-tls/server.crt"
+chmod 0700 "$work/db-tls"
 chmod 0600 "$work/db-tls/server.key"
 chmod 0644 "$work/db-tls/server.crt" "$work/db-tls/ca.crt"
 
