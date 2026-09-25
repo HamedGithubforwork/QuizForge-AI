@@ -109,17 +109,21 @@ for path in sorted(p for p in root.rglob("*") if p.is_file()):
 if h.hexdigest()!=expected:
     raise ValueError("frontend tree digest mismatch")
 
-found=False
+markers={
+    b"Continue to your existing account":False,
+    b"New here? Start with a fresh account":False,
+}
 for path in root.rglob("*"):
     if path.is_file() and path.stat().st_size <= 8*1024*1024:
         try:
-            if b"Sign in or create account" in path.read_bytes():
-                found=True
-                break
+            raw=path.read_bytes()
         except OSError:
-            pass
-if not found:
-    raise ValueError("Cognito production UI marker missing")
+            continue
+        for marker in markers:
+            if marker in raw:
+                markers[marker]=True
+if not all(markers.values()):
+    raise ValueError("Distinct Cognito production UI markers missing")
 PY
 
 chown -R root:root "$stage"
