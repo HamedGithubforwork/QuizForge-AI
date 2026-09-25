@@ -196,6 +196,7 @@ def test_combined_seed_text_bound_rejects_before_admission(tmp_path, monkeypatch
 
 
 def test_cached_reselection_does_not_consume_hourly_document_allowance(tmp_path):
+    # Cached page composition is a read/repack operation, not a new PDF admission.
     store = JobStore(tmp_path / 'queue')
     try:
         raw = b'same-document'
