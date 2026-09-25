@@ -1,0 +1,85 @@
+name: Permanent Lightsail backup timer activation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-backup-timer-activation.yml"
+      - "scripts/production/lightsail/enable_backup_timers.py"
+      - "scripts/production/lightsail/test_enable_backup_timers.py"
+      - "scripts/production/systemd/quizforge-backup.timer"
+      - "scripts/production/systemd/quizforge-backup-health.timer"
+      - "scripts/production/systemd/quizforge-backup-health.service"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-backup-timer-activation.yml"
+      - "scripts/production/lightsail/enable_backup_timers.py"
+      - "scripts/production/lightsail/test_enable_backup_timers.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v7
+        with: {python-version: "3.11.16"}
+      - name: Validate backup timer activation
+        run: |
+          python -m py_compile scripts/production/lightsail/enable_backup_timers.py
+          python -m unittest scripts.production.lightsail.test_enable_backup_timers -v
+          systemd-analyze verify scripts/production/systemd/quizforge-backup.timer scripts/production/systemd/quizforge-backup-health.timer scripts/production/systemd/quizforge-backup-health.service
+
+  activate:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-backup-timer-activation
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v7
+        with: {python-version: "3.11.16"}
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-enable-backup-timers
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
+              "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails",
+              "cloudwatch:GetMetricStatistics","cloudwatch:DescribeAlarms"
+            ],"Resource":"*"}]}
+      - name: Enable reviewed backup and health timers
+        run: python -m scripts.production.lightsail.enable_backup_timers
+      - name: Publish sanitized timer activation result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-lightsail-backup-timer-activation
+          path: lightsail-backup-timer-activation/summary.json
+          if-no-files-found: error
+          retention-days: 30
