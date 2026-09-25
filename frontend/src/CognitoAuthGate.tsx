@@ -82,10 +82,10 @@ export default function CognitoAuthGate() {
   </>
   if (!account) return <main className="auth-page auth-page-welcome">
     <div className="auth-login-shell">
-      <section className="auth-hero-panel" aria-label="QuizForge overview">
+      <section className="auth-hero-panel" aria-label="Quiz From Notes overview">
         <div className="auth-wordmark">
           <span className="auth-wordmark-mark">QF</span>
-          <span>{config.environment === 'staging' ? 'QuizForge staging' : 'QuizForge'}</span>
+          <span>{config.environment === 'staging' ? 'Quiz From Notes staging' : 'Quiz From Notes'}</span>
         </div>
 
         <div className="auth-hero-copy">
@@ -106,7 +106,7 @@ export default function CognitoAuthGate() {
 
       <section className="auth-login-panel">
         <div className="auth-login-panel-inner">
-          <span className="auth-login-kicker">WELCOME TO QUIZFORGE</span>
+          <span className="auth-login-kicker">WELCOME TO QUIZ FROM NOTES</span>
           <h2>Ready when you are.</h2>
           <p className="auth-login-copy">
             Sign in or create an account to continue. We use Cognito for secure
@@ -132,7 +132,7 @@ export default function CognitoAuthGate() {
   </main>
 
   return <main className="auth-page"><section className="auth-card">
-    <h1>{config.environment === 'staging' ? 'QuizForge staging' : 'QuizForge'}</h1>
+    <h1>{config.environment === 'staging' ? 'Quiz From Notes staging' : 'Quiz From Notes'}</h1>
     {error && <p role="alert">{error}</p>}
     <p>Signed in as {account.email}</p>
     <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
@@ -156,7 +156,7 @@ export default function CognitoAuthGate() {
         <option value="link">Link my existing account</option><option value="enroll">Create an empty account</option>
       </select>
       {mode === 'link' ? <>
-        <p>Sign in to your existing QuizForge account to prove ownership. Email addresses alone cannot link accounts.</p>
+        <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
         {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
         <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
