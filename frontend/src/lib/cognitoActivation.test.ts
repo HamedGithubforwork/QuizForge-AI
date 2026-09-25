@@ -10,6 +10,8 @@ import {
 
 const originalFetch = globalThis.fetch
 
+// Production enables USER_PASSWORD_AUTH only so an imported hash can complete its one-time MFA_SETUP challenge.
+
 function jsonResponse(value: object, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
