@@ -100,6 +100,9 @@ export function usePdfUpload() {
       return result
     } catch (error) {
       if (controller.signal.aborted) throw new DOMException('Polling stopped.', 'AbortError')
+      // Terminal failures are rendered by the caller. Keeping the failed job
+      // here would show the same message twice (job status + page error).
+      setJob(null)
       throw error
     } finally {
       if (operation.current === controller) {
