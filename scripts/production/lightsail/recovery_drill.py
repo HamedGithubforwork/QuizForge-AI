@@ -50,6 +50,26 @@ def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
     return text if re.fullmatch(r"[A-Za-z0-9._:+~-]{1,120}", text) else fallback
 
 
+REMOTE_FAILURE_STAGES = {
+    "VALIDATE_INPUTS",
+    "UNPACK_BUNDLE",
+    "INSTALL_PYTHON_VENV",
+    "INSTALL_PYTHON_DEPS",
+    "GENERATE_DB_PASSWORD",
+    "PULL_POSTGRES",
+    "START_POSTGRES",
+    "WAIT_POSTGRES",
+    "RESTORE_DATABASE",
+}
+
+
+def remote_failure_stage(error: subprocess.CalledProcessError) -> str | None:
+    raw = error.stderr or b""
+    text = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
+    matches = re.findall(r"^QF_FAILURE_STAGE=([A-Z0-9_]+)$", text, flags=re.MULTILINE)
+    return matches[-1] if matches and matches[-1] in REMOTE_FAILURE_STAGES else None
+
+
 def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
     """Compact fail-closed session boundary; AWS limits inline session policies to 2048 chars."""
     capacity_policy.account_id(account)
@@ -491,8 +511,11 @@ def run() -> int:
         report["result"] = "recovery_succeeded"
     except ClientError as error:
         report["error_code"] = safe_code(error.response.get("Error", {}).get("Code"), "AWS_RECOVERY_DRILL_FAILED")
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as error:
         report["error_code"] = "REMOTE_RECOVERY_DRILL_FAILED"
+        stage = remote_failure_stage(error)
+        if stage is not None:
+            report["failure_stage"] = stage
     except subprocess.TimeoutExpired:
         report["error_code"] = "RECOVERY_DRILL_TIMEOUT"
     except Exception as error:

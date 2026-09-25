@@ -18,30 +18,42 @@ test -s "$bundle"
 
 work="$(mktemp -d /tmp/quizforge-recovery.XXXXXX)"
 container="quizforge-recovery-db"
+stage="VALIDATE_INPUTS"
 
 cleanup() {
   docker rm -f -v "$container" >/dev/null 2>&1 || true
   rm -rf "$work" "$archive" "$key" "$bundle"
 }
+trap 'printf "QF_FAILURE_STAGE=%s\n" "$stage" >&2' ERR
 trap cleanup EXIT
 
+stage="UNPACK_BUNDLE"
 tar -xzf "$bundle" -C "$work"
 for path in lightsail_backup.py schema.sql generation_budget.sql requirements.lock; do
   test -s "$work/$path"
 done
 
+stage="INSTALL_PYTHON_VENV"
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-venv >/dev/null
 python3 -m venv "$work/venv"
+
+stage="INSTALL_PYTHON_DEPS"
 "$work/venv/bin/python" -m pip install --disable-pip-version-check --require-hashes   -r "$work/requirements.lock" >/dev/null
 
+stage="GENERATE_DB_PASSWORD"
 password="$("$work/venv/bin/python" - <<'PY'
 import secrets
 print(secrets.token_urlsafe(48))
 PY
 )"
 
+stage="PULL_POSTGRES"
 docker pull "$postgres_image" >/dev/null 2>&1
+
+stage="START_POSTGRES"
 docker run -d --name "$container"   --memory 512m --memory-swap 512m --cpus 1.0 --pids-limit 160   --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=512m   --tmpfs /var/run/postgresql:rw,nosuid,nodev,size=16m   -e POSTGRES_DB=quizforge   -e POSTGRES_USER=quizforge_owner   -e POSTGRES_PASSWORD="$password"   -p 127.0.0.1:55432:5432   "$postgres_image" >/dev/null
 
+stage="WAIT_POSTGRES"
 ready=0
 for _ in $(seq 1 90); do
   if docker exec "$container" pg_isready -q -U quizforge_owner -d quizforge; then
@@ -52,6 +64,7 @@ for _ in $(seq 1 90); do
 done
 test "$ready" -eq 1
 
+stage="RESTORE_DATABASE"
 RECOVERY_WORK="$work" RECOVERY_ARCHIVE="$archive" RECOVERY_KEY="$key" RECOVERY_DB_PASSWORD="$password" EXPECTED_CONTENT_SHA256="$expected_content_sha256" "$work/venv/bin/python" - <<'PY'
 import json
 import os
