@@ -51,35 +51,105 @@ def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
 
 
 def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
-    """Reuse the reviewed temporary-host boundary and add read-only recovery data."""
-    value = capacity_policy.session_policy(account, "run", ident)
+    """Compact fail-closed session boundary; AWS limits inline session policies to 2048 chars."""
+    capacity_policy.account_id(account)
+    capacity_policy.test_name(ident)
     bucket = f"quizforge-production-backups-{account}"
-    value["Statement"].extend([
-        {
-            "Effect": "Allow",
-            "Action": ["s3:GetBucketVersioning"],
-            "Resource": f"arn:aws:s3:::{bucket}",
-        },
-        {
-            "Effect": "Allow",
-            "Action": ["s3:ListBucketVersions"],
-            "Resource": f"arn:aws:s3:::{bucket}",
-            "Condition": {"StringLike": {"s3:prefix": "receipts/*"}},
-        },
-        {
-            "Effect": "Allow",
-            "Action": ["s3:GetObjectVersion"],
-            "Resource": [
-                f"arn:aws:s3:::{bucket}/receipts/*",
-                f"arn:aws:s3:::{bucket}/lightsail/*",
-            ],
-        },
-        {
-            "Effect": "Allow",
-            "Action": ["ssm:GetParameter"],
-            "Resource": f"arn:aws:ssm:{REGION}:{account}:parameter{KEY_PARAM}",
-        },
-    ])
+    role = f"arn:aws:iam::{account}:role/{capacity_policy.ROLE}"
+    schedule = (
+        f"arn:aws:scheduler:{REGION}:{account}:schedule/"
+        f"{capacity_policy.GROUP}/{capacity_policy.PREFIX}*"
+    )
+    value = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["freetier:GetAccountPlanState", "lightsail:Get*"],
+                "Resource": "*",
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["iam:GetRole*", "iam:List*Role*"],
+                "Resource": role,
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["scheduler:Get*"],
+                "Resource": "*",
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["scheduler:CreateSchedule"],
+                "Resource": schedule,
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["lightsail:CreateInstances"],
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {
+                        "aws:RequestedRegion": REGION,
+                        "aws:RequestTag/Purpose": capacity_policy.PURPOSE,
+                    }
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["lightsail:TagResource"],
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {
+                        "aws:RequestTag/Purpose": capacity_policy.PURPOSE,
+                        "aws:RequestTag/TestId": ident,
+                    },
+                    "ForAllValues:StringEquals": {
+                        "aws:TagKeys": ["Purpose", "TestId", "DeleteAfter"]
+                    },
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["lightsail:DeleteInstance", "lightsail:PutInstancePublicPorts"],
+                "Resource": "*",
+                "Condition": {
+                    "StringEquals": {
+                        "aws:ResourceTag/Purpose": capacity_policy.PURPOSE
+                    }
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["iam:PassRole"],
+                "Resource": role,
+                "Condition": {
+                    "StringEquals": {
+                        "iam:PassedToService": "scheduler.amazonaws.com"
+                    }
+                },
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetBucketVersioning", "s3:ListBucketVersions"],
+                "Resource": f"arn:aws:s3:::{bucket}",
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObjectVersion"],
+                "Resource": [
+                    f"arn:aws:s3:::{bucket}/receipts/*",
+                    f"arn:aws:s3:::{bucket}/lightsail/*",
+                ],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["ssm:GetParameter"],
+                "Resource": f"arn:aws:ssm:{REGION}:{account}:parameter{KEY_PARAM}",
+            },
+        ],
+    }
+    if len(json.dumps(value, separators=(",", ":"))) > 2048:
+        raise ValueError("Recovery session policy exceeds the AWS inline-session limit")
     return value
 
 

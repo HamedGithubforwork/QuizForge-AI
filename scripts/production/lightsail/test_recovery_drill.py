@@ -97,6 +97,8 @@ class RecoveryDrillTests(unittest.TestCase):
         self.assertIn("ssm:GetParameter", actions)
         self.assertIn("lightsail:CreateInstances", actions)
         self.assertIn("lightsail:DeleteInstance", actions)
+        compact = json.dumps(policy, separators=(",", ":"))
+        self.assertLessEqual(len(compact), 2048)
 
     def test_report_rejects_private_identifiers(self):
         with tempfile.TemporaryDirectory() as directory:
