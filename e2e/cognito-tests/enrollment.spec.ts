@@ -147,8 +147,8 @@ test('create account starts at the dedicated Cognito signup endpoint with PKCE',
   const state = await setup(page)
   await createAccount(page)
   expect(state.counts().authorizationPath).toBe('/signup')
-  expect(state.counts().tokenCalls).toBe(1)
   await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
+  expect(state.counts().tokenCalls).toBe(1)
 })
 
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
