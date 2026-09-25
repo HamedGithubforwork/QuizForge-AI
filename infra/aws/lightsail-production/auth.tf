@@ -40,7 +40,7 @@ resource "aws_cognito_user_pool_client" "browser" {
   supported_identity_providers         = ["COGNITO"]
   callback_urls                        = ["${local.origin}/auth/callback"]
   logout_urls                          = ["${local.origin}/"]
-  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH"]
+  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_PASSWORD_AUTH"]
   prevent_user_existence_errors        = "ENABLED"
   enable_token_revocation              = true
   read_attributes                      = ["email", "email_verified", "sub"]
