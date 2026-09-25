@@ -116,7 +116,7 @@ export default function CognitoAuthGate() {
           {error && <div className="auth-error auth-login-error" role="alert">{error}</div>}
 
           <div className="auth-entry-actions">
-            <button className="auth-entry-action auth-entry-action-primary" disabled={busy}
+            <button className="auth-entry-action auth-entry-action-primary" aria-label="Sign in" disabled={busy}
               onClick={() => void run(signIn)}>
               <span className="auth-entry-action-copy">
                 <strong>Sign in</strong>
@@ -125,7 +125,7 @@ export default function CognitoAuthGate() {
               <span className="auth-cta-arrow" aria-hidden="true">→</span>
             </button>
 
-            <button className="auth-entry-action auth-entry-action-secondary" disabled={busy}
+            <button className="auth-entry-action auth-entry-action-secondary" aria-label="Create account" disabled={busy}
               onClick={() => void run(signUp)}>
               <span className="auth-entry-action-copy">
                 <strong>Create account</strong>
