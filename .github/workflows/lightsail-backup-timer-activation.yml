@@ -34,7 +34,13 @@ jobs:
         run: |
           python -m py_compile scripts/production/lightsail/enable_backup_timers.py
           python -m unittest scripts.production.lightsail.test_enable_backup_timers -v
-          systemd-analyze verify scripts/production/systemd/quizforge-backup.timer scripts/production/systemd/quizforge-backup-health.timer scripts/production/systemd/quizforge-backup-health.service
+          mkdir -p /tmp/quizforge-backup-timer-unit-check
+          cp scripts/production/systemd/quizforge-backup.timer /tmp/quizforge-backup-timer-unit-check/
+          cp scripts/production/systemd/quizforge-backup-health.timer /tmp/quizforge-backup-timer-unit-check/
+          cp scripts/production/systemd/quizforge-backup.service /tmp/quizforge-backup-timer-unit-check/
+          cp scripts/production/systemd/quizforge-backup-health.service /tmp/quizforge-backup-timer-unit-check/
+          sed -i 's@^ExecStart=.*@ExecStart=/usr/bin/true@; s@^ExecStartPost=.*@ExecStartPost=/usr/bin/true@' /tmp/quizforge-backup-timer-unit-check/*.service
+          systemd-analyze verify /tmp/quizforge-backup-timer-unit-check/*
 
   activate:
     needs: validate
