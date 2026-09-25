@@ -120,7 +120,8 @@ jobs:
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[
               {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:DescribeUserPool","cognito-idp:UpdateUserPool","cognito-idp:ListTagsForResource"],"Resource":"*"},
-              {"Effect":"Allow","Action":["lambda:GetFunction","lambda:GetFunctionConfiguration","lambda:GetPolicy","lambda:ListTags","lambda:ListVersionsByFunction"],"Resource":"*"},
+              {"Effect":"Allow","Action":["lambda:GetFunction","lambda:GetFunctionConfiguration","lambda:GetPolicy","lambda:GetRuntimeManagementConfig","lambda:ListTags","lambda:ListVersionsByFunction"],"Resource":"*"},
+              {"Effect":"Allow","Action":["iam:GetRole","iam:GetRolePolicy","iam:ListRolePolicies","iam:ListAttachedRolePolicies","iam:ListInstanceProfilesForRole","iam:ListRoleTags"],"Resource":"*"},
               {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":"arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}"},
               {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
             ]}
