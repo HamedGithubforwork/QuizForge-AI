@@ -1,5 +1,9 @@
 import type { PdfJobResponse, UploadResponse } from '../types/api.generated.ts'
 
+export function pdfErrorMessage(message: string) {
+  return message.replace(/\b1 pages\b/g, '1 page')
+}
+
 export function pdfJobMessage(job: PdfJobResponse) {
   if (job.status === 'queued') return 'Your PDF is queued and will start shortly.'
   if (job.status === 'processing') {
@@ -11,7 +15,7 @@ export function pdfJobMessage(job: PdfJobResponse) {
     ? `Your PDF is ready. Reused ${job.reused_pages} cached ${job.reused_pages === 1 ? 'page' : 'pages'}.`
     : 'Your PDF is ready.'
   if (job.status === 'cancelled') return 'PDF processing cancelled.'
-  return job.error || 'PDF processing failed. Please try again.'
+  return pdfErrorMessage(job.error || 'PDF processing failed. Please try again.')
 }
 
 export function pausePdfPolling(signal: AbortSignal) {
