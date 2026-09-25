@@ -128,10 +128,12 @@ def main() -> int:
         cert_fp = fingerprint(cert)
         report["temporary_key_certificate_match"] = bool(key_fp and cert_fp and key_fp == cert_fp)
 
-        cert_auth = run(
-            ssh_command(key, cert, hosts, username, ip, "true")[:-1] +
-            ["-vv", f"{username}@{ip}", "true"]
-        )
+        cert_auth = run([
+            "ssh","-vv","-i",str(key),"-o",f"CertificateFile={cert}",
+            "-o",f"UserKnownHostsFile={hosts}","-o","StrictHostKeyChecking=yes",
+            "-o","IdentitiesOnly=yes","-o","BatchMode=yes","-o","ConnectTimeout=15",
+            f"{username}@{ip}","true",
+        ])
         report["certificate_auth_succeeded"] = cert_auth.returncode == 0
         report["certificate_auth"] = safe_summary(cert_auth.stderr)
 
