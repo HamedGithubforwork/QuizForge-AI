@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import time
 from typing import Any
 from urllib.request import Request, urlopen
 
@@ -34,16 +35,18 @@ EXPORT_URL = "https://vfxmsvphgcaizqnbyjip.supabase.co/functions/v1/quizfromnote
 OIDC_AUDIENCE = "quizfromnotes-supabase-export"
 RESULT = Path("lightsail-history-migration-results/summary.json")
 
-REMOTE = r"""set -euo pipefail
+REMOTE = r"""set -Eeuo pipefail
 archive="$1"
 key="$2"
 importer="$3"
 transfer="$4"
 expected="$5"
+stage="VALIDATE_HOST"
 
 cleanup() {
   rm -f "$archive" "$key" "$importer" "$transfer"
 }
+trap 'printf "QF_FAILURE_STAGE=%s\n" "$stage" >&2' ERR
 trap cleanup EXIT
 
 test -s "$archive"
@@ -55,6 +58,7 @@ test -f /etc/quizforge/postgres/owner-password
 test -f /etc/quizforge/db-ca.pem
 systemctl is-active --quiet quizforge.service
 
+stage="RESOLVE_OPERATIONS_IMAGE"
 compose=/opt/quizforge/current/compose.json
 test -s "$compose"
 ops_image="$(python3 - "$compose" <<'PY'
@@ -75,8 +79,11 @@ run_import() {
     ' sh "$operation"       --archive /run/migration/source.qfh       --key-file /run/migration/key       --expected-sha256 "$expected"
 }
 
+stage="DRY_RUN_IMPORT"
 dry="$(run_import dry-run)"
+stage="COMMIT_IMPORT"
 commit="$(run_import commit)"
+stage="VERIFY_IMPORT"
 verify="$(run_import verify)"
 
 python3 - "$dry" "$commit" "$verify" <<'PY'
@@ -106,6 +113,40 @@ print("QF_RESULT="+json.dumps({
 },sort_keys=True))
 PY
 """
+
+
+def retry_command(command: list[str], *, attempts: int, timeout: int, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    last: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(attempts):
+        completed = subprocess.run(
+            command,
+            input=input_text,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return completed
+        last = completed
+        if completed.returncode != 255 or attempt + 1 == attempts:
+            break
+        time.sleep(5)
+    assert last is not None
+    raise subprocess.CalledProcessError(
+        last.returncode,
+        command,
+        output=last.stdout,
+        stderr=last.stderr,
+    )
+
+
+def remote_failure_stage(stderr: str | bytes | None) -> str | None:
+    text = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr or "")
+    matches = re.findall(r"^QF_FAILURE_STAGE=([A-Z0-9_]+)$", text, flags=re.MULTILINE)
+    allowed = {"VALIDATE_HOST", "RESOLVE_OPERATIONS_IMAGE", "DRY_RUN_IMPORT", "COMMIT_IMPORT", "VERIFY_IMPORT"}
+    return matches[-1] if matches and matches[-1] in allowed else None
 
 
 def github_oidc() -> str:
@@ -285,28 +326,36 @@ def main() -> int:
         remote_archive, remote_key = remote_base+".qfh", remote_base+".key"
         remote_importer, remote_transfer = remote_base+"-import.py", remote_base+"-transfer.py"
         remote_paths = [remote_archive, remote_key, remote_importer, remote_transfer]
-        for local, remote in (
+
+        report["migration_stage"] = "SSH_READY"
+        retry_command(
+            ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
+            attempts=6,
+            timeout=30,
+        )
+
+        for index, (local, remote) in enumerate((
             (archive_path, remote_archive),
             (key_path, remote_key),
             (importer_path, remote_importer),
             (transfer_path, remote_transfer),
-        ):
-            subprocess.run(
+        ), start=1):
+            report["migration_stage"] = "SCP_" + str(index)
+            retry_command(
                 scp_command(ssh_key, ssh_cert, hosts, username, ip, local, remote),
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=True,
+                attempts=3,
+                timeout=120,
             )
 
-        completed = subprocess.run(
+        report["migration_stage"] = "REMOTE_IMPORT"
+        completed = retry_command(
             ssh_command(
                 ssh_key, ssh_cert, hosts, username, ip,
                 "sudo","bash","-s","--",remote_archive,remote_key,remote_importer,remote_transfer,manifest["sha256"],
             ),
-            input=REMOTE,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            input_text=REMOTE,
+            attempts=2,
             timeout=300,
-            check=True,
         )
         values = [line.removeprefix("QF_RESULT=") for line in completed.stdout.splitlines() if line.startswith("QF_RESULT=")]
         if len(values) != 1:
@@ -340,6 +389,9 @@ def main() -> int:
     except subprocess.CalledProcessError as error:
         report["error_code"] = "REMOTE_MIGRATION_FAILED"
         report["remote_return_code"] = error.returncode
+        stage = remote_failure_stage(error.stderr)
+        if stage is not None:
+            report["remote_failure_stage"] = stage
     except Exception as error:
         report["error_code"] = safe_code(type(error).__name__, "MIGRATION_FAILED")
     finally:
