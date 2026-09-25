@@ -170,6 +170,20 @@ def ssh_failure_code(stderr: str | bytes | None) -> str:
     return "SSH_UNKNOWN"
 
 
+def refresh_temp_access(lightsail, temp: Path, known: str, forbidden: list[str]) -> tuple[Path, Path, Path, str]:
+    access = lightsail.get_instance_access_details(instanceName=INSTANCE_NAME, protocol="ssh")["accessDetails"]
+    private_key, cert_key, username = access.get("privateKey"), access.get("certKey"), access.get("username")
+    if not all(isinstance(value, str) and value for value in (private_key, cert_key, username)):
+        raise ValueError("Temporary SSH access incomplete")
+    forbidden.extend([private_key, cert_key])
+
+    ssh_key, ssh_cert, hosts = temp/"ssh-key", temp/"ssh-cert.pub", temp/"known_hosts"
+    ssh_key.write_text(private_key); ssh_key.chmod(0o600)
+    ssh_cert.write_text(cert_key + ("" if cert_key.endswith("\n") else "\n")); ssh_cert.chmod(0o600)
+    hosts.write_text(known); hosts.chmod(0o600)
+    return ssh_key, ssh_cert, hosts, username
+
+
 def github_oidc() -> str:
     base = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
     separator = "&" if "?" in base else "?"
@@ -332,16 +346,8 @@ def main() -> int:
 
         pins = load_pins(Path("scripts/production/lightsail/ssh-host-pins.json"))
         known = scan_host(ip, pins)
-        access = lightsail.get_instance_access_details(instanceName=INSTANCE_NAME, protocol="ssh")["accessDetails"]
-        private_key, cert_key, username = access.get("privateKey"), access.get("certKey"), access.get("username")
-        if not all(isinstance(value, str) and value for value in (private_key, cert_key, username)):
-            raise ValueError("Temporary SSH access incomplete")
-        forbidden.extend([private_key, cert_key])
-
-        ssh_key, ssh_cert, hosts = temp/"ssh-key", temp/"ssh-cert.pub", temp/"known_hosts"
-        ssh_key.write_text(private_key); ssh_key.chmod(0o600)
-        ssh_cert.write_text(cert_key + ("" if cert_key.endswith("\n") else "\n")); ssh_cert.chmod(0o600)
-        hosts.write_text(known); hosts.chmod(0o600)
+        ssh_key, ssh_cert, hosts, username = refresh_temp_access(lightsail, temp, known, forbidden)
+        report["temporary_ssh_credentials_refreshed"] = False
 
         remote_base = "/tmp/quizfromnotes-migration-" + os.environ["GITHUB_RUN_ID"]
         remote_archive, remote_key = remote_base+".qfh", remote_base+".key"
@@ -354,11 +360,24 @@ def main() -> int:
                 report["ssh_tcp_reachable"] = True
         except OSError:
             report["ssh_tcp_reachable"] = False
-        retry_command(
-            ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
-            attempts=6,
-            timeout=30,
-        )
+
+        try:
+            retry_command(
+                ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
+                attempts=2,
+                timeout=30,
+            )
+        except subprocess.CalledProcessError as error:
+            if error.returncode != 255 or ssh_failure_code(error.stderr) != "AUTH_REJECTED":
+                raise
+            time.sleep(3)
+            ssh_key, ssh_cert, hosts, username = refresh_temp_access(lightsail, temp, known, forbidden)
+            report["temporary_ssh_credentials_refreshed"] = True
+            retry_command(
+                ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
+                attempts=6,
+                timeout=30,
+            )
 
         for index, (local, remote) in enumerate((
             (archive_path, remote_archive),
