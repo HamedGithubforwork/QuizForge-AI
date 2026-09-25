@@ -43,10 +43,25 @@ def private_write(path, data):
 
 
 def private_read(path, maximum):
-    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    candidate = Path(path)
+    descriptor = os.open(candidate, os.O_RDONLY | os.O_NOFOLLOW)
     with os.fdopen(descriptor, "rb") as file:
         info = os.fstat(file.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_size > maximum:
+        credentials_directory = os.environ.get("CREDENTIALS_DIRECTORY")
+        systemd_credential = False
+        if credentials_directory:
+            root = Path(credentials_directory)
+            systemd_credential = (
+                root.is_absolute()
+                and candidate.is_absolute()
+                and candidate.parent == root
+            )
+        bad_mode = (
+            info.st_mode & 0o022
+            if systemd_credential
+            else info.st_mode & 0o077
+        )
+        if not stat.S_ISREG(info.st_mode) or bad_mode or info.st_size > maximum:
             raise ValueError("Input must be a private bounded regular file")
         return file.read(maximum + 1)
 

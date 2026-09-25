@@ -13,7 +13,7 @@ from scripts.production.lightsail.activate_backup_host import (
 
 class FirstProductionBackupTests(unittest.TestCase):
     def test_reviewed_retry_revision_is_explicit(self):
-        self.assertEqual(BACKUP_RUNTIME_RETRY_REVISION, 2)
+        self.assertEqual(BACKUP_RUNTIME_RETRY_REVISION, 3)
 
     def test_three_backup_identities_are_separate(self):
         self.assertEqual(

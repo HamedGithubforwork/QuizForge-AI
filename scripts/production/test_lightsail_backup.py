@@ -24,6 +24,23 @@ def synthetic_snapshot():
 
 
 class PrivateFileBoundaryTests(unittest.TestCase):
+    def test_systemd_credential_read_allows_read_only_service_copy(self):
+        with tempfile.TemporaryDirectory() as root:
+            credential_dir = Path(root) / "credentials"
+            credential_dir.mkdir()
+            path = credential_dir / "backup.key"
+            path.write_bytes(b"x" * 32)
+            path.chmod(0o444)
+            with patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": str(credential_dir)}):
+                self.assertEqual(backup.private_read(path, 32), b"x" * 32)
+            with patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": ""}):
+                with self.assertRaises(ValueError):
+                    backup.private_read(path, 32)
+            path.chmod(0o466)
+            with patch.dict(os.environ, {"CREDENTIALS_DIRECTORY": str(credential_dir)}):
+                with self.assertRaises(ValueError):
+                    backup.private_read(path, 32)
+
     def test_private_io_is_self_contained_and_rejects_public_files(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "private.bin"
