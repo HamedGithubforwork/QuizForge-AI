@@ -310,7 +310,7 @@ function AuthGate() {
           />
 
           <p>
-            Loading QuizForge...
+            Loading Quiz From Notes...
           </p>
         </section>
       </main>
@@ -328,7 +328,7 @@ function AuthGate() {
 
             <div>
               <h1>
-                QuizForge AI
+                Quiz From Notes
               </h1>
 
               <p>
@@ -425,7 +425,7 @@ function AuthGate() {
 
             <div>
               <h1>
-                QuizForge AI
+                Quiz From Notes
               </h1>
 
               <p>
@@ -485,9 +485,9 @@ function AuthGate() {
 
             <p>
               {mode === 'login'
-                ? 'Log in to continue to QuizForge.'
+                ? 'Log in to continue to Quiz From Notes.'
                 : mode === 'signup'
-                  ? 'Create an account to start using QuizForge.'
+                  ? 'Create an account to start using Quiz From Notes.'
                   : 'Enter your email and we will send you a password reset link.'}
             </p>
           </div>
