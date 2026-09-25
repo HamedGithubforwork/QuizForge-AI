@@ -193,3 +193,42 @@ def test_combined_seed_text_bound_rejects_before_admission(tmp_path, monkeypatch
             assert db.execute('SELECT count(*) FROM checkpoints').fetchone()[0] == 0
     finally:
         store.close()
+
+
+def test_cached_reselection_does_not_consume_hourly_document_allowance(tmp_path):
+    # Cached page composition is a read/repack operation, not a new PDF admission.
+    store = JobStore(tmp_path / 'queue')
+    try:
+        raw = b'same-document'
+        source_digest = hashlib.sha256(raw).hexdigest()
+
+        # Fill the per-owner hourly admission allowance with real processing.
+        for number in [1, 2, 3, 4]:
+            row = store.submit('alice', 'notes.pdf', raw, [number])
+            store.claim()
+            store.finish(row['id'], [{'page_number': number, 'text': TEXT}])
+
+        with store.connect() as db:
+            assert db.execute(
+                'SELECT count(*) FROM admissions WHERE owner=?',
+                ('alice',),
+            ).fetchone()[0] == pdf_job_store.MAX_OWNER_JOBS
+
+        # A new selection assembled entirely from cached pages must still work:
+        # it does not upload bytes or invoke OCR, so it is not a new admission.
+        combined = store.reuse_selection(
+            'alice',
+            source_digest,
+            [1, 2, 3, 4],
+        )
+        assert combined is not None
+        assert combined['reused_pages'] == 4
+        assert [page['page_number'] for page in combined['result']] == [1, 2, 3, 4]
+
+        with store.connect() as db:
+            assert db.execute(
+                'SELECT count(*) FROM admissions WHERE owner=?',
+                ('alice',),
+            ).fetchone()[0] == pdf_job_store.MAX_OWNER_JOBS
+    finally:
+        store.close()
