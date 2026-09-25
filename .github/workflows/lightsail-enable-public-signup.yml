@@ -119,9 +119,8 @@ jobs:
           unset-current-credentials: true
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[
-              {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:DescribeUserPool","cognito-idp:UpdateUserPool","cognito-idp:ListTagsForResource"],"Resource":"*"},
-              {"Effect":"Allow","Action":["lambda:GetFunction","lambda:GetFunctionConfiguration","lambda:GetPolicy","lambda:GetRuntimeManagementConfig","lambda:ListTags","lambda:ListVersionsByFunction"],"Resource":"*"},
-              {"Effect":"Allow","Action":["iam:GetRole","iam:GetRolePolicy","iam:ListRolePolicies","iam:ListAttachedRolePolicies","iam:ListInstanceProfilesForRole","iam:ListRoleTags"],"Resource":"*"},
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:Get*","cognito-idp:List*","cognito-idp:Describe*","lambda:Get*","lambda:List*","iam:Get*","iam:List*"],"Resource":"*"},
+              {"Effect":"Allow","Action":["cognito-idp:UpdateUserPool"],"Resource":"*"},
               {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":"arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}"},
               {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
             ]}
@@ -154,7 +153,15 @@ jobs:
           status=$?
           set -e
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
-            echo "Public signup Terraform plan failed" >&2
+            python - <<'PY'
+          import os,re
+          from pathlib import Path
+          raw=(Path(os.environ["RUNNER_TEMP"])/"public-signup-plan.log").read_text(errors="replace")
+          actions=sorted(set(re.findall(r"not authorized to perform: ([A-Za-z0-9:*_-]+)",raw,re.I)))
+          codes=sorted(set(re.findall(r"\b(AccessDenied(?:Exception)?|UnauthorizedOperation|InvalidAction|ValidationException)\b",raw)))
+          print("TerraformPlanFailure actions="+(",".join(actions[:8]) if actions else "unknown")+
+                " codes="+(",".join(codes[:8]) if codes else "unknown"))
+          PY
             exit 1
           fi
           terraform -chdir=infra/aws/lightsail-production show -json \
