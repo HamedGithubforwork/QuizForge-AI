@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -116,6 +117,29 @@ class RecoveryDrillTests(unittest.TestCase):
     def test_postgres_image_is_exact_pinned_digest(self):
         image = drill.postgres_image()
         self.assertRegex(image, r"^docker\.io/library/postgres@sha256:[a-f0-9]{64}$")
+
+    def test_remote_failure_stage_is_bounded(self):
+        error = subprocess.CalledProcessError(
+            1,
+            ["ssh"],
+            stderr=b"private text omitted\nQF_FAILURE_STAGE=INSTALL_PYTHON_VENV\n",
+        )
+        self.assertEqual(drill.remote_failure_stage(error), "INSTALL_PYTHON_VENV")
+        unknown = subprocess.CalledProcessError(
+            1,
+            ["ssh"],
+            stderr=b"QF_FAILURE_STAGE=PRIVATE_SECRET_STAGE\n",
+        )
+        self.assertIsNone(drill.remote_failure_stage(unknown))
+
+    def test_remote_installs_python_venv_before_creating_environment(self):
+        script = Path("scripts/production/lightsail/recovery_drill_remote.sh").read_text()
+        install = "apt-get install -y -qq --no-install-recommends python3-venv"
+        create = 'python3 -m venv "$work/venv"'
+        self.assertIn('stage="INSTALL_PYTHON_VENV"', script)
+        self.assertIn(install, script)
+        self.assertIn(create, script)
+        self.assertLess(script.index(install), script.index(create))
 
 
 if __name__ == "__main__":
