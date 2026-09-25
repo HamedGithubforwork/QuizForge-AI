@@ -12,7 +12,7 @@ from uuid import UUID
 import psycopg
 
 from history_transfer import (APPLICATION, SUPABASE, TransferError, export_snapshot, import_snapshot,
-                              insert_rows, read_snapshot, rollback_history, seal, source_snapshot, unseal, validate)
+                              insert_rows, merge_snapshot, read_snapshot, rollback_history, seal, source_snapshot, unseal, validate)
 from probe import connection_options, fixtures
 
 ISSUER = "https://synthetic-auth.invalid/auth/v1"
@@ -136,6 +136,33 @@ def run():
         assert export_snapshot(owner, SUPABASE, ISSUER) == desired
         assert owner.execute("SELECT count(*) AS n FROM auth.users WHERE private_auth_field='synthetic-never-export-auth-data'").fetchone()["n"] == 3
         print("PASS: rollback reconciles inserts, updates and tombstones atomically, preserves auth records, and rejects source drift")
+
+        # The live migration path must preserve unrelated Cognito-era data while
+        # merging the retained Supabase UUIDs/history exactly.
+        owner.execute("TRUNCATE app.quiz_history,app.user_identities,app.users CASCADE")
+        unrelated = UUID(int=999)
+        owner.execute("INSERT INTO app.users(id) VALUES (%s)", (unrelated,))
+        owner.execute(
+            "INSERT INTO app.user_identities(issuer,subject,user_id) VALUES (%s,%s,%s)",
+            ("https://cognito-idp.ca-central-1.amazonaws.com/synthetic", "new-user", unrelated),
+        )
+        source_row = json.loads(baseline["rows"][0])
+        source_row["id"] = str(UUID(int=9999))
+        source_row["user_id"] = str(unrelated)
+        insert_rows(owner, APPLICATION.history, [json.dumps(source_row)])
+        report = merge_snapshot(owner, baseline)
+        assert report["dry_run"] and report["target_users"] == 4 and report["target_rows"] == 9
+        assert owner.execute("SELECT count(*) AS n FROM app.users").fetchone()["n"] == 1
+        report = merge_snapshot(owner, baseline, dry_run=False)
+        assert (report["inserted_users"], report["inserted_identities"], report["inserted_rows"]) == (3, 3, 8)
+        assert (report["target_users"], report["target_identities"], report["target_rows"]) == (4, 4, 9)
+        again = merge_snapshot(owner, baseline, dry_run=False)
+        assert (again["inserted_users"], again["inserted_identities"], again["inserted_rows"]) == (0, 0, 0)
+        assert owner.execute("SELECT count(*) AS n FROM app.users WHERE id=%s", (unrelated,)).fetchone()["n"] == 1
+        assert owner.execute("SELECT count(*) AS n FROM app.quiz_history WHERE id=%s", (UUID(int=9999),)).fetchone()["n"] == 1
+        owner.execute("UPDATE app.quiz_history SET quiz_title='conflict' WHERE id=%s", (UUID(int=100),))
+        expect(TransferError, lambda: merge_snapshot(owner, baseline, dry_run=False))
+        print("PASS: live merge preserves unrelated target data, is idempotent, and rejects history-ID conflicts")
 
         # Drop only schemas created above, after every check passes. The following
         # ordinary seed/snapshot/API rehearsal then starts from its original state.
