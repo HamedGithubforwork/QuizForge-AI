@@ -12,6 +12,7 @@ on:
       - "scripts/production/schema.sql"
       - "scripts/production/generation_budget.sql"
       - "scripts/production/lightsail/release-lock.json"
+      - "scripts/production/lightsail/public-source.json"
       - "scripts/lightsail_test/**"
   push:
     branches: [main]
@@ -20,6 +21,8 @@ on:
       - "scripts/production/lightsail/recovery_drill.py"
       - "scripts/production/lightsail/recovery_drill_remote.sh"
       - "scripts/production/lightsail/test_recovery_drill.py"
+      - "scripts/production/lightsail/release-lock.json"
+      - "scripts/production/lightsail/public-source.json"
   workflow_dispatch:
 
 permissions:
@@ -52,7 +55,7 @@ jobs:
       github.repository == 'HamedGithubforwork/QuizForge-AI' &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 55
     permissions:
       contents: read
       id-token: write
@@ -101,7 +104,7 @@ jobs:
           unset-current-credentials: true
           inline-session-policy: ${{ steps.policy.outputs.json }}
 
-      - name: Restore newest authenticated production recovery point on disposable AWS host
+      - name: Restore newest recovery point and run isolated application canary
         run: python -m scripts.production.lightsail.recovery_drill run
 
       - name: Publish only sanitized recovery result
