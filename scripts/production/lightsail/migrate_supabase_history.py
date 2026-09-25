@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import socket
 import tempfile
 import time
 from typing import Any
@@ -147,6 +148,26 @@ def remote_failure_stage(stderr: str | bytes | None) -> str | None:
     matches = re.findall(r"^QF_FAILURE_STAGE=([A-Z0-9_]+)$", text, flags=re.MULTILINE)
     allowed = {"VALIDATE_HOST", "RESOLVE_OPERATIONS_IMAGE", "DRY_RUN_IMPORT", "COMMIT_IMPORT", "VERIFY_IMPORT"}
     return matches[-1] if matches and matches[-1] in allowed else None
+
+
+def ssh_failure_code(stderr: str | bytes | None) -> str:
+    text = (stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else str(stderr or "")).lower()
+    checks = (
+        ("permission denied", "AUTH_REJECTED"),
+        ("connection timed out", "CONNECT_TIMEOUT"),
+        ("operation timed out", "CONNECT_TIMEOUT"),
+        ("connection refused", "CONNECT_REFUSED"),
+        ("no route to host", "NO_ROUTE"),
+        ("host key verification failed", "HOST_KEY_REJECTED"),
+        ("connection closed", "CONNECTION_CLOSED"),
+        ("connection reset", "CONNECTION_RESET"),
+        ("kex_exchange_identification", "KEX_REJECTED"),
+        ("certificate", "CERTIFICATE_ERROR"),
+    )
+    for needle, code in checks:
+        if needle in text:
+            return code
+    return "SSH_UNKNOWN"
 
 
 def github_oidc() -> str:
@@ -328,6 +349,11 @@ def main() -> int:
         remote_paths = [remote_archive, remote_key, remote_importer, remote_transfer]
 
         report["migration_stage"] = "SSH_READY"
+        try:
+            with socket.create_connection((ip, 22), timeout=10):
+                report["ssh_tcp_reachable"] = True
+        except OSError:
+            report["ssh_tcp_reachable"] = False
         retry_command(
             ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
             attempts=6,
@@ -392,6 +418,7 @@ def main() -> int:
         stage = remote_failure_stage(error.stderr)
         if stage is not None:
             report["remote_failure_stage"] = stage
+        report["ssh_failure_code"] = ssh_failure_code(error.stderr)
     except Exception as error:
         report["error_code"] = safe_code(type(error).__name__, "MIGRATION_FAILED")
     finally:
