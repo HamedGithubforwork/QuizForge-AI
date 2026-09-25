@@ -10,7 +10,10 @@ from uuid import UUID
 
 import psycopg
 
-from database import options, SOURCE_ISSUER
+try:
+    from .database import options, SOURCE_ISSUER
+except ImportError:
+    from database import options, SOURCE_ISSUER
 
 COGNITO_ISSUER_PREFIX = "https://cognito-idp.ca-central-1.amazonaws.com/"
 
