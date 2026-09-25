@@ -7,7 +7,7 @@ from scripts.production.lightsail.backend_hotfix import IMAGE_RE, REMOTE_APPLY
 
 class BackendHotfixTests(unittest.TestCase):
     def test_remote_hotfix_is_api_only_with_guard_rebind_and_rollback(self):
-        self.assertIn('services["api"]["image"]', REMOTE_APPLY)
+        self.assertIn('value["services"]["api"]["image"]', REMOTE_APPLY)
         self.assertIn('services["identity"].get("image") != old_image', REMOTE_APPLY)
         self.assertIn('--force-recreate --no-deps api', REMOTE_APPLY)
         self.assertIn('--force-recreate --no-deps guard', REMOTE_APPLY)
