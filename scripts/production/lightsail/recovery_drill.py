@@ -60,6 +60,11 @@ REMOTE_FAILURE_STAGES = {
     "START_POSTGRES",
     "WAIT_POSTGRES",
     "RESTORE_DATABASE",
+    "PREPARE_DB_TLS",
+    "LOAD_APPLICATION_IMAGES",
+    "START_RECOVERY_RUNTIME",
+    "VERIFY_RECOVERY_RUNTIME",
+    "STOP_RECOVERY_RUNTIME",
 }
 
 
@@ -166,6 +171,11 @@ def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
                 "Action": ["ssm:GetParameter"],
                 "Resource": f"arn:aws:ssm:{REGION}:{account}:parameter{KEY_PARAM}",
             },
+            {
+                "Effect": "Allow",
+                "Action": ["ecr:Get*", "ecr:BatchGetImage", "ecr:BatchCheckLayerAvailability"],
+                "Resource": "*",
+            },
         ],
     }
     if len(json.dumps(value, separators=(",", ":"))) > 2048:
@@ -259,6 +269,7 @@ def build_bundle(root: Path) -> Path:
         "scripts/production/schema.sql": "schema.sql",
         "scripts/production/generation_budget.sql": "generation_budget.sql",
         "scripts/rds_rehearsal/requirements.lock": "requirements.lock",
+        "scripts/production/lightsail/public-source.json": "public-source.json",
     }
     with tarfile.open(bundle, "w:gz") as tar:
         for source, target in members.items():
@@ -277,12 +288,107 @@ def private_file(path: Path, raw: bytes) -> Path:
     return path
 
 
-def postgres_image() -> str:
+def release_image_digests() -> dict[str, str]:
     lock = json.loads(Path("scripts/production/lightsail/release-lock.json").read_text(encoding="utf-8"))
-    digest = lock.get("image_digests", {}).get("postgres")
-    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
-        raise ValueError("Reviewed PostgreSQL image digest missing")
-    return "docker.io/library/postgres@" + digest
+    digests = lock.get("image_digests", {})
+    required = {"api", "operations", "postgres", "redis"}
+    if not isinstance(digests, dict) or not required.issubset(digests):
+        raise ValueError("Reviewed recovery image digests missing")
+    result = {name: digests[name] for name in required}
+    if not all(isinstance(value, str) and re.fullmatch(r"sha256:[a-f0-9]{64}", value) for value in result.values()):
+        raise ValueError("Reviewed recovery image digest invalid")
+    return result
+
+
+def postgres_image() -> str:
+    return "docker.io/library/postgres@" + release_image_digests()["postgres"]
+
+
+def prepare_runtime_images(ecr, account: str, root: Path) -> tuple[Path, str, list[str]]:
+    """Pull only the two exact private runtime images, then hand off a local archive."""
+    digests = release_image_digests()
+    registry = f"{account}.dkr.ecr.{REGION}.amazonaws.com"
+    refs = {
+        "api": f"{registry}/quizforge-api@{digests['api']}",
+        "operations": f"{registry}/quizforge-api@{digests['operations']}",
+    }
+    aliases = {
+        "api": "quizforge-recovery-api:locked",
+        "operations": "quizforge-recovery-operations:locked",
+    }
+
+    auth = ecr.get_authorization_token().get("authorizationData", [])
+    if len(auth) != 1 or auth[0].get("proxyEndpoint") != "https://" + registry:
+        raise ValueError("ECR authorization endpoint mismatch")
+    decoded = base64.b64decode(auth[0]["authorizationToken"], validate=True).decode("utf-8")
+    username, password = decoded.split(":", 1)
+    if username != "AWS" or not password:
+        raise ValueError("ECR authorization token invalid")
+
+    subprocess.run(
+        ["docker", "login", "--username", username, "--password-stdin", registry],
+        input=password,
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=30,
+        check=True,
+    )
+    pulled: list[str] = []
+    try:
+        for name in ("api", "operations"):
+            ref = refs[name]
+            subprocess.run(
+                ["docker", "pull", ref],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=600,
+                check=True,
+            )
+            pulled.append(ref)
+            raw = subprocess.run(
+                ["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", ref],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+                check=True,
+            ).stdout.strip()
+            if ref not in (json.loads(raw) if raw else []):
+                raise ValueError("Pulled recovery image digest mismatch")
+            subprocess.run(
+                ["docker", "tag", ref, aliases[name]],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=20,
+                check=True,
+            )
+
+        tar_path = root / "runtime-images.tar"
+        subprocess.run(
+            ["docker", "save", "-o", str(tar_path), aliases["api"], aliases["operations"]],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=600,
+            check=True,
+        )
+        subprocess.run(["gzip", "-1", str(tar_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=600, check=True)
+        archive = root / "runtime-images.tar.gz"
+        if not archive.is_file() or archive.stat().st_size <= 0:
+            raise ValueError("Runtime image archive missing")
+        archive.chmod(0o600)
+    finally:
+        subprocess.run(["docker", "logout", registry], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20, check=False)
+        subprocess.run(
+            ["docker", "image", "rm", "-f", *aliases.values(), *pulled],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+
+    redis = "docker.io/library/redis@" + digests["redis"]
+    return archive, redis, [registry, password, decoded]
 
 
 def wait_bootstrap(ls, instance, pinned_host_key: str) -> None:
@@ -308,6 +414,8 @@ def transfer_and_restore(
     archive: bytes,
     key: bytes,
     expected_content_sha256: str,
+    runtime_images: Path,
+    redis_image: str,
 ) -> dict[str, Any]:
     archive_path = private_file(root / "recovery.qflb", archive)
     key_path = private_file(root / "backup.key", key)
@@ -322,6 +430,7 @@ def transfer_and_restore(
                 str(archive_path),
                 str(key_path),
                 str(bundle),
+                str(runtime_images),
                 target + ":/home/ubuntu/",
             ],
             check=True,
@@ -343,6 +452,8 @@ def transfer_and_restore(
                 "/home/ubuntu/recovery-bundle.tar.gz",
                 image,
                 expected_content_sha256,
+                "/home/ubuntu/runtime-images.tar.gz",
+                redis_image,
             ],
             stdin=REMOTE.open("rb"),
             stdout=subprocess.PIPE,
@@ -365,6 +476,12 @@ def transfer_and_restore(
         "committed_restore_reconciled",
         "model_spending_disabled",
         "identity_challenges_invalidated",
+        "application_images_loaded",
+        "application_database_tls_verified",
+        "api_health_passed",
+        "identity_boundary_passed",
+        "generation_disabled_canary_passed",
+        "recovery_runtime_stopped",
         "production_services_touched",
     }
     if set(value) != required or not all(value[name] is True for name in required - {"production_services_touched"}):
@@ -411,6 +528,12 @@ def run() -> int:
         "committed_restore_reconciled": False,
         "model_spending_disabled": False,
         "identity_challenges_invalidated": False,
+        "application_images_loaded": False,
+        "application_database_tls_verified": False,
+        "api_health_passed": False,
+        "identity_boundary_passed": False,
+        "generation_disabled_canary_passed": False,
+        "recovery_runtime_stopped": False,
         "temporary_recovery_host_deleted": False,
         "production_services_touched": False,
         "production_dns_changed": False,
@@ -449,6 +572,12 @@ def run() -> int:
             "receipt_authenticated": True,
             "archive_exact_version_verified": True,
         })
+
+        temp = Path(tempfile.mkdtemp(prefix="quizforge-recovery-drill-", dir=os.environ.get("RUNNER_TEMP")))
+        temp.chmod(0o700)
+        ecr = boto3.client("ecr", region_name=REGION, config=capacity.CONFIG)
+        runtime_images, redis_image, runtime_private = prepare_runtime_images(ecr, account, temp)
+        forbidden.extend(runtime_private)
 
         with urlopen("https://checkip.amazonaws.com", timeout=10) as response:
             runner_ip = str(ipaddress.IPv4Address(response.read(64).decode().strip()))
@@ -495,8 +624,6 @@ def run() -> int:
             raise ValueError("Temporary recovery firewall differs from SSH-only contract")
 
         wait_bootstrap(ls, instance, pinned_host_key)
-        temp = Path(tempfile.mkdtemp(prefix="quizforge-recovery-drill-", dir=os.environ.get("RUNNER_TEMP")))
-        temp.chmod(0o700)
         state = transfer_and_restore(
             ls,
             instance,
@@ -505,10 +632,12 @@ def run() -> int:
             archive,
             key,
             receipt["content_sha256"],
+            runtime_images,
+            redis_image,
         )
         report["restore_target_fresh_bootstrap"] = True
         report.update(state)
-        report["result"] = "recovery_succeeded"
+        report["result"] = "recovery_application_canary_succeeded"
     except ClientError as error:
         report["error_code"] = safe_code(error.response.get("Error", {}).get("Code"), "AWS_RECOVERY_DRILL_FAILED")
     except subprocess.CalledProcessError as error:
@@ -535,13 +664,13 @@ def run() -> int:
             except Exception as error:
                 report["cleanup_error_code"] = safe_code(type(error).__name__, "RECOVERY_CLEANUP_FAILED")
         if created and not report["temporary_recovery_host_deleted"]:
-            report["result"] = "recovery_succeeded_cleanup_unverified" if report["result"] == "recovery_succeeded" else report["result"]
+            report["result"] = "recovery_application_canary_succeeded_cleanup_unverified" if report["result"] == "recovery_application_canary_succeeded" else report["result"]
         try:
             write_report(report, forbidden)
         except Exception:
             RESULT.unlink(missing_ok=True)
 
-    return 0 if report["result"] == "recovery_succeeded" and report["temporary_recovery_host_deleted"] else 1
+    return 0 if report["result"] == "recovery_application_canary_succeeded" and report["temporary_recovery_host_deleted"] else 1
 
 
 def emit_policy() -> int:

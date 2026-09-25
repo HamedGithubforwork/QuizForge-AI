@@ -91,6 +91,9 @@ class RecoveryDrillTests(unittest.TestCase):
             "iam:Delete",
             "iam:Attach",
             "iam:Put",
+            "ecr:Put",
+            "ecr:Delete",
+            "ecr:BatchDelete",
         )
         self.assertFalse(any(any(item.startswith(prefix) for prefix in forbidden) for item in actions))
         self.assertIn("s3:GetObjectVersion", actions)
@@ -98,6 +101,9 @@ class RecoveryDrillTests(unittest.TestCase):
         self.assertIn("ssm:GetParameter", actions)
         self.assertIn("lightsail:CreateInstances", actions)
         self.assertIn("lightsail:DeleteInstance", actions)
+        self.assertIn("ecr:Get*", actions)
+        self.assertIn("ecr:BatchGetImage", actions)
+        self.assertIn("ecr:BatchCheckLayerAvailability", actions)
         compact = json.dumps(policy, separators=(",", ":"))
         self.assertLessEqual(len(compact), 2048)
 
@@ -117,6 +123,9 @@ class RecoveryDrillTests(unittest.TestCase):
     def test_postgres_image_is_exact_pinned_digest(self):
         image = drill.postgres_image()
         self.assertRegex(image, r"^docker\.io/library/postgres@sha256:[a-f0-9]{64}$")
+        digests = drill.release_image_digests()
+        self.assertEqual(set(digests), {"api", "operations", "postgres", "redis"})
+        self.assertTrue(all(value.startswith("sha256:") for value in digests.values()))
 
     def test_remote_failure_stage_is_bounded(self):
         error = subprocess.CalledProcessError(
@@ -140,6 +149,21 @@ class RecoveryDrillTests(unittest.TestCase):
         self.assertIn(install, script)
         self.assertIn(create, script)
         self.assertLess(script.index(install), script.index(create))
+
+    def test_remote_canary_uses_exact_loaded_runtime_and_disabled_generation(self):
+        script = Path("scripts/production/lightsail/recovery_drill_remote.sh").read_text()
+        self.assertIn('stage="LOAD_APPLICATION_IMAGES"', script)
+        self.assertIn('docker load -i "$runtime_images"', script)
+        self.assertIn('api_image="quizforge-recovery-api:locked"', script)
+        self.assertIn('operations_image="quizforge-recovery-operations:locked"', script)
+        self.assertIn('stage="VERIFY_RECOVERY_RUNTIME"', script)
+        self.assertIn('"http://127.0.0.1:8000/api/health", 200', script)
+        self.assertIn('"http://127.0.0.1:8000/api/quiz-history", 401', script)
+        self.assertIn('"http://127.0.0.1:8001/identity/session", 403', script)
+        self.assertIn('"http://127.0.0.1:8002/v1/responses",', script)
+        self.assertIn('429,', script)
+        self.assertIn('"generation_disabled_canary_passed": True', script)
+        self.assertNotIn("api.openai.com", script)
 
 
 if __name__ == "__main__":
