@@ -36,7 +36,7 @@ jobs:
       - name: Validate live migration modules
         run: |
           python -m py_compile             scripts/production/lightsail/migrate_supabase_history.py             scripts/production/live_history_import.py             scripts/rds_rehearsal/history_transfer.py             scripts/rds_rehearsal/transfer_rehearsal.py
-          python -m unittest scripts.rds_rehearsal.test_history_transfer -v
+          PYTHONPATH=scripts/rds_rehearsal python -m unittest scripts.rds_rehearsal.test_history_transfer -v
 
   migrate:
     needs: validate
