@@ -143,12 +143,20 @@ for _ in $(seq 1 30); do
 done
 test "$(docker inspect --format '{{.State.Status}}' quizforge-production-web-1)" = running
 
-curl --silent --show-error --fail --max-time 15 \
-  --resolve quizfromnotes.com:443:127.0.0.1 \
-  https://quizfromnotes.com/ >/dev/null
-curl --silent --show-error --fail --max-time 15 \
-  --resolve api.quizfromnotes.com:443:127.0.0.1 \
-  https://api.quizfromnotes.com/api/health >/dev/null
+https_ready=0
+for _ in $(seq 1 30); do
+  if curl --silent --show-error --fail --max-time 10 \
+      --resolve quizfromnotes.com:443:127.0.0.1 \
+      https://quizfromnotes.com/ >/dev/null 2>&1 \
+    && curl --silent --show-error --fail --max-time 10 \
+      --resolve api.quizfromnotes.com:443:127.0.0.1 \
+      https://api.quizfromnotes.com/api/health >/dev/null 2>&1; then
+    https_ready=1
+    break
+  fi
+  sleep 1
+done
+test "$https_ready" -eq 1
 
 python3 - <<'PY'
 import json
