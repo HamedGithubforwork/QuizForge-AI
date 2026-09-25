@@ -1,0 +1,62 @@
+name: Cognito application backend candidate CI
+
+on:
+  push:
+    branches:
+      - feat/aws-production-auth
+    paths:
+      - "backend/**"
+      - ".github/workflows/cognito-application-backend-candidate-ci.yml"
+  pull_request:
+    branches:
+      - feat/aws-production-auth
+    paths:
+      - "backend/**"
+      - ".github/workflows/cognito-application-backend-candidate-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.in
+            backend/requirements.txt
+            backend/requirements.lock
+            backend/requirements-dev.in
+            backend/requirements-dev.txt
+            backend/requirements-dev.lock
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pip check
+      - run: python -m pytest -q
+      - run: python scripts/benchmark_backend.py --check
+      - run: python scripts/generate_api_contract.py --check
+      - run: docker build -t quizforge-backend-candidate-ci .
+      - run: docker run --rm quizforge-backend-candidate-ci python scripts/verify_ocr_runtime.py
