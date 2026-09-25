@@ -48,7 +48,8 @@ def reconcile(conn, value: dict, *, commit: bool) -> dict:
     issuer = value["cognito_issuer"]
     inserted = 0
     exact = 0
-    with conn.transaction():
+    conn.execute("BEGIN")
+    try:
         conn.execute("LOCK TABLE app.user_identities IN SHARE ROW EXCLUSIVE MODE")
         for item in users:
             legacy = item["legacy_user_id"]
@@ -92,43 +93,26 @@ def reconcile(conn, value: dict, *, commit: bool) -> dict:
                WHERE user_id = ANY(%s::uuid[])""",
             ([item["legacy_user_id"] for item in users],),
         ).fetchone()["n"]
-        if not commit:
-            raise psycopg.Rollback()
-
-    return {
-        "users": len(users),
-        "inserted_identities": inserted,
-        "existing_exact_identities": exact,
-        "history_rows_for_migrated_users": histories,
-    }
+        result = {
+            "users": len(users),
+            "inserted_identities": inserted,
+            "existing_exact_identities": exact,
+            "history_rows_for_migrated_users": histories,
+        }
+        if commit:
+            conn.commit()
+        else:
+            conn.rollback()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def run(operation: str, path: Path) -> dict:
     value = load_mapping(path)
     with psycopg.connect(**options(os.environ)) as conn:
-        if operation == "dry-run":
-            try:
-                return reconcile(conn, value, commit=False)
-            except psycopg.Rollback:
-                # Re-run read-only verification so the result reflects the proposed inserts.
-                with conn.transaction():
-                    existing = conn.execute(
-                        """SELECT count(*) AS n FROM app.user_identities
-                           WHERE issuer=%s AND subject = ANY(%s)""",
-                        (value["cognito_issuer"], [u["cognito_subject"] for u in value["users"]]),
-                    ).fetchone()["n"]
-                    histories = conn.execute(
-                        """SELECT count(*) AS n FROM app.quiz_history
-                           WHERE user_id = ANY(%s::uuid[])""",
-                        ([u["legacy_user_id"] for u in value["users"]],),
-                    ).fetchone()["n"]
-                return {
-                    "users": len(value["users"]),
-                    "inserted_identities": len(value["users"]) - existing,
-                    "existing_exact_identities": existing,
-                    "history_rows_for_migrated_users": histories,
-                }
-        return reconcile(conn, value, commit=True)
+        return reconcile(conn, value, commit=operation != "dry-run")
 
 
 def main() -> int:
