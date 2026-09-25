@@ -23,8 +23,8 @@ resource "aws_cognito_user_pool" "browser" {
       priority = 1
     }
   }
-  # Initial low-volume launch uses Cognito's limited, AWS-managed email sender.
-  # Validate actual signup/recovery delivery before enabling public signup.
+  # Low-volume public launch uses Cognito's limited, AWS-managed email sender.
+  # Real inbox verification and recovery delivery were rehearsed before enabling signup.
   email_configuration { email_sending_account = "COGNITO_DEFAULT" }
   verification_message_template { default_email_option = "CONFIRM_WITH_CODE" }
   lambda_config { post_confirmation = aws_lambda_function.recovery.arn }
