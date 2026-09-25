@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import './AuthGate.css'
-import { config, identityRequest, initialize, manager, session, signIn, signOut } from './lib/cognitoBrowser'
+import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
 import { secureEndpoint } from './lib/authConfig'
 
 export default function CognitoAuthGate() {
@@ -107,18 +107,33 @@ export default function CognitoAuthGate() {
       <section className="auth-login-panel">
         <div className="auth-login-panel-inner">
           <span className="auth-login-kicker">WELCOME TO QUIZ FROM NOTES</span>
-          <h2>Ready when you are.</h2>
+          <h2>Choose how to continue.</h2>
           <p className="auth-login-copy">
-            Sign in or create an account to continue. We use Cognito for secure
-            email verification and authenticator-based sign-in.
+            Use your existing account or start a new one. Both paths use Cognito
+            for secure email verification and authenticator-based sign-in.
           </p>
 
           {error && <div className="auth-error auth-login-error" role="alert">{error}</div>}
 
-          <button className="auth-submit auth-primary-cta" disabled={busy} onClick={() => void run(signIn)}>
-            <span>{busy ? 'Opening secure sign in…' : 'Sign in or create account'}</span>
-            <span className="auth-cta-arrow" aria-hidden="true">→</span>
-          </button>
+          <div className="auth-entry-actions">
+            <button className="auth-entry-action auth-entry-action-primary" disabled={busy}
+              onClick={() => void run(signIn)}>
+              <span className="auth-entry-action-copy">
+                <strong>Sign in</strong>
+                <small>Continue to your existing account</small>
+              </span>
+              <span className="auth-cta-arrow" aria-hidden="true">→</span>
+            </button>
+
+            <button className="auth-entry-action auth-entry-action-secondary" disabled={busy}
+              onClick={() => void run(signUp)}>
+              <span className="auth-entry-action-copy">
+                <strong>Create account</strong>
+                <small>New here? Start with a fresh account</small>
+              </span>
+              <span className="auth-cta-arrow" aria-hidden="true">＋</span>
+            </button>
+          </div>
 
           <div className="auth-security-note">
             <span className="auth-security-dot" aria-hidden="true" />
