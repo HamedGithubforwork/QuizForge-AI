@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 import { createHash } from 'node:crypto'
 
 const domain = 'https://quizforge-test.auth.ca-central-1.amazoncognito.com'
@@ -8,6 +8,7 @@ const jwt = (claims: object) => [Buffer.from(JSON.stringify({ alg: 'RS256' })).t
 
 async function setup(page: Page, options: { badNonce?: boolean; badState?: boolean; staleState?: boolean; wrongIdentity?: boolean; enrolled?: boolean; unverified?: boolean; revokeFails?: boolean } = {}) {
   let authorize: URL
+  let authorizationPath = ''
   let tokenCalls = 0
   let refreshCalls = 0
   let revoked = false
@@ -26,8 +27,10 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
       }
     }
   })
-  await page.route(domain + '/oauth2/authorize**', async route => {
+  const completeAuthorization = async (route: Route) => {
     authorize = new URL(route.request().url())
+    authorizationPath = authorize.pathname
+    expect(['/oauth2/authorize', '/signup']).toContain(authorizationPath)
     expect(authorize.searchParams.get('response_type')).toBe('code')
     expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authorize.searchParams.get('nonce')).toBeTruthy()
@@ -37,7 +40,9 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     callback.searchParams.set('code', 'synthetic-code')
     callback.searchParams.set('state', options.badState ? 'unmatched-state' : authorize.searchParams.get('state')!)
     await route.fulfill({ status: 302, headers: { location: callback.href } })
-  })
+  }
+  await page.route(domain + '/oauth2/authorize**', completeAuthorization)
+  await page.route(domain + '/signup**', completeAuthorization)
   await page.route(domain + '/oauth2/token', async route => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204,
       headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
@@ -101,17 +106,23 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     expect(route.request().headers().authorization).toBe('Bearer synthetic-refreshed-access')
     await route.fulfill({ json: { items: [], totalCount: 0, hasMore: false, nextCursor: null } })
   })
-  return { counts: () => ({ tokenCalls, refreshCalls, revoked, challengeCount, confirmationCount, historyCalls }) }
+  return { counts: () => ({ authorizationPath, tokenCalls, refreshCalls, revoked, challengeCount, confirmationCount, historyCalls }) }
 }
 
 async function login(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Sign in or create account' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+}
+
+async function createAccount(page: Page) {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create account', exact: true }).click()
 }
 
 test('PKCE callback enrolls only after confirmation, refreshes bearer and revokes on logout', async ({ page }) => {
   const state = await setup(page)
   await login(page)
+  expect(state.counts().authorizationPath).toBe('/oauth2/authorize')
   await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
   expect(page.url()).toBe('http://localhost:4174/')
   await page.getByLabel('Account setup', { exact: true }).selectOption('enroll')
@@ -127,9 +138,17 @@ test('PKCE callback enrolls only after confirmation, refreshes bearer and revoke
   const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(JSON.stringify(storage)).not.toMatch(/synthetic-(access|refresh|legacy)|code_verifier|synthetic-code/)
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Sign in or create account' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
   expect(state.counts().revoked).toBe(true)
   expect(state.counts().confirmationCount).toBe(1)
+})
+
+test('create account starts at the dedicated Cognito signup endpoint with PKCE', async ({ page }) => {
+  const state = await setup(page)
+  await createAccount(page)
+  expect(state.counts().authorizationPath).toBe('/signup')
+  expect(state.counts().tokenCalls).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
 })
 
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
@@ -163,5 +182,5 @@ test('revocation failure clears local account and reports the failure', async ({
   await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('session revocation failed')
-  await expect(page.getByRole('button', { name: 'Sign in or create account' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
 })
