@@ -11,11 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/lightsail-supabase-history-migration.yml"
-      - "scripts/production/lightsail/migrate_supabase_history.py"
-      - "scripts/production/live_history_import.py"
-      - "scripts/rds_rehearsal/history_transfer.py"
-      - "scripts/rds_rehearsal/transfer_rehearsal.py"
+      - "ops/live-history-migration-trigger.txt"
 
 permissions:
   contents: read
