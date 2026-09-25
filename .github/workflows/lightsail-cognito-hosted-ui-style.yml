@@ -1,0 +1,89 @@
+name: Permanent Cognito hosted UI styling
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-cognito-hosted-ui-style.yml"
+      - "scripts/production/lightsail/cognito-hosted-ui.css"
+      - "scripts/production/lightsail/style_cognito_hosted_ui.py"
+      - "scripts/production/lightsail/test_style_cognito_hosted_ui.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-cognito-hosted-ui-style.yml"
+      - "scripts/production/lightsail/cognito-hosted-ui.css"
+      - "scripts/production/lightsail/style_cognito_hosted_ui.py"
+      - "scripts/production/lightsail/test_style_cognito_hosted_ui.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Validate hosted UI style without cloud credentials
+        run: |
+          python -m py_compile scripts/production/lightsail/style_cognito_hosted_ui.py
+          python -m unittest scripts.production.lightsail.test_style_cognito_hosted_ui -v
+
+  apply:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Assume hosted-UI-style-only AWS session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-cognito-hosted-ui-style
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{
+              "Effect":"Allow",
+              "Action":[
+                "cognito-idp:ListUserPools",
+                "cognito-idp:ListUserPoolClients",
+                "cognito-idp:GetUICustomization",
+                "cognito-idp:SetUICustomization"
+              ],
+              "Resource":"*"
+            }]}
+      - name: Apply reviewed QuizForge styling to production Cognito
+        run: python -m scripts.production.lightsail.style_cognito_hosted_ui
+      - name: Publish only sanitized style result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-cognito-hosted-ui-style
+          path: lightsail-cognito-style-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
