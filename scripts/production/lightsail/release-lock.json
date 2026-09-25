@@ -1,6 +1,6 @@
 {
   "ai_enabled": false,
-  "application_candidate_sha": "213ef86dab833cc15f876c82f42fdeeabdaf2dc2",
+  "application_candidate_sha": "0d3cefe796683e1470ce0e357498e4e6a43d27d1",
   "ecr_repository": "quizforge-api",
   "ecr_tags": {
     "api": "lightsail-api-5253c9b8ce3d175960fcd31ed34c7728ad4190bf",
