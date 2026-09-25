@@ -41,6 +41,19 @@ class CognitoHashImportPreflightTests(unittest.TestCase):
         checks = preflight.production_checks(client, "ca-central-1_Test", "client")
         self.assertTrue(all(checks.values()))
 
+    def test_classifies_start_preconditions_without_exposing_message(self):
+        error = preflight.ClientError(
+            {"Error": {"Code": "PreconditionNotMetException", "Message": "The configured CloudWatch Logs role is missing permissions"}},
+            "StartUserImportJob",
+        )
+        self.assertEqual(preflight.classify_client_error(error), "IMPORT_LOG_ROLE")
+
+        active = preflight.ClientError(
+            {"Error": {"Code": "PreconditionNotMetException", "Message": "Another import job is active"}},
+            "StartUserImportJob",
+        )
+        self.assertEqual(preflight.classify_client_error(active), "IMPORT_JOB_ACTIVE")
+
     def test_report_rejects_hashes_and_pool_ids(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(preflight, "RESULT", Path(tmp) / "summary.json"):
             with mock.patch.dict(os.environ, {"RUNNER_TEMP": tmp}):
