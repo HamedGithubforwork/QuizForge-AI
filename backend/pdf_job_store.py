@@ -212,10 +212,9 @@ class JobStore:
             # Preserve the worker's subset-readability boundary.
             if analyze_extracted_text(pages)['scanned_likely']:
                 return None
-            own_uploads = db.execute('SELECT count(*) FROM admissions WHERE owner=?', (owner,)).fetchone()[0]
-            uploads = db.execute('SELECT count(*) FROM admissions').fetchone()[0]
-            if own_uploads >= MAX_OWNER_JOBS or uploads >= MAX_JOBS:
-                raise HTTPException(429, 'Your hourly document allowance is used. Try again later.', headers={'Retry-After': '60'})
+            # This path synthesizes a selection entirely from already-extracted
+            # pages. It performs no upload and no PDF/OCR work, so it must not
+            # consume the user's hourly document-processing allowance.
             self._make_room(db, reserved=len(raw), jobs=1, cache_bytes=len(raw))
             job_id = str(uuid4())
             db.execute("""INSERT INTO jobs(id,owner,sha256,filename,state,created,expires,result,reserved,
@@ -223,7 +222,6 @@ class JobStore:
                 VALUES (?,?,?,?,'succeeded',?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (job_id, owner, digest, filename, now, expiry, raw, len(raw), json.dumps(selected), now,
                  source_digest, EXTRACTION_VERSION, len(pages), len(pages), len(pages), expiry))
-            db.execute('INSERT INTO admissions VALUES (?,?,?)', (job_id, owner, now))
             result = dict(db.execute(f'SELECT {METADATA} FROM jobs WHERE id=?', (job_id,)).fetchone())
             result['result'] = pages
             return result
