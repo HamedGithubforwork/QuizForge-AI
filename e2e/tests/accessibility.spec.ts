@@ -117,7 +117,7 @@ test(
 
     await expect(
       page.getByRole('heading', {
-        name: 'QuizForge AI',
+        name: 'Quiz From Notes',
         level: 1,
       }),
     ).toBeVisible()
