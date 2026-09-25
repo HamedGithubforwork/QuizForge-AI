@@ -84,7 +84,9 @@ def discover(cognito) -> str:
 
 def verify_live() -> dict[str, bool]:
     cognito = boto3.client("cognito-idp", region_name=REGION)
-    pool = cognito.describe_user_pool(UserPoolId=discover(cognito))["UserPool"]
+    pool_id = discover(cognito)
+    pool = cognito.describe_user_pool(UserPoolId=pool_id)["UserPool"]
+    mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
     password = pool.get("Policies", {}).get("PasswordPolicy", {})
     update = pool.get("UserAttributeUpdateSettings", {})
     checks = {
@@ -93,7 +95,7 @@ def verify_live() -> dict[str, bool]:
         "email_username_required": pool.get("UsernameAttributes") == ["email"],
         "email_auto_verified": pool.get("AutoVerifiedAttributes") == ["email"],
         "mandatory_mfa_retained": pool.get("MfaConfiguration") == "ON",
-        "software_mfa_retained": pool.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
+        "software_mfa_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
         "verified_email_update_retained": update.get("AttributesRequireVerificationBeforeUpdate") == ["email"],
         "strong_password_policy_retained": (
             password.get("MinimumLength") == 14
@@ -104,8 +106,6 @@ def verify_live() -> dict[str, bool]:
         ),
         "default_cognito_email_sender_retained": pool.get("EmailConfiguration", {}).get("EmailSendingAccount") == "COGNITO_DEFAULT",
     }
-    if not all(checks.values()):
-        raise ValueError("Production Cognito signup readback failed security checks")
     return checks
 
 
@@ -130,15 +130,20 @@ def main() -> int:
             return 0
         if operation == "verify-live":
             checks = verify_live()
+            failed = sorted(name for name, passed in checks.items() if not passed)
             write_report({
                 "schema": 1,
                 "operation": "enable_public_cognito_signup",
-                "result": "public_signup_enabled",
+                "result": "public_signup_enabled" if not failed else "signup_enabled_security_readback_failed",
                 **checks,
+                "failed_checks": failed,
                 "application_changed": False,
                 "dns_changed": False,
                 "ai_configuration_changed": False,
             })
+            if failed:
+                print("Public signup readback failed checks=" + ",".join(failed))
+                return 1
             return 0
         raise ValueError("Unsupported public-signup operation")
     except ClientError as error:
