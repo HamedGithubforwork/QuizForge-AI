@@ -192,6 +192,137 @@ def import_snapshot(conn, snapshot, *, dry_run=True):
     return {"dry_run": dry_run, "manifest": report}
 
 
+def merge_snapshot(conn, snapshot, *, dry_run=True):
+    """Merge one verified Supabase snapshot without overwriting unrelated target data.
+
+    Existing Cognito-only users/history are preserved. Source UUID collisions with
+    unrelated identities and history-ID content conflicts fail closed.
+    """
+    manifest = validate(snapshot)
+    idle(conn)
+    users = [UUID(user) for user in snapshot["users"]]
+    rows_by_id = {UUID(json.loads(raw)["id"]): raw for raw in snapshot["rows"]}
+
+    with conn.transaction(force_rollback=dry_run):
+        session(conn)
+        lock_target(conn, APPLICATION)
+
+        existing_users = {
+            str(row["id"])
+            for row in conn.execute(
+                "SELECT id FROM app.users WHERE id = ANY(%s)",
+                (users,),
+            )
+        }
+
+        identity_rows = conn.execute(
+            """SELECT issuer,subject,user_id
+               FROM app.user_identities
+               WHERE issuer=%s AND subject = ANY(%s)
+               ORDER BY subject""",
+            (snapshot["issuer"], snapshot["users"]),
+        ).fetchall()
+        identity_by_subject = {row["subject"]: str(row["user_id"]) for row in identity_rows}
+        require(
+            all(identity_by_subject.get(subject, subject) == subject for subject in identity_by_subject),
+            "Existing Supabase identity maps to a different internal user",
+        )
+
+        related = conn.execute(
+            """SELECT issuer,subject,user_id
+               FROM app.user_identities
+               WHERE user_id = ANY(%s)
+               ORDER BY user_id,issuer,subject""",
+            (users,),
+        ).fetchall()
+        identities_for_user = {}
+        for row in related:
+            identities_for_user.setdefault(str(row["user_id"]), []).append((row["issuer"], row["subject"]))
+        for user in existing_users:
+            if user not in identity_by_subject and identities_for_user.get(user):
+                require(False, "Existing destination UUID has unrelated identity")
+
+        missing_users = [user for user in snapshot["users"] if user not in existing_users]
+        with conn.cursor() as cursor:
+            cursor.executemany("INSERT INTO app.users(id) VALUES (%s)", [(user,) for user in missing_users])
+
+        missing_identities = [
+            user for user in snapshot["users"] if user not in identity_by_subject
+        ]
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO app.user_identities(issuer,subject,user_id) VALUES (%s,%s,%s)",
+                [(snapshot["issuer"], user, user) for user in missing_identities],
+            )
+
+        existing_history = {}
+        if rows_by_id:
+            ids = list(rows_by_id)
+            columns = sql.SQL(",").join(map(sql.Identifier, COLUMNS))
+            query = sql.SQL(
+                "SELECT id,to_jsonb(h)::text AS record FROM (SELECT {} FROM {} WHERE id = ANY(%s)) h"
+            ).format(columns, APPLICATION.history)
+            existing_history = {
+                row["id"]: row["record"]
+                for row in conn.execute(query, (ids,))
+            }
+            for row_id, raw in existing_history.items():
+                require(rows_by_id[row_id] == raw, "Existing destination history ID conflicts with source")
+
+        missing_rows = [raw for row_id, raw in rows_by_id.items() if row_id not in existing_history]
+        insert_rows(conn, APPLICATION.history, missing_rows)
+
+        actual_users = {
+            str(row["id"])
+            for row in conn.execute("SELECT id FROM app.users WHERE id = ANY(%s)", (users,))
+        }
+        require(actual_users == set(snapshot["users"]), "Migrated user coverage mismatch")
+
+        actual_identities = {
+            row["subject"]: str(row["user_id"])
+            for row in conn.execute(
+                """SELECT subject,user_id FROM app.user_identities
+                   WHERE issuer=%s AND subject = ANY(%s)""",
+                (snapshot["issuer"], snapshot["users"]),
+            )
+        }
+        require(
+            actual_identities == {user: user for user in snapshot["users"]},
+            "Migrated identity coverage mismatch",
+        )
+
+        actual_history = {}
+        if rows_by_id:
+            columns = sql.SQL(",").join(map(sql.Identifier, COLUMNS))
+            query = sql.SQL(
+                "SELECT id,to_jsonb(h)::text AS record FROM (SELECT {} FROM {} WHERE id = ANY(%s)) h"
+            ).format(columns, APPLICATION.history)
+            actual_history = {
+                row["id"]: row["record"]
+                for row in conn.execute(query, (list(rows_by_id),))
+            }
+        require(actual_history == rows_by_id, "Migrated history reconciliation mismatch")
+
+        totals = conn.execute(
+            """SELECT
+                 (SELECT count(*) FROM app.users) AS users,
+                 (SELECT count(*) FROM app.user_identities) AS identities,
+                 (SELECT count(*) FROM app.quiz_history) AS rows"""
+        ).fetchone()
+
+    return {
+        "dry_run": dry_run,
+        "manifest": manifest,
+        "inserted_users": len(missing_users),
+        "inserted_identities": len(missing_identities),
+        "inserted_rows": len(missing_rows),
+        "existing_exact_rows": len(existing_history),
+        "target_users": totals["users"],
+        "target_identities": totals["identities"],
+        "target_rows": totals["rows"],
+    }
+
+
 def rollback_history(conn, baseline, desired, *, dry_run=True):
     """Reconcile retained Supabase history only if it still exactly matches baseline.
 
