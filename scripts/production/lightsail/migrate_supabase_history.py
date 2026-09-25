@@ -184,6 +184,24 @@ def refresh_temp_access(lightsail, temp: Path, known: str, forbidden: list[str])
     return ssh_key, ssh_cert, hosts, username
 
 
+def ssh_key_only_command(key: Path, known: Path, username: str, ip: str, *remote: str) -> list[str]:
+    return [
+        "ssh","-i",str(key),
+        "-o",f"UserKnownHostsFile={known}","-o","StrictHostKeyChecking=yes",
+        "-o","IdentitiesOnly=yes","-o","BatchMode=yes","-o","ConnectTimeout=15",
+        f"{username}@{ip}",*remote,
+    ]
+
+
+def scp_key_only_command(key: Path, known: Path, username: str, ip: str, source: Path, destination: str) -> list[str]:
+    return [
+        "scp","-q","-i",str(key),
+        "-o",f"UserKnownHostsFile={known}","-o","StrictHostKeyChecking=yes",
+        "-o","IdentitiesOnly=yes","-o","BatchMode=yes","-o","ConnectTimeout=15",
+        str(source),f"{username}@{ip}:{destination}",
+    ]
+
+
 def github_oidc() -> str:
     base = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
     separator = "&" if "?" in base else "?"
@@ -361,6 +379,7 @@ def main() -> int:
         except OSError:
             report["ssh_tcp_reachable"] = False
 
+        use_certificate = True
         try:
             retry_command(
                 ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
@@ -373,11 +392,22 @@ def main() -> int:
             time.sleep(3)
             ssh_key, ssh_cert, hosts, username = refresh_temp_access(lightsail, temp, known, forbidden)
             report["temporary_ssh_credentials_refreshed"] = True
-            retry_command(
-                ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
-                attempts=6,
-                timeout=30,
-            )
+            try:
+                retry_command(
+                    ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
+                    attempts=2,
+                    timeout=30,
+                )
+            except subprocess.CalledProcessError as refreshed:
+                if refreshed.returncode != 255 or ssh_failure_code(refreshed.stderr) != "AUTH_REJECTED":
+                    raise
+                retry_command(
+                    ssh_key_only_command(ssh_key, hosts, username, ip, "true"),
+                    attempts=6,
+                    timeout=30,
+                )
+                use_certificate = False
+                report["ssh_key_only_fallback"] = True
 
         for index, (local, remote) in enumerate((
             (archive_path, remote_archive),
@@ -386,18 +416,31 @@ def main() -> int:
             (transfer_path, remote_transfer),
         ), start=1):
             report["migration_stage"] = "SCP_" + str(index)
+            command = (
+                scp_command(ssh_key, ssh_cert, hosts, username, ip, local, remote)
+                if use_certificate
+                else scp_key_only_command(ssh_key, hosts, username, ip, local, remote)
+            )
             retry_command(
-                scp_command(ssh_key, ssh_cert, hosts, username, ip, local, remote),
+                command,
                 attempts=3,
                 timeout=120,
             )
 
         report["migration_stage"] = "REMOTE_IMPORT"
-        completed = retry_command(
+        command = (
             ssh_command(
                 ssh_key, ssh_cert, hosts, username, ip,
                 "sudo","bash","-s","--",remote_archive,remote_key,remote_importer,remote_transfer,manifest["sha256"],
-            ),
+            )
+            if use_certificate
+            else ssh_key_only_command(
+                ssh_key, hosts, username, ip,
+                "sudo","bash","-s","--",remote_archive,remote_key,remote_importer,remote_transfer,manifest["sha256"],
+            )
+        )
+        completed = retry_command(
+            command,
             input_text=REMOTE,
             attempts=2,
             timeout=300,
