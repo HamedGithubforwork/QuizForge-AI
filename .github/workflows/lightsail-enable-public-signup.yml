@@ -203,7 +203,8 @@ jobs:
             "$RUNNER_TEMP/public-signup-plan.json" \
             "$RUNNER_TEMP/public-signup-plan.log" \
             "$RUNNER_TEMP/public-signup-apply.log" \
-            "$RUNNER_TEMP/public-signup-readback.log"             infra/aws/lightsail-production/recovery.zip
+            "$RUNNER_TEMP/public-signup-readback.log" \
+            infra/aws/lightsail-production/recovery.zip
 
       - name: Publish only sanitized signup result
         if: always()
