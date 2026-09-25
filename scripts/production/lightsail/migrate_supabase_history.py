@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import subprocess
@@ -170,18 +171,64 @@ def ssh_failure_code(stderr: str | bytes | None) -> str:
     return "SSH_UNKNOWN"
 
 
-def refresh_temp_access(lightsail, temp: Path, known: str, forbidden: list[str]) -> tuple[Path, Path, Path, str]:
-    access = lightsail.get_instance_access_details(instanceName=INSTANCE_NAME, protocol="ssh")["accessDetails"]
-    private_key, cert_key, username = access.get("privateKey"), access.get("certKey"), access.get("username")
-    if not all(isinstance(value, str) and value for value in (private_key, cert_key, username)):
-        raise ValueError("Temporary SSH access incomplete")
-    forbidden.extend([private_key, cert_key])
+def ssh_fingerprint(path: Path) -> str | None:
+    completed = subprocess.run(
+        ["ssh-keygen", "-lf", str(path), "-E", "sha256"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        timeout=15,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    match = re.search(r"SHA256:[A-Za-z0-9+/]+", completed.stdout)
+    return match.group(0) if match else None
 
+
+def refresh_temp_access(lightsail, temp: Path, known: str, forbidden: list[str]) -> tuple[Path, Path, Path, str]:
     ssh_key, ssh_cert, hosts = temp/"ssh-key", temp/"ssh-cert.pub", temp/"known_hosts"
-    ssh_key.write_text(private_key); ssh_key.chmod(0o600)
-    ssh_cert.write_text(cert_key + ("" if cert_key.endswith("\n") else "\n")); ssh_cert.chmod(0o600)
     hosts.write_text(known); hosts.chmod(0o600)
-    return ssh_key, ssh_cert, hosts, username
+
+    for attempt in range(8):
+        access = lightsail.get_instance_access_details(instanceName=INSTANCE_NAME, protocol="ssh")["accessDetails"]
+        private_key, cert_key, username = access.get("privateKey"), access.get("certKey"), access.get("username")
+        expires = access.get("expiresAt")
+        if not all(isinstance(value, str) and value for value in (private_key, cert_key, username)):
+            time.sleep(4)
+            continue
+
+        forbidden.extend([private_key, cert_key])
+        ssh_key.write_text(private_key); ssh_key.chmod(0o600)
+        ssh_cert.write_text(cert_key + ("" if cert_key.endswith("\n") else "\n")); ssh_cert.chmod(0o600)
+
+        derived = subprocess.run(
+            ["ssh-keygen", "-y", "-f", str(ssh_key)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+        pub = temp/"ssh-key.pub"
+        if derived.returncode != 0 or not derived.stdout.strip():
+            time.sleep(4)
+            continue
+        pub.write_text(derived.stdout.strip()+"\n", encoding="utf-8")
+        key_fp = ssh_fingerprint(pub)
+        cert_fp = ssh_fingerprint(ssh_cert)
+
+        fresh = True
+        if isinstance(expires, datetime):
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            fresh = (expires - datetime.now(timezone.utc)).total_seconds() >= 120
+
+        if key_fp and cert_fp and key_fp == cert_fp and fresh:
+            return ssh_key, ssh_cert, hosts, username
+        time.sleep(4)
+
+    raise ValueError("Temporary SSH material did not reach a valid matching state")
 
 
 def ssh_key_only_command(key: Path, known: Path, username: str, ip: str, *remote: str) -> list[str]:
@@ -365,7 +412,12 @@ def main() -> int:
         pins = load_pins(Path("scripts/production/lightsail/ssh-host-pins.json"))
         known = scan_host(ip, pins)
         ssh_key, ssh_cert, hosts, username = refresh_temp_access(lightsail, temp, known, forbidden)
+        report["temporary_ssh_material_validated"] = True
         report["temporary_ssh_credentials_refreshed"] = False
+
+        # Lightsail may return credentials before every SSH front end has observed
+        # them. Give the validated pair a bounded propagation window before login.
+        time.sleep(30)
 
         remote_base = "/tmp/quizfromnotes-migration-" + os.environ["GITHUB_RUN_ID"]
         remote_archive, remote_key = remote_base+".qfh", remote_base+".key"
@@ -389,9 +441,10 @@ def main() -> int:
         except subprocess.CalledProcessError as error:
             if error.returncode != 255 or ssh_failure_code(error.stderr) != "AUTH_REJECTED":
                 raise
-            time.sleep(3)
+            time.sleep(5)
             ssh_key, ssh_cert, hosts, username = refresh_temp_access(lightsail, temp, known, forbidden)
             report["temporary_ssh_credentials_refreshed"] = True
+            time.sleep(30)
             try:
                 retry_command(
                     ssh_command(ssh_key, ssh_cert, hosts, username, ip, "true"),
