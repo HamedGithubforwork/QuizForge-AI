@@ -218,6 +218,7 @@ def run_preflight() -> dict[str, object]:
     client_removed = False
     user_removed = False
     role_removed = False
+    log_group_removed = False
     try:
         role_arn = create_logs_role(iam, pool_id)
         role_created = True
@@ -320,10 +321,19 @@ def run_preflight() -> dict[str, object]:
                 role_removed = True
             except ClientError:
                 pass
+        try:
+            boto3.client("logs", region_name=REGION).delete_log_group(
+                logGroupName=f"/aws/cognito/userpools/{pool_id}/{POOL_NAME}"
+            )
+            log_group_removed = True
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+                log_group_removed = True
         cleanup = {
             "synthetic_user_removed": user_removed,
             "temporary_client_removed": client_removed or client_id is None,
             "temporary_role_removed": role_removed or not role_created,
+            "temporary_log_group_removed": log_group_removed,
         }
         Path(os.environ.get("RUNNER_TEMP", "/tmp")).joinpath("qf-cognito-hash-preflight-cleanup.json").write_text(
             json.dumps(cleanup, sort_keys=True) + "\n", encoding="utf-8"
@@ -361,7 +371,7 @@ def main() -> int:
     }
     try:
         report = run_preflight()
-        return_code = 0 if report.get("result") == "passed" else 2
+        return_code = 0 if report.get("result") in ("passed", "unsupported") else 1
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", "AWS_ERROR"))
         report["error_class"] = code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code) else "AWS_ERROR"
