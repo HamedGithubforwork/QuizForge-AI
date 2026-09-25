@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
 import { rememberCurrentDocumentIdentity } from '../lib/documentIdentity'
-import { waitForPdfJob } from '../lib/pdfJobs'
+import { pdfErrorMessage, waitForPdfJob } from '../lib/pdfJobs'
 import { normalizePageSelection } from '../lib/pageSelection'
 import type { PdfJobResponse, UploadResponse } from '../types/api.generated'
 
@@ -10,7 +10,7 @@ async function readJob(id: string, signal: AbortSignal): Promise<PdfJobResponse>
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   })
   const data = await response.json()
-  if (!response.ok) throw new Error(data.detail || 'Could not check your PDF. You can resume it below.')
+  if (!response.ok) throw new Error(pdfErrorMessage(data.detail || 'Could not check your PDF. You can resume it below.'))
   return data
 }
 
@@ -65,7 +65,7 @@ export function usePdfUpload() {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
         })
         const cached = await response.json()
-        if (!response.ok) throw new Error(cached.detail || 'Could not check cached pages. Please try again.')
+        if (!response.ok) throw new Error(pdfErrorMessage(cached.detail || 'Could not check cached pages. Please try again.'))
         data = cached
       }
       if (!data) {
@@ -81,7 +81,7 @@ export function usePdfUpload() {
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(180000)]),
         })
         data = await response.json()
-        if (!response.ok) throw new Error((data as { detail?: string }).detail || 'PDF processing failed.')
+        if (!response.ok) throw new Error(pdfErrorMessage((data as { detail?: string }).detail || 'PDF processing failed.'))
       }
       controller.signal.throwIfAborted()
       if (!data) throw new Error('The processed PDF response was invalid. Please try again.')
