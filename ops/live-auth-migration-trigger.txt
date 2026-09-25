@@ -1,0 +1,1 @@
+2026-09-25: trigger guarded Supabase credential to Cognito migration after bcrypt/MFA preflight passed.
