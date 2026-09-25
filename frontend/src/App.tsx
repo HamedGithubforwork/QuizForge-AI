@@ -658,7 +658,7 @@ function App() {
         <header className="app-header">
           <div className="logo">QF</div>
           <div>
-            <h1>QuizForge AI</h1>
+            <h1>Quiz From Notes</h1>
             <p className="subtitle">
               Turn your study material
               into an AI-generated
