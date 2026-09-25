@@ -80,44 +80,89 @@ export default function CognitoAuthGate() {
     <div className="account-bar"><div className="account-bar-inner"><span>Signed in as {account.email}</span>{logout}</div></div>
     {error && <p role="alert">{error}</p>}<App />
   </>
+  if (!account) return <main className="auth-page auth-page-welcome">
+    <div className="auth-login-shell">
+      <section className="auth-hero-panel" aria-label="QuizForge overview">
+        <div className="auth-wordmark">
+          <span className="auth-wordmark-mark">QF</span>
+          <span>{config.environment === 'staging' ? 'QuizForge staging' : 'QuizForge'}</span>
+        </div>
+
+        <div className="auth-hero-copy">
+          <span className="auth-eyebrow">STUDY SMARTER</span>
+          <h1>Turn your study material into practice that sticks.</h1>
+          <p>
+            Upload your notes or PDFs and build focused quizzes in seconds,
+            with question types that match the way you want to study.
+          </p>
+        </div>
+
+        <ul className="auth-benefit-list">
+          <li><span aria-hidden="true">✓</span> Create quizzes from your own material</li>
+          <li><span aria-hidden="true">✓</span> Practice multiple-choice and short-answer questions</li>
+          <li><span aria-hidden="true">✓</span> Keep your account and progress protected</li>
+        </ul>
+      </section>
+
+      <section className="auth-login-panel">
+        <div className="auth-login-panel-inner">
+          <span className="auth-login-kicker">WELCOME TO QUIZFORGE</span>
+          <h2>Ready when you are.</h2>
+          <p className="auth-login-copy">
+            Sign in or create an account to continue. We use Cognito for secure
+            email verification and authenticator-based sign-in.
+          </p>
+
+          {error && <div className="auth-error auth-login-error" role="alert">{error}</div>}
+
+          <button className="auth-submit auth-primary-cta" disabled={busy} onClick={() => void run(signIn)}>
+            <span>{busy ? 'Opening secure sign in…' : 'Sign in or create account'}</span>
+            <span className="auth-cta-arrow" aria-hidden="true">→</span>
+          </button>
+
+          <div className="auth-security-note">
+            <span className="auth-security-dot" aria-hidden="true" />
+            <span>Secure sign-in with email verification and MFA</span>
+          </div>
+
+          {error && <div className="auth-login-signout">{logout}</div>}
+        </div>
+      </section>
+    </div>
+  </main>
+
   return <main className="auth-page"><section className="auth-card">
     <h1>{config.environment === 'staging' ? 'QuizForge staging' : 'QuizForge'}</h1>
     {error && <p role="alert">{error}</p>}
-    {!account ? <>
-      <p>Sign in or create an account. Cognito will guide you through email verification and your authenticator setup.</p>
-      <button className="auth-submit" disabled={busy} onClick={() => void run(signIn)}>Sign in or create account</button>
-      {error && logout}
-    </> : <>
-      <p>Signed in as {account.email}</p>
-      <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
-      {confirmation ? <>
-        <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
-          : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
-        <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
-          await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token)
-          setConfirmation(null); await load()
-        })}>Confirm account setup</button>
-        <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
-      </> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
-        <label>Existing-account authenticator code<input autoComplete="one-time-code" inputMode="numeric" required
-          pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
-        <button className="auth-submit" disabled={busy}>Verify authenticator</button>
-      </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
-        <label htmlFor="account-setup">Account setup</label>
-        <select id="account-setup" value={mode} disabled={busy} onChange={e => {
-          setMode(e.target.value as 'enroll' | 'link'); setPassword(''); setError('')
-        }}>
-          <option value="link">Link my existing account</option><option value="enroll">Create an empty account</option>
-        </select>
-        {mode === 'link' ? <>
-          <p>Sign in to your existing QuizForge account to prove ownership. Email addresses alone cannot link accounts.</p>
-          {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
-          <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
-          <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
-        </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}
-        <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
-      </form>}
-      {logout}
-    </>}
+    <p>Signed in as {account.email}</p>
+    <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
+    {confirmation ? <>
+      <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
+        : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
+      <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
+        await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token)
+        setConfirmation(null); await load()
+      })}>Confirm account setup</button>
+      <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
+    </> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
+      <label>Existing-account authenticator code<input autoComplete="one-time-code" inputMode="numeric" required
+        pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
+      <button className="auth-submit" disabled={busy}>Verify authenticator</button>
+    </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
+      <label htmlFor="account-setup">Account setup</label>
+      <select id="account-setup" value={mode} disabled={busy} onChange={e => {
+        setMode(e.target.value as 'enroll' | 'link'); setPassword(''); setError('')
+      }}>
+        <option value="link">Link my existing account</option><option value="enroll">Create an empty account</option>
+      </select>
+      {mode === 'link' ? <>
+        <p>Sign in to your existing QuizForge account to prove ownership. Email addresses alone cannot link accounts.</p>
+        {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
+        <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+        <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
+      </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}
+      <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
+    </form>}
+    {logout}
   </section></main>
 }
