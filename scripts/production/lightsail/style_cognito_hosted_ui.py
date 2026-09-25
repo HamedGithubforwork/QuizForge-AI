@@ -38,6 +38,7 @@ ALLOWED_SELECTORS = {
     ".redirect-customizable",
     ".submitButton-customizable",
     ".submitButton-customizable:hover",
+    ".textDescription-customizable",
 }
 ALLOWED_PROPERTIES = {
     "background-color",
