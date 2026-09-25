@@ -4,6 +4,7 @@ No real Supabase connection, auth records, data, keys or files are involved.
 Every row and key is synthetic; output contains only fixed PASS/ERROR messages.
 """
 from pathlib import Path
+import json
 import secrets
 import sys
 import traceback
