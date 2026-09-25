@@ -3,19 +3,25 @@ import { cognitoConfiguration } from './authConfig'
 import type { AuthSession } from './authSession'
 
 export const config = cognitoConfiguration(import.meta.env, window.location.origin)
-export const manager = new UserManager({
-  authority: config.authority, client_id: config.client, redirect_uri: config.redirect,
-  response_type: 'code', scope: 'openid email aws.cognito.signin.user.admin',
-  automaticSilentRenew: false, monitorSession: false, loadUserInfo: false,
-  staleStateAgeInSeconds: 600, requestTimeoutInSeconds: 10,
-  // Only the short-lived PKCE transaction survives a redirect. Tokens stay in memory.
-  stateStore: new WebStorageStateStore({ store: window.sessionStorage, prefix: 'quizforge.cognito.state.' }),
-  userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
-  metadata: {
-    issuer: config.authority, authorization_endpoint: config.domain + '/oauth2/authorize',
-    token_endpoint: config.domain + '/oauth2/token', revocation_endpoint: config.domain + '/oauth2/revoke',
-  },
-})
+
+function createManager(authorizationEndpoint: string) {
+  return new UserManager({
+    authority: config.authority, client_id: config.client, redirect_uri: config.redirect,
+    response_type: 'code', scope: 'openid email aws.cognito.signin.user.admin',
+    automaticSilentRenew: false, monitorSession: false, loadUserInfo: false,
+    staleStateAgeInSeconds: 600, requestTimeoutInSeconds: 10,
+    // Only the short-lived PKCE transaction survives a redirect. Tokens stay in memory.
+    stateStore: new WebStorageStateStore({ store: window.sessionStorage, prefix: 'quizforge.cognito.state.' }),
+    userStore: new WebStorageStateStore({ store: new InMemoryWebStorage() }),
+    metadata: {
+      issuer: config.authority, authorization_endpoint: authorizationEndpoint,
+      token_endpoint: config.domain + '/oauth2/token', revocation_endpoint: config.domain + '/oauth2/revoke',
+    },
+  })
+}
+
+export const manager = createManager(config.domain + '/oauth2/authorize')
+const signupManager = createManager(config.domain + '/signup')
 
 let initializing: Promise<void> | undefined
 let refreshing: ReturnType<typeof manager.signinSilent> | undefined
@@ -38,6 +44,11 @@ export function initialize() {
 export async function signIn() {
   await manager.clearStaleState()
   await manager.signinRedirect({ nonce: crypto.randomUUID() })
+}
+
+export async function signUp() {
+  await manager.clearStaleState()
+  await signupManager.signinRedirect({ nonce: crypto.randomUUID() })
 }
 
 export async function session(refresh = false): Promise<AuthSession | null> {
