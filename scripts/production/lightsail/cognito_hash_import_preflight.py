@@ -154,7 +154,7 @@ def create_logs_role(iam, pool_id: str) -> str:
         PolicyDocument=json.dumps(logs, separators=(",", ":")),
     )
     iam.get_waiter("role_exists").wait(RoleName=TEMP_ROLE_NAME)
-    time.sleep(8)
+    time.sleep(15)
     return str(role["Arn"])
 
 
@@ -166,6 +166,33 @@ def totp(secret: str, now: float | None = None) -> str:
     offset = digest[-1] & 0x0F
     code = (int.from_bytes(digest[offset:offset + 4], "big") & 0x7FFFFFFF) % 1_000_000
     return f"{code:06d}"
+
+
+def classify_client_error(error: ClientError) -> str:
+    code = str(error.response.get("Error", {}).get("Code", ""))
+    message = str(error.response.get("Error", {}).get("Message", "")).lower()
+    operation = str(getattr(error, "operation_name", ""))
+    if code == "PreconditionNotMetException" and operation == "StartUserImportJob":
+        if any(word in message for word in ("cloudwatch", "role", "trust", "permission")):
+            return "IMPORT_LOG_ROLE"
+        if any(word in message for word in ("another", "active", "in progress", "already running")):
+            return "IMPORT_JOB_ACTIVE"
+        if any(word in message for word in ("csv", "file", "upload")):
+            return "CSV_NOT_READY"
+        return "OTHER_START_PRECONDITION"
+    return "OTHER_AWS_ERROR"
+
+
+def start_job(client, pool_id: str, job_id: str) -> dict:
+    for attempt in range(6):
+        try:
+            return client.start_user_import_job(UserPoolId=pool_id, JobId=job_id)["UserImportJob"]
+        except ClientError as error:
+            if classify_client_error(error) == "IMPORT_LOG_ROLE" and attempt < 5:
+                time.sleep(10)
+                continue
+            raise
+    raise RuntimeError("Cognito import job did not start")
 
 
 def wait_job(client, pool_id: str, job_id: str) -> dict:
@@ -228,7 +255,7 @@ def run_preflight() -> dict[str, object]:
             raise RuntimeError("Cognito did not accept bcrypt import mode")
 
         upload_csv(str(job["PreSignedUrl"]), csv_bytes(header, synthetic_hash))
-        started = cognito.start_user_import_job(UserPoolId=pool_id, JobId=job["JobId"])["UserImportJob"]
+        started = start_job(cognito, pool_id, str(job["JobId"]))
         completed = wait_job(cognito, pool_id, str(started["JobId"]))
         if completed.get("Status") != "Succeeded" or completed.get("ImportedUsers") != 1 or completed.get("FailedUsers") != 0:
             raise RuntimeError("Synthetic bcrypt import did not succeed")
@@ -363,6 +390,7 @@ def main() -> int:
         operation = str(getattr(error, "operation_name", "AWS_OPERATION"))
         report["error_class"] = code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code) else "AWS_ERROR"
         report["aws_operation"] = operation if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", operation) else "AWS_OPERATION"
+        report["failure_category"] = classify_client_error(error)
         return_code = 1
     except Exception as error:
         report["error_class"] = type(error).__name__
