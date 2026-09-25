@@ -103,6 +103,17 @@ def synthetic_s3():
         fixture.close()
 
 
+class MainFailureStageTests(unittest.TestCase):
+    def test_main_uses_only_fixed_safe_failure_stage_names(self):
+        import inspect
+        source = inspect.getsource(job.main)
+        for name in ("parse_arguments", "health", "bucket_validation", "key_read", "run_backup", "fetch_backup"):
+            self.assertIn("MAIN_STAGE = '" + name + "'", source)
+        module_source = inspect.getsource(job)
+        self.assertIn("QF_BACKUP_MAIN_FAILED_STAGE=", module_source)
+        self.assertNotIn("QF_BACKUP_MAIN_FAILED_STAGE=' + str(error)", module_source)
+
+
 class FailureStageTests(unittest.TestCase):
     def test_run_backup_uses_only_fixed_failure_stage_names(self):
         import inspect
