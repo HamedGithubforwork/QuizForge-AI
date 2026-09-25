@@ -66,7 +66,7 @@ test -s "$compose"
 ops_image="$(python3 - "$compose" <<'PY'
 import json,re,sys
 value=json.load(open(sys.argv[1],encoding="utf-8"))
-image=value["services"]["operations"]["image"]
+image=value["services"]["guard"]["image"]
 if not re.fullmatch(r"[0-9]{12}\.dkr\.ecr\.ca-central-1\.amazonaws\.com/quizforge-api@sha256:[a-f0-9]{64}", image):
     raise SystemExit(31)
 print(image)
