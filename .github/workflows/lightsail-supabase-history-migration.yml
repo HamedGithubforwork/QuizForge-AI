@@ -1,0 +1,94 @@
+name: Migrate Supabase history to Lightsail
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-supabase-history-migration.yml"
+      - "scripts/production/lightsail/migrate_supabase_history.py"
+      - "scripts/production/live_history_import.py"
+      - "scripts/rds_rehearsal/history_transfer.py"
+      - "scripts/rds_rehearsal/transfer_rehearsal.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-supabase-history-migration.yml"
+      - "scripts/production/lightsail/migrate_supabase_history.py"
+      - "scripts/production/live_history_import.py"
+      - "scripts/rds_rehearsal/history_transfer.py"
+      - "scripts/rds_rehearsal/transfer_rehearsal.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked migration dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Validate live migration modules
+        run: |
+          python -m py_compile             scripts/production/lightsail/migrate_supabase_history.py             scripts/production/live_history_import.py             scripts/rds_rehearsal/history_transfer.py             scripts/rds_rehearsal/transfer_rehearsal.py
+          PYTHONPATH=scripts/rds_rehearsal python -m unittest scripts.rds_rehearsal.test_history_transfer -v
+
+  migrate:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizfromnotes-live-history-migration
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked migration dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Assume migration-only AWS session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-supabase-history-migration
+          role-duration-seconds: 1200
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity"],"Resource":"*"},
+              {"Effect":"Allow","Action":["s3:GetBucketVersioning","s3:GetBucketPublicAccessBlock"],"Resource":"arn:aws:s3:::quizforge-production-backups-*"},
+              {"Effect":"Allow","Action":["s3:PutObject"],"Resource":"arn:aws:s3:::quizforge-production-backups-*/migration/*"},
+              {"Effect":"Allow","Action":["ssm:PutParameter"],"Resource":"arn:aws:ssm:ca-central-1:*:parameter/quizforge/migration/*"},
+              {"Effect":"Allow","Action":["lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates","lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"],"Resource":"*"}
+            ]}
+      - name: Export frozen Supabase history and migrate it to Lightsail
+        run: python -m scripts.production.lightsail.migrate_supabase_history
+      - name: Publish only sanitized migration result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-supabase-history-migration
+          path: lightsail-history-migration-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
