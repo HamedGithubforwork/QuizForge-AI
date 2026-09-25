@@ -44,8 +44,19 @@ jobs:
           persist-credentials: false
       - name: Require the tested cached-reuse correction
         run: |
-          grep -F "must not consume the user's hourly document-processing allowance"             application-candidate/backend/pdf_job_store.py
-          grep -F "test_cached_reselection_does_not_consume_hourly_document_allowance"             application-candidate/backend/tests/test_pdf_page_reuse.py
+          python - <<'PY'
+          from pathlib import Path
+
+          store = Path("application-candidate/backend/pdf_job_store.py").read_text()
+          start = store.index("    def reuse_selection(")
+          end = store.index("    def submit(", start)
+          reuse = store[start:end]
+          assert "consume the user's hourly document-processing allowance" in reuse
+          assert "INSERT INTO admissions" not in reuse
+
+          tests = Path("application-candidate/backend/tests/test_pdf_page_reuse.py").read_text()
+          assert "test_cached_reselection_does_not_consume_hourly_document_allowance" in tests
+          PY
 
   deploy:
     needs: validate
