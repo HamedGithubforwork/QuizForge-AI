@@ -29,8 +29,10 @@ from urllib.request import urlopen
 import boto3
 from botocore.exceptions import ClientError
 
-from scripts.production import lightsail_backup as backup
-from scripts.production import lightsail_backup_job as backup_job
+PRODUCTION_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PRODUCTION_DIR))
+from scripts.production import lightsail_backup as backup  # noqa: E402
+from scripts.production import lightsail_backup_job as backup_job  # noqa: E402
 
 CAPACITY_DIR = Path(__file__).resolve().parents[2] / "lightsail_test"
 sys.path.insert(0, str(CAPACITY_DIR))
