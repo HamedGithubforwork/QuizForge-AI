@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
+import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { secureEndpoint } from './lib/authConfig'
 
 export default function CognitoAuthGate() {
@@ -14,6 +15,9 @@ export default function CognitoAuthGate() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
+  const [activationMode, setActivationMode] = useState(false)
+  const [activationSetup, setActivationSetup] = useState<MigratedActivationSetup | null>(null)
+  const [activationComplete, setActivationComplete] = useState(false)
   const [legacy, setLegacy] = useState<{ client: SupabaseClient; factor: string } | null>(null)
   const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string } | null>(null)
   const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
@@ -30,7 +34,7 @@ export default function CognitoAuthGate() {
       if (active) setAccount(next)
     }).catch(() => { if (active) setError('Sign-in could not be verified. Sign out and start again.') })
       .finally(() => { if (active) setLoading(false) })
-    const unloaded = () => { setAccount(null); setConfirmation(null); setLegacy(null); setPassword(''); setCode('') }
+    const unloaded = () => { setAccount(null); setConfirmation(null); setLegacy(null); setActivationMode(false); setActivationSetup(null); setActivationComplete(false); setPassword(''); setCode('') }
     manager.events.addUserUnloaded(unloaded)
     return () => { active = false; manager.events.removeUserUnloaded(unloaded) }
   }, [])
@@ -74,12 +78,119 @@ export default function CognitoAuthGate() {
       await requestConfirmation(result.data.access_token)
     })
   }
+
+  async function beginActivation(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      const result = await beginMigratedActivation(config.client, email, password)
+      setPassword('')
+      if (result.kind === 'already_ready') {
+        setActivationSetup(null)
+        setActivationComplete(true)
+        return
+      }
+      setActivationSetup(result)
+      setCode('')
+    })
+  }
+
+  async function finishActivation(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      if (!activationSetup) return
+      await finishMigratedActivation(config.client, activationSetup, code)
+      setCode('')
+      setActivationSetup(null)
+      setActivationComplete(true)
+    })
+  }
+
+  function leaveActivation() {
+    setActivationMode(false)
+    setActivationSetup(null)
+    setActivationComplete(false)
+    setPassword('')
+    setCode('')
+    setError('')
+  }
   if (loading) return <p role="status">Checking account…</p>
   const logout = <button className="sign-out-button" type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
   if (account?.enrolled) return <>
     <div className="account-bar"><div className="account-bar-inner"><span>Signed in as {account.email}</span>{logout}</div></div>
     {error && <p role="alert">{error}</p>}<App />
   </>
+  if (!account && activationMode) return <main className="auth-page">
+    <section className="auth-card">
+      <div className="auth-brand">
+        <div className="auth-logo">QF</div>
+        <div>
+          <h1>Quiz From Notes</h1>
+          <p>Finish the one-time security setup for your migrated account.</p>
+        </div>
+      </div>
+
+      {error && <div className="auth-error" role="alert">{error}</div>}
+
+      {activationComplete ? <>
+        <div className="auth-heading">
+          <h2>Security setup complete</h2>
+          <p>Your existing password is ready in Cognito. Sign in normally and use your new authenticator code when prompted.</p>
+        </div>
+        <button className="auth-submit" disabled={busy} onClick={() => void run(signIn)}>Continue to Sign in</button>
+      </> : activationSetup ? <>
+        <div className="auth-heading">
+          <h2>Set up your authenticator</h2>
+          <p>Add this account to Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app, then enter the 6-digit code.</p>
+        </div>
+
+        <div className="auth-message">
+          <strong>Setup key</strong>
+          <code style={{ display: 'block', marginTop: '0.5rem', overflowWrap: 'anywhere' }}>{activationSetup.secret}</code>
+        </div>
+
+        <p className="auth-switch">
+          <a href={authenticatorSetupUri(activationSetup)}>Open in an authenticator app</a>
+        </p>
+
+        <form className="auth-form" aria-busy={busy} onSubmit={finishActivation}>
+          <label>
+            <span>6-digit authenticator code</span>
+            <input autoComplete="one-time-code" inputMode="numeric" required pattern="[0-9]{6}"
+              value={code} disabled={busy} onChange={e => setCode(e.target.value)} />
+          </label>
+          <button className="auth-submit" disabled={busy}>
+            {busy ? 'Verifying…' : 'Finish Security Setup'}
+          </button>
+        </form>
+      </> : <>
+        <div className="auth-heading">
+          <h2>Activate your migrated account</h2>
+          <p>Use the same email and password you used before the move to Cognito. Your password is sent directly to Amazon Cognito and is not stored by Quiz From Notes.</p>
+        </div>
+
+        <form className="auth-form" aria-busy={busy} onSubmit={beginActivation}>
+          <label>
+            <span>Existing account email</span>
+            <input type="email" autoComplete="username" required value={email} disabled={busy}
+              onChange={e => setEmail(e.target.value)} />
+          </label>
+          <label>
+            <span>Existing password</span>
+            <input type="password" autoComplete="current-password" required value={password} disabled={busy}
+              onChange={e => setPassword(e.target.value)} />
+          </label>
+          <button className="auth-submit" disabled={busy}>
+            {busy ? 'Checking account…' : 'Continue Security Setup'}
+          </button>
+        </form>
+      </>}
+
+      <p className="auth-switch">
+        <button type="button" disabled={busy} onClick={leaveActivation}>Back to sign in</button>
+      </p>
+    </section>
+  </main>
+
   if (!account) return <main className="auth-page auth-page-welcome">
     <div className="auth-login-shell">
       <section className="auth-hero-panel" aria-label="Quiz From Notes overview">
@@ -134,6 +245,19 @@ export default function CognitoAuthGate() {
               <span className="auth-cta-arrow" aria-hidden="true">＋</span>
             </button>
           </div>
+
+          <p className="auth-switch">
+            Migrated from the old Quiz From Notes login?
+            {' '}
+            <button type="button" disabled={busy} onClick={() => {
+              setActivationMode(true)
+              setActivationSetup(null)
+              setActivationComplete(false)
+              setError('')
+            }}>
+              Finish first-time setup
+            </button>
+          </p>
 
           <div className="auth-security-note">
             <span className="auth-security-dot" aria-hidden="true" />
