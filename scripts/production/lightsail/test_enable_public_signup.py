@@ -58,6 +58,7 @@ class PublicSignupTests(unittest.TestCase):
         client = mock.Mock()
         client.list_user_pools.return_value = {"UserPools": [{"Name": signup.POOL_NAME, "Id": "ca-central-1_Test123"}]}
         client.describe_user_pool.return_value = {"UserPool": pool}
+        client.get_user_pool_mfa_config.return_value = {"SoftwareTokenMfaConfiguration": {"Enabled": True}}
         with mock.patch.object(signup.boto3, "client", return_value=client):
             checks = signup.verify_live()
         self.assertTrue(all(checks.values()))
