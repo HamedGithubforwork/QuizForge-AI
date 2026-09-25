@@ -33,8 +33,8 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "Only HTTP/HTTPS and one operator SSH source may be public."
   }
   assert {
-    condition     = aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && aws_cognito_user_pool.browser.deletion_protection == "ACTIVE" && aws_cognito_user_pool.browser.mfa_configuration == "ON"
-    error_message = "Public signup starts disabled; retained identity and MFA remain required."
+    condition     = !aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && aws_cognito_user_pool.browser.deletion_protection == "ACTIVE" && aws_cognito_user_pool.browser.mfa_configuration == "ON"
+    error_message = "Public signup must be enabled only with retained deletion protection and mandatory MFA."
   }
   assert {
     condition     = aws_cognito_user_pool_client.browser.callback_urls == toset(["https://quizfromnotes.com/auth/callback"]) && !aws_cognito_user_pool_client.browser.generate_secret

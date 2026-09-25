@@ -37,7 +37,7 @@ variable "admin_ipv4_cidr" {
 }
 variable "public_signup" {
   type    = bool
-  default = false
+  default = true
 }
 locals {
   name          = "quizforge-production-lightsail"

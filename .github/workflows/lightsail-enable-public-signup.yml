@@ -1,0 +1,216 @@
+name: Enable permanent Cognito public signup
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-enable-public-signup.yml"
+      - "scripts/production/lightsail/enable_public_signup.py"
+      - "scripts/production/lightsail/test_enable_public_signup.py"
+      - "infra/aws/lightsail-production/main.tf"
+      - "infra/aws/lightsail-production/auth.tf"
+      - "infra/aws/lightsail-production/tests/boundaries.tftest.hcl"
+      - ".github/workflows/lightsail-production-activation.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-enable-public-signup.yml"
+      - "scripts/production/lightsail/enable_public_signup.py"
+      - "scripts/production/lightsail/test_enable_public_signup.py"
+      - "infra/aws/lightsail-production/main.tf"
+      - "infra/aws/lightsail-production/auth.tf"
+      - "infra/aws/lightsail-production/tests/boundaries.tftest.hcl"
+      - ".github/workflows/lightsail-production-activation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Test exact signup-only plan boundary
+        run: |
+          python -m py_compile scripts/production/lightsail/enable_public_signup.py
+          python -m unittest scripts.production.lightsail.test_enable_public_signup -v
+      - name: Build deterministic Cognito recovery package
+        run: python scripts/production/lightsail/package_recovery.py
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - name: Validate production Terraform without AWS credentials
+        working-directory: infra/aws/lightsail-production
+        run: |
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test
+
+  enable:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-production-public-signup
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Build deterministic Cognito recovery package
+        run: python scripts/production/lightsail/package_recovery.py
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+
+      - name: Prepare private production variables
+        env:
+          AWS_BUDGET_ALERT_EMAIL: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          LIGHTSAIL_SSH_PUBLIC_KEY: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"public-signup.tfvars.json"
+          p.write_text(json.dumps({
+            "alert_email": os.environ["AWS_BUDGET_ALERT_EMAIL"],
+            "ssh_public_key": os.environ["LIGHTSAIL_SSH_PUBLIC_KEY"],
+            "admin_ipv4_cidr": os.environ["LIGHTSAIL_ADMIN_IPV4_CIDR"],
+            "public_signup": True,
+          })+"\n")
+          p.chmod(0o600)
+          PY
+
+      - name: Assume signup-only production session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-enable-public-signup
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:DescribeUserPool","cognito-idp:UpdateUserPool","cognito-idp:ListTagsForResource"],"Resource":"*"},
+              {"Effect":"Allow","Action":["lambda:GetFunction","lambda:GetFunctionConfiguration","lambda:GetPolicy","lambda:ListTags","lambda:ListVersionsByFunction"],"Resource":"*"},
+              {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":"arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}"},
+              {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
+            ]}
+
+      - name: Initialize production state
+        env:
+          QF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          TF_DATA_DIR: ${{ runner.temp }}/public-signup-tfdata
+        run: |
+          terraform -chdir=infra/aws/lightsail-production init \
+            -reconfigure -input=false -lockfile=readonly \
+            -backend-config="bucket=$QF_STATE_BUCKET" \
+            -backend-config="key=quizforge/lightsail-production/terraform.tfstate" \
+            -backend-config="region=ca-central-1" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Create signup-only saved plan
+        id: plan
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/public-signup-tfdata
+        run: |
+          set +e
+          terraform -chdir=infra/aws/lightsail-production plan \
+            -target=aws_cognito_user_pool.browser \
+            -input=false -lock=true -lock-timeout=60s -detailed-exitcode \
+            -var-file="$RUNNER_TEMP/public-signup.tfvars.json" \
+            -out="$RUNNER_TEMP/public-signup.tfplan" \
+            >"$RUNNER_TEMP/public-signup-plan.log" 2>&1
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then
+            echo "Public signup Terraform plan failed" >&2
+            exit 1
+          fi
+          terraform -chdir=infra/aws/lightsail-production show -json \
+            "$RUNNER_TEMP/public-signup.tfplan" >"$RUNNER_TEMP/public-signup-plan.json"
+          echo "terraform_exit=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Require exact public-signup-only change
+        id: review
+        run: >-
+          python -m scripts.production.lightsail.enable_public_signup
+          review-plan "$RUNNER_TEMP/public-signup-plan.json"
+
+      - name: Apply exact reviewed saved plan
+        if: steps.review.outputs.apply_required == 'true'
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/public-signup-tfdata
+        run: |
+          chmod 0400 "$RUNNER_TEMP/public-signup.tfplan"
+          terraform -chdir=infra/aws/lightsail-production apply \
+            -input=false -lock=true -lock-timeout=60s \
+            "$RUNNER_TEMP/public-signup.tfplan" \
+            >"$RUNNER_TEMP/public-signup-apply.log" 2>&1
+
+      - name: Verify live signup and retained security controls
+        run: python -m scripts.production.lightsail.enable_public_signup verify-live
+
+      - name: Confirm targeted Terraform state has zero remaining drift
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/public-signup-tfdata
+        run: |
+          set +e
+          terraform -chdir=infra/aws/lightsail-production plan \
+            -target=aws_cognito_user_pool.browser \
+            -input=false -refresh=true -lock=false -detailed-exitcode \
+            -var-file="$RUNNER_TEMP/public-signup.tfvars.json" \
+            >"$RUNNER_TEMP/public-signup-readback.log" 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 0
+
+      - name: Remove private Terraform material
+        if: always()
+        run: |
+          rm -f \
+            "$RUNNER_TEMP/public-signup.tfvars.json" \
+            "$RUNNER_TEMP/public-signup.tfplan" \
+            "$RUNNER_TEMP/public-signup-plan.json" \
+            "$RUNNER_TEMP/public-signup-plan.log" \
+            "$RUNNER_TEMP/public-signup-apply.log" \
+            "$RUNNER_TEMP/public-signup-readback.log" \
+            infra/aws/lightsail-production/recovery.zip
+
+      - name: Publish only sanitized signup result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-cognito-public-signup
+          path: lightsail-public-signup-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
