@@ -133,10 +133,6 @@ def create_logs_role(iam, pool_id: str) -> str:
             "Effect": "Allow",
             "Principal": {"Service": "cognito-idp.amazonaws.com"},
             "Action": "sts:AssumeRole",
-            "Condition": {
-                "StringEquals": {"aws:SourceAccount": account_id},
-                "ArnLike": {"aws:SourceArn": f"arn:aws:cognito-idp:{REGION}:{account_id}:userpool/{pool_id}"},
-            },
         }],
     }
     role = iam.create_role(
@@ -148,8 +144,8 @@ def create_logs_role(iam, pool_id: str) -> str:
         "Version": "2012-10-17",
         "Statement": [{
             "Effect": "Allow",
-            "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
-            "Resource": "*",
+            "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:DescribeLogStreams", "logs:PutLogEvents"],
+            "Resource": f"arn:aws:logs:{REGION}:{account_id}:log-group:/aws/cognito/*",
         }],
     }
     iam.put_role_policy(
@@ -364,7 +360,9 @@ def main() -> int:
         return_code = 0 if report.get("result") == "passed" else 2
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", "AWS_ERROR"))
+        operation = str(getattr(error, "operation_name", "AWS_OPERATION"))
         report["error_class"] = code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code) else "AWS_ERROR"
+        report["aws_operation"] = operation if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", operation) else "AWS_OPERATION"
         return_code = 1
     except Exception as error:
         report["error_class"] = type(error).__name__
