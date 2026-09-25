@@ -1,0 +1,97 @@
+name: Cognito password-hash import preflight
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-cognito-hash-import-preflight.yml"
+      - "scripts/production/lightsail/cognito_hash_import_preflight.py"
+      - "scripts/production/lightsail/test_cognito_hash_import_preflight.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-cognito-hash-import-preflight.yml"
+      - "scripts/production/lightsail/cognito_hash_import_preflight.py"
+      - "scripts/production/lightsail/test_cognito_hash_import_preflight.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Validate guarded preflight
+        run: |
+          python -m py_compile scripts/production/lightsail/cognito_hash_import_preflight.py
+          python -m unittest scripts.production.lightsail.test_cognito_hash_import_preflight -v
+
+  preflight:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-production-cognito-hash-import-preflight
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked AWS dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Assume preflight-only AWS session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-cognito-hash-import-preflight
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity"],"Resource":"*"},
+              {"Effect":"Allow","Action":[
+                "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPool",
+                "cognito-idp:DescribeUserPoolClient","cognito-idp:GetUserPoolMfaConfig","cognito-idp:GetCSVHeader",
+                "cognito-idp:ListUsers","cognito-idp:CreateUserImportJob","cognito-idp:StartUserImportJob",
+                "cognito-idp:DescribeUserImportJob","cognito-idp:AdminGetUser","cognito-idp:AdminDeleteUser",
+                "cognito-idp:CreateUserPoolClient","cognito-idp:DeleteUserPoolClient",
+                "cognito-idp:AdminInitiateAuth","cognito-idp:AssociateSoftwareToken",
+                "cognito-idp:VerifySoftwareToken","cognito-idp:AdminRespondToAuthChallenge",
+                "cognito-idp:GetUser"
+              ],"Resource":"*"},
+              {"Effect":"Allow","Action":["iam:CreateRole","iam:GetRole","iam:PutRolePolicy","iam:DeleteRolePolicy","iam:DeleteRole","iam:PassRole"],
+               "Resource":"arn:aws:iam::*:role/quizforge-production-cognito-import-preflight"}
+            ]}
+      - name: Verify production bcrypt import and first-login MFA with a disposable user
+        run: python -m scripts.production.lightsail.cognito_hash_import_preflight
+      - name: Publish only sanitized preflight result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cognito-password-hash-import-preflight
+          path: cognito-hash-import-preflight-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
