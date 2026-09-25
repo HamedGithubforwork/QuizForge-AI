@@ -1,0 +1,114 @@
+name: Permanent production backup recovery drill
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-production-recovery-drill.yml"
+      - "scripts/production/lightsail/recovery_drill.py"
+      - "scripts/production/lightsail/recovery_drill_remote.sh"
+      - "scripts/production/lightsail/test_recovery_drill.py"
+      - "scripts/production/lightsail_backup.py"
+      - "scripts/production/lightsail_backup_job.py"
+      - "scripts/production/schema.sql"
+      - "scripts/production/generation_budget.sql"
+      - "scripts/production/lightsail/release-lock.json"
+      - "scripts/lightsail_test/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/lightsail-production-recovery-drill.yml"
+      - "scripts/production/lightsail/recovery_drill.py"
+      - "scripts/production/lightsail/recovery_drill_remote.sh"
+      - "scripts/production/lightsail/test_recovery_drill.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Validate recovery drill without cloud credentials
+        run: |
+          python -m py_compile scripts/production/lightsail/recovery_drill.py
+          python -m unittest scripts.production.lightsail.test_recovery_drill -v
+          bash -n scripts/production/lightsail/recovery_drill_remote.sh
+
+  recover:
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-production-backup-recovery-drill
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+
+      - name: Derive AWS account from the existing deployment role
+        env:
+          DEPLOY_ROLE: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          python - <<'PY'
+          import os, re
+          match = re.fullmatch(
+              r"arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_/-]+",
+              os.environ["DEPLOY_ROLE"],
+          )
+          assert match, "Existing AWS_ROLE_ARN secret is required"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("RECOVERY_ACCOUNT_ID=" + match[1] + "\n")
+          PY
+
+      - name: Generate temporary-host plus read-only recovery session boundary
+        id: policy
+        run: python -m scripts.production.lightsail.recovery_drill policy
+
+      - name: Assume bounded recovery-drill session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-production-recovery-drill
+          role-duration-seconds: 3600
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: ${{ steps.policy.outputs.json }}
+
+      - name: Restore newest authenticated production recovery point on disposable AWS host
+        run: python -m scripts.production.lightsail.recovery_drill run
+
+      - name: Publish only sanitized recovery result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: permanent-production-backup-recovery-drill
+          path: lightsail-recovery-drill/summary.json
+          if-no-files-found: error
+          retention-days: 30
