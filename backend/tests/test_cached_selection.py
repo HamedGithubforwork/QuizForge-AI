@@ -43,7 +43,7 @@ def test_combines_cached_pages_without_raw_input_worker_or_ttl_extension(tmp_pat
         with store.connect() as db:
             assert db.execute('SELECT count(*) FROM jobs WHERE input IS NOT NULL').fetchone()[0] == 0
             assert db.execute('SELECT count(*) FROM checkpoints').fetchone()[0] == 0
-            assert db.execute('SELECT count(*) FROM admissions').fetchone()[0] == 3
+            assert db.execute('SELECT count(*) FROM admissions').fetchone()[0] == 2
         # Even a cached contiguous prefix cannot establish the full PDF length.
         assert store.reuse_selection('alice', SOURCE, []) is None
         now[0] = first['expires']
@@ -84,7 +84,7 @@ def test_all_pages_requires_a_full_result_and_cached_results_work_while_worker_b
         store.close()
 
 
-def test_derived_cache_obeys_memory_and_admission_bounds(tmp_path, monkeypatch):
+def test_derived_cache_obeys_memory_bounds_without_spending_admission(tmp_path, monkeypatch):
     store = JobStore(tmp_path / 'jobs')
     try:
         first = complete(store, [])
@@ -95,12 +95,22 @@ def test_derived_cache_obeys_memory_and_admission_bounds(tmp_path, monkeypatch):
         with store.connect() as db:
             assert db.execute("SELECT sum(length(result)) FROM jobs WHERE state='succeeded'").fetchone()[0] <= original_size
             assert db.execute('SELECT count(*) FROM jobs WHERE id=?', (first['id'],)).fetchone()[0] == 0
-        # Eviction does not reset admission history.
+            assert db.execute(
+                'SELECT count(*) FROM admissions WHERE owner=?',
+                ('alice',),
+            ).fetchone()[0] == 1
+
+        # Cache-only reuse remains free, while real processing still consumes
+        # and enforces the original hourly admission allowance.
         monkeypatch.setattr(queue, 'MAX_OWNER_JOBS', 2)
         assert store.reuse_selection('alice', SOURCE, [1])['id'] == result['id']
-        complete(store, [2], owner='bob')
+
+        second = store.submit('alice', 'another.pdf', b'another')
+        store.claim()
+        store.finish(second['id'], [{'page_number': 1, 'text': TEXT}])
+
         with pytest.raises(HTTPException) as error:
-            store.submit('alice', 'another.pdf', b'another')
+            store.submit('alice', 'third.pdf', b'third')
         assert error.value.status_code == 429
     finally:
         store.close()
