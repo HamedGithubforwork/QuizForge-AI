@@ -4,7 +4,7 @@ import App from './App'
 import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
-import { beginPhoneVerification, getMfaSecurityStatus, maskedPhoneNumber, setMfaPreference, verifyPhoneNumber, type MfaSecurityStatus } from './lib/cognitoMfa'
+import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, maskedPhoneNumber, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { secureEndpoint } from './lib/authConfig'
 
 export default function CognitoAuthGate() {
@@ -24,6 +24,8 @@ export default function CognitoAuthGate() {
   const [phone, setPhone] = useState('')
   const [phoneCode, setPhoneCode] = useState('')
   const [phonePending, setPhonePending] = useState(false)
+  const [totpSecret, setTotpSecret] = useState('')
+  const [totpCode, setTotpCode] = useState('')
   const [legacy, setLegacy] = useState<{ client: SupabaseClient; factor: string } | null>(null)
   const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string } | null>(null)
   const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
@@ -40,7 +42,7 @@ export default function CognitoAuthGate() {
       if (active) setAccount(next)
     }).catch(() => { if (active) setError('Sign-in could not be verified. Sign out and start again.') })
       .finally(() => { if (active) setLoading(false) })
-    const unloaded = () => { setAccount(null); setConfirmation(null); setLegacy(null); setActivationMode(false); setActivationSetup(null); setActivationComplete(false); setSecurityOpen(false); setSecurityStatus(null); setPhone(''); setPhoneCode(''); setPhonePending(false); setPassword(''); setCode('') }
+    const unloaded = () => { setAccount(null); setConfirmation(null); setLegacy(null); setActivationMode(false); setActivationSetup(null); setActivationComplete(false); setSecurityOpen(false); setSecurityStatus(null); setPhone(''); setPhoneCode(''); setPhonePending(false); setTotpSecret(''); setTotpCode(''); setPassword(''); setCode('') }
     manager.events.addUserUnloaded(unloaded)
     return () => { active = false; manager.events.removeUserUnloaded(unloaded) }
   }, [])
@@ -121,7 +123,6 @@ export default function CognitoAuthGate() {
   }
 
   async function loadSecurityStatus() {
-    if (!config.smsMfaEnabled) throw new Error('Text-message MFA is not enabled yet.')
     const current = await session()
     if (!current) throw new Error('Sign in again to manage security settings.')
     const status = await getMfaSecurityStatus(current.accessToken)
@@ -134,7 +135,50 @@ export default function CognitoAuthGate() {
     setSecurityOpen(true)
     setPhonePending(false)
     setPhoneCode('')
+    setTotpSecret('')
+    setTotpCode('')
     await loadSecurityStatus()
+  }
+
+  async function startTotpEnrollment() {
+    await run(async () => {
+      const current = await session()
+      if (!current) throw new Error('Sign in again to manage security settings.')
+      const secret = await beginTotpEnrollment(current.accessToken)
+      setTotpSecret(secret)
+      setTotpCode('')
+    })
+  }
+
+  async function finishTotpEnrollment(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      const current = await session()
+      if (!current) throw new Error('Sign in again to manage security settings.')
+      await verifyTotpEnrollment(current.accessToken, totpCode)
+      const status = await getMfaSecurityStatus(current.accessToken)
+      await updateMfaMethods(current.accessToken, {
+        smsEnabled: status.smsEnabled,
+        totpEnabled: true,
+        preferred: 'totp',
+      })
+      setTotpSecret('')
+      setTotpCode('')
+      await loadSecurityStatus()
+    })
+  }
+
+  async function disableTwoFactor() {
+    await run(async () => {
+      const current = await session()
+      if (!current) throw new Error('Sign in again to manage security settings.')
+      await disableMfa(current.accessToken)
+      setPhonePending(false)
+      setPhoneCode('')
+      setTotpSecret('')
+      setTotpCode('')
+      await loadSecurityStatus()
+    })
   }
 
   async function startPhoneVerification(event: FormEvent) {
@@ -155,7 +199,12 @@ export default function CognitoAuthGate() {
       const current = await session()
       if (!current) throw new Error('Sign in again to manage security settings.')
       await verifyPhoneNumber(current.accessToken, phoneCode)
-      await setMfaPreference(current.accessToken, 'sms')
+      const status = await getMfaSecurityStatus(current.accessToken)
+      await updateMfaMethods(current.accessToken, {
+        smsEnabled: true,
+        totpEnabled: status.totpEnabled,
+        preferred: 'sms',
+      })
       setPhoneCode('')
       setPhonePending(false)
       await loadSecurityStatus()
@@ -171,7 +220,7 @@ export default function CognitoAuthGate() {
       if (method === 'totp' && !status.totpEnabled) {
         throw new Error('Authenticator MFA is not configured for this account.')
       }
-      await setMfaPreference(current.accessToken, method)
+      await setMfaPreference(current.accessToken, method, status)
       await loadSecurityStatus()
     })
   }
@@ -181,20 +230,20 @@ export default function CognitoAuthGate() {
     <div className="account-bar"><div className="account-bar-inner">
       <span>Signed in as {account.email}</span>
       <div className="account-bar-actions">
-        {config.smsMfaEnabled && <button className="account-security-button" type="button" disabled={busy}
-          onClick={() => void run(openSecurity)}>Security</button>}
+        <button className="account-security-button" type="button" disabled={busy}
+          onClick={() => void run(openSecurity)}>Security</button>
         {logout}
       </div>
     </div></div>
     {error && <p role="alert">{error}</p>}
-    {securityOpen && config.smsMfaEnabled && <section className="security-settings-panel" aria-label="Account security settings">
+    {securityOpen && <section className="security-settings-panel" aria-label="Account security settings">
       <div className="security-settings-header">
         <div>
-          <h2>Sign-in security</h2>
-          <p>Keep your authenticator app and optionally add text-message MFA.</p>
+          <h2>Two-factor authentication</h2>
+          <p>2FA is optional. Turn it on for extra protection, or turn it off at any time.</p>
         </div>
         <button type="button" className="security-close-button" disabled={busy}
-          onClick={() => { setSecurityOpen(false); setPhonePending(false); setPhoneCode(''); setError('') }}>
+          onClick={() => { setSecurityOpen(false); setPhonePending(false); setPhoneCode(''); setTotpSecret(''); setTotpCode(''); setError('') }}>
           Close
         </button>
       </div>
@@ -202,25 +251,55 @@ export default function CognitoAuthGate() {
       {securityStatus && <>
         <div className="security-status-grid">
           <div>
+            <strong>2FA status</strong>
+            <span>{securityStatus.totpEnabled || securityStatus.smsEnabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
+          <div>
             <strong>Authenticator app</strong>
-            <span>{securityStatus.totpEnabled ? 'Configured' : 'Not configured'}</span>
+            <span>{securityStatus.totpEnabled ? 'Enabled' : 'Disabled'}</span>
           </div>
           <div>
-            <strong>Text messages</strong>
-            <span>{securityStatus.phoneVerified
-              ? `Verified ${maskedPhoneNumber(securityStatus.phoneNumber)}`
-              : 'No verified phone number'}</span>
-          </div>
-          <div>
-            <strong>Preferred method</strong>
-            <span>{securityStatus.preferred === 'sms'
-              ? 'Text message'
-              : securityStatus.preferred === 'totp'
-                ? 'Authenticator app'
-                : 'Not selected'}</span>
+            <strong>{config.smsMfaEnabled ? 'Preferred method' : 'Text messages'}</strong>
+            <span>{config.smsMfaEnabled
+              ? securityStatus.preferred === 'sms'
+                ? 'Text message'
+                : securityStatus.preferred === 'totp'
+                  ? 'Authenticator app'
+                  : 'Not selected'
+              : 'Coming after AWS SMS approval'}</span>
           </div>
         </div>
 
+        {totpSecret ? <form className="security-phone-form" aria-busy={busy} onSubmit={finishTotpEnrollment}>
+          <div className="auth-message">
+            <strong>Authenticator setup key</strong>
+            <code style={{ display: 'block', marginTop: '0.5rem', overflowWrap: 'anywhere' }}>{totpSecret}</code>
+          </div>
+          <p><a href={totpSetupUri(totpSecret, account.email)}>Open in an authenticator app</a></p>
+          <label>
+            <span>6-digit authenticator code</span>
+            <input autoComplete="one-time-code" inputMode="numeric" required pattern="[0-9]{6}"
+              value={totpCode} disabled={busy} onChange={e => setTotpCode(e.target.value)} />
+          </label>
+          <div className="security-form-actions">
+            <button className="auth-submit" disabled={busy}>
+              {busy ? 'Verifying…' : 'Enable authenticator 2FA'}
+            </button>
+            <button type="button" disabled={busy} onClick={() => { setTotpSecret(''); setTotpCode('') }}>
+              Cancel
+            </button>
+          </div>
+        </form> : !securityStatus.totpEnabled && <div className="security-enable-card">
+          <div>
+            <strong>Authenticator app</strong>
+            <p>Use Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app.</p>
+          </div>
+          <button type="button" disabled={busy} onClick={() => void startTotpEnrollment()}>
+            Enable with authenticator
+          </button>
+        </div>}
+
+        {config.smsMfaEnabled ? <>
         {phonePending ? <form className="security-phone-form" aria-busy={busy} onSubmit={finishPhoneVerification}>
           <label>
             <span>6-digit text-message code</span>
@@ -247,19 +326,36 @@ export default function CognitoAuthGate() {
           </button>
         </form>}
 
+        </> : <div className="security-enable-card security-enable-card-muted">
+          <div>
+            <strong>Text-message 2FA</strong>
+            <p>SMS will appear here after AWS approves production messaging access.</p>
+          </div>
+        </div>}
+
         <div className="security-preference-actions">
-          <button type="button" disabled={busy || !securityStatus.totpEnabled || securityStatus.preferred === 'totp'}
-            onClick={() => void preferMfa('totp')}>
-            Use authenticator app
-          </button>
-          <button type="button" disabled={busy || !securityStatus.phoneVerified || securityStatus.preferred === 'sms'}
-            onClick={() => void preferMfa('sms')}>
-            Use text messages
-          </button>
+          {securityStatus.totpEnabled && securityStatus.smsEnabled && <>
+            <button type="button" disabled={busy || securityStatus.preferred === 'totp'}
+              onClick={() => void preferMfa('totp')}>
+              Prefer authenticator
+            </button>
+            <button type="button" disabled={busy || securityStatus.preferred === 'sms'}
+              onClick={() => void preferMfa('sms')}>
+              Prefer text messages
+            </button>
+          </>}
+          {(securityStatus.totpEnabled || securityStatus.smsEnabled) && <button
+            type="button"
+            className="security-danger-button"
+            disabled={busy}
+            onClick={() => void disableTwoFactor()}>
+            Disable 2FA
+          </button>}
         </div>
 
         <p className="security-cost-note">
-          Standard carrier messaging rates may apply. Authenticator-app codes remain available as your other MFA method.
+          2FA is optional. If you disable it, future sign-ins use your password without a second-factor challenge.
+          {config.smsMfaEnabled ? ' Standard carrier messaging rates may apply to SMS codes.' : ''}
         </p>
       </>}
     </section>}
@@ -367,7 +463,7 @@ export default function CognitoAuthGate() {
           <h2>Choose how to continue.</h2>
           <p className="auth-login-copy">
             Use your existing account or start a new one. Both paths use Cognito
-            for secure email verification and multi-factor sign-in.
+            for secure email verification, with optional two-factor authentication.
           </p>
 
           {error && <div className="auth-error auth-login-error" role="alert">{error}</div>}
@@ -407,7 +503,7 @@ export default function CognitoAuthGate() {
 
           <div className="auth-security-note">
             <span className="auth-security-dot" aria-hidden="true" />
-            <span>Secure sign-in with email verification and MFA</span>
+            <span>Email verification is required; two-factor authentication is optional</span>
           </div>
 
           {error && <div className="auth-login-signout">{logout}</div>}
