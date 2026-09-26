@@ -234,6 +234,54 @@ class PrepareFailed(Exception):
     pass
 
 
+def authenticate_and_enroll_totp(cognito, pool_id: str, client_id: str, email: str, password: str) -> tuple[str, str]:
+    """Enroll TOTP whether the pool requires MFA or leaves it optional."""
+    login = cognito.admin_initiate_auth(
+        UserPoolId=pool_id,
+        ClientId=client_id,
+        AuthFlow="ADMIN_USER_PASSWORD_AUTH",
+        AuthParameters={"USERNAME": email, "PASSWORD": password},
+    )
+    if login.get("ChallengeName") == "MFA_SETUP" and login.get("Session"):
+        challenge_username = login.get("ChallengeParameters", {}).get("USERNAME", email)
+        association = cognito.associate_software_token(Session=login["Session"])
+        secret = str(association.get("SecretCode", ""))
+        if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
+            raise ValueError("Unexpected TOTP secret")
+        verified = cognito.verify_software_token(
+            Session=association["Session"],
+            UserCode=totp(secret),
+        )
+        if verified.get("Status") != "SUCCESS" or not verified.get("Session"):
+            raise ValueError("TOTP setup failed")
+        result = cognito.admin_respond_to_auth_challenge(
+            UserPoolId=pool_id,
+            ClientId=client_id,
+            ChallengeName="MFA_SETUP",
+            Session=verified["Session"],
+            ChallengeResponses={"USERNAME": challenge_username},
+        ).get("AuthenticationResult") or {}
+        access = result.get("AccessToken")
+    else:
+        result = login.get("AuthenticationResult") or {}
+        access = result.get("AccessToken")
+        if not isinstance(access, str) or not access:
+            raise ValueError("Authentication did not produce an access token")
+        association = cognito.associate_software_token(AccessToken=access)
+        secret = str(association.get("SecretCode", ""))
+        if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
+            raise ValueError("Unexpected TOTP secret")
+        verified = cognito.verify_software_token(
+            AccessToken=access,
+            UserCode=totp(secret),
+        )
+        if verified.get("Status") != "SUCCESS":
+            raise ValueError("TOTP setup failed")
+    if not isinstance(access, str) or not access:
+        raise ValueError("TOTP enrollment did not produce an access token")
+    return access, secret
+
+
 def prepare(path: Path) -> None:
     stage = "run_id"
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -291,39 +339,14 @@ def prepare(path: Path) -> None:
             Password=password,
             Permanent=True,
         )
-        stage = "begin_mfa"
-        login = cognito.admin_initiate_auth(
-            UserPoolId=pool_id,
-            ClientId=fixture_client,
-            AuthFlow="ADMIN_USER_PASSWORD_AUTH",
-            AuthParameters={"USERNAME": email, "PASSWORD": password},
+        stage = "enroll_totp"
+        access, secret = authenticate_and_enroll_totp(
+            cognito,
+            pool_id,
+            fixture_client,
+            email,
+            password,
         )
-        if login.get("ChallengeName") != "MFA_SETUP" or not login.get("Session"):
-            raise ValueError("Mandatory MFA setup did not start")
-        challenge_username = login.get("ChallengeParameters", {}).get("USERNAME", email)
-        stage = "associate_totp"
-        association = cognito.associate_software_token(Session=login["Session"])
-        secret = str(association.get("SecretCode", ""))
-        if not re.fullmatch(r"[A-Z2-7]{16,128}", secret):
-            raise ValueError("Unexpected TOTP secret")
-        stage = "verify_totp"
-        verified = cognito.verify_software_token(
-            Session=association["Session"],
-            UserCode=totp(secret),
-        )
-        if verified.get("Status") != "SUCCESS" or not verified.get("Session"):
-            raise ValueError("TOTP setup failed")
-        stage = "finish_mfa"
-        result = cognito.admin_respond_to_auth_challenge(
-            UserPoolId=pool_id,
-            ClientId=fixture_client,
-            ChallengeName="MFA_SETUP",
-            Session=verified["Session"],
-            ChallengeResponses={"USERNAME": challenge_username},
-        ).get("AuthenticationResult") or {}
-        access = result.get("AccessToken")
-        if not isinstance(access, str) or not access:
-            raise ValueError("MFA setup did not produce an access token")
         stage = "read_subject"
         user = cognito.get_user(AccessToken=access)
         subject = next(
@@ -356,7 +379,7 @@ def prepare(path: Path) -> None:
                 "subject": subject,
             },
         )
-        print("PASS: run-scoped production Cognito canary prepared with mandatory TOTP")
+        print("PASS: run-scoped production Cognito canary prepared with TOTP enrolled")
     except Exception:
         if username:
             try:

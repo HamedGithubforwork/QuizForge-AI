@@ -4,6 +4,7 @@ import unittest
 
 from scripts.production.lightsail.production_canary_identity import (
     REMOTE_CLEANUP,
+    authenticate_and_enroll_totp,
     canary_email,
     discover,
     totp,
@@ -48,6 +49,36 @@ class ProductionCanaryIdentityTests(unittest.TestCase):
             discover(FakeCognito()),
             ("ca-central-1_Abc123", "abc123"),
         )
+
+    def test_optional_pool_enrolls_totp_from_access_token(self):
+        class FakeCognito:
+            def __init__(self):
+                self.associated_with = None
+                self.verified_with = None
+
+            def admin_initiate_auth(self, **_):
+                return {"AuthenticationResult": {"AccessToken": "access-token"}}
+
+            def associate_software_token(self, **kwargs):
+                self.associated_with = kwargs
+                return {"SecretCode": "GEZDGNBVGY3TQOJQ"}
+
+            def verify_software_token(self, **kwargs):
+                self.verified_with = kwargs
+                return {"Status": "SUCCESS"}
+
+        client = FakeCognito()
+        access, secret = authenticate_and_enroll_totp(
+            client,
+            "ca-central-1_Abc123",
+            "abc123",
+            "qf-prod-canary-36000000000@example.invalid",
+            "Qf9!this-is-a-long-production-canary-password",
+        )
+        self.assertEqual(access, "access-token")
+        self.assertEqual(secret, "GEZDGNBVGY3TQOJQ")
+        self.assertEqual(client.associated_with, {"AccessToken": "access-token"})
+        self.assertEqual(client.verified_with["AccessToken"], "access-token")
 
     def test_fixture_validation_is_exact(self):
         value = {
