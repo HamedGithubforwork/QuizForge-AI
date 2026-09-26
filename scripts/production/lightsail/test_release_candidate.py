@@ -48,6 +48,13 @@ class FakeCognito:
             }
         }
 
+    def get_user_pool_mfa_config(self, **kwargs):
+        self.mfa_pool = kwargs["UserPoolId"]
+        return {
+            "MfaConfiguration": "ON",
+            "SoftwareTokenMfaConfiguration": {"Enabled": True},
+        }
+
 
 class ReleaseCandidateTests(unittest.TestCase):
     def source(self):
@@ -83,13 +90,35 @@ class ReleaseCandidateTests(unittest.TestCase):
             "https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
         )
         self.assertEqual(cognito.domain, "quizforge-123456789012")
+        self.assertEqual(cognito.mfa_pool, "ca-central-1_SyntheticPool")
+        self.assertFalse(config["sms_mfa_enabled"])
 
         summary = safe_public_summary(config)
-        self.assertTrue(all(summary[key] for key in summary if key != "schema"))
+        self.assertFalse(summary["sms_mfa_enabled"])
+        self.assertTrue(all(
+            summary[key]
+            for key in summary
+            if key not in {"schema", "sms_mfa_enabled"}
+        ))
         raw = json.dumps(summary)
         self.assertNotIn(config["legacy_publishable_key"], raw)
         self.assertNotIn(config["pool"], raw)
         self.assertNotIn(config["client"], raw)
+
+    def test_sms_mfa_discovery_is_public_and_explicit(self):
+        class Sms(FakeCognito):
+            def get_user_pool_mfa_config(self, **kwargs):
+                return {
+                    "MfaConfiguration": "ON",
+                    "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                    "SmsMfaConfiguration": {
+                        "SmsAuthenticationMessage": "Code {####}",
+                    },
+                }
+
+        config = discover_public_config(self.source(), FakeSTS(), Sms())
+        self.assertTrue(config["sms_mfa_enabled"])
+        self.assertTrue(safe_public_summary(config)["sms_mfa_enabled"])
 
     def test_wrong_domain_attachment_is_refused(self):
         class Bad(FakeCognito):

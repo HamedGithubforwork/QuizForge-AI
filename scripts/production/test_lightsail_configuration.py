@@ -18,7 +18,8 @@ def fixture():
             "auth_origin": "https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
             "frontend_url": "https://quizfromnotes.com", "api_url": "https://api.quizfromnotes.com",
             "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
-            "legacy_publishable_key": "sb_publishable_synthetic_public_key_12345"},
+            "legacy_publishable_key": "sb_publishable_synthetic_public_key_12345",
+            "sms_mfa_enabled": False},
         "images": {name: ("123456789012.dkr.ecr.ca-central-1.amazonaws.com/quizforge-api" if name in ("api", "operations", "caddy") else "docker.io/library/" + name) + "@sha256:" + "a" * 64
                    for name in ("api", "operations", "postgres", "redis", "caddy")},
         "monthly_budget_usd": 20, "alert_email": "synthetic@example.com", "ssh_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakesynthetickeyonly",

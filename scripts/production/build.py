@@ -10,9 +10,13 @@ import sys
 
 
 def public_config(config):
-    expected = {"pool", "client", "auth_origin", "frontend_url", "api_url", "legacy_url", "legacy_publishable_key"}
-    if not isinstance(config, dict) or set(config) != expected or any(not isinstance(v,str) for v in config.values()):
+    expected = {"pool", "client", "auth_origin", "frontend_url", "api_url", "legacy_url", "legacy_publishable_key", "sms_mfa_enabled"}
+    if not isinstance(config, dict) or set(config) != expected:
         raise ValueError("Only exact public build configuration fields are permitted")
+    if any(not isinstance(config[key], str) for key in expected - {"sms_mfa_enabled"}):
+        raise ValueError("Only string endpoint values are permitted")
+    if type(config["sms_mfa_enabled"]) is not bool:
+        raise ValueError("SMS MFA availability must be an explicit boolean")
     if (config["frontend_url"] != "https://quizfromnotes.com" or config["api_url"] != "https://api.quizfromnotes.com"
             or config["legacy_url"] != "https://vfxmsvphgcaizqnbyjip.supabase.co"
             or not re.fullmatch(r"ca-central-1_[A-Za-z0-9]{1,55}",config["pool"])
@@ -44,7 +48,8 @@ def main():
                VITE_COGNITO_USER_POOL_ID=config['pool'],VITE_COGNITO_CLIENT_ID=config['client'],
                VITE_COGNITO_DOMAIN=config['auth_origin'],VITE_API_URL=config['api_url'],
                VITE_IDENTITY_API_URL=config['api_url'],VITE_SUPABASE_URL=config['legacy_url'],
-               VITE_SUPABASE_PUBLISHABLE_KEY=config['legacy_publishable_key'])
+               VITE_SUPABASE_PUBLISHABLE_KEY=config['legacy_publishable_key'],
+               VITE_COGNITO_SMS_MFA_ENABLED='true' if config['sms_mfa_enabled'] else 'false')
     subprocess.run(['npm','ci','--ignore-scripts'],cwd=destination,env=env,check=True)
     subprocess.run(['npm','run','build'],cwd=destination,env=env,check=True)
     print('PASS: production frontend built with validated public configuration only')
