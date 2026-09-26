@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/production/requirements.lock
       - name: Exercise monetary reservations, concurrent limits, failures and month rollover
         env:
           PRODUCTION_TEST_DB: postgresql://postgres:synthetic-cost-ci@127.0.0.1:5432/quizforge
@@ -75,7 +75,7 @@ jobs:
           python-version: "3.11.16"
       - run: |
           python -m venv /tmp/quizforge-runtime-venv
-          /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+          /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/production/requirements.lock
           docker build -t quizforge-ci-api application-candidate/backend
           docker build -t quizforge-ci-operations -f scripts/production/operations.Dockerfile .
           docker build -t quizforge-ci-caddy --build-arg CADDY_BASE_IMAGE=caddy:2 -f scripts/production/lightsail/caddy.Dockerfile .
