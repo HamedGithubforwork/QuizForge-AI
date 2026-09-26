@@ -186,9 +186,11 @@ jobs:
             >"$RUNNER_TEMP/public-signup-apply.log" 2>&1
 
       - name: Verify live signup and retained security controls
+        if: steps.review.outputs.apply_required == 'true'
         run: python -m scripts.production.lightsail.enable_public_signup verify-live
 
       - name: Confirm targeted Terraform state has zero remaining drift
+        if: steps.review.outputs.apply_required == 'true'
         env:
           TF_DATA_DIR: ${{ runner.temp }}/public-signup-tfdata
         run: |
@@ -215,7 +217,7 @@ jobs:
             infra/aws/lightsail-production/recovery.zip
 
       - name: Publish only sanitized signup result
-        if: always()
+        if: always() && steps.review.outputs.apply_required == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: permanent-cognito-public-signup
