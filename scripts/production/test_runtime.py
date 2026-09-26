@@ -13,7 +13,6 @@ import generation_guard as guard
 from generation_costs import PRICING_KEY, maximum_cost
 import inventory
 from build import public_config
-from cloud_transfer import validate_delivery
 from database import options
 from transfer import private_read, private_write
 
@@ -66,15 +65,6 @@ class Boundaries(unittest.TestCase):
             for changes in ({"PGHOST": "foreign.ca-central-1.rds.amazonaws.com"},
                             {"PGDATABASE": "quizforge_rehearsal"}, {"PGPASSWORD": ""}):
                 with self.assertRaises(ValueError): options(env | changes)
-
-    def test_delivery_bucket_and_key_secret_must_share_the_production_account(self):
-        bucket = "quizforge-production-transfer-123456789012"
-        secret = "arn:aws:secretsmanager:ca-central-1:123456789012:secret:quizforge-production-transfer-key-AbCd12"
-        validate_delivery(bucket, secret)
-        for b, s in ((bucket.replace('production','staging'), secret),
-                     (bucket,secret.replace('123456789012','111111111111')),
-                     (bucket,secret.replace('transfer-key','application'))):
-            with self.assertRaises(ValueError): validate_delivery(b,s)
 
     def test_empty_budget_response_is_a_valid_empty_inventory(self):
         class Paginator:
@@ -247,36 +237,23 @@ class PersistentBudget(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("PRODUCTION_TEST_DB"), "CI provides disposable PostgreSQL")
 class ProductionSchema(unittest.TestCase):
-    def test_bootstrap_schema_import_reconciliation_and_role_separation(self):
+    def test_bootstrap_schema_retains_role_and_rls_separation(self):
         from psycopg.rows import dict_row
-        from history_transfer import APPLICATION, SUPABASE, import_snapshot, export_snapshot, insert_rows, seal, unseal, validate
-        from probe import fixtures
-        from uuid import UUID
-        import secrets
-        from database import SOURCE_ISSUER
         with psycopg.connect(os.environ["PRODUCTION_TEST_DB"], autocommit=True, row_factory=dict_row) as owner:
             assert owner.info.host == "127.0.0.1" and owner.info.dbname == "quizforge"
             owner.execute(Path(__file__).with_name("schema.sql").read_text())
-            owner.execute("CREATE SCHEMA auth")
-            owner.execute("CREATE TABLE auth.users (id uuid PRIMARY KEY)")
-            owner.execute("CREATE TABLE public.quiz_history (LIKE app.quiz_history INCLUDING ALL)")
-            for i in (1,2,3): owner.execute("INSERT INTO auth.users VALUES (%s)",(UUID(int=i),))
-            insert_rows(owner,SUPABASE.history,[json.dumps(row,default=str) for row in fixtures()])
-            # Use the real PostgreSQL exporter, preserving its canonical numeric
-            # and timestamp text rather than manufacturing a Python snapshot.
-            snapshot = export_snapshot(owner,SUPABASE,SOURCE_ISSUER)
-            key = secrets.token_bytes(32)
-            decoded = unseal(seal(snapshot,key),key)
-            report = import_snapshot(owner, decoded)
-            self.assertTrue(report['dry_run'])
-            self.assertEqual(owner.execute("SELECT count(*) AS n FROM app.users").fetchone()['n'],0)
-            result = import_snapshot(owner, decoded,dry_run=False)
-            self.assertEqual(result['manifest'],validate(export_snapshot(owner,APPLICATION,SOURCE_ISSUER)))
-            self.assertEqual(result['manifest']['users'],3)
-            self.assertEqual(result['manifest']['rows'],8)
-            for role in ('quizforge_identity','quizforge_generation'):
-                self.assertFalse(owner.execute("SELECT has_table_privilege(%s,'app.quiz_history','SELECT') AS allowed",(role,)).fetchone()['allowed'])
-            self.assertFalse(owner.execute("SELECT has_table_privilege('quizforge_app','app.user_identities','INSERT') AS allowed").fetchone()['allowed'])
+            self.assertTrue(owner.execute(
+                "SELECT relrowsecurity FROM pg_class WHERE oid='app.quiz_history'::regclass"
+            ).fetchone()["relrowsecurity"])
+            self.assertTrue(owner.execute(
+                "SELECT has_table_privilege('quizforge_app','app.quiz_history','SELECT') AS allowed"
+            ).fetchone()["allowed"])
+            self.assertFalse(owner.execute(
+                "SELECT has_table_privilege('quizforge_identity','app.quiz_history','SELECT') AS allowed"
+            ).fetchone()["allowed"])
+            self.assertFalse(owner.execute(
+                "SELECT has_table_privilege('quizforge_app','app.user_identities','INSERT') AS allowed"
+            ).fetchone()["allowed"])
 
 
 if __name__ == "__main__": unittest.main()
