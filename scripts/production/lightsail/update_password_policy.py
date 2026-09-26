@@ -96,7 +96,7 @@ def verify_live() -> dict[str, bool]:
         "uppercase_retained": password.get("RequireUppercase") is True,
         "numbers_retained": password.get("RequireNumbers") is True,
         "symbols_retained": password.get("RequireSymbols") is True,
-        "mandatory_mfa_retained": pool.get("MfaConfiguration") == "ON",
+        "optional_mfa_retained": pool.get("MfaConfiguration") == "OPTIONAL",
         "totp_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
         "deletion_protection_retained": pool.get("DeletionProtection") == "ACTIVE",
         "public_signup_retained": pool.get("AdminCreateUserConfig", {}).get("AllowAdminCreateUserOnly") is False,
