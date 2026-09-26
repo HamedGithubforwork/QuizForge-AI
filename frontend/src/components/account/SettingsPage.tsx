@@ -3,6 +3,24 @@ import type { FormEvent } from 'react'
 import type { MfaSecurityStatus } from '../../lib/cognitoMfa'
 import './SettingsPage.css'
 
+const SETTINGS_LAYOUT_FALLBACK = `
+.settings-page{min-height:100vh;background:#f6f7fb;color:#1d2335}
+.settings-topbar{display:flex;min-height:70px;align-items:center;justify-content:space-between;gap:20px;padding:0 28px;border-bottom:1px solid #e3e6ef;background:#fff}
+.settings-shell{display:grid;width:min(1180px,calc(100% - 48px));grid-template-columns:250px minmax(0,820px);justify-content:center;gap:38px;margin:0 auto;padding:44px 0 84px}
+.settings-sidebar{align-self:start;padding:18px;border:1px solid #e1e4ed;border-radius:20px;background:#fff}
+.settings-sidebar nav{display:grid;gap:7px}
+.settings-sidebar nav button{display:flex;width:100%;min-height:44px;align-items:center;gap:11px;padding:0 12px;border:0;border-radius:11px;background:transparent;text-align:left}
+.settings-sidebar nav button.active{background:#eceaff;color:#5549d5}
+.settings-content{min-width:0}
+.settings-card{margin-bottom:18px;padding:24px;border:1px solid #e1e4ed;border-radius:20px;background:#fff}
+.settings-card-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.settings-method-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:20px}
+.settings-method-grid>div{display:grid;gap:8px;padding:15px;border:1px solid #eceef4;border-radius:14px;background:#fafbfe}
+@media(max-width:920px){.settings-shell{width:min(100% - 36px,820px);grid-template-columns:1fr;gap:22px;padding-top:28px}.settings-sidebar{position:static}.settings-sidebar nav{grid-template-columns:1fr 1fr}}
+@media(max-width:680px){.settings-topbar{align-items:stretch;flex-direction:column;padding:14px 16px}.settings-shell{width:min(100% - 24px,620px);padding:22px 0 54px}.settings-card-heading{flex-direction:column}.settings-method-grid{grid-template-columns:1fr}}
+`
+
+
 export type SettingsSection = 'account' | 'security'
 
 type SettingsPageProps = {
@@ -76,7 +94,7 @@ export default function SettingsPage({
   )
 
   return (
-    <main className="settings-page">
+    <main className="settings-page">\n      <style>{SETTINGS_LAYOUT_FALLBACK}</style>
       <header className="settings-topbar">
         <button
           className="settings-back"
