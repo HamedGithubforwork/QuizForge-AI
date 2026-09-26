@@ -1,3 +1,5 @@
+import asyncio
+import random
 import logging
 import os
 import time
@@ -33,6 +35,7 @@ from processed_documents import (
     build_quiz_cache_key_from_sha,
     forget_processed_document,
     get_processed_document,
+    normalize_document_sha256,
     remember_processed_document,
 )
 import quiz_service
@@ -45,7 +48,7 @@ from quiz_service import (
 )
 from quiz_generation_support import (
     acquire_quiz_generation_turn as coordinate_quiz_generation_turn,
-    get_generation_source_identity,
+    get_generation_source_identity as resolve_generation_source_identity,
     get_quiz_generation_poll_delay as calculate_quiz_generation_poll_delay,
 )
 from redis_integration import (
@@ -165,6 +168,23 @@ async def get_document_pages_with_cache(
     return resolved_pdf_sha256, pages
 
 
+async def get_generation_source_identity(
+    *,
+    document_sha256: str,
+    file: UploadFile | None,
+):
+    return await resolve_generation_source_identity(
+        document_sha256=document_sha256,
+        file=file,
+        normalize_hash=normalize_document_sha256,
+        validate_content_type=(
+            validate_pdf_content_type
+        ),
+        validate_size=validate_pdf_size,
+        compute_hash=compute_pdf_sha256,
+    )
+
+
 def get_quiz_generation_poll_delay(
     poll_interval_seconds: float,
 ):
@@ -176,6 +196,7 @@ def get_quiz_generation_poll_delay(
         jitter_ratio=(
             QUIZ_GENERATION_POLL_JITTER_RATIO
         ),
+        uniform_fn=random.uniform,
     )
 
 
@@ -204,9 +225,11 @@ async def acquire_quiz_generation_turn(
         maximum_poll_interval_seconds=(
             QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS
         ),
-        jitter_ratio=(
-            QUIZ_GENERATION_POLL_JITTER_RATIO
+        poll_delay_fn=(
+            get_quiz_generation_poll_delay
         ),
+        sleep_fn=asyncio.sleep,
+        monotonic_fn=time.monotonic,
     )
 
 
