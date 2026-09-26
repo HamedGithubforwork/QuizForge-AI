@@ -131,7 +131,7 @@ jobs:
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[
               {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:Get*","cognito-idp:List*","cognito-idp:Describe*","lambda:Get*","lambda:List*","iam:Get*","iam:List*"],"Resource":"*"},
-              {"Effect":"Allow","Action":["cognito-idp:UpdateUserPool"],"Resource":"*"},
+              {"Effect":"Allow","Action":["cognito-idp:UpdateUserPool","cognito-idp:SetUserPoolMfaConfig"],"Resource":"*"},
               {"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":"arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}"},
               {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ secrets.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]}
             ]}
