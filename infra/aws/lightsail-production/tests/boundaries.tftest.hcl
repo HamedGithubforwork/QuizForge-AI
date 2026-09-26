@@ -37,6 +37,10 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "Public signup must be enabled only with retained deletion protection and mandatory MFA."
   }
   assert {
+    condition     = aws_cognito_user_pool.browser.password_policy[0].minimum_length == 8 && aws_cognito_user_pool.browser.password_policy[0].require_lowercase && aws_cognito_user_pool.browser.password_policy[0].require_uppercase && aws_cognito_user_pool.browser.password_policy[0].require_numbers && aws_cognito_user_pool.browser.password_policy[0].require_symbols
+    error_message = "Cognito passwords must retain the reviewed eight-character minimum and complexity requirements."
+  }
+  assert {
     condition     = aws_cognito_user_pool_client.browser.callback_urls == toset(["https://quizfromnotes.com/auth/callback"]) && !aws_cognito_user_pool_client.browser.generate_secret
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
