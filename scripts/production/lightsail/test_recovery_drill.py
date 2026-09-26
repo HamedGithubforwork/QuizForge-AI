@@ -107,6 +107,12 @@ class RecoveryDrillTests(unittest.TestCase):
         compact = json.dumps(policy, separators=(",", ":"))
         self.assertLessEqual(len(compact), 2048)
 
+    def test_recovery_host_bootstrap_is_present_and_pinned(self):
+        script, public_key = drill.capacity.host_bootstrap()
+        self.assertIn("touch /var/lib/quizforge-capacity-ready", script)
+        self.assertNotIn("__CAPACITY_HOST_KEY_BASE64__", script)
+        self.assertRegex(public_key, r"^ssh-ed25519 ")
+
     def test_report_rejects_private_identifiers(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "summary.json"
