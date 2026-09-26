@@ -3,7 +3,9 @@ from pathlib import Path
 import zipfile
 
 root = Path(__file__).resolve().parents[3]
-with zipfile.ZipFile(root / 'infra/aws/lightsail-production/recovery.zip', 'w') as archive:
-    for name in ('identity_triggers.py', 'pre_signup.py'):
-        archive.writestr(zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)),
-                         (root / 'scripts/cognito_browser' / name).read_bytes())
+source = Path(__file__).with_name("identity_triggers.py")
+with zipfile.ZipFile(root / "infra/aws/lightsail-production/recovery.zip", "w") as archive:
+    archive.writestr(
+        zipfile.ZipInfo("identity_triggers.py", (2026, 1, 1, 0, 0, 0)),
+        source.read_bytes(),
+    )

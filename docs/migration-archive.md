@@ -48,6 +48,7 @@ was live and its recovery/canary paths were established. A later cleanup also
 removed the residual `scripts/cognito_browser/` rehearsal source and its dedicated
 rehearsal guide from `main`; the acceptance evidence it produced remains where it
 is still cited by the retained production acceptance record.
+The production password-recovery revocation Lambda is not rehearsal code; its retained source now lives under `scripts/production/lightsail/identity_triggers.py` and is packaged by the active production configuration workflow.
 
 The shared production Python dependency lockfile and database CA bundle remain under `scripts/production/`. The completed encrypted-history transfer implementation was subsequently retired from `main` after cutover and remains recoverable from this archive branch. The obsolete `scripts/rds_rehearsal/` directory is no longer required on `main`.
 
