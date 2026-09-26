@@ -25,7 +25,7 @@ export type HistoryPracticeFocus = {
   baselineQuestionCount: number
 }
 
-type StoredQuestion = {
+export type StoredQuestion = {
   question_type: HistoryQuestionType
   question: string
   choices: string[]
@@ -37,12 +37,12 @@ type StoredQuestion = {
   source_pages: number[]
 }
 
-type StoredQuiz = {
+export type StoredQuiz = {
   title: string
   questions: StoredQuestion[]
 }
 
-type StoredAnswers =
+export type StoredAnswers =
   Record<string, number | string>
 
 export type TypeScore = {
@@ -110,7 +110,7 @@ export function getQuestionTypeLabel(type: string) {
   return type
 }
 
-function isStoredQuestion(
+export function isStoredQuestion(
   value: unknown,
 ): value is StoredQuestion {
   if (
@@ -142,7 +142,7 @@ function isStoredQuestion(
   )
 }
 
-function isStoredQuiz(
+export function isStoredQuiz(
   value: unknown,
 ): value is StoredQuiz {
   if (
@@ -166,7 +166,7 @@ function isStoredQuiz(
   )
 }
 
-function isStoredAnswers(
+export function isStoredAnswers(
   value: unknown,
 ): value is StoredAnswers {
   return (
