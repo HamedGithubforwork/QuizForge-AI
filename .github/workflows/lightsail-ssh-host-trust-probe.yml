@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/lightsail-ssh-host-trust-probe.yml"
       - "scripts/production/lightsail/ssh_trust_probe.py"
+      - "scripts/production/lightsail/host_control.py"
+      - "scripts/production/lightsail/test_host_control.py"
       - "scripts/production/lightsail/test_ssh_trust_probe.py"
   workflow_dispatch:
 
@@ -26,8 +28,8 @@ jobs:
           python-version: "3.11.16"
       - name: Compile and test SSH trust probe without cloud credentials
         run: |
-          python -m py_compile scripts/production/lightsail/ssh_trust_probe.py
-          python -m unittest scripts.production.lightsail.test_ssh_trust_probe -v
+          python -m py_compile scripts/production/lightsail/host_control.py scripts/production/lightsail/ssh_trust_probe.py
+          python -m unittest scripts.production.lightsail.test_host_control scripts.production.lightsail.test_ssh_trust_probe -v
 
   probe:
     needs: validate
