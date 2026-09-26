@@ -21,6 +21,10 @@ async def get_generation_source_identity(
     *,
     document_sha256: str,
     file: UploadFile | None,
+    normalize_hash=normalize_document_sha256,
+    validate_content_type=validate_pdf_content_type,
+    validate_size=validate_pdf_size,
+    compute_hash=compute_pdf_sha256,
 ):
     supplied_hash = (
         document_sha256
@@ -33,7 +37,7 @@ async def get_generation_source_identity(
 
     if supplied_hash.strip():
         normalized_hash = (
-            normalize_document_sha256(
+            normalize_hash(
                 supplied_hash
             )
         )
@@ -60,15 +64,15 @@ async def get_generation_source_identity(
             ),
         )
 
-    validate_pdf_content_type(
+    validate_content_type(
         file.content_type
     )
 
     contents = await file.read()
-    validate_pdf_size(contents)
+    validate_size(contents)
 
     return (
-        compute_pdf_sha256(contents),
+        compute_hash(contents),
         file.content_type,
         contents,
     )
@@ -79,6 +83,7 @@ def get_quiz_generation_poll_delay(
     *,
     maximum_interval_seconds: float,
     jitter_ratio: float,
+    uniform_fn=None,
 ):
     bounded_interval = min(
         max(0.0, poll_interval_seconds),
@@ -88,7 +93,12 @@ def get_quiz_generation_poll_delay(
         1 - jitter_ratio
     )
 
-    return random.uniform(
+    choose = (
+        uniform_fn
+        if uniform_fn is not None
+        else random.uniform
+    )
+    return choose(
         max(0.0, jitter_floor),
         bounded_interval,
     )
@@ -114,7 +124,9 @@ async def acquire_quiz_generation_turn(
     wait_seconds: float,
     poll_interval_seconds: float,
     maximum_poll_interval_seconds: float,
-    jitter_ratio: float,
+    poll_delay_fn: Callable[[float], float],
+    sleep_fn=asyncio.sleep,
+    monotonic_fn=time.monotonic,
 ):
     attempt = await try_acquire_lock(
         cache_key
@@ -140,7 +152,7 @@ async def acquire_quiz_generation_turn(
         return None, attempt.token
 
     deadline = (
-        time.monotonic()
+        monotonic_fn()
         + wait_seconds
     )
     poll_interval = (
@@ -149,26 +161,22 @@ async def acquire_quiz_generation_turn(
 
     while True:
         remaining_wait = (
-            deadline - time.monotonic()
+            deadline - monotonic_fn()
         )
 
         if remaining_wait <= 0:
             break
 
         poll_delay = min(
-            get_quiz_generation_poll_delay(
-                poll_interval,
-                maximum_interval_seconds=(
-                    maximum_poll_interval_seconds
-                ),
-                jitter_ratio=jitter_ratio,
+            poll_delay_fn(
+                poll_interval
             ),
             remaining_wait,
         )
 
-        await asyncio.sleep(poll_delay)
+        await sleep_fn(poll_delay)
 
-        if time.monotonic() >= deadline:
+        if monotonic_fn() >= deadline:
             break
 
         if use_cached_result:
