@@ -7,6 +7,7 @@ on:
       - "e2e/production-canary-tests/**"
       - "e2e/playwright.production-canary.config.ts"
       - "scripts/production/lightsail/production_canary_identity.py"
+      - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/test_production_canary_identity.py"
       - "scripts/production/private_files.py"
   workflow_dispatch:
