@@ -98,6 +98,9 @@ def discover_public_config(source: dict[str, str], sts, cognito) -> dict[str, st
     if description.get("UserPoolId") != pool_id:
         raise ValueError("Production Cognito domain is not attached to expected pool")
 
+    mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
+    sms_mfa_enabled = bool(mfa.get("SmsMfaConfiguration"))
+
     config = {
         "pool": pool_id,
         "client": client_id,
@@ -106,6 +109,7 @@ def discover_public_config(source: dict[str, str], sts, cognito) -> dict[str, st
         "api_url": "https://api.quizfromnotes.com",
         "legacy_url": source["legacy_url"],
         "legacy_publishable_key": source["legacy_publishable_key"],
+        "sms_mfa_enabled": sms_mfa_enabled,
     }
     return public_config(config)
 
@@ -136,6 +140,7 @@ def safe_public_summary(config: dict[str, str]) -> dict[str, Any]:
                 config.get("legacy_publishable_key", ""),
             )
         ),
+        "sms_mfa_enabled": config.get("sms_mfa_enabled") is True,
     }
 
 
