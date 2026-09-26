@@ -40,7 +40,7 @@ jobs:
   deploy:
     needs: validate
     if: >-
-      github.event_name == 'push' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
