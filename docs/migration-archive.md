@@ -24,3 +24,13 @@ path is deliberately retired.
 Ongoing production deployment, Cognito, SMS MFA, backups, disaster recovery,
 cost controls, current canaries, and the general production transfer/recovery
 primitive remain on `main`.
+
+## Pre-launch and repair tooling
+
+The same archive branch also preserves completed one-time Lightsail activation,
+repair, bootstrap diagnosis, runtime initialization, public-launch readiness,
+DNS cutover, and launch-failure diagnostic workflows. These were removed from
+`main` after launch because several were intentionally pinned to the original
+pre-launch source blobs and had begun producing irrelevant post-launch failures.
+
+Ongoing deployment and recovery paths remain separate and active.
