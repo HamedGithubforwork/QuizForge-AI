@@ -178,6 +178,33 @@ def _pages(client, method: str, result_key: str) -> Iterable[dict[str, Any]]:
             break
 
 
+def readiness_status(sms) -> dict[str, Any]:
+    try:
+        tier = account_tier(sms)
+        phone_present = any(
+            "SMS" in {str(value).upper() for value in item.get("NumberCapabilities", [])}
+            for item in _pages(sms, "describe_phone_numbers", "PhoneNumbers")
+        )
+        pool_present = any(True for _ in _pages(sms, "describe_pools", "Pools"))
+        service_enabled = True
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        if code not in {"SubscriptionRequiredException", "OptInRequired"}:
+            raise
+        tier = "NOT_ENABLED"
+        phone_present = False
+        pool_present = False
+        service_enabled = False
+
+    return {
+        "sms_service_enabled": service_enabled,
+        "sms_account_tier": tier,
+        "sms_account_production": tier == "PRODUCTION",
+        "origination_phone_numbers_present": phone_present,
+        "sms_pools_present": pool_present,
+    }
+
+
 def identity_status(sms, identity_arn: str, account: str) -> dict[str, bool]:
     match = IDENTITY_RE.fullmatch(identity_arn)
     require(match is not None, "ORIGINATION_IDENTITY_ARN_INVALID")
@@ -390,48 +417,64 @@ def main() -> int:
     forbidden = [identity_arn]
     report: dict[str, Any] = {
         "schema": 1,
-        "operation": "cognito_sms_mfa_activation",
+        "operation": "cognito_sms_mfa_" + (operation or "invalid"),
         "result": "blocked",
         "sms_activation_attempted": False,
         "marketing_sms_enabled": False,
     }
     try:
+        require(operation in {"inspect", "activate"}, "UNSUPPORTED_OPERATION")
+
         sts = boto3.client("sts", region_name=REGION)
         cognito = boto3.client("cognito-idp", region_name=REGION)
         sms = boto3.client("pinpoint-sms-voice-v2", region_name=REGION)
-        iam = boto3.client("iam", region_name=REGION)
+
         account = str(sts.get_caller_identity().get("Account", ""))
         require(bool(re.fullmatch(r"[0-9]{12}", account)), "AWS_ACCOUNT_INVALID")
         forbidden.append(account)
 
         pool_id, pool = discover_pool(cognito)
-        client_id, client = discover_client(cognito, pool_id)
-        forbidden.extend([pool_id, client_id])
+        forbidden.append(pool_id)
         mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
         baseline = baseline_checks(pool, mfa)
         require(all(baseline.values()), "COGNITO_SECURITY_BASELINE_MISMATCH")
 
-        tier = account_tier(sms)
-        identity = identity_status(sms, identity_arn, account)
+        readiness = readiness_status(sms)
         report.update({
-            "sms_account_production": tier == "PRODUCTION",
-            **identity,
+            **readiness,
             **baseline,
+            "sms_mfa_already_enabled": bool(mfa.get("SmsMfaConfiguration")),
         })
 
-        if operation == "preflight":
-            ready = tier == "PRODUCTION" and all(identity.values())
-            report["result"] = "ready_for_manual_activation" if ready else "waiting_for_sms_prerequisites"
+        if operation == "inspect":
+            ready = (
+                readiness["sms_account_production"]
+                and (
+                    readiness["origination_phone_numbers_present"]
+                    or readiness["sms_pools_present"]
+                )
+            )
+            report["result"] = (
+                "ready_for_activation_input"
+                if ready
+                else "waiting_for_sms_prerequisites"
+            )
             write_report(report, forbidden)
-            return 0 if ready else 1
+            return 0
 
-        if operation != "activate":
-            raise Refused("UNSUPPORTED_OPERATION")
+        require(
+            os.environ.get("QF_SMS_CONFIRMATION") == CONFIRMATION,
+            "ACTIVATION_CONFIRMATION_MISSING",
+        )
+        require(readiness["sms_account_production"], "SMS_ACCOUNT_NOT_PRODUCTION")
 
-        require(os.environ.get("QF_SMS_CONFIRMATION") == CONFIRMATION, "ACTIVATION_CONFIRMATION_MISSING")
-        require(tier == "PRODUCTION", "SMS_ACCOUNT_NOT_PRODUCTION")
+        client_id, client = discover_client(cognito, pool_id)
+        forbidden.append(client_id)
+        identity = identity_status(sms, identity_arn, account)
+        report.update(identity)
         require(all(identity.values()), "ORIGINATION_IDENTITY_NOT_READY")
 
+        iam = boto3.client("iam", region_name=REGION)
         ext = external_id(account, pool_id)
         caller = configure_role(
             iam,
@@ -481,10 +524,10 @@ def main() -> int:
     except Refused as error:
         report["error_code"] = safe_code(str(error), "SMS_ACTIVATION_REFUSED")
     except ClientError as error:
-        report["error_code"] = "AWS_SMS_ACTIVATION_FAILED"
+        report["error_code"] = "AWS_SMS_OPERATION_FAILED"
         report["aws_error_code"] = safe_code(error.response.get("Error", {}).get("Code"))
     except Exception as error:
-        report["error_code"] = safe_code(type(error).__name__, "SMS_ACTIVATION_FAILED")
+        report["error_code"] = safe_code(type(error).__name__, "SMS_OPERATION_FAILED")
     try:
         write_report(report, forbidden)
     except Exception:
