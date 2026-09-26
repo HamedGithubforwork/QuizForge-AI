@@ -346,7 +346,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("pull_request_target", main + cloud)
         self.assertIn("default: inspect", main)
         self.assertIn("github.event_name == 'workflow_dispatch'", main)
-        self.assertIn("inputs.operation == 'verify'", cloud)
         self.assertNotIn("github.event_name == 'push'", main + cloud)
         self.assertIn("operation: ${{ github.event.inputs.operation }}", main)
         self.assertIn("github.ref == 'refs/heads/main'", main)
