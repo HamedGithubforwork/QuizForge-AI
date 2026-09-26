@@ -94,7 +94,8 @@ export default function SettingsPage({
   )
 
   return (
-    <main className="settings-page">\n      <style>{SETTINGS_LAYOUT_FALLBACK}</style>
+    <main className="settings-page">
+      <style>{SETTINGS_LAYOUT_FALLBACK}</style>
       <header className="settings-topbar">
         <button
           className="settings-back"
