@@ -13,6 +13,7 @@ test('Supabase is the unchanged default; invalid providers fail closed', () => {
 })
 test('Cognito requires explicit staging, Canadian issuer and trusted AWS domain', () => {
   const config = cognitoConfiguration(valid, 'https://staging.example.test')
+  assert.equal(config.smsMfaEnabled, false)
   assert.equal(config.redirect, 'https://staging.example.test/auth/callback')
   assert.equal(config.logout, 'https://staging.example.test/')
   assert.equal(config.authority, 'https://cognito-idp.ca-central-1.amazonaws.com/ca-central-1_Test')
@@ -47,6 +48,29 @@ test('Production configuration requires exact domain, API and legacy account sou
     { VITE_SUPABASE_URL: 'https://foreign.supabase.co' }, { VITE_SUPABASE_PUBLISHABLE_KEY: '' }]) {
     assert.throws(() => cognitoConfiguration({ ...production, ...change }, 'https://quizfromnotes.com'))
   }
+})
+
+test('SMS MFA feature flag is explicit and boolean', () => {
+  assert.equal(
+    cognitoConfiguration(
+      { ...valid, VITE_COGNITO_SMS_MFA_ENABLED: 'true' },
+      'https://staging.example.test',
+    ).smsMfaEnabled,
+    true,
+  )
+  assert.equal(
+    cognitoConfiguration(
+      { ...valid, VITE_COGNITO_SMS_MFA_ENABLED: 'false' },
+      'https://staging.example.test',
+    ).smsMfaEnabled,
+    false,
+  )
+  assert.throws(() =>
+    cognitoConfiguration(
+      { ...valid, VITE_COGNITO_SMS_MFA_ENABLED: 'yes' },
+      'https://staging.example.test',
+    ),
+  )
 })
 
 test('Production configuration accepts only public legacy key types', () => {
