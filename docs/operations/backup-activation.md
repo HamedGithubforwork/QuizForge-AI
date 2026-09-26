@@ -26,8 +26,9 @@ The live checks and operational gates below remain required before activation.
 | Existing private recipient | Secret `AWS_BUDGET_ALERT_EMAIL`; never copy its value into source or reports |
 | Historical read-only evidence | Run `35647550787`: 13 creates, no updates/deletes, no apply |
 
-The read-only plan and actual-host load/sign-in tests do not establish live S3
-recovery or delivered backup alerts. The snapshot is not current AWS inventory.
+Historical read-only planning evidence does not by itself establish live S3
+recovery or delivered backup alerts. Current inspection is performed by the retained
+backup activation workflow's `inspect` operation.
 
 Preserve these supplied files unchanged:
 
@@ -35,8 +36,6 @@ Preserve these supplied files unchanged:
 | --- | --- |
 | `infra/aws/lightsail-backups/main.tf` | `c0edc4a089a6b4158f68ca1a8eef853910384d336a90fcb36ab77ccbc0140dc0` |
 | `infra/aws/lightsail-backups/tests/boundaries.tftest.hcl` | `e703f3a10b0c785b0e2a1d88d87fa27d2aacbe17708326c6f622b209ef3d346c` |
-| `.github/workflows/aws-backup-plan.yml` | `f086d2e41918ade685bb5583da58a9840be9fafbe942df537e9ff51e8262bb6c` |
-| `scripts/backup_plan/review.py` | `190b6c29afc2a90d85c2000392737d59d3aba9f3d87c27bc2ec8790d4ae570b3` |
 
 The comments describing the original preparation-only configuration remain source
 history, not evidence that activation occurred. No active website, host, DNS, API
