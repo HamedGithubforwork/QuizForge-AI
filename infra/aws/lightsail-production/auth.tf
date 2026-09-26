@@ -24,7 +24,6 @@ resource "aws_iam_role" "cognito_sms" {
   })
 
   lifecycle { prevent_destroy = true }
-  depends_on = [aws_iam_role_policy.cognito_sms]
 }
 
 resource "aws_iam_role_policy" "cognito_sms" {
@@ -80,6 +79,7 @@ resource "aws_cognito_user_pool" "browser" {
   verification_message_template { default_email_option = "CONFIRM_WITH_CODE" }
   lambda_config { post_confirmation = aws_lambda_function.recovery.arn }
   lifecycle { prevent_destroy = true }
+  depends_on = [aws_iam_role_policy.cognito_sms]
 }
 resource "aws_cognito_user_pool_client" "browser" {
   name                                 = "quizforge-production-pkce"
