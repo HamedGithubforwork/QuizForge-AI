@@ -25,11 +25,12 @@ class Boundaries(unittest.TestCase):
                   "auth_origin":"https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
                   "frontend_url":"https://quizfromnotes.com","api_url":"https://api.quizfromnotes.com",
                   "legacy_url":"https://vfxmsvphgcaizqnbyjip.supabase.co",
-                  "legacy_publishable_key":"sb_publishable_synthetic_public_key_12345"}
+                  "legacy_publishable_key":"sb_publishable_synthetic_public_key_12345",
+                  "sms_mfa_enabled":False}
         self.assertEqual(public_config(config),config)
         privileged = 'header.'+base64.urlsafe_b64encode(json.dumps({'role':'service_role','ref':'vfxmsvphgcaizqnbyjip'}).encode()).decode().rstrip('=')+'.signature'
         for change in ({'legacy_publishable_key':privileged},{'legacy_publishable_key':'sb_secret_private'},
-                       {'api_url':'https://foreign.test'},{'OPENAI_API_KEY':'private'}):
+                       {'api_url':'https://foreign.test'},{'sms_mfa_enabled':'true'},{'OPENAI_API_KEY':'private'}):
             with self.assertRaises(ValueError): public_config(config | change)
 
     def test_model_request_is_bounded_and_cannot_use_tools_or_other_endpoints(self):
