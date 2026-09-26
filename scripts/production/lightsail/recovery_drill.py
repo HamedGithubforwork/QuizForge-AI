@@ -268,7 +268,7 @@ def build_bundle(root: Path) -> Path:
         "scripts/production/lightsail_backup.py": "lightsail_backup.py",
         "scripts/production/schema.sql": "schema.sql",
         "scripts/production/generation_budget.sql": "generation_budget.sql",
-        "scripts/rds_rehearsal/requirements.lock": "requirements.lock",
+        "scripts/production/requirements.lock": "requirements.lock",
         "scripts/production/lightsail/public-source.json": "public-source.json",
     }
     with tarfile.open(bundle, "w:gz") as tar:

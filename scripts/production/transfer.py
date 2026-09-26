@@ -15,7 +15,6 @@ import sys
 import psycopg
 
 from database import options, SOURCE_ISSUER
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "rds_rehearsal"))
 from history_transfer import (APPLICATION, SUPABASE, export_snapshot, import_snapshot, seal, unseal, validate)
 
 

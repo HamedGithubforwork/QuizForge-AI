@@ -44,6 +44,4 @@ legacy Vercel/Render smoke-test, and one-time domain setup tooling. These paths
 were removed from `main` after the permanent Lightsail/Cognito production stack
 was live and its recovery/canary paths were established.
 
-The shared hash-locked Python dependency files remain temporarily under
-`scripts/rds_rehearsal/` because active production workflows still consume
-that lockfile. They can be renamed in a later dependency-only refactor.
+The shared production Python dependency lockfile, database CA bundle, and encrypted-history transfer primitive now live under `scripts/production/`; the obsolete `scripts/rds_rehearsal/` directory is no longer required on `main`.

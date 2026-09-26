@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.11.16"
       - name: Install locked controller dependencies
-        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
       - name: Validate recovery drill without cloud credentials
         run: |
           python -m py_compile scripts/production/lightsail/recovery_drill.py
@@ -72,7 +72,7 @@ jobs:
         with:
           python-version: "3.11.16"
       - name: Install locked controller dependencies
-        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
 
       - name: Derive AWS account from the existing deployment role
         env:

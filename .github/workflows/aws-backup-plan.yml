@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11.16'
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/production/requirements.lock
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: '1.14.7'
