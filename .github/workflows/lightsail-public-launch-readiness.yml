@@ -8,15 +8,6 @@ on:
       - "scripts/production/lightsail/test_launch_readiness.py"
       - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/ssh-host-pins.json"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/lightsail-public-launch-readiness.yml"
-      - "scripts/production/lightsail/launch_readiness.py"
-      - "scripts/production/lightsail/test_launch_readiness.py"
-      - "scripts/production/lightsail/release-lock.json"
-      - "scripts/production/lightsail/ssh-host-pins.json"
   workflow_dispatch:
 
 permissions:
@@ -54,7 +45,7 @@ jobs:
   inspect:
     needs: validate
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
