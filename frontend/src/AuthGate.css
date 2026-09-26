@@ -366,6 +366,172 @@
   font-weight: 700;
 }
 
+
+.account-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-security-button {
+  padding: 7px 11px;
+  border: 1px solid #cfc9ff;
+  border-radius: 8px;
+  background: #f8f7ff;
+  color: #574ad8;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.account-security-button:hover:not(:disabled) {
+  border-color: #afa5ff;
+  background: #f2f0ff;
+}
+
+.account-security-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.security-settings-panel {
+  width: min(960px, calc(100% - 40px));
+  margin: 18px auto 4px;
+  padding: 22px;
+  border: 1px solid #e0e3ed;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(42, 49, 82, 0.08);
+}
+
+.security-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.security-settings-header h2 {
+  margin: 0 0 5px;
+  color: #1d2335;
+  font-size: 20px;
+}
+
+.security-settings-header p {
+  margin: 0;
+  color: #777e91;
+  font-size: 13px;
+}
+
+.security-close-button,
+.security-preference-actions button,
+.security-form-actions button:not(.auth-submit) {
+  padding: 8px 12px;
+  border: 1px solid #d8dce7;
+  border-radius: 9px;
+  background: #ffffff;
+  color: #596174;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.security-close-button:disabled,
+.security-preference-actions button:disabled,
+.security-form-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.security-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.security-status-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #eceef4;
+  border-radius: 12px;
+  background: #fafbfe;
+}
+
+.security-status-grid strong {
+  color: #31384b;
+  font-size: 12px;
+}
+
+.security-status-grid span {
+  color: #6d7487;
+  font-size: 13px;
+}
+
+.security-phone-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid #e7e9f1;
+  border-radius: 13px;
+  background: #fcfcff;
+}
+
+.security-phone-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.security-phone-form label span {
+  color: #555d70;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.security-phone-form input {
+  width: min(360px, 100%);
+  padding: 12px 13px;
+  border: 1px solid #d8dce7;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.security-phone-form p,
+.security-cost-note {
+  margin: 0;
+  color: #7a8194;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.security-phone-form .auth-submit {
+  width: fit-content;
+  min-width: 190px;
+  padding: 0 16px;
+}
+
+.security-form-actions,
+.security-preference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.security-preference-actions {
+  margin-top: 16px;
+}
+
+.security-preference-actions button:not(:disabled) {
+  border-color: #cfc9ff;
+  color: #574ad8;
+}
+
+.security-cost-note {
+  margin-top: 14px;
+}
+
 /* Cognito landing: polished split-card welcome layout. */
 .auth-page-welcome {
   overflow: hidden;
@@ -778,5 +944,25 @@
 
   .auth-login-panel h2 {
     font-size: 31px;
+  }
+}
+
+@media (max-width: 700px) {
+  .account-bar-inner {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .security-settings-panel {
+    width: calc(100% - 28px);
+    padding: 18px;
+  }
+
+  .security-settings-header {
+    flex-direction: column;
+  }
+
+  .security-status-grid {
+    grid-template-columns: 1fr;
   }
 }
