@@ -104,7 +104,10 @@ jobs:
             "sms_mfa_enabled": false
           }
           JSON
-          python scripts/production/build.py             "$RUNNER_TEMP/synthetic-public.json"             application-candidate/frontend             "$RUNNER_TEMP/frontend-validation"
+          python scripts/production/build.py \
+            "$RUNNER_TEMP/synthetic-public.json" \
+            application-candidate/frontend \
+            "$RUNNER_TEMP/frontend-validation"
           test -f "$RUNNER_TEMP/frontend-validation/dist/index.html"
           test ! -e "$RUNNER_TEMP/frontend-validation/src/SupabaseAuthGate.tsx"
           test ! -e "$RUNNER_TEMP/frontend-validation/src/lib/supabase.ts"
