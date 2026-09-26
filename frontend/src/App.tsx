@@ -20,6 +20,9 @@ import {
 import {
   apiFetch,
 } from './lib/api.ts'
+import {
+  buildCurrentQuizPracticeFocus,
+} from './lib/currentQuizPractice.ts'
 import type {
   GeneratedSettings,
   MasteryContext,
@@ -387,99 +390,22 @@ function App() {
       return
     }
 
-    const incorrectIndexes =
-      quiz.questions
-        .map((_, index) => index)
-        .filter(
-          (index) =>
-            !attempt.isQuestionCorrect(
-              quiz.questions[index],
-              attempt.selectedAnswers[index],
-            ),
-        )
+    const focus =
+      buildCurrentQuizPracticeFocus(
+        quiz,
+        attempt.selectedAnswers,
+        attempt.isQuestionCorrect,
+      )
 
-    if (incorrectIndexes.length === 0) {
+    if (!focus) {
       setError(
         'You did not miss any questions.',
       )
       return
     }
 
-    const weakPages = Array.from(
-      new Set(
-        incorrectIndexes.flatMap(
-          (index) =>
-            quiz.questions[index]
-              .source_pages,
-        ),
-      ),
-    ).sort((a, b) => a - b)
-
-    const typeCounts:
-      Record<QuestionType, number> = {
-        multiple_choice: 0,
-        true_false: 0,
-        short_answer: 0,
-      }
-
-    incorrectIndexes.forEach((index) => {
-      typeCounts[
-        quiz.questions[index].question_type
-      ] += 1
-    })
-
-    const weakQuestionType = (
-      Object.entries(typeCounts) as [
-        QuestionType,
-        number,
-      ][]
-    ).sort(
-      (first, second) =>
-        second[1] - first[1],
-    )[0][0]
-
-    const baselineQuestions =
-      quiz.questions
-        .map((question, index) => ({
-          question,
-          answer:
-            attempt.selectedAnswers[index],
-        }))
-        .filter(
-          (item) =>
-            item.question.question_type ===
-            weakQuestionType,
-        )
-
-    const baselineScore =
-      baselineQuestions.filter((item) =>
-        attempt.isQuestionCorrect(
-          item.question,
-          item.answer,
-        ),
-      ).length
-    const baselineQuestionCount =
-      baselineQuestions.length
-
     await generateWeakAreaPractice({
-      pages: weakPages,
-      questionType:
-        weakQuestionType,
-      avoidQuestions:
-        incorrectIndexes.map(
-          (index) =>
-            quiz.questions[index].question,
-        ),
-      baselinePercent:
-        baselineQuestionCount > 0
-          ? Math.round(
-              (
-                baselineScore /
-                baselineQuestionCount
-              ) * 100,
-            )
-          : 0,
-      baselineQuestionCount,
+      ...focus,
       source: 'current_quiz',
       responseError:
         'Weak-area practice generation failed.',
