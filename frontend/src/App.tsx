@@ -21,6 +21,9 @@ import {
   apiFetch,
 } from './lib/api.ts'
 import {
+  requestQuizGeneration,
+} from './lib/quizGenerationClient.ts'
+import {
   buildCurrentQuizPracticeFocus,
 } from './lib/currentQuizPractice.ts'
 import type {
@@ -230,36 +233,17 @@ function App() {
     )
 
     try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      formData.append(
-        'question_count',
-        questionCount.toString(),
-      )
-      formData.append(
-        'difficulty',
-        difficulty,
-      )
-      formData.append(
-        'question_type',
-        questionType,
-      )
-
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'Quiz generation failed.',
+      const data =
+        await requestQuizGeneration(
+          apiFetch,
+          {
+            file: selectedFile,
+            questionCount,
+            difficulty,
+            questionType,
+          },
+          'Quiz generation failed.',
         )
-      }
 
       setGenerationStage('Quiz ready!')
       setQuiz(data)
@@ -309,41 +293,24 @@ function App() {
     attempt.clearSaveMessage()
 
     try {
-      const formData = new FormData()
-      const fields = [
-        ['file', selectedFile],
-        ['question_count', '5'],
-        ['difficulty', practiceDifficulty],
-        ['question_type', practiceQuestionType],
-        ['focus_pages', pages.join(',')],
-        [
-          'focus_question_types',
-          practiceQuestionType,
-        ],
-        [
-          'avoid_questions',
-          JSON.stringify(avoidQuestions),
-        ],
-      ] as const
-
-      fields.forEach(([name, value]) => {
-        formData.append(name, value)
-      })
-
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail || responseError,
+      const data =
+        await requestQuizGeneration(
+          apiFetch,
+          {
+            file: selectedFile,
+            questionCount: 5,
+            difficulty:
+              practiceDifficulty,
+            questionType:
+              practiceQuestionType,
+            focusPages: pages,
+            focusQuestionTypes: [
+              practiceQuestionType,
+            ],
+            avoidQuestions,
+          },
+          responseError,
         )
-      }
 
       setQuiz(data)
       setGeneratedSettings({
