@@ -1,1 +1,0 @@
-2026-09-25: retry guarded Supabase credential to Cognito migration after immutable GitHub OIDC subject was confirmed.
