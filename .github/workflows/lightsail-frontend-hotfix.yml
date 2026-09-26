@@ -95,7 +95,7 @@ jobs:
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
               "sts:GetCallerIdentity",
-              "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolDomain",
+              "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolDomain","cognito-idp:GetUserPoolMfaConfig",
               "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
               "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
             ],"Resource":"*"}]}
