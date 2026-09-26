@@ -98,7 +98,7 @@ def verify_live() -> dict[str, bool]:
         "software_mfa_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
         "verified_email_update_retained": update.get("AttributesRequireVerificationBeforeUpdate") == ["email"],
         "strong_password_policy_retained": (
-            password.get("MinimumLength") == 8
+            password.get("MinimumLength") == 14
             and password.get("RequireLowercase") is True
             and password.get("RequireUppercase") is True
             and password.get("RequireNumbers") is True
