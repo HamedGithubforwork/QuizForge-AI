@@ -1,0 +1,103 @@
+name: CSS deduplication audit
+
+on:
+  push:
+    branches:
+      - refactor/deduplicate-app-css
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Compare index.css against App.css structurally
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import postcss from 'postcss'
+
+          const read = (name) => postcss.parse(fs.readFileSync(name, 'utf8'), { from: name })
+
+          function context(node) {
+            const parts = []
+            let parent = node.parent
+            while (parent && parent.type !== 'root') {
+              if (parent.type === 'atrule') {
+                parts.unshift('@' + parent.name + ' ' + (parent.params || ''))
+              }
+              parent = parent.parent
+            }
+            return parts.join(' > ')
+          }
+
+          function collect(root) {
+            const rules = []
+            root.walkRules(rule => {
+              const declarations = []
+              rule.walkDecls(decl => declarations.push([decl.prop, decl.value, Boolean(decl.important)]))
+              rules.push({
+                context: context(rule),
+                selector: rule.selector,
+                declarations,
+              })
+            })
+            return rules
+          }
+
+          const indexRules = collect(read('src/index.css'))
+          const appRules = collect(read('src/App.css'))
+          const appKeys = new Map()
+          for (const rule of appRules) {
+            const key = rule.context + '||' + rule.selector
+            const list = appKeys.get(key) || []
+            list.push(rule)
+            appKeys.set(key, list)
+          }
+
+          const missing = []
+          const exact = []
+          const differing = []
+          for (const rule of indexRules) {
+            const key = rule.context + '||' + rule.selector
+            const matches = appKeys.get(key) || []
+            if (!matches.length) {
+              missing.push(rule)
+              continue
+            }
+            const sig = JSON.stringify(rule.declarations)
+            if (matches.some(m => JSON.stringify(m.declarations) === sig)) {
+              exact.push(rule)
+            } else {
+              differing.push({ index: rule, app: matches })
+            }
+          }
+
+          console.log(JSON.stringify({
+            indexRuleCount: indexRules.length,
+            appRuleCount: appRules.length,
+            exactRuleCount: exact.length,
+            differingRuleCount: differing.length,
+            missingRuleCount: missing.length,
+            missing: missing.map(r => ({ context:r.context, selector:r.selector, declarations:r.declarations })),
+            differing: differing.map(x => ({
+              context:x.index.context,
+              selector:x.index.selector,
+              index:x.index.declarations,
+              app:x.app.map(r => r.declarations),
+            })),
+          }, null, 2))
+          NODE
