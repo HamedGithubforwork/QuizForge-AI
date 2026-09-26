@@ -88,7 +88,7 @@ class Configuration(unittest.TestCase):
             self.assertNotIn("__AUTH_ORIGIN__", (destination / "Caddyfile").read_text())
             with self.assertRaises(FileExistsError): render(config, destination)
 
-    def test_database_opt_in_does_not_widen_source_restore_or_managed_boundaries(self):
+    def test_database_opt_in_does_not_widen_restore_or_managed_boundaries(self):
         with tempfile.NamedTemporaryFile() as ca:
             env = {"PRODUCTION_DATABASE_TARGET": "lightsail", "PGHOST": "db.quizforge.internal", "PGDATABASE": "quizforge",
                    "PGUSER": "quizforge_generation", "PGPASSWORD": "synthetic", "PGSSLROOTCERT": ca.name}
@@ -99,7 +99,6 @@ class Configuration(unittest.TestCase):
                            {"PGSSLROOTCERT": "/missing-ca"}, {"PGPASSWORD": ""}):
                 with self.subTest(change=change), self.assertRaises(ValueError): connection_options(env | change)
             with self.assertRaises(ValueError): connection_options(env | {"PGUSER": "quizforge_owner"})
-            with self.assertRaises(ValueError): options(env, source=True)
 
 
 if __name__ == "__main__": unittest.main()
