@@ -41,6 +41,22 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
   assert {
+    condition     = aws_cognito_user_pool.browser.sms_configuration[0].sns_region == "ca-central-1" && aws_cognito_user_pool.browser.sms_configuration[0].external_id == "quizforge-production-sms-mfa-v1" && aws_cognito_user_pool.browser.sms_authentication_message == "Your Quiz From Notes sign-in code is {####}"
+    error_message = "SMS MFA must remain bound to the reviewed Canadian Cognito/SNS configuration."
+  }
+  assert {
+    condition     = contains(aws_cognito_user_pool.browser.auto_verified_attributes, "phone_number") && contains(aws_cognito_user_pool_client.browser.read_attributes, "phone_number_verified") && contains(aws_cognito_user_pool_client.browser.write_attributes, "phone_number")
+    error_message = "Phone-number MFA requires verified, readable and user-writable phone attributes."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role_policy.cognito_sms.policy).Statement[0].Action[0] == "sns:Publish" && jsondecode(aws_iam_role_policy.cognito_sms.policy).Statement[0].Resource == "*"
+    error_message = "The Cognito SMS role may publish SMS only through the minimal SNS action."
+  }
+  assert {
+    condition     = jsondecode(aws_iam_role.cognito_sms.assume_role_policy).Statement[0].Principal.Service == "cognito-idp.amazonaws.com" && jsondecode(aws_iam_role.cognito_sms.assume_role_policy).Statement[0].Condition.StringEquals["sts:ExternalId"] == "quizforge-production-sms-mfa-v1" && jsondecode(aws_iam_role.cognito_sms.assume_role_policy).Statement[0].Condition.StringEquals["aws:SourceAccount"] == "123456789012"
+    error_message = "Cognito SMS assume-role trust must retain service, account and external-ID boundaries."
+  }
+  assert {
     condition     = length(jsondecode(aws_sns_topic_policy.alerts.policy).Statement) == 1 && jsondecode(aws_sns_topic_policy.alerts.policy).Statement[0].Principal.Service == "cloudwatch.amazonaws.com"
     error_message = "The Lightsail alert topic must accept publishes only from CloudWatch; the account budget is managed separately."
   }
