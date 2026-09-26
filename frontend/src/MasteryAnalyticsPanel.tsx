@@ -16,9 +16,12 @@ import {
 import type {
   QuizHistoryRow,
 } from './lib/quizHistory'
-import type {
-  ShortAnswerGradingSpec,
-} from './lib/shortAnswerGrader'
+import {
+  getDisplayFilename,
+  getQuestionTypeLabel,
+  isStoredAnswers,
+  isStoredQuiz,
+} from './lib/quizHistoryAnalytics.ts'
 
 import './MasteryAnalyticsPanel.css'
 
