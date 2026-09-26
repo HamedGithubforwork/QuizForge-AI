@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 import boto3
+from botocore.exceptions import ClientError
 
 REGION = "ca-central-1"
 POOL_NAME = "quizforge-production-lightsail"
@@ -38,39 +39,50 @@ def main() -> int:
     pool_id = discover_pool(cognito)
 
     mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
-    attrs = sms.describe_account_attributes(MaxResults=100).get("AccountAttributes", [])
-    values = {str(item.get("Name", "")): str(item.get("Value", "")) for item in attrs}
+    sms_service_enabled = True
+    try:
+        attrs = sms.describe_account_attributes(MaxResults=100).get("AccountAttributes", [])
+        values = {str(item.get("Name", "")): str(item.get("Value", "")) for item in attrs}
 
-    tier = values.get("ACCOUNT_TIER", "").upper()
-    if tier not in {"SANDBOX", "PRODUCTION"}:
-        tier = "UNKNOWN"
+        tier = values.get("ACCOUNT_TIER", "").upper()
+        if tier not in {"SANDBOX", "PRODUCTION"}:
+            tier = "UNKNOWN"
 
-    phone_count = 0
-    next_token = None
-    while True:
-        kwargs = {"MaxResults": 100}
-        if next_token:
-            kwargs["NextToken"] = next_token
-        page = sms.describe_phone_numbers(**kwargs)
-        phone_count += len(page.get("PhoneNumbers", []))
-        next_token = page.get("NextToken")
-        if not next_token:
-            break
+        phone_count = 0
+        next_token = None
+        while True:
+            kwargs = {"MaxResults": 100}
+            if next_token:
+                kwargs["NextToken"] = next_token
+            page = sms.describe_phone_numbers(**kwargs)
+            phone_count += len(page.get("PhoneNumbers", []))
+            next_token = page.get("NextToken")
+            if not next_token:
+                break
 
-    pool_count = 0
-    next_token = None
-    while True:
-        kwargs = {"MaxResults": 100}
-        if next_token:
-            kwargs["NextToken"] = next_token
-        page = sms.describe_pools(**kwargs)
-        pool_count += len(page.get("Pools", []))
-        next_token = page.get("NextToken")
-        if not next_token:
-            break
+        pool_count = 0
+        next_token = None
+        while True:
+            kwargs = {"MaxResults": 100}
+            if next_token:
+                kwargs["NextToken"] = next_token
+            page = sms.describe_pools(**kwargs)
+            pool_count += len(page.get("Pools", []))
+            next_token = page.get("NextToken")
+            if not next_token:
+                break
+    except ClientError as error:
+        code = str(error.response.get("Error", {}).get("Code", ""))
+        if code not in {"SubscriptionRequiredException", "OptInRequired"}:
+            raise
+        sms_service_enabled = False
+        tier = "NOT_ENABLED"
+        phone_count = 0
+        pool_count = 0
 
     report = {
         "schema": 1,
+        "sms_service_enabled": sms_service_enabled,
         "sms_account_tier": tier,
         "origination_phone_numbers_present": phone_count > 0,
         "sms_pools_present": pool_count > 0,
@@ -82,7 +94,9 @@ def main() -> int:
     RESULT.parent.mkdir(parents=True, exist_ok=True)
     RESULT.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(
-        "SMS readiness: tier="
+        "SMS readiness: service="
+        + ("enabled" if sms_service_enabled else "not-enabled")
+        + " tier="
         + tier
         + " origination="
         + ("yes" if report["origination_phone_numbers_present"] else "no")
