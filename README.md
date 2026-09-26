@@ -6,7 +6,7 @@
 
 [Production](https://quizfromnotes.com) · [API health](https://api.quizfromnotes.com/api/health)
 
-The current production stack runs on AWS Lightsail with Cognito authentication, PostgreSQL, Redis-compatible caching/coordination, Caddy TLS termination, and a FastAPI + React application. A small legacy Supabase compatibility path remains in the pinned application candidate and local-development setup while the migration is finalized.
+The current production stack runs on AWS Lightsail with Cognito authentication, PostgreSQL, Redis-compatible caching/coordination, Caddy TLS termination, and a FastAPI + React application. Supabase is no longer a normal production auth/history provider; a bounded non-persistent Supabase client remains only so pre-migration users can prove ownership while linking an old account.
 
 ## What it does
 
@@ -300,7 +300,7 @@ Historical migration/rehearsal tooling removed from `main` is preserved on
 - Large documents use a bounded generation context rather than sending every extracted character to the model.
 - Processed-document data is temporary and can expire.
 - Model generation requires an external provider request on cache miss/bypass.
-- A legacy Supabase compatibility path remains until the pinned application candidate is fully retired.
+- Existing pre-migration account linking still depends on a bounded Supabase ownership proof; the normal production session path is Cognito-only.
 
 ## Author
 
