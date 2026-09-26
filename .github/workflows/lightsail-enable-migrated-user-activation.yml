@@ -158,9 +158,11 @@ jobs:
           terraform -chdir=infra/aws/lightsail-production apply             -input=false -lock=true -lock-timeout=60s             "$RUNNER_TEMP/activation-client.tfplan"             >"$RUNNER_TEMP/activation-client-apply.log" 2>&1
 
       - name: Verify live client and retained security controls
+        if: steps.review.outputs.apply_required == 'true'
         run: python -m scripts.production.lightsail.enable_migrated_user_activation verify-live
 
       - name: Confirm targeted Terraform state has zero remaining drift
+        if: steps.review.outputs.apply_required == 'true'
         env:
           TF_DATA_DIR: ${{ runner.temp }}/activation-client-tfdata
         run: |
@@ -176,7 +178,7 @@ jobs:
           rm -f             "$RUNNER_TEMP/activation-client.tfvars.json"             "$RUNNER_TEMP/activation-client.tfplan"             "$RUNNER_TEMP/activation-client-plan.json"             "$RUNNER_TEMP/activation-client-plan.log"             "$RUNNER_TEMP/activation-client-apply.log"             "$RUNNER_TEMP/activation-client-readback.log"             infra/aws/lightsail-production/recovery.zip
 
       - name: Publish only sanitized result
-        if: always()
+        if: always() && steps.review.outputs.apply_required == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: permanent-migrated-user-activation-client
