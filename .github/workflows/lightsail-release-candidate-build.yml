@@ -3,7 +3,6 @@ name: Permanent Lightsail release candidate build
 on:
   pull_request:
     paths:
-      - ".github/workflows/lightsail-release-candidate-build.yml"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
@@ -125,6 +124,7 @@ jobs:
                 "sts:GetCallerIdentity",
                 "cognito-idp:ListUserPools",
                 "cognito-idp:ListUserPoolClients",
+                "cognito-idp:GetUserPoolMfaConfig",
                 "cognito-idp:DescribeUserPoolDomain",
                 "ecr:GetAuthorizationToken",
                 "ecr:DescribeRepositories",

@@ -8,14 +8,7 @@ on:
       - "e2e/playwright.production-canary.config.ts"
       - "scripts/production/lightsail/production_canary_identity.py"
       - "scripts/production/lightsail/test_production_canary_identity.py"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/lightsail-production-quiz-e2e.yml"
-      - "e2e/production-canary-tests/**"
-      - "e2e/playwright.production-canary.config.ts"
-      - "scripts/production/lightsail/production_canary_identity.py"
-      - "scripts/production/lightsail/test_production_canary_identity.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,7 +50,7 @@ jobs:
   production-e2e:
     needs: validate
     if: >-
-      github.event_name == 'push' &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI' &&
       github.run_attempt == 1
