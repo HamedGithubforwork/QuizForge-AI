@@ -50,7 +50,7 @@ class PublicSignupTests(unittest.TestCase):
             "SoftwareTokenMfaConfiguration": {"Enabled": True},
             "UserAttributeUpdateSettings": {"AttributesRequireVerificationBeforeUpdate": ["email"]},
             "Policies": {"PasswordPolicy": {
-                "MinimumLength": 8, "RequireLowercase": True, "RequireUppercase": True,
+                "MinimumLength": 14, "RequireLowercase": True, "RequireUppercase": True,
                 "RequireNumbers": True, "RequireSymbols": True,
             }},
             "EmailConfiguration": {"EmailSendingAccount": "COGNITO_DEFAULT"},
