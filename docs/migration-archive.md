@@ -25,6 +25,8 @@ Ongoing production deployment, Cognito, SMS MFA, backups, disaster recovery,
 cost controls, current canaries, and the active production recovery primitives
 remain on `main`.
 
+The earlier standalone Cognito SMS readiness diagnostic was later folded into the guarded SMS activation controller as its read-only `inspect` operation, so the duplicate readiness script/workflow was removed from `main`.
+
 ## Pre-launch and repair tooling
 
 The same archive branch also preserves completed one-time Lightsail activation,

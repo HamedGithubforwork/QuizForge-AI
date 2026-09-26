@@ -13,15 +13,17 @@ The production AWS provider is pinned to HashiCorp AWS provider 6.64.0. The prov
 1. AWS End User Messaging SMS account tier must report `PRODUCTION`.
 2. Request an SMS-capable Canadian origination identity in `ca-central-1`.
 3. Copy the exact **ARN** of that phone number or phone pool. Do not use the E.164 phone number as the activation input.
-4. Run **Diagnose Cognito SMS MFA readiness** manually and confirm the production tier.
-5. Do not place phone numbers, verification codes, or credentials in GitHub workflow inputs.
+4. Run **Cognito SMS MFA readiness and activation** with `operation=inspect`. This uses read-only AWS permissions and publishes a sanitized readiness result without requiring an origination ARN or confirmation phrase.
+5. Confirm the result reports the production SMS tier and at least one SMS-capable phone number or pool before activation.
+6. Do not place phone numbers, verification codes, or credentials in GitHub workflow inputs.
 
 ## Activation
 
-Run the GitHub Actions workflow **Activate Cognito SMS MFA** on `main`.
+Run the GitHub Actions workflow **Cognito SMS MFA readiness and activation** on `main` with `operation=activate`.
 
 Inputs:
 
+- `operation`: `activate`
 - `origination_identity_arn`: exact `ca-central-1` phone-number or pool ARN.
 - `confirmation`: `ENABLE COGNITO SMS MFA`
 

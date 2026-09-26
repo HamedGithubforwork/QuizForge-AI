@@ -1,4 +1,4 @@
-name: Activate Cognito SMS MFA
+name: Cognito SMS MFA readiness and activation
 
 on:
   pull_request:
@@ -6,18 +6,23 @@ on:
       - ".github/workflows/cognito-sms-activation.yml"
       - "scripts/production/cognito_sms_activation.py"
       - "scripts/production/test_cognito_sms_activation.py"
-      - ".github/workflows/cognito-sms-readiness.yml"
-      - ".github/workflows/lightsail-frontend-hotfix.yml"
   workflow_dispatch:
     inputs:
+      operation:
+        description: Inspect readiness or activate SMS MFA
+        type: choice
+        options: [inspect, activate]
+        default: inspect
+        required: true
       origination_identity_arn:
-        description: Exact ca-central-1 AWS End User Messaging SMS phone-number or pool ARN
+        description: For activate only; exact ca-central-1 SMS phone-number or pool ARN
         type: string
-        required: true
+        required: false
+        default: ""
       confirmation:
-        description: Type ENABLE COGNITO SMS MFA
+        description: For activate only; type ENABLE COGNITO SMS MFA
         type: string
-        required: true
+        required: false
         default: ""
 
 permissions:
@@ -38,25 +43,24 @@ jobs:
           python-version: "3.11.16"
       - name: Install locked AWS SDK dependencies
         run: python -m pip install --require-hashes -r scripts/production/requirements.lock
-      - name: Validate guarded SMS activation controller
+      - name: Validate guarded SMS controller
         run: |
           python -m py_compile scripts/production/cognito_sms_activation.py
           python -m unittest scripts.production.test_cognito_sms_activation -v
 
-  activate:
+  operate:
     needs: validate
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
-      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
-      inputs.confirmation == 'ENABLE COGNITO SMS MFA'
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
     concurrency:
-      group: quizforge-production-cognito-sms-activation
+      group: quizforge-production-cognito-sms
       cancel-in-progress: false
     env:
       AWS_EC2_METADATA_DISABLED: "true"
@@ -72,11 +76,37 @@ jobs:
       - name: Install locked AWS SDK dependencies
         run: python -m pip install --require-hashes -r scripts/production/requirements.lock
 
-      - name: Assume SMS-activation-only production boundary
+      - name: Assume read-only SMS inspection boundary
+        if: inputs.operation == 'inspect'
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          role-session-name: qf-cognito-sms-activation
+          role-session-name: qf-cognito-sms-inspect
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity"],"Resource":"*"},
+              {"Effect":"Allow","Action":[
+                "sms-voice:DescribeAccountAttributes",
+                "sms-voice:DescribePhoneNumbers",
+                "sms-voice:DescribePools"
+              ],"Resource":"*"},
+              {"Effect":"Allow","Action":[
+                "cognito-idp:ListUserPools",
+                "cognito-idp:DescribeUserPool",
+                "cognito-idp:GetUserPoolMfaConfig"
+              ],"Resource":"*"}
+            ]}
+
+      - name: Assume SMS activation boundary
+        if: inputs.operation == 'activate'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-cognito-sms-activate
           role-duration-seconds: 900
           aws-region: ca-central-1
           mask-aws-account-id: true
@@ -108,21 +138,21 @@ jobs:
               ],"Resource":"arn:aws:iam::*:role/quizforge-production-cognito-sms"}
             ]}
 
-      - name: Require production tier and an exact SMS-capable origination identity
-        run: >-
-          python scripts/production/cognito_sms_activation.py
-          preflight "$QF_SMS_ORIGINATION_IDENTITY_ARN"
+      - name: Inspect sanitized SMS readiness
+        if: inputs.operation == 'inspect'
+        run: python scripts/production/cognito_sms_activation.py inspect
 
-      - name: Create scoped role, preserve Cognito settings and enable optional SMS MFA
+      - name: Enable optional SMS MFA with exact reviewed identity
+        if: inputs.operation == 'activate'
         run: >-
           python scripts/production/cognito_sms_activation.py
           activate "$QF_SMS_ORIGINATION_IDENTITY_ARN"
 
-      - name: Publish sanitized activation result
+      - name: Publish sanitized SMS result
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cognito-sms-activation
+          name: cognito-sms-${{ inputs.operation }}
           path: cognito-sms-activation-results/summary.json
           if-no-files-found: error
           retention-days: 30
