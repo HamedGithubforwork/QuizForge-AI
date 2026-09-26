@@ -1,4 +1,4 @@
-name: CSS deduplication audit
+name: CSS deduplication refactor
 
 on:
   push:
@@ -6,16 +6,20 @@ on:
       - refactor/deduplicate-app-css
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: css-dedup-refactor
+  cancel-in-progress: true
 
 jobs:
-  audit:
+  refactor:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
-          persist-credentials: false
+          persist-credentials: true
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -23,14 +27,18 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - working-directory: frontend
         run: npm ci
-      - name: Compare index.css against App.css structurally
+
+      - name: Remove only exact App.css duplicates from index.css
         working-directory: frontend
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs'
           import postcss from 'postcss'
 
-          const read = (name) => postcss.parse(fs.readFileSync(name, 'utf8'), { from: name })
+          const indexPath = 'src/index.css'
+          const appPath = 'src/App.css'
+          const indexRoot = postcss.parse(fs.readFileSync(indexPath, 'utf8'), { from: indexPath })
+          const appRoot = postcss.parse(fs.readFileSync(appPath, 'utf8'), { from: appPath })
 
           function context(node) {
             const parts = []
@@ -44,60 +52,108 @@ jobs:
             return parts.join(' > ')
           }
 
-          function collect(root) {
-            const rules = []
-            root.walkRules(rule => {
-              const declarations = []
-              rule.walkDecls(decl => declarations.push([decl.prop, decl.value, Boolean(decl.important)]))
-              rules.push({
-                context: context(rule),
-                selector: rule.selector,
-                declarations,
-              })
+          function signature(rule) {
+            const declarations = []
+            rule.walkDecls(decl => declarations.push([decl.prop, decl.value, Boolean(decl.important)]))
+            return JSON.stringify({
+              context: context(rule),
+              selector: rule.selector,
+              declarations,
             })
-            return rules
           }
 
-          const indexRules = collect(read('src/index.css'))
-          const appRules = collect(read('src/App.css'))
-          const appKeys = new Map()
-          for (const rule of appRules) {
-            const key = rule.context + '||' + rule.selector
-            const list = appKeys.get(key) || []
-            list.push(rule)
-            appKeys.set(key, list)
-          }
+          const appSignatures = new Set()
+          appRoot.walkRules(rule => appSignatures.add(signature(rule)))
 
-          const missing = []
-          const exact = []
-          const differing = []
-          for (const rule of indexRules) {
-            const key = rule.context + '||' + rule.selector
-            const matches = appKeys.get(key) || []
-            if (!matches.length) {
-              missing.push(rule)
-              continue
+          let removedRules = 0
+          indexRoot.walkRules(rule => {
+            if (appSignatures.has(signature(rule))) {
+              rule.remove()
+              removedRules += 1
             }
-            const sig = JSON.stringify(rule.declarations)
-            if (matches.some(m => JSON.stringify(m.declarations) === sig)) {
-              exact.push(rule)
-            } else {
-              differing.push({ index: rule, app: matches })
-            }
+          })
+
+          let changed = true
+          while (changed) {
+            changed = false
+            indexRoot.walkAtRules(rule => {
+              if (!rule.nodes || rule.nodes.length === 0) {
+                rule.remove()
+                changed = true
+              }
+            })
           }
 
-          console.log(JSON.stringify({
-            indexRuleCount: indexRules.length,
-            appRuleCount: appRules.length,
-            exactRuleCount: exact.length,
-            differingRuleCount: differing.length,
-            missingRuleCount: missing.length,
-            missing: missing.map(r => ({ context:r.context, selector:r.selector, declarations:r.declarations })),
-            differing: differing.map(x => ({
-              context:x.index.context,
-              selector:x.index.selector,
-              index:x.index.declarations,
-              app:x.app.map(r => r.declarations),
-            })),
-          }, null, 2))
+          indexRoot.walkComments(comment => {
+            const next = comment.next()
+            if (!next || next.type === 'comment') {
+              comment.remove()
+            }
+          })
+
+          const output = indexRoot.toString().replace(/\n{4,}/g, '\n\n\n').trim() + '\n'
+          fs.writeFileSync(indexPath, output)
+
+          console.log(`Removed ${removedRules} exact duplicate CSS rules.`)
+          console.log(`index.css now has ${output.split(/\r?\n/).length} physical lines.`)
+          if (removedRules < 90) {
+            throw new Error('Expected at least 90 exact duplicate rules; refusing an unexpectedly broad/narrow rewrite.')
+          }
           NODE
+
+      - name: Verify remaining index rules are intentionally unique or overriding
+        working-directory: frontend
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'
+          import postcss from 'postcss'
+          const indexRoot = postcss.parse(fs.readFileSync('src/index.css','utf8'))
+          const appRoot = postcss.parse(fs.readFileSync('src/App.css','utf8'))
+
+          function context(node) {
+            const parts=[]
+            let p=node.parent
+            while (p && p.type !== 'root') {
+              if (p.type === 'atrule') parts.unshift('@'+p.name+' '+(p.params||''))
+              p=p.parent
+            }
+            return parts.join(' > ')
+          }
+          function sig(rule) {
+            const d=[]
+            rule.walkDecls(x=>d.push([x.prop,x.value,Boolean(x.important)]))
+            return JSON.stringify([context(rule),rule.selector,d])
+          }
+          const app = new Set()
+          appRoot.walkRules(r=>app.add(sig(r)))
+          const leftovers=[]
+          indexRoot.walkRules(r=>{ if (app.has(sig(r))) leftovers.push(r.selector) })
+          if (leftovers.length) throw new Error('Exact duplicates remain: '+leftovers.join(', '))
+          console.log('No exact duplicate CSS rules remain across index.css and App.css.')
+          NODE
+
+      - name: Run frontend regression checks
+        working-directory: frontend
+        run: |
+          npm run test:coverage
+          npm run lint
+          npm run build
+
+      - name: Run Playwright regression suite
+        run: |
+          npm ci --prefix e2e
+          npx --prefix e2e playwright install --with-deps chromium
+          npm --prefix e2e test
+
+      - name: Commit deduplicated stylesheet
+        run: |
+          set -euo pipefail
+          git add frontend/src/index.css
+          if git diff --cached --quiet; then
+            echo "No further CSS changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Deduplicate shared application CSS"
+          git push origin HEAD:refactor/deduplicate-app-css
