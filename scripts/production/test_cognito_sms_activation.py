@@ -102,6 +102,50 @@ class SmsActivationTests(unittest.TestCase):
         self.assertEqual(policy["Statement"][0]["Action"], ["sms-voice:SendTextMessage"])
         self.assertEqual(policy["Statement"][0]["Resource"], identity)
 
+    def test_readiness_reports_production_and_available_origination(self):
+        service = mock.Mock()
+        service.describe_account_attributes.return_value = {
+            "AccountAttributes": [{"Name": "ACCOUNT_TIER", "Value": "PRODUCTION"}]
+        }
+        service.describe_phone_numbers.return_value = {
+            "PhoneNumbers": [{"NumberCapabilities": ["SMS"]}]
+        }
+        service.describe_pools.return_value = {"Pools": []}
+
+        self.assertEqual(
+            sms.readiness_status(service),
+            {
+                "sms_service_enabled": True,
+                "sms_account_tier": "PRODUCTION",
+                "sms_account_production": True,
+                "origination_phone_numbers_present": True,
+                "sms_pools_present": False,
+            },
+        )
+
+    def test_readiness_handles_sms_service_not_enabled(self):
+        service = mock.Mock()
+        service.describe_account_attributes.side_effect = sms.ClientError(
+            {
+                "Error": {
+                    "Code": "SubscriptionRequiredException",
+                    "Message": "synthetic disabled account",
+                }
+            },
+            "DescribeAccountAttributes",
+        )
+
+        self.assertEqual(
+            sms.readiness_status(service),
+            {
+                "sms_service_enabled": False,
+                "sms_account_tier": "NOT_ENABLED",
+                "sms_account_production": False,
+                "origination_phone_numbers_present": False,
+                "sms_pools_present": False,
+            },
+        )
+
     def test_identity_status_requires_same_account_and_sms_capability(self):
         service = mock.Mock()
         service.describe_phone_numbers.return_value = {
