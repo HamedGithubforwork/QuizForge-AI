@@ -124,7 +124,7 @@ def test_acquired_generation_turn_returns_token_without_waiting():
             wait_seconds=1,
             poll_interval_seconds=0.01,
             maximum_poll_interval_seconds=1,
-            jitter_ratio=0.2,
+            poll_delay_fn=lambda value: value,
         )
     )
 
@@ -165,7 +165,7 @@ def test_acquired_turn_releases_lock_when_cache_is_already_filled():
             wait_seconds=1,
             poll_interval_seconds=0.01,
             maximum_poll_interval_seconds=1,
-            jitter_ratio=0.2,
+            poll_delay_fn=lambda value: value,
         )
     )
 
