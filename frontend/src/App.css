@@ -1073,6 +1073,11 @@ button {
   background: #fbfcfe;
 
   color: #303748;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 
 .short-answer-input:focus {
@@ -1148,6 +1153,7 @@ button {
 .source-badge {
   display: inline-block;
 
+  margin-top: 6px;
   padding: 5px 9px;
 
   border-radius: 7px;
@@ -1288,6 +1294,12 @@ button {
 
 .results-card h2 {
   margin: 12px 0 4px;
+}
+
+.results-card p {
+  margin: 0;
+
+  color: #71788a;
 }
 
 .score-message {
