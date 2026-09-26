@@ -8,6 +8,7 @@ on:
       - "e2e/playwright.production-canary.config.ts"
       - "scripts/production/lightsail/production_canary_identity.py"
       - "scripts/production/lightsail/test_production_canary_identity.py"
+      - "scripts/production/private_files.py"
   workflow_dispatch:
 
 permissions:

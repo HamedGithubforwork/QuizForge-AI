@@ -36,6 +36,7 @@ from scripts.production.lightsail.stage_release import (
     scan_host,
     ssh_command,
 )
+from scripts.production.private_files import private_write
 
 REGION = "ca-central-1"
 POOL_NAME = "quizforge-production-lightsail"
@@ -140,15 +141,6 @@ def canary_email(run_id: str) -> str:
     if not re.fullmatch(r"[0-9]{1,20}", run_id):
         raise ValueError("Invalid GitHub run id")
     return f"qf-prod-canary-{run_id}@example.invalid"
-
-
-def private_write(path: Path, value: dict[str, Any]) -> None:
-    if path.exists() or path.is_symlink():
-        raise ValueError("Fixture path already exists")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "x", encoding="utf-8", opener=lambda p, flags: os.open(p, flags, 0o600)) as handle:
-        json.dump(value, handle, sort_keys=True)
-        handle.write("\n")
 
 
 def pages(client, method: str, result_key: str, **kwargs) -> list[dict[str, Any]]:
@@ -365,20 +357,21 @@ def prepare(path: Path) -> None:
             SoftwareTokenMfaSettings={"Enabled": True, "PreferredMfa": True},
         )
         stage = "write_fixture"
-        private_write(
-            path,
-            {
-                "schema": 1,
-                "pool": pool_id,
-                "production_client": production_client,
-                "fixture_client": fixture_client,
-                "username": username,
-                "email": email,
-                "password": password,
-                "totp": secret,
-                "subject": subject,
-            },
-        )
+        fixture = {
+            "schema": 1,
+            "pool": pool_id,
+            "production_client": production_client,
+            "fixture_client": fixture_client,
+            "username": username,
+            "email": email,
+            "password": password,
+            "totp": secret,
+            "subject": subject,
+        }
+        if path.exists() or path.is_symlink():
+            raise ValueError("Fixture path already exists")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        private_write(path, (json.dumps(fixture, sort_keys=True) + "\n").encode())
         print("PASS: run-scoped production Cognito canary prepared with TOTP enrolled")
     except Exception:
         if username:

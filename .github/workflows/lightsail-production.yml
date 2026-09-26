@@ -34,7 +34,7 @@ jobs:
         env:
           PRODUCTION_TEST_DB: postgresql://postgres:synthetic-cost-ci@127.0.0.1:5432/quizforge
           PYTHONPATH: scripts/production
-        run: python -m unittest test_generation_costs test_runtime test_lightsail_configuration -v
+        run: python -m unittest test_generation_costs test_runtime test_lightsail_configuration scripts.production.lightsail.test_identity_triggers -v
   configuration:
     runs-on: ubuntu-latest
     timeout-minutes: 15
