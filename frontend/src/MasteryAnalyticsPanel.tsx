@@ -12,7 +12,6 @@ import {
   analyzeDocumentMastery,
   getMasteryStatusLabel,
   type MasteryAttempt,
-  type MasteryQuestionType,
 } from './lib/masteryAnalytics'
 import type {
   QuizHistoryRow,
@@ -27,115 +26,6 @@ type MasteryAnalyticsPanelProps = {
   history: QuizHistoryRow[]
   currentFilename: string | null
   currentDocumentSha256: string | null
-}
-
-type StoredQuestion = {
-  question_type: MasteryQuestionType
-  question: string
-  choices: string[]
-  correct_index: number
-  correct_answer: string
-  accepted_answers: string[]
-  grading?: ShortAnswerGradingSpec
-  ai_accepted_answers?: string[]
-  explanation: string
-  source_pages: number[]
-}
-
-type StoredQuiz = {
-  title: string
-  questions: StoredQuestion[]
-}
-
-type StoredAnswers =
-  Record<string, number | string>
-
-function getDisplayFilename(name: string) {
-  try {
-    return decodeURIComponent(name)
-  } catch {
-    return name
-  }
-}
-
-function getQuestionTypeLabel(
-  type: MasteryQuestionType,
-) {
-  if (type === 'multiple_choice') {
-    return 'Multiple Choice'
-  }
-
-  if (type === 'true_false') {
-    return 'True / False'
-  }
-
-  return 'Short Answer'
-}
-
-function isStoredQuestion(
-  value: unknown,
-): value is StoredQuestion {
-  if (
-    typeof value !== 'object' ||
-    value === null
-  ) {
-    return false
-  }
-
-  const question =
-    value as Partial<StoredQuestion>
-
-  return (
-    (
-      question.question_type ===
-        'multiple_choice' ||
-      question.question_type ===
-        'true_false' ||
-      question.question_type ===
-        'short_answer'
-    ) &&
-    typeof question.question === 'string' &&
-    Array.isArray(question.choices) &&
-    typeof question.correct_index === 'number' &&
-    typeof question.correct_answer === 'string' &&
-    Array.isArray(question.accepted_answers) &&
-    typeof question.explanation === 'string' &&
-    Array.isArray(question.source_pages)
-  )
-}
-
-function isStoredQuiz(
-  value: unknown,
-): value is StoredQuiz {
-  if (
-    typeof value !== 'object' ||
-    value === null
-  ) {
-    return false
-  }
-
-  const possibleQuiz = value as {
-    title?: unknown
-    questions?: unknown
-  }
-
-  return (
-    typeof possibleQuiz.title === 'string' &&
-    Array.isArray(possibleQuiz.questions) &&
-    possibleQuiz.questions.every(
-      isStoredQuestion,
-    )
-  )
-}
-
-function isStoredAnswers(
-  value: unknown,
-): value is StoredAnswers {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value)
-  )
 }
 
 function formatShortDate(dateString: string) {
