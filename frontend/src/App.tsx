@@ -30,6 +30,28 @@ import type {
   UploadResult,
 } from './types/quiz.ts'
 
+type WeakPracticeRequest = {
+  pages: number[]
+  questionType: QuestionType
+  avoidQuestions: string[]
+  baselinePercent: number
+  baselineQuestionCount: number
+  source: MasteryContext['source']
+  responseError: string
+  fallbackError: string
+}
+
+function scrollToQuiz() {
+  window.setTimeout(() => {
+    document
+      .getElementById('quiz-start')
+      ?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+  }, 150)
+}
+
 function App() {
   const fileInputRef =
     useRef<HTMLInputElement | null>(null)
@@ -243,14 +265,7 @@ function App() {
         settingsForRequest,
       )
 
-      window.setTimeout(() => {
-        document
-          .getElementById('quiz-start')
-          ?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          })
-      }, 150)
+      scrollToQuiz()
     } catch (caughtError) {
       setGenerationStage('')
       setError(
@@ -266,6 +281,101 @@ function App() {
       window.setTimeout(() => {
         setGenerationStage('')
       }, 900)
+    }
+  }
+
+  async function generateWeakAreaPractice({
+    pages,
+    questionType: practiceQuestionType,
+    avoidQuestions,
+    baselinePercent,
+    baselineQuestionCount,
+    source,
+    responseError,
+    fallbackError,
+  }: WeakPracticeRequest) {
+    if (!selectedFile) {
+      return
+    }
+
+    const practiceDifficulty =
+      generatedSettings?.difficulty ??
+      difficulty
+
+    setIsWeakPracticeGenerating(true)
+    setError('')
+    attempt.clearSaveMessage()
+
+    try {
+      const formData = new FormData()
+      const fields = [
+        ['file', selectedFile],
+        ['question_count', '5'],
+        ['difficulty', practiceDifficulty],
+        ['question_type', practiceQuestionType],
+        ['focus_pages', pages.join(',')],
+        [
+          'focus_question_types',
+          practiceQuestionType,
+        ],
+        [
+          'avoid_questions',
+          JSON.stringify(avoidQuestions),
+        ],
+      ] as const
+
+      fields.forEach(([name, value]) => {
+        formData.append(name, value)
+      })
+
+      const response = await apiFetch(
+        '/api/quizzes/generate',
+        {
+          method: 'POST',
+          body: formData,
+        },
+      )
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || responseError,
+        )
+      }
+
+      setQuiz(data)
+      setGeneratedSettings({
+        questionCount:
+          data.questions.length,
+        difficulty:
+          practiceDifficulty,
+        questionType:
+          practiceQuestionType,
+      })
+      attempt.resetAttempt()
+      setPracticeMode(true)
+      setPracticeFocus({
+        pages,
+        questionType:
+          practiceQuestionType,
+      })
+      setMasteryContext({
+        baselinePercent,
+        baselineQuestionCount,
+        source,
+        pages,
+        questionType:
+          practiceQuestionType,
+      })
+      scrollToQuiz()
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : fallbackError,
+      )
+    } finally {
+      setIsWeakPracticeGenerating(false)
     }
   }
 
@@ -329,12 +439,6 @@ function App() {
         second[1] - first[1],
     )[0][0]
 
-    const missedQuestionText =
-      incorrectIndexes.map(
-        (index) =>
-          quiz.questions[index].question,
-      )
-
     const baselineQuestions =
       quiz.questions
         .map((question, index) => ({
@@ -357,108 +461,32 @@ function App() {
       ).length
     const baselineQuestionCount =
       baselineQuestions.length
-    const baselinePercent =
-      baselineQuestionCount > 0
-        ? Math.round(
-            (
-              baselineScore /
-              baselineQuestionCount
-            ) * 100,
-          )
-        : 0
-    const practiceDifficulty =
-      generatedSettings?.difficulty ??
-      difficulty
 
-    setIsWeakPracticeGenerating(true)
-    setError('')
-    attempt.clearSaveMessage()
-
-    try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      formData.append('question_count', '5')
-      formData.append(
-        'difficulty',
-        practiceDifficulty,
-      )
-      formData.append(
-        'question_type',
+    await generateWeakAreaPractice({
+      pages: weakPages,
+      questionType:
         weakQuestionType,
-      )
-      formData.append(
-        'focus_pages',
-        weakPages.join(','),
-      )
-      formData.append(
-        'focus_question_types',
-        weakQuestionType,
-      )
-      formData.append(
-        'avoid_questions',
-        JSON.stringify(
-          missedQuestionText,
+      avoidQuestions:
+        incorrectIndexes.map(
+          (index) =>
+            quiz.questions[index].question,
         ),
-      )
-
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'Weak-area practice generation failed.',
-        )
-      }
-
-      setQuiz(data)
-      setGeneratedSettings({
-        questionCount:
-          data.questions.length,
-        difficulty:
-          practiceDifficulty,
-        questionType:
-          weakQuestionType,
-      })
-      attempt.resetAttempt()
-      setPracticeMode(true)
-      setPracticeFocus({
-        pages: weakPages,
-        questionType:
-          weakQuestionType,
-      })
-      setMasteryContext({
-        baselinePercent,
-        baselineQuestionCount,
-        source: 'current_quiz',
-        pages: weakPages,
-        questionType:
-          weakQuestionType,
-      })
-
-      window.setTimeout(() => {
-        document
-          .getElementById('quiz-start')
-          ?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          })
-      }, 150)
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Could not generate weak-area practice.',
-      )
-    } finally {
-      setIsWeakPracticeGenerating(false)
-    }
+      baselinePercent:
+        baselineQuestionCount > 0
+          ? Math.round(
+              (
+                baselineScore /
+                baselineQuestionCount
+              ) * 100,
+            )
+          : 0,
+      baselineQuestionCount,
+      source: 'current_quiz',
+      responseError:
+        'Weak-area practice generation failed.',
+      fallbackError:
+        'Could not generate weak-area practice.',
+    })
   }
 
   async function handleHistoryPracticeWeakAreas(
@@ -479,101 +507,22 @@ function App() {
       return
     }
 
-    const practiceDifficulty =
-      generatedSettings?.difficulty ??
-      difficulty
-
-    setIsWeakPracticeGenerating(true)
-    setError('')
-    attempt.clearSaveMessage()
-
-    try {
-      const formData = new FormData()
-      formData.append('file', selectedFile)
-      formData.append('question_count', '5')
-      formData.append(
-        'difficulty',
-        practiceDifficulty,
-      )
-      formData.append(
-        'question_type',
+    await generateWeakAreaPractice({
+      pages: focus.pages,
+      questionType:
         focus.questionType,
-      )
-      formData.append(
-        'focus_pages',
-        focus.pages.join(','),
-      )
-      formData.append(
-        'focus_question_types',
-        focus.questionType,
-      )
-      formData.append(
-        'avoid_questions',
-        JSON.stringify(
-          focus.avoidQuestions,
-        ),
-      )
-
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'History-based weak-area practice generation failed.',
-        )
-      }
-
-      setQuiz(data)
-      setGeneratedSettings({
-        questionCount:
-          data.questions.length,
-        difficulty:
-          practiceDifficulty,
-        questionType:
-          focus.questionType,
-      })
-      attempt.resetAttempt()
-      setPracticeMode(true)
-      setPracticeFocus({
-        pages: focus.pages,
-        questionType:
-          focus.questionType,
-      })
-      setMasteryContext({
-        baselinePercent:
-          focus.baselinePercent,
-        baselineQuestionCount:
-          focus.baselineQuestionCount,
-        source: 'history',
-        pages: focus.pages,
-        questionType:
-          focus.questionType,
-      })
-
-      window.setTimeout(() => {
-        document
-          .getElementById('quiz-start')
-          ?.scrollIntoView({
-            behavior: 'smooth',
-            block: 'start',
-          })
-      }, 150)
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Could not generate history-based weak-area practice.',
-      )
-    } finally {
-      setIsWeakPracticeGenerating(false)
-    }
+      avoidQuestions:
+        focus.avoidQuestions,
+      baselinePercent:
+        focus.baselinePercent,
+      baselineQuestionCount:
+        focus.baselineQuestionCount,
+      source: 'history',
+      responseError:
+        'History-based weak-area practice generation failed.',
+      fallbackError:
+        'Could not generate history-based weak-area practice.',
+    })
   }
 
   async function handleGenerateNewQuiz() {
