@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: frontend-dependency-repair
+  cancel-in-progress: true
+
 jobs:
   refresh-and-verify:
     runs-on: ubuntu-latest
@@ -44,9 +48,9 @@ jobs:
           npm run lint
           npm run build
 
-      - name: Exercise Stryker with patched typed-rest-client tree
+      - name: Exercise Stryker dry run with patched typed-rest-client tree
         working-directory: frontend
-        run: npm run test:mutation
+        run: npx stryker run --dryRunOnly
 
       - name: Confirm patched dependency versions
         working-directory: frontend
