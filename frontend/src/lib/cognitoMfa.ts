@@ -6,6 +6,12 @@ export type MfaSecurityStatus = {
   preferred: 'sms' | 'totp' | 'none'
 }
 
+export type MfaMethodSettings = {
+  smsEnabled: boolean
+  totpEnabled: boolean
+  preferred: 'sms' | 'totp' | 'none'
+}
+
 type CognitoResponse = Record<string, unknown>
 
 const endpoint = 'https://cognito-idp.ca-central-1.amazonaws.com/'
@@ -40,7 +46,10 @@ async function cognitoRequest(
         .split('#')
         .pop() || ''
 
-    if (code === 'CodeMismatchException') {
+    if (
+      code === 'CodeMismatchException' ||
+      code === 'EnableSoftwareTokenMFAException'
+    ) {
       throw new Error(
         'That verification code was not accepted. Wait for a new code and try again.',
       )
@@ -60,7 +69,7 @@ async function cognitoRequest(
     }
 
     throw new Error(
-      'Phone-number security settings could not be updated. Please try again.',
+      'Two-factor authentication settings could not be updated. Please try again.',
     )
   }
 
@@ -123,6 +132,69 @@ export async function getMfaSecurityStatus(
   }
 }
 
+export async function beginTotpEnrollment(
+  accessToken: string,
+) {
+  if (!accessToken) throw new Error('Sign in again to manage security settings.')
+
+  const result = await cognitoRequest(
+    'AssociateSoftwareToken',
+    { AccessToken: accessToken },
+  )
+  const secret = valueString(result.SecretCode)
+
+  if (!/^[A-Z2-7]+=*$/i.test(secret)) {
+    throw new Error('Cognito did not return a valid authenticator setup key.')
+  }
+
+  return secret
+}
+
+export async function verifyTotpEnrollment(
+  accessToken: string,
+  code: string,
+) {
+  if (!accessToken) throw new Error('Sign in again to manage security settings.')
+  if (!/^[0-9]{6}$/.test(code)) {
+    throw new Error('Enter the 6-digit code from your authenticator app.')
+  }
+
+  const result = await cognitoRequest(
+    'VerifySoftwareToken',
+    {
+      AccessToken: accessToken,
+      UserCode: code,
+      FriendlyDeviceName: 'Quiz From Notes',
+    },
+  )
+
+  if (valueString(result.Status) !== 'SUCCESS') {
+    throw new Error('Authenticator verification did not complete.')
+  }
+}
+
+export function totpSetupUri(
+  secret: string,
+  email: string,
+) {
+  const issuer = 'Quiz From Notes'
+  const label = issuer + ':' + email.trim().toLowerCase()
+  const params = new URLSearchParams({
+    secret,
+    issuer,
+    algorithm: 'SHA1',
+    digits: '6',
+    period: '30',
+  })
+
+  return (
+    'otpauth://totp/' +
+    encodeURIComponent(label) +
+    '?' +
+    params.toString()
+  )
+}
+
 export async function beginPhoneVerification(
   accessToken: string,
   phone: string,
@@ -183,24 +255,69 @@ export async function verifyPhoneNumber(
   )
 }
 
-export async function setMfaPreference(
+export async function updateMfaMethods(
   accessToken: string,
-  method: 'sms' | 'totp',
+  settings: MfaMethodSettings,
 ) {
   if (!accessToken) throw new Error('Sign in again to manage security settings.')
+
+  if (
+    settings.preferred === 'sms' &&
+    !settings.smsEnabled
+  ) {
+    throw new Error('Text-message MFA cannot be preferred while disabled.')
+  }
+  if (
+    settings.preferred === 'totp' &&
+    !settings.totpEnabled
+  ) {
+    throw new Error('Authenticator MFA cannot be preferred while disabled.')
+  }
 
   await cognitoRequest(
     'SetUserMFAPreference',
     {
       AccessToken: accessToken,
       SMSMfaSettings: {
-        Enabled: true,
-        PreferredMfa: method === 'sms',
+        Enabled: settings.smsEnabled,
+        PreferredMfa: settings.preferred === 'sms',
       },
       SoftwareTokenMfaSettings: {
-        Enabled: true,
-        PreferredMfa: method === 'totp',
+        Enabled: settings.totpEnabled,
+        PreferredMfa: settings.preferred === 'totp',
       },
+    },
+  )
+}
+
+export async function setMfaPreference(
+  accessToken: string,
+  method: 'sms' | 'totp',
+  current: Pick<MfaSecurityStatus, 'smsEnabled' | 'totpEnabled'>,
+) {
+  await updateMfaMethods(
+    accessToken,
+    {
+      smsEnabled:
+        current.smsEnabled ||
+        method === 'sms',
+      totpEnabled:
+        current.totpEnabled ||
+        method === 'totp',
+      preferred: method,
+    },
+  )
+}
+
+export async function disableMfa(
+  accessToken: string,
+) {
+  await updateMfaMethods(
+    accessToken,
+    {
+      smsEnabled: false,
+      totpEnabled: false,
+      preferred: 'none',
     },
   )
 }
