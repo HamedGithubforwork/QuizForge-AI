@@ -1,4 +1,5 @@
 """Read-only production SMS readiness diagnostic for Cognito MFA."""
+# Recheck after owner-approved AWS account plan upgrade.
 from __future__ import annotations
 
 import json
