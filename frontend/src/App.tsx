@@ -118,8 +118,6 @@ function App() {
     setGeneratedSettings(null)
     attempt.resetAttempt()
     resetPracticeMode()
-    setGenerationStage('')
-    setError('')
   }
 
   function handleFileChange(
@@ -130,6 +128,8 @@ function App() {
 
     setSelectedFile(file)
     resetProcessedDocument()
+    setGenerationStage('')
+    setError('')
   }
 
   async function handleProcessPdf() {
@@ -536,6 +536,8 @@ function App() {
     setQuestionCount(5)
     setDifficulty('medium')
     setQuestionType('multiple_choice')
+    setGenerationStage('')
+    setError('')
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
