@@ -1,4 +1,4 @@
-"""Guard the production Cognito minimum-password update from 14 to 8 characters."""
+"""Guard the production Cognito MFA update from required to optional."""
 from __future__ import annotations
 
 import copy
@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 
 REGION = "ca-central-1"
 POOL_NAME = "quizforge-production-lightsail"
-RESULT = Path("cognito-password-policy-results/summary.json")
+RESULT = Path("cognito-mfa-policy-results/summary.json")
 
 
 def changed_resources(plan: dict[str, Any]) -> list[dict[str, Any]]:
@@ -29,38 +29,25 @@ def review_plan(plan: dict[str, Any]) -> bool:
     if not changes:
         return False
     if len(changes) != 1:
-        raise ValueError("Password-policy plan contains unrelated changes")
+        raise ValueError("MFA-policy plan contains unrelated changes")
     item = changes[0]
     if item.get("address") != "aws_cognito_user_pool.browser":
-        raise ValueError("Password-policy plan changes the wrong resource")
+        raise ValueError("MFA-policy plan changes the wrong resource")
     change = item.get("change", {})
     if change.get("actions") != ["update"]:
-        raise ValueError("Password-policy change must be in-place")
+        raise ValueError("MFA-policy change must be in-place")
 
     before = copy.deepcopy(change.get("before"))
     after = copy.deepcopy(change.get("after"))
     if not isinstance(before, dict) or not isinstance(after, dict):
-        raise ValueError("Password-policy plan is missing before/after values")
+        raise ValueError("MFA-policy plan is missing before/after values")
 
-    before_policy = before.get("password_policy")
-    after_policy = after.get("password_policy")
-    if (
-        not isinstance(before_policy, list)
-        or not isinstance(after_policy, list)
-        or len(before_policy) != 1
-        or len(after_policy) != 1
-        or before_policy[0].get("minimum_length") != 14
-        or after_policy[0].get("minimum_length") != 8
-    ):
-        raise ValueError("Password-policy plan does not change 14 to 8")
+    if before.get("mfa_configuration") != "ON" or after.get("mfa_configuration") != "OPTIONAL":
+        raise ValueError("MFA-policy plan does not change ON to OPTIONAL")
 
-    required = ("require_lowercase", "require_uppercase", "require_numbers", "require_symbols")
-    if not all(before_policy[0].get(name) is True and after_policy[0].get(name) is True for name in required):
-        raise ValueError("Password complexity requirements changed")
-
-    before["password_policy"][0]["minimum_length"] = 8
+    before["mfa_configuration"] = "OPTIONAL"
     if before != after:
-        raise ValueError("Password-policy plan changes more than minimum length")
+        raise ValueError("MFA-policy plan changes more than required-to-optional MFA")
     return True
 
 
@@ -72,7 +59,10 @@ def discover(cognito) -> str:
         if token:
             kwargs["NextToken"] = token
         response = cognito.list_user_pools(**kwargs)
-        matches.extend(item for item in response.get("UserPools", []) if item.get("Name") == POOL_NAME)
+        matches.extend(
+            item for item in response.get("UserPools", [])
+            if item.get("Name") == POOL_NAME
+        )
         token = response.get("NextToken")
         if not token:
             break
@@ -91,22 +81,26 @@ def verify_live() -> dict[str, bool]:
     mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
     password = pool.get("Policies", {}).get("PasswordPolicy", {})
     return {
-        "minimum_length_eight": password.get("MinimumLength") == 8,
-        "lowercase_retained": password.get("RequireLowercase") is True,
-        "uppercase_retained": password.get("RequireUppercase") is True,
-        "numbers_retained": password.get("RequireNumbers") is True,
-        "symbols_retained": password.get("RequireSymbols") is True,
-        "optional_mfa_retained": pool.get("MfaConfiguration") == "OPTIONAL",
-        "totp_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
+        "mfa_optional": pool.get("MfaConfiguration") == "OPTIONAL",
+        "totp_available": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
+        "password_minimum_eight_retained": password.get("MinimumLength") == 8,
+        "password_complexity_retained": (
+            password.get("RequireLowercase") is True
+            and password.get("RequireUppercase") is True
+            and password.get("RequireNumbers") is True
+            and password.get("RequireSymbols") is True
+        ),
         "deletion_protection_retained": pool.get("DeletionProtection") == "ACTIVE",
         "public_signup_retained": pool.get("AdminCreateUserConfig", {}).get("AllowAdminCreateUserOnly") is False,
+        "email_username_retained": pool.get("UsernameAttributes") == ["email"],
+        "email_verification_retained": pool.get("AutoVerifiedAttributes") == ["email"],
     }
 
 
 def write_report(report: dict[str, Any]) -> None:
     raw = json.dumps(report, indent=2, sort_keys=True) + "\n"
     if re.search(r"ca-central-1_[A-Za-z0-9]+", raw) or re.search(r"\b\d{12}\b", raw):
-        raise ValueError("Private identifier reached password-policy summary")
+        raise ValueError("Private identifier reached MFA-policy summary")
     RESULT.parent.mkdir(parents=True, exist_ok=True)
     RESULT.write_text(raw, encoding="utf-8")
 
@@ -126,7 +120,7 @@ def main() -> int:
             failed = sorted(name for name, ok in checks.items() if not ok)
             write_report({
                 "schema": 1,
-                "operation": "set_cognito_password_minimum_eight",
+                "operation": "set_cognito_mfa_optional",
                 "result": "enabled" if not failed else "security_readback_failed",
                 **checks,
                 "failed_checks": failed,
@@ -135,9 +129,9 @@ def main() -> int:
         raise ValueError("Unsupported operation")
     except ClientError as error:
         code = str(error.response.get("Error", {}).get("Code", "AWS_ERROR"))
-        print("Password-policy update failed: " + (code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code) else "AWS_ERROR"))
+        print("MFA-policy update failed: " + (code if re.fullmatch(r"[A-Za-z0-9._-]{1,80}", code) else "AWS_ERROR"))
     except Exception as error:
-        print("Password-policy update failed: " + type(error).__name__)
+        print("MFA-policy update failed: " + type(error).__name__)
     return 1
 
 

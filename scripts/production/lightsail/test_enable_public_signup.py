@@ -10,7 +10,7 @@ from scripts.production.lightsail import enable_public_signup as signup
 def plan(before_gate=True, after_gate=False, extra=False):
     before = {
         "name": signup.POOL_NAME,
-        "mfa_configuration": "ON",
+        "mfa_configuration": "OPTIONAL",
         "admin_create_user_config": [{"allow_admin_create_user_only": before_gate}],
     }
     after = copy.deepcopy(before)
@@ -37,7 +37,7 @@ class PublicSignupTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             signup.review_plan(plan(before_gate=False, after_gate=True))
         changed = plan()
-        changed["resource_changes"][0]["change"]["after"]["mfa_configuration"] = "OFF"
+        changed["resource_changes"][0]["change"]["after"]["mfa_configuration"] = "ON"
         with self.assertRaises(ValueError):
             signup.review_plan(changed)
 
@@ -47,7 +47,7 @@ class PublicSignupTests(unittest.TestCase):
             "DeletionProtection": "ACTIVE",
             "UsernameAttributes": ["email"],
             "AutoVerifiedAttributes": ["email"],
-            "MfaConfiguration": "ON",
+            "MfaConfiguration": "OPTIONAL",
             "SoftwareTokenMfaConfiguration": {"Enabled": True},
             "UserAttributeUpdateSettings": {"AttributesRequireVerificationBeforeUpdate": ["email"]},
             "Policies": {"PasswordPolicy": {
