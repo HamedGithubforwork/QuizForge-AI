@@ -1,7 +1,5 @@
-import asyncio
 import logging
 import os
-import random
 import time
 
 from fastapi import (
@@ -35,7 +33,6 @@ from processed_documents import (
     build_quiz_cache_key_from_sha,
     forget_processed_document,
     get_processed_document,
-    normalize_document_sha256,
     remember_processed_document,
 )
 import quiz_service
@@ -45,6 +42,11 @@ from quiz_service import (
     normalize_quiz_settings,
     validate_pdf_content_type,
     validate_pdf_size,
+)
+from quiz_generation_support import (
+    acquire_quiz_generation_turn as coordinate_quiz_generation_turn,
+    get_generation_source_identity,
+    get_quiz_generation_poll_delay as calculate_quiz_generation_poll_delay,
 )
 from redis_integration import (
     QUIZ_GENERATION_POLL_INTERVAL_SECONDS,
@@ -163,60 +165,48 @@ async def get_document_pages_with_cache(
     return resolved_pdf_sha256, pages
 
 
-async def get_generation_source_identity(
-    *,
-    document_sha256: str,
-    file: UploadFile | None,
+def get_quiz_generation_poll_delay(
+    poll_interval_seconds: float,
 ):
-    supplied_hash = (
-        document_sha256
-        if isinstance(
-            document_sha256,
-            str,
-        )
-        else ""
+    return calculate_quiz_generation_poll_delay(
+        poll_interval_seconds,
+        maximum_interval_seconds=(
+            QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS
+        ),
+        jitter_ratio=(
+            QUIZ_GENERATION_POLL_JITTER_RATIO
+        ),
     )
 
-    if supplied_hash.strip():
-        normalized_hash = (
-            normalize_document_sha256(
-                supplied_hash
-            )
-        )
 
-        if normalized_hash is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Processed document identifier is invalid."
-                ),
-            )
-
-        return (
-            normalized_hash,
-            "application/pdf",
-            None,
-        )
-
-    if file is None:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Process the PDF before generating a quiz."
-            ),
-        )
-
-    validate_pdf_content_type(
-        file.content_type
-    )
-
-    contents = await file.read()
-    validate_pdf_size(contents)
-
-    return (
-        compute_pdf_sha256(contents),
-        file.content_type,
-        contents,
+async def acquire_quiz_generation_turn(
+    cache_key: str,
+    *,
+    use_cached_result: bool,
+):
+    return await coordinate_quiz_generation_turn(
+        cache_key,
+        use_cached_result=use_cached_result,
+        try_acquire_lock=(
+            try_acquire_quiz_generation_lock
+        ),
+        get_cached_quiz=get_cached_quiz,
+        release_lock=(
+            release_quiz_generation_lock
+        ),
+        quiz_model=Quiz,
+        wait_seconds=(
+            QUIZ_GENERATION_WAIT_SECONDS
+        ),
+        poll_interval_seconds=(
+            QUIZ_GENERATION_POLL_INTERVAL_SECONDS
+        ),
+        maximum_poll_interval_seconds=(
+            QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS
+        ),
+        jitter_ratio=(
+            QUIZ_GENERATION_POLL_JITTER_RATIO
+        ),
     )
 
 
@@ -275,129 +265,6 @@ async def get_generation_pages(
     )
 
     return document["pages"]
-
-
-def get_quiz_generation_poll_delay(
-    poll_interval_seconds: float,
-):
-    bounded_interval = min(
-        max(0.0, poll_interval_seconds),
-        QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS,
-    )
-    jitter_floor = bounded_interval * (
-        1 - QUIZ_GENERATION_POLL_JITTER_RATIO
-    )
-
-    return random.uniform(
-        max(0.0, jitter_floor),
-        bounded_interval,
-    )
-
-
-async def acquire_quiz_generation_turn(
-    cache_key: str,
-    *,
-    use_cached_result: bool,
-):
-    attempt = await try_acquire_quiz_generation_lock(
-        cache_key
-    )
-
-    if not attempt.backend_available:
-        return None, None
-
-    if attempt.acquired:
-        if use_cached_result:
-            cached_quiz = await get_cached_quiz(
-                cache_key,
-                Quiz,
-            )
-
-            if cached_quiz is not None:
-                await release_quiz_generation_lock(
-                    cache_key,
-                    attempt.token,
-                )
-                return cached_quiz, None
-
-        return None, attempt.token
-
-    deadline = (
-        time.monotonic()
-        + QUIZ_GENERATION_WAIT_SECONDS
-    )
-    poll_interval = (
-        QUIZ_GENERATION_POLL_INTERVAL_SECONDS
-    )
-
-    while True:
-        remaining_wait = (
-            deadline - time.monotonic()
-        )
-
-        if remaining_wait <= 0:
-            break
-
-        poll_delay = min(
-            get_quiz_generation_poll_delay(
-                poll_interval
-            ),
-            remaining_wait,
-        )
-
-        await asyncio.sleep(poll_delay)
-
-        if time.monotonic() >= deadline:
-            break
-
-        if use_cached_result:
-            cached_quiz = await get_cached_quiz(
-                cache_key,
-                Quiz,
-            )
-
-            if cached_quiz is not None:
-                return cached_quiz, None
-
-        attempt = await try_acquire_quiz_generation_lock(
-            cache_key
-        )
-
-        if not attempt.backend_available:
-            return None, None
-
-        if not attempt.acquired:
-            poll_interval = min(
-                poll_interval * 2,
-                QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS,
-            )
-            continue
-
-        if use_cached_result:
-            cached_quiz = await get_cached_quiz(
-                cache_key,
-                Quiz,
-            )
-
-            if cached_quiz is not None:
-                await release_quiz_generation_lock(
-                    cache_key,
-                    attempt.token,
-                )
-                return cached_quiz, None
-
-        return None, attempt.token
-
-    raise HTTPException(
-        status_code=503,
-        detail=(
-            "Quiz generation is already in progress. "
-            "Please retry shortly."
-        ),
-        headers={
-            "Retry-After": "2",
-        },
-    )
 
 
 @app.middleware("http")
