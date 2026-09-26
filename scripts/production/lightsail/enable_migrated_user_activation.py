@@ -31,11 +31,18 @@ def review_plan(plan: dict[str, Any]) -> bool:
     changes = changed_resources(plan)
     if not changes:
         return False
-    if len(changes) != 1:
+
+    client_changes = [
+        item for item in changes
+        if item.get("address") == "aws_cognito_user_pool_client.browser"
+    ]
+    if not client_changes:
+        # Targeted Terraform plans can include dependency drift from the user
+        # pool. This activation-only workflow must ignore it rather than apply it.
+        return False
+    if len(client_changes) != 1 or len(changes) != 1:
         raise ValueError("Activation-client plan contains unrelated changes")
-    item = changes[0]
-    if item.get("address") != "aws_cognito_user_pool_client.browser":
-        raise ValueError("Activation-client plan changes the wrong resource")
+    item = client_changes[0]
     change = item.get("change", {})
     if change.get("actions") != ["update"]:
         raise ValueError("Activation-client plan must be an in-place update")
