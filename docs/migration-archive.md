@@ -61,3 +61,5 @@ Those workflows were removed from `main` after their production changes were
 established. Remaining maintenance workflows now require explicit manual dispatch
 for cloud-mutating staging, recovery, trust-probe, backup activation, and production
 canary operations instead of running merely because their controller code changed.
+
+The earlier standalone read-only retained-backup planning workflow and `scripts/backup_plan/` validator were also retired after the guarded backup activation workflow absorbed the same inspection/plan review boundary through its `inspect` operation.
