@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/lightsail-app-stage.yml"
       - "scripts/production/lightsail/stage_release.py"
+      - "scripts/production/lightsail/host_control.py"
+      - "scripts/production/lightsail/test_host_control.py"
       - "scripts/production/lightsail/test_stage_release.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
   workflow_dispatch:
@@ -27,8 +29,8 @@ jobs:
           python-version: "3.11.16"
       - name: Compile and test staging gate without cloud credentials
         run: |
-          python -m py_compile scripts/production/lightsail/stage_release.py
-          python -m unittest scripts.production.lightsail.test_stage_release -v
+          python -m py_compile scripts/production/lightsail/host_control.py scripts/production/lightsail/stage_release.py
+          python -m unittest scripts.production.lightsail.test_host_control scripts.production.lightsail.test_stage_release -v
       - name: Validate pinned release lock is public-safe and AI-disabled
         run: |
           python - <<'PY'
