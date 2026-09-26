@@ -52,6 +52,15 @@ function scrollToQuiz() {
   }, 150)
 }
 
+function getErrorMessage(
+  caughtError: unknown,
+  fallback: string,
+) {
+  return caughtError instanceof Error
+    ? caughtError.message
+    : fallback
+}
+
 function App() {
   const fileInputRef =
     useRef<HTMLInputElement | null>(null)
@@ -112,13 +121,7 @@ function App() {
     setMasteryContext(null)
   }
 
-  function handleFileChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file =
-      event.target.files?.[0] ?? null
-
-    setSelectedFile(file)
+  function resetProcessedDocument() {
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
@@ -128,6 +131,16 @@ function App() {
     setError('')
   }
 
+  function handleFileChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0] ?? null
+
+    setSelectedFile(file)
+    resetProcessedDocument()
+  }
+
   async function handleProcessPdf() {
     if (!selectedFile) {
       setError('Please choose a PDF first.')
@@ -135,12 +148,7 @@ function App() {
     }
 
     setIsProcessing(true)
-    setError('')
-    setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
-    attempt.resetAttempt()
-    resetPracticeMode()
+    resetProcessedDocument()
 
     try {
       const formData = new FormData()
@@ -165,9 +173,10 @@ function App() {
       setDocumentResult(data)
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Something went wrong while processing the PDF.',
+        getErrorMessage(
+          caughtError,
+          'Something went wrong while processing the PDF.',
+        ),
       )
     } finally {
       setIsProcessing(false)
@@ -269,9 +278,10 @@ function App() {
     } catch (caughtError) {
       setGenerationStage('')
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Something went wrong while generating the quiz.',
+        getErrorMessage(
+          caughtError,
+          'Something went wrong while generating the quiz.',
+        ),
       )
     } finally {
       stageTimers.forEach((timer) =>
@@ -370,9 +380,10 @@ function App() {
       scrollToQuiz()
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : fallbackError,
+        getErrorMessage(
+          caughtError,
+          fallbackError,
+        ),
       )
     } finally {
       setIsWeakPracticeGenerating(false)
@@ -533,16 +544,10 @@ function App() {
 
   function handleUploadNewPdf() {
     setSelectedFile(null)
-    setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
-    attempt.resetAttempt()
+    resetProcessedDocument()
     setQuestionCount(5)
     setDifficulty('medium')
     setQuestionType('multiple_choice')
-    resetPracticeMode()
-    setGenerationStage('')
-    setError('')
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
