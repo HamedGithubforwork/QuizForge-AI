@@ -282,6 +282,86 @@ def test_rejects_duplicate_questions_and_choices():
     )
 
 
+def test_rejects_requested_type_mismatch_and_incomplete_mixed_quiz():
+    question = make_mc_question()
+
+    requested_errors = validate(
+        [question],
+        requested_type="true_false",
+    )
+    mixed_errors = validate(
+        [question],
+        requested_type="mixed",
+    )
+
+    assert any(
+        "wrong requested question type"
+        in error
+        for error in requested_errors
+    )
+    assert any(
+        "mixed quiz does not contain all three"
+        in error
+        for error in mixed_errors
+    )
+
+
+def test_rejects_invalid_true_false_and_short_answer_shapes():
+    true_false = make_mc_question(
+        "Is TCP connection oriented?"
+    )
+    true_false.question_type = "true_false"
+    true_false.choices = ["Yes", "No"]
+    true_false.correct_index = 0
+    true_false.correct_answer = "Yes"
+    true_false.accepted_answers = ["Yes"]
+
+    short_answer = make_concept_question()
+    short_answer.choices = ["unexpected"]
+    short_answer.correct_index = 0
+
+    tf_errors = validate(
+        [true_false],
+        requested_type="true_false",
+    )
+    sa_errors = validate(
+        [short_answer],
+        requested_type="short_answer",
+    )
+
+    assert any(
+        "invalid True / False choices"
+        in error
+        for error in tf_errors
+    )
+    assert any(
+        "choices on a short-answer question"
+        in error
+        for error in sa_errors
+    )
+    assert any(
+        "invalid short-answer correct index"
+        in error
+        for error in sa_errors
+    )
+
+
+def test_rejects_missing_short_answer_grading_mode():
+    question = make_concept_question()
+    question.grading = grading_none()
+
+    errors = validate(
+        [question],
+        requested_type="short_answer",
+    )
+
+    assert any(
+        "no short-answer grading mode"
+        in error
+        for error in errors
+    )
+
+
 def test_rejects_invalid_source_pages():
     question = make_concept_question()
     question.source_pages = [3]
