@@ -18,7 +18,7 @@ def plan(before_min=14, after_min=8, extra=False):
             "require_symbols": True,
             "temporary_password_validity_days": 1,
         }],
-        "mfa_configuration": "ON",
+        "mfa_configuration": "OPTIONAL",
     }
     after = copy.deepcopy(before)
     after["password_policy"][0]["minimum_length"] = after_min
@@ -60,7 +60,7 @@ class PasswordPolicyTests(unittest.TestCase):
                 "RequireNumbers": True,
                 "RequireSymbols": True,
             }},
-            "MfaConfiguration": "ON",
+            "MfaConfiguration": "OPTIONAL",
             "DeletionProtection": "ACTIVE",
             "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False},
         }
