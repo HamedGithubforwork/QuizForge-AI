@@ -11,7 +11,7 @@ import psycopg
 from psycopg import sql
 
 from database import options
-from transfer import private_read, private_write
+from private_files import private_read, private_write
 
 
 def initialize(env, directory):

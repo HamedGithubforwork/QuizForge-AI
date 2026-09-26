@@ -9,7 +9,6 @@ on:
       - "scripts/production/test_lightsail_backup*.py"
       - "scripts/production/schema.sql"
       - "scripts/production/generation_budget.sql"
-      - "scripts/production/transfer.py"
       - "scripts/production/requirements.lock"
       - ".github/workflows/lightsail-backup.yml"
   push:
@@ -21,7 +20,6 @@ on:
       - "scripts/production/test_lightsail_backup*.py"
       - "scripts/production/schema.sql"
       - "scripts/production/generation_budget.sql"
-      - "scripts/production/transfer.py"
       - "scripts/production/requirements.lock"
       - ".github/workflows/lightsail-backup.yml"
 

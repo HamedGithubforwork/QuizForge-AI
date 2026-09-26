@@ -14,7 +14,7 @@ from generation_costs import PRICING_KEY, maximum_cost
 import inventory
 from build import public_config
 from database import options
-from transfer import private_read, private_write
+from private_files import private_read, private_write
 
 
 class Boundaries(unittest.TestCase):
@@ -44,7 +44,7 @@ class Boundaries(unittest.TestCase):
                 guard.bounded_request(json.dumps(body | change).encode())
         with self.assertRaises(ValueError): guard.bounded_request(b"x" * (guard.MAX_BODY_BYTES + 1))
 
-    def test_archive_cannot_overwrite_or_follow_symlinks_or_read_world_accessible_data(self):
+    def test_private_file_cannot_overwrite_or_follow_symlinks_or_read_world_accessible_data(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "archive"
             private_write(path, b"encrypted-example")
