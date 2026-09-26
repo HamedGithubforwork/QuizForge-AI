@@ -112,6 +112,14 @@ function App() {
     setMasteryContext(null)
   }
 
+  function resetProcessedDocument() {
+    setDocumentResult(null)
+    setQuiz(null)
+    setGeneratedSettings(null)
+    attempt.resetAttempt()
+    resetPracticeMode()
+  }
+
   function handleFileChange(
     event: ChangeEvent<HTMLInputElement>,
   ) {
@@ -119,11 +127,7 @@ function App() {
       event.target.files?.[0] ?? null
 
     setSelectedFile(file)
-    setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
-    attempt.resetAttempt()
-    resetPracticeMode()
+    resetProcessedDocument()
     setGenerationStage('')
     setError('')
   }
@@ -135,12 +139,7 @@ function App() {
     }
 
     setIsProcessing(true)
-    setError('')
-    setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
-    attempt.resetAttempt()
-    resetPracticeMode()
+    resetProcessedDocument()
 
     try {
       const formData = new FormData()
@@ -533,14 +532,10 @@ function App() {
 
   function handleUploadNewPdf() {
     setSelectedFile(null)
-    setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
-    attempt.resetAttempt()
+    resetProcessedDocument()
     setQuestionCount(5)
     setDifficulty('medium')
     setQuestionType('multiple_choice')
-    resetPracticeMode()
     setGenerationStage('')
     setError('')
 
