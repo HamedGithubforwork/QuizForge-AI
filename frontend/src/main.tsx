@@ -8,6 +8,7 @@ import './AuthGate.css'
 import './App.css'
 import './QuizHistory.css'
 import './MasteryAnalyticsPanel.css'
+import './components/account/SettingsPage.css'
 import './accessibility.css'
 
 createRoot(
