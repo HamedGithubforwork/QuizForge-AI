@@ -6,7 +6,7 @@ on:
       - .github/workflows/aws-backup-activation.yml
       - .github/workflows/aws-backup-activation-cloud.yml
       - scripts/backup_activation/**
-      - scripts/rds_rehearsal/requirements.lock
+      - scripts/production/requirements.lock
       - infra/aws/lightsail-backups/**
   push:
     branches: [main]

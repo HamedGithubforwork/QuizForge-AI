@@ -26,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11.16'
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/production/requirements.lock
       - run: python -m unittest discover -s scripts/aws_budget_alerts -p 'test_*.py' -v
   budget:
     name: Verify or activate only the approved budget
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11.16'
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/production/requirements.lock
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
