@@ -34,10 +34,7 @@ sys.path.insert(0, str(PRODUCTION_DIR))
 from scripts.production import lightsail_backup as backup  # noqa: E402
 from scripts.production import lightsail_backup_job as backup_job  # noqa: E402
 
-CAPACITY_DIR = Path(__file__).resolve().parents[2] / "lightsail_test"
-sys.path.insert(0, str(CAPACITY_DIR))
-import control as capacity  # noqa: E402
-import policy as capacity_policy  # noqa: E402
+from scripts.production.lightsail import recovery_capacity as capacity  # noqa: E402
 
 REGION = "ca-central-1"
 KEY_PARAM = "/quizforge/production/backup-key-v1"
@@ -77,13 +74,13 @@ def remote_failure_stage(error: subprocess.CalledProcessError) -> str | None:
 
 def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
     """Compact fail-closed session boundary; AWS limits inline session policies to 2048 chars."""
-    capacity_policy.account_id(account)
-    capacity_policy.test_name(ident)
+    capacity.account_id(account)
+    capacity.test_name(ident)
     bucket = f"quizforge-production-backups-{account}"
-    role = f"arn:aws:iam::{account}:role/{capacity_policy.ROLE}"
+    role = f"arn:aws:iam::{account}:role/{capacity.ROLE}"
     schedule = (
         f"arn:aws:scheduler:{REGION}:{account}:schedule/"
-        f"{capacity_policy.GROUP}/{capacity_policy.PREFIX}*"
+        f"{capacity.GROUP}/{capacity.PREFIX}*"
     )
     value = {
         "Version": "2012-10-17",
@@ -115,7 +112,7 @@ def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
                 "Condition": {
                     "StringEquals": {
                         "aws:RequestedRegion": REGION,
-                        "aws:RequestTag/Purpose": capacity_policy.PURPOSE,
+                        "aws:RequestTag/Purpose": capacity.PURPOSE,
                     }
                 },
             },
@@ -125,7 +122,7 @@ def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
                 "Resource": "*",
                 "Condition": {
                     "StringEquals": {
-                        "aws:RequestTag/Purpose": capacity_policy.PURPOSE,
+                        "aws:RequestTag/Purpose": capacity.PURPOSE,
                         "aws:RequestTag/TestId": ident,
                     },
                     "ForAllValues:StringEquals": {
@@ -139,7 +136,7 @@ def recovery_session_policy(account: str, ident: str) -> dict[str, Any]:
                 "Resource": "*",
                 "Condition": {
                     "StringEquals": {
-                        "aws:ResourceTag/Purpose": capacity_policy.PURPOSE
+                        "aws:ResourceTag/Purpose": capacity.PURPOSE
                     }
                 },
             },
@@ -548,10 +545,10 @@ def run() -> int:
 
     try:
         account = boto3.client("sts", config=capacity.CONFIG).get_caller_identity()["Account"]
-        capacity_policy.account_id(account)
+        capacity.account_id(account)
         forbidden.append(account)
         ident = os.environ["GITHUB_RUN_ID"] + "-" + os.environ["GITHUB_RUN_ATTEMPT"]
-        instance_name = capacity_policy.test_name(ident)
+        instance_name = capacity.test_name(ident)
 
         clients = (
             boto3.client("lightsail", region_name=REGION, config=capacity.CONFIG),
@@ -584,7 +581,7 @@ def run() -> int:
         forbidden.append(runner_ip)
 
         started = datetime.now(timezone.utc)
-        deadline = started + timedelta(seconds=capacity_policy.TTL_SECONDS)
+        deadline = started + timedelta(seconds=capacity.TTL_SECONDS)
         capacity.arm(scheduler, instance_name, account, deadline)
         report["temporary_cleanup_schedule_armed"] = True
 
@@ -592,12 +589,12 @@ def run() -> int:
         ls.create_instances(
             instanceNames=[instance_name],
             availabilityZone=inspected["checks"]["availability_zone"],
-            blueprintId=capacity_policy.BLUEPRINT,
-            bundleId=capacity_policy.BUNDLE,
+            blueprintId=capacity.BLUEPRINT,
+            bundleId=capacity.BUNDLE,
             ipAddressType="ipv4",
             addOns=[],
             tags=[
-                {"key": "Purpose", "value": capacity_policy.PURPOSE},
+                {"key": "Purpose", "value": capacity.PURPOSE},
                 {"key": "TestId", "value": ident},
                 {"key": "DeleteAfter", "value": deadline.isoformat()},
             ],
