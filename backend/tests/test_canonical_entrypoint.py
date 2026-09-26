@@ -86,26 +86,19 @@ def test_runtime_configs_use_canonical_main_entrypoint():
         / "backend"
         / "Dockerfile"
     ).read_text(encoding="utf-8")
-    render_config = (
+    lightsail_render = (
         REPO_ROOT
-        / "render.yaml"
-    ).read_text(encoding="utf-8")
-    local_stack = (
-        REPO_ROOT
-        / ".github"
-        / "workflows"
-        / "local-stack-integration.yml"
+        / "scripts"
+        / "production"
+        / "lightsail"
+        / "render.py"
     ).read_text(encoding="utf-8")
 
     assert '"main:app"' in dockerfile
-    assert "uvicorn main:app" in render_config
-    assert "uvicorn main:app" in local_stack
+    assert '"main:app"' in lightsail_render
 
     assert "main_redis:app" not in dockerfile
-    assert "main_redis:app" not in render_config
-    assert "main_redis:app" not in local_stack
+    assert "main_redis:app" not in lightsail_render
 
     assert "tesseract-ocr" in dockerfile
-    assert "runtime: docker" in render_config
     assert "--no-access-log" in dockerfile
-    assert "--no-access-log" in render_config
