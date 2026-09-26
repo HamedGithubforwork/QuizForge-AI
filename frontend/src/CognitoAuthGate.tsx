@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
+import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
@@ -19,7 +20,7 @@ export default function CognitoAuthGate() {
   const [activationMode, setActivationMode] = useState(false)
   const [activationSetup, setActivationSetup] = useState<MigratedActivationSetup | null>(null)
   const [activationComplete, setActivationComplete] = useState(false)
-  const [securityOpen, setSecurityOpen] = useState(false)
+  const [pathname, setPathname] = useState(() => window.location.pathname)
   const [securityStatus, setSecurityStatus] = useState<MfaSecurityStatus | null>(null)
   const [phone, setPhone] = useState('')
   const [phoneCode, setPhoneCode] = useState('')
@@ -42,10 +43,50 @@ export default function CognitoAuthGate() {
       if (active) setAccount(next)
     }).catch(() => { if (active) setError('Sign-in could not be verified. Sign out and start again.') })
       .finally(() => { if (active) setLoading(false) })
-    const unloaded = () => { setAccount(null); setConfirmation(null); setLegacy(null); setActivationMode(false); setActivationSetup(null); setActivationComplete(false); setSecurityOpen(false); setSecurityStatus(null); setPhone(''); setPhoneCode(''); setPhonePending(false); setTotpSecret(''); setTotpCode(''); setPassword(''); setCode('') }
+    const unloaded = () => {
+      setAccount(null)
+      setConfirmation(null)
+      setLegacy(null)
+      setActivationMode(false)
+      setActivationSetup(null)
+      setActivationComplete(false)
+      setSecurityStatus(null)
+      setPhone('')
+      setPhoneCode('')
+      setPhonePending(false)
+      setTotpSecret('')
+      setTotpCode('')
+      setPassword('')
+      setCode('')
+      if (window.location.pathname.startsWith('/settings')) {
+        window.history.replaceState({}, '', '/')
+        setPathname('/')
+      }
+    }
     manager.events.addUserUnloaded(unloaded)
     return () => { active = false; manager.events.removeUserUnloaded(unloaded) }
   }, [])
+
+  useEffect(() => {
+    const onPopState = () => setPathname(window.location.pathname)
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  useEffect(() => {
+    if (!account?.enrolled || pathname !== '/settings/security') return
+    let active = true
+    void session().then(async (current) => {
+      if (!current) throw new Error('Sign in again to manage security settings.')
+      const status = await getMfaSecurityStatus(current.accessToken)
+      if (!active) return
+      setSecurityStatus(status)
+      setPhone(status.phoneNumber)
+    }).catch((caught) => {
+      if (active) setError(caught instanceof Error ? caught.message : 'Could not load security settings.')
+    })
+    return () => { active = false }
+  }, [account?.enrolled, pathname])
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true); setError('')
@@ -131,13 +172,30 @@ export default function CognitoAuthGate() {
     return { current, status }
   }
 
-  async function openSecurity() {
-    setSecurityOpen(true)
+  function navigate(path: string) {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path)
+    }
+    setPathname(path)
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
+  function openSettings(section: SettingsSection) {
     setPhonePending(false)
     setPhoneCode('')
     setTotpSecret('')
     setTotpCode('')
-    await loadSecurityStatus()
+    setError('')
+    navigate(`/settings/${section}`)
+  }
+
+  function leaveSettings() {
+    setPhonePending(false)
+    setPhoneCode('')
+    setTotpSecret('')
+    setTotpCode('')
+    setError('')
+    navigate('/')
   }
 
   async function startTotpEnrollment() {
@@ -226,139 +284,48 @@ export default function CognitoAuthGate() {
   }
   if (loading) return <p role="status">Checking account…</p>
   const logout = <button className="sign-out-button" type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
+  const settingsSection: SettingsSection = pathname === '/settings/security' ? 'security' : 'account'
+  const inSettings = pathname === '/settings' || pathname.startsWith('/settings/')
+
+  if (account?.enrolled && inSettings) return <SettingsPage
+    email={account.email}
+    section={settingsSection}
+    busy={busy}
+    error={error}
+    smsMfaEnabled={config.smsMfaEnabled}
+    securityStatus={securityStatus}
+    phone={phone}
+    phoneCode={phoneCode}
+    phonePending={phonePending}
+    totpSecret={totpSecret}
+    totpCode={totpCode}
+    onSectionChange={openSettings}
+    onBack={leaveSettings}
+    onSignOut={() => void run(async () => { await signOut(); leaveSettings() })}
+    onPhoneChange={setPhone}
+    onPhoneCodeChange={setPhoneCode}
+    onTotpCodeChange={setTotpCode}
+    onStartTotp={() => void startTotpEnrollment()}
+    onFinishTotp={finishTotpEnrollment}
+    onCancelTotp={() => { setTotpSecret(''); setTotpCode('') }}
+    onStartPhone={startPhoneVerification}
+    onFinishPhone={finishPhoneVerification}
+    onCancelPhone={() => { setPhonePending(false); setPhoneCode('') }}
+    onPreferMfa={(method) => void preferMfa(method)}
+    onDisableMfa={() => void disableTwoFactor()}
+    totpUri={totpSecret ? totpSetupUri(totpSecret, account.email) : ''}
+  />
+
   if (account?.enrolled) return <>
     <div className="account-bar"><div className="account-bar-inner">
       <span>Signed in as {account.email}</span>
       <div className="account-bar-actions">
         <button className="account-security-button" type="button" disabled={busy}
-          onClick={() => void run(openSecurity)}>Security</button>
+          onClick={() => openSettings('security')}>Settings</button>
         {logout}
       </div>
     </div></div>
     {error && <p role="alert">{error}</p>}
-    {securityOpen && <section className="security-settings-panel" aria-label="Account security settings">
-      <div className="security-settings-header">
-        <div>
-          <h2>Two-factor authentication</h2>
-          <p>2FA is optional. Turn it on for extra protection, or turn it off at any time.</p>
-        </div>
-        <button type="button" className="security-close-button" disabled={busy}
-          onClick={() => { setSecurityOpen(false); setPhonePending(false); setPhoneCode(''); setTotpSecret(''); setTotpCode(''); setError('') }}>
-          Close
-        </button>
-      </div>
-
-      {securityStatus && <>
-        <div className="security-status-grid">
-          <div>
-            <strong>2FA status</strong>
-            <span>{securityStatus.totpEnabled || securityStatus.smsEnabled ? 'Enabled' : 'Disabled'}</span>
-          </div>
-          <div>
-            <strong>Authenticator app</strong>
-            <span>{securityStatus.totpEnabled ? 'Enabled' : 'Disabled'}</span>
-          </div>
-          <div>
-            <strong>{config.smsMfaEnabled ? 'Preferred method' : 'Text messages'}</strong>
-            <span>{config.smsMfaEnabled
-              ? securityStatus.preferred === 'sms'
-                ? 'Text message'
-                : securityStatus.preferred === 'totp'
-                  ? 'Authenticator app'
-                  : 'Not selected'
-              : 'Coming after AWS SMS approval'}</span>
-          </div>
-        </div>
-
-        {totpSecret ? <form className="security-phone-form" aria-busy={busy} onSubmit={finishTotpEnrollment}>
-          <div className="auth-message">
-            <strong>Authenticator setup key</strong>
-            <code style={{ display: 'block', marginTop: '0.5rem', overflowWrap: 'anywhere' }}>{totpSecret}</code>
-          </div>
-          <p><a href={totpSetupUri(totpSecret, account.email)}>Open in an authenticator app</a></p>
-          <label>
-            <span>6-digit authenticator code</span>
-            <input autoComplete="one-time-code" inputMode="numeric" required pattern="[0-9]{6}"
-              value={totpCode} disabled={busy} onChange={e => setTotpCode(e.target.value)} />
-          </label>
-          <div className="security-form-actions">
-            <button className="auth-submit" disabled={busy}>
-              {busy ? 'Verifying…' : 'Enable authenticator 2FA'}
-            </button>
-            <button type="button" disabled={busy} onClick={() => { setTotpSecret(''); setTotpCode('') }}>
-              Cancel
-            </button>
-          </div>
-        </form> : !securityStatus.totpEnabled && <div className="security-enable-card">
-          <div>
-            <strong>Authenticator app</strong>
-            <p>Use Google Authenticator, Microsoft Authenticator, 1Password, or another TOTP app.</p>
-          </div>
-          <button type="button" disabled={busy} onClick={() => void startTotpEnrollment()}>
-            Enable with authenticator
-          </button>
-        </div>}
-
-        {config.smsMfaEnabled ? <>
-        {phonePending ? <form className="security-phone-form" aria-busy={busy} onSubmit={finishPhoneVerification}>
-          <label>
-            <span>6-digit text-message code</span>
-            <input autoComplete="one-time-code" inputMode="numeric" required pattern="[0-9]{6}"
-              value={phoneCode} disabled={busy} onChange={e => setPhoneCode(e.target.value)} />
-          </label>
-          <div className="security-form-actions">
-            <button className="auth-submit" disabled={busy}>
-              {busy ? 'Verifying…' : 'Verify and use text messages'}
-            </button>
-            <button type="button" disabled={busy} onClick={() => { setPhonePending(false); setPhoneCode('') }}>
-              Cancel
-            </button>
-          </div>
-        </form> : <form className="security-phone-form" aria-busy={busy} onSubmit={startPhoneVerification}>
-          <label>
-            <span>Phone number</span>
-            <input type="tel" autoComplete="tel" required placeholder="+16135551234"
-              value={phone} disabled={busy} onChange={e => setPhone(e.target.value)} />
-          </label>
-          <p>Use international format with country code. We'll send a verification code by SMS.</p>
-          <button className="auth-submit" disabled={busy}>
-            {busy ? 'Sending…' : securityStatus.phoneVerified ? 'Change phone number' : 'Add phone number'}
-          </button>
-        </form>}
-
-        </> : <div className="security-enable-card security-enable-card-muted">
-          <div>
-            <strong>Text-message 2FA</strong>
-            <p>SMS will appear here after AWS approves production messaging access.</p>
-          </div>
-        </div>}
-
-        <div className="security-preference-actions">
-          {securityStatus.totpEnabled && securityStatus.smsEnabled && <>
-            <button type="button" disabled={busy || securityStatus.preferred === 'totp'}
-              onClick={() => void preferMfa('totp')}>
-              Prefer authenticator
-            </button>
-            <button type="button" disabled={busy || securityStatus.preferred === 'sms'}
-              onClick={() => void preferMfa('sms')}>
-              Prefer text messages
-            </button>
-          </>}
-          {(securityStatus.totpEnabled || securityStatus.smsEnabled) && <button
-            type="button"
-            className="security-danger-button"
-            disabled={busy}
-            onClick={() => void disableTwoFactor()}>
-            Disable 2FA
-          </button>}
-        </div>
-
-        <p className="security-cost-note">
-          2FA is optional. If you disable it, future sign-ins use your password without a second-factor challenge.
-          {config.smsMfaEnabled ? ' Standard carrier messaging rates may apply to SMS codes.' : ''}
-        </p>
-      </>}
-    </section>}
     <App />
   </>
   if (!account && activationMode) return <main className="auth-page">
