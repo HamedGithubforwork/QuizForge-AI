@@ -44,7 +44,8 @@ The pre-cleanup archive branch also preserves the disposable AWS staging,
 Cognito-browser rehearsal, RDS rehearsal, temporary Lightsail capacity-test,
 legacy Vercel/Render smoke-test, and one-time domain setup tooling. These paths
 were removed from `main` after the permanent Lightsail/Cognito production stack
-was live and its recovery/canary paths were established. A later cleanup also
+was live and its recovery/canary paths were established.
+Historical temporary-host capacity reports, the controlled OCR comparison, the pre-cutover current-stack acceptance note, and their dedicated capacity/diagnostic evidence were also moved off `main`; they remain available on the archive branch. A later cleanup also
 removed the residual `scripts/cognito_browser/` rehearsal source and its dedicated
 rehearsal guide from `main`; the acceptance evidence it produced remains where it
 is still cited by the retained production acceptance record.
