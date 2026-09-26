@@ -58,6 +58,7 @@ The shared production Python dependency lockfile and database CA bundle remain u
 
 The archive branch also retains the one-time AI activation, first-production-backup
 bootstrap, cached-page backend hotfix, and first-backup diagnostic controllers.
+It also retains the completed September 21 AI budget-overhead benchmark harness, report, and raw measurements after those historical A/B artifacts were removed from `main`.
 Those workflows were removed from `main` after their production changes were
 established. Remaining maintenance workflows now require explicit manual dispatch
 for cloud-mutating staging, recovery, trust-probe, backup activation, and production

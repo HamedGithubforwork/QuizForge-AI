@@ -119,8 +119,9 @@ The production database is not active and has not received this charge yet.
 Do not reset the allowance or drop the canary cost when moving from the
 disposable fixture to production. Real AWS/full-website acceptance remains.
 
-The separate [before/after overhead benchmark](benchmarks/ai-budget-overhead-2026-09-21.md)
-measured about 13–14 ms added median per AI call at concurrency one and 86–94 ms
-under eight continuously active requests on a two-CPU CI fixture. It used real
-TLS database operations and a simulated provider; these are not live Lightsail
-or end-to-end quiz timings. Raw samples and conditions accompany the report.
+A completed September 21 before/after benchmark measured about 13–14 ms added
+median per AI call at concurrency one and 86–94 ms under eight continuously
+active requests on a two-CPU CI fixture. It used real TLS database operations and
+a simulated provider, so the result is not a live Lightsail or end-to-end quiz
+timing. The historical harness, report, and raw samples are preserved on the
+migration archive branch.
