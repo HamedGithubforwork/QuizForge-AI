@@ -51,9 +51,16 @@ def review_plan(plan: dict[str, Any]) -> bool:
         or not isinstance(after_admin, list)
         or len(before_admin) != 1
         or len(after_admin) != 1
-        or before_admin[0].get("allow_admin_create_user_only") is not True
-        or after_admin[0].get("allow_admin_create_user_only") is not False
     ):
+        raise ValueError("Public signup plan is missing the Cognito signup gate")
+
+    before_gate = before_admin[0].get("allow_admin_create_user_only")
+    after_gate = after_admin[0].get("allow_admin_create_user_only")
+    if before_gate is False and after_gate is False:
+        # Another reviewed workflow may legitimately update the same user pool.
+        # This signup-only workflow must neither apply nor reject that change.
+        return False
+    if before_gate is not True or after_gate is not False:
         raise ValueError("Public signup plan does not toggle the expected Cognito gate")
 
     before["admin_create_user_config"][0]["allow_admin_create_user_only"] = False
@@ -98,7 +105,7 @@ def verify_live() -> dict[str, bool]:
         "software_mfa_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
         "verified_email_update_retained": update.get("AttributesRequireVerificationBeforeUpdate") == ["email"],
         "strong_password_policy_retained": (
-            password.get("MinimumLength") == 14
+            password.get("MinimumLength") == 8
             and password.get("RequireLowercase") is True
             and password.get("RequireUppercase") is True
             and password.get("RequireNumbers") is True

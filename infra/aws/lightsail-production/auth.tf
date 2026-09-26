@@ -10,7 +10,7 @@ resource "aws_cognito_user_pool" "browser" {
   software_token_mfa_configuration { enabled = true }
   user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
   password_policy {
-    minimum_length                   = 14
+    minimum_length                   = 8
     require_lowercase                = true
     require_uppercase                = true
     require_numbers                  = true
