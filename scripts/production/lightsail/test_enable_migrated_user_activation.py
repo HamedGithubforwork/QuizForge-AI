@@ -31,6 +31,16 @@ class MigratedUserActivationTests(unittest.TestCase):
     def test_accepts_only_exact_auth_flow_addition(self):
         self.assertTrue(activation.review_plan(plan()))
         self.assertFalse(activation.review_plan({"resource_changes": []}))
+        self.assertFalse(activation.review_plan({
+            "resource_changes": [{
+                "address": "aws_cognito_user_pool.browser",
+                "change": {
+                    "actions": ["update"],
+                    "before": {"password_policy": [{"minimum_length": 14}]},
+                    "after": {"password_policy": [{"minimum_length": 8}]},
+                },
+            }],
+        }))
 
     def test_rejects_unrelated_or_extra_changes(self):
         with self.assertRaises(ValueError):
