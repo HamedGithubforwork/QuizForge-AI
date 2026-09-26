@@ -233,7 +233,7 @@ jobs:
           cp release-source/scripts/production/schema.sql "$root/operations/"
           cp release-source/scripts/production/generation_budget.sql "$root/operations/"
           cp release-source/scripts/production/database.py "$root/operations/"
-          cp release-source/scripts/production/transfer.py "$root/operations/"
+          cp release-source/scripts/production/private_files.py "$root/operations/"
 
           cp release-source/scripts/production/lightsail/quizforge.service "$root/systemd/"
           cp release-source/scripts/production/lightsail/quizforge.slice "$root/systemd/"
