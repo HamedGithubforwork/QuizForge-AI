@@ -14,7 +14,7 @@ from typing import Any, Mapping
 import boto3
 from botocore.exceptions import ClientError
 
-from scripts.production.lightsail.stage_release import (
+from scripts.production.lightsail.host_control import (
     INSTANCE_NAME,
     STATIC_IP_NAME,
     baseline_ports,

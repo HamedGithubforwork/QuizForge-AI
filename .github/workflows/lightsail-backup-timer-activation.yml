@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/lightsail-backup-timer-activation.yml"
       - "scripts/production/lightsail/enable_backup_timers.py"
+      - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/test_enable_backup_timers.py"
       - "scripts/production/systemd/quizforge-backup.timer"
       - "scripts/production/systemd/quizforge-backup-health.timer"

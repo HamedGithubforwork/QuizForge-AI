@@ -25,7 +25,7 @@ except ModuleNotFoundError:
     class ClientError(Exception):
         response: dict[str, Any] = {}
 
-from scripts.production.lightsail.stage_release import (
+from scripts.production.lightsail.host_control import (
     INSTANCE_NAME,
     STATIC_IP_NAME,
     baseline_ports,

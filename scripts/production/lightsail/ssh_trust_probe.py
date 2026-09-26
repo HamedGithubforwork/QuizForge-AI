@@ -15,8 +15,15 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import urllib.request
 from typing import Any, Mapping
+
+from scripts.production.lightsail.host_control import (
+    INSTANCE_NAME,
+    STATIC_IP_NAME,
+    baseline_ports,
+    normalized_ports,
+    runner_ipv4,
+)
 
 try:
     import boto3
@@ -28,14 +35,7 @@ except ModuleNotFoundError:
         response: dict[str, Any] = {}
 
 REGION = "ca-central-1"
-INSTANCE_NAME = "quizforge-production-lightsail-server"
-STATIC_IP_NAME = "quizforge-production-lightsail"
 RESULT = Path("lightsail-ssh-trust-probe/summary.json")
-EXPECTED_PUBLIC = {
-    (22, 22, "tcp", ("__ADMIN_CIDR__",), (), ()),
-    (80, 80, "tcp", ("0.0.0.0/0",), (), ()),
-    (443, 443, "tcp", ("0.0.0.0/0",), (), ()),
-}
 
 
 def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
@@ -43,43 +43,8 @@ def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
     return text if re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", text) else fallback
 
 
-def runner_ipv4() -> str:
-    with urllib.request.urlopen("https://checkip.amazonaws.com", timeout=10) as response:
-        raw = response.read(128).decode("ascii").strip()
-    ip = ipaddress.ip_address(raw)
-    if ip.version != 4:
-        raise ValueError("Runner did not expose IPv4")
-    return str(ip)
-
-
-def normalized_ports(items: list[Mapping[str, Any]]) -> set[tuple[Any, ...]]:
-    return {
-        (
-            item.get("fromPort"),
-            item.get("toPort"),
-            item.get("protocol"),
-            tuple(sorted(item.get("cidrs") or [])),
-            tuple(sorted(item.get("ipv6Cidrs") or [])),
-            tuple(sorted(item.get("cidrListAliases") or [])),
-        )
-        for item in items
-        if isinstance(item, Mapping)
-    }
-
-
 def baseline_expected(items: list[Mapping[str, Any]], admin_cidr: str) -> bool:
-    expected = {
-        (
-            a,
-            b,
-            c,
-            tuple(admin_cidr if value == "__ADMIN_CIDR__" else value for value in d),
-            e,
-            f,
-        )
-        for a, b, c, d, e, f in EXPECTED_PUBLIC
-    }
-    return normalized_ports(items) == expected
+    return normalized_ports(items) == baseline_ports(admin_cidr)
 
 
 def parse_keyscan(stdout: str, expected_ip: str) -> list[dict[str, str]]:

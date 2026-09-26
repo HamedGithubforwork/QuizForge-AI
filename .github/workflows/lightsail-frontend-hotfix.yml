@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/lightsail-frontend-hotfix.yml"
       - "scripts/production/lightsail/frontend_hotfix.py"
+      - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/test_frontend_hotfix.py"
       - "scripts/production/lightsail/release-lock.json"
       - ".github/workflows/lightsail-release-candidate-build.yml"
