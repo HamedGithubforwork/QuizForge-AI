@@ -29,6 +29,7 @@ class PublicSignupTests(unittest.TestCase):
     def test_accepts_only_exact_signup_toggle(self):
         self.assertTrue(signup.review_plan(plan()))
         self.assertFalse(signup.review_plan({"resource_changes": []}))
+        self.assertFalse(signup.review_plan(plan(before_gate=False, after_gate=False)))
 
     def test_rejects_unrelated_or_wrong_direction_changes(self):
         with self.assertRaises(ValueError):
