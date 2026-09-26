@@ -33,8 +33,8 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "Only HTTP/HTTPS and one operator SSH source may be public."
   }
   assert {
-    condition     = !aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && aws_cognito_user_pool.browser.deletion_protection == "ACTIVE" && aws_cognito_user_pool.browser.mfa_configuration == "ON"
-    error_message = "Public signup must be enabled only with retained deletion protection and mandatory MFA."
+    condition     = !aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && aws_cognito_user_pool.browser.deletion_protection == "ACTIVE" && aws_cognito_user_pool.browser.mfa_configuration == "OPTIONAL"
+    error_message = "Public signup must retain deletion protection while MFA remains available but optional."
   }
   assert {
     condition     = aws_cognito_user_pool.browser.password_policy[0].minimum_length == 8 && aws_cognito_user_pool.browser.password_policy[0].require_lowercase && aws_cognito_user_pool.browser.password_policy[0].require_uppercase && aws_cognito_user_pool.browser.password_policy[0].require_numbers && aws_cognito_user_pool.browser.password_policy[0].require_symbols
