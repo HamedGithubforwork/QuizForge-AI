@@ -29,6 +29,7 @@ type QuizHistoryAnalyticsProps = {
   canPracticeHistory: boolean
   isHistoryPracticeGenerating: boolean
   isPracticeGenerating: boolean
+  practiceAvailable: boolean
   onPractice: () => void | Promise<void>
 }
 
@@ -43,6 +44,7 @@ function QuizHistoryAnalytics({
   canPracticeHistory,
   isHistoryPracticeGenerating,
   isPracticeGenerating,
+  practiceAvailable,
   onPractice,
 }: QuizHistoryAnalyticsProps) {
   const analytics =
@@ -346,7 +348,8 @@ function QuizHistoryAnalytics({
                 disabled={
                   !canPracticeHistory ||
                   isHistoryPracticeGenerating ||
-                  isPracticeGenerating
+                  isPracticeGenerating ||
+                  !practiceAvailable
                 }
               >
                 {isHistoryPracticeGenerating ||
