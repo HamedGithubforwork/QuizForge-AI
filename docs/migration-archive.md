@@ -22,8 +22,8 @@ legacy-provider build configuration remain on `main` until that compatibility
 path is deliberately retired.
 
 Ongoing production deployment, Cognito, SMS MFA, backups, disaster recovery,
-cost controls, current canaries, and the general production transfer/recovery
-primitive remain on `main`.
+cost controls, current canaries, and the active production recovery primitives
+remain on `main`.
 
 ## Pre-launch and repair tooling
 
@@ -42,9 +42,12 @@ The pre-cleanup archive branch also preserves the disposable AWS staging,
 Cognito-browser rehearsal, RDS rehearsal, temporary Lightsail capacity-test,
 legacy Vercel/Render smoke-test, and one-time domain setup tooling. These paths
 were removed from `main` after the permanent Lightsail/Cognito production stack
-was live and its recovery/canary paths were established.
+was live and its recovery/canary paths were established. A later cleanup also
+removed the residual `scripts/cognito_browser/` rehearsal source and its dedicated
+rehearsal guide from `main`; the acceptance evidence it produced remains where it
+is still cited by the retained production acceptance record.
 
-The shared production Python dependency lockfile, database CA bundle, and encrypted-history transfer primitive now live under `scripts/production/`; the obsolete `scripts/rds_rehearsal/` directory is no longer required on `main`.
+The shared production Python dependency lockfile and database CA bundle remain under `scripts/production/`. The completed encrypted-history transfer implementation was subsequently retired from `main` after cutover and remains recoverable from this archive branch. The obsolete `scripts/rds_rehearsal/` directory is no longer required on `main`.
 
 
 ## Completed one-time production operations
