@@ -7,6 +7,7 @@ on:
       - "scripts/production/lightsail/enable_public_signup.py"
       - "scripts/production/lightsail/test_enable_public_signup.py"
       - "infra/aws/lightsail-production/main.tf"
+      - "infra/aws/lightsail-production/auth.tf"
       - "infra/aws/lightsail-production/tests/boundaries.tftest.hcl"
       - ".github/workflows/lightsail-production-activation.yml"
   push:
@@ -16,6 +17,7 @@ on:
       - "scripts/production/lightsail/enable_public_signup.py"
       - "scripts/production/lightsail/test_enable_public_signup.py"
       - "infra/aws/lightsail-production/main.tf"
+      - "infra/aws/lightsail-production/auth.tf"
       - "infra/aws/lightsail-production/tests/boundaries.tftest.hcl"
       - ".github/workflows/lightsail-production-activation.yml"
 
