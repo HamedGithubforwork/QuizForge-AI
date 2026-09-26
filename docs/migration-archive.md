@@ -35,6 +35,8 @@ pre-launch source blobs and had begun producing irrelevant post-launch failures.
 
 Ongoing deployment and recovery paths remain separate and active.
 
+The obsolete pre-launch planning/rehearsal guides for disposable ALB/ECS/CloudFront staging, the RDS rehearsal, legacy history transfer, and superseded AWS production-readiness/launch plans were also removed from `main`. They remain available on the archive branch for historical reference without being presented beside current operating documentation.
+
 
 ## Staging, rehearsal, and legacy-provider tooling
 
