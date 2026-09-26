@@ -52,15 +52,6 @@ function scrollToQuiz() {
   }, 150)
 }
 
-function getErrorMessage(
-  caughtError: unknown,
-  fallback: string,
-) {
-  return caughtError instanceof Error
-    ? caughtError.message
-    : fallback
-}
-
 function App() {
   const fileInputRef =
     useRef<HTMLInputElement | null>(null)
@@ -173,10 +164,9 @@ function App() {
       setDocumentResult(data)
     } catch (caughtError) {
       setError(
-        getErrorMessage(
-          caughtError,
-          'Something went wrong while processing the PDF.',
-        ),
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Something went wrong while processing the PDF.',
       )
     } finally {
       setIsProcessing(false)
@@ -278,10 +268,9 @@ function App() {
     } catch (caughtError) {
       setGenerationStage('')
       setError(
-        getErrorMessage(
-          caughtError,
-          'Something went wrong while generating the quiz.',
-        ),
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Something went wrong while generating the quiz.',
       )
     } finally {
       stageTimers.forEach((timer) =>
@@ -380,10 +369,9 @@ function App() {
       scrollToQuiz()
     } catch (caughtError) {
       setError(
-        getErrorMessage(
-          caughtError,
-          fallbackError,
-        ),
+        caughtError instanceof Error
+          ? caughtError.message
+          : fallbackError,
       )
     } finally {
       setIsWeakPracticeGenerating(false)
