@@ -101,7 +101,7 @@ def verify_live() -> dict[str, bool]:
         "deletion_protection_active": pool.get("DeletionProtection") == "ACTIVE",
         "email_username_required": pool.get("UsernameAttributes") == ["email"],
         "email_auto_verified": pool.get("AutoVerifiedAttributes") == ["email"],
-        "mandatory_mfa_retained": pool.get("MfaConfiguration") == "ON",
+        "optional_mfa_retained": pool.get("MfaConfiguration") == "OPTIONAL",
         "software_mfa_retained": mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is True,
         "verified_email_update_retained": update.get("AttributesRequireVerificationBeforeUpdate") == ["email"],
         "strong_password_policy_retained": (
