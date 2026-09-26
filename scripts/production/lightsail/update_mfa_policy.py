@@ -1,4 +1,5 @@
 """Guard the production Cognito MFA update from required to optional."""
+# Retry after concurrent Cognito state updates settled.
 from __future__ import annotations
 
 import copy
