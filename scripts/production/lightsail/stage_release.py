@@ -17,7 +17,6 @@ configuration are emitted in the public summary.
 from __future__ import annotations
 
 import base64
-import hashlib
 import ipaddress
 import json
 import os
@@ -25,8 +24,19 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
-import urllib.request
 from typing import Any, Mapping
+
+from scripts.production.lightsail.host_control import (
+    INSTANCE_NAME,
+    STATIC_IP_NAME,
+    baseline_ports,
+    load_pins,
+    normalized_ports,
+    runner_ipv4,
+    scan_host,
+    scp_command,
+    ssh_command,
+)
 
 try:
     import boto3
@@ -38,11 +48,8 @@ except ModuleNotFoundError:
         response: dict[str, Any] = {}
 
 REGION = "ca-central-1"
-INSTANCE_NAME = "quizforge-production-lightsail-server"
-STATIC_IP_NAME = "quizforge-production-lightsail"
 RESULT = Path("lightsail-app-stage-results/summary.json")
 RELEASE_RE = re.compile(r"^[0-9a-f]{40}$")
-FP_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}$")
 IMAGE_RE = re.compile(
     r"^(?:[0-9]{12}\.dkr\.ecr\.ca-central-1\.amazonaws\.com/quizforge-api|"
     r"docker\.io/library/(?:postgres|redis))@sha256:[a-f0-9]{64}$"
@@ -214,87 +221,6 @@ def safe_code(value: Any, fallback: str = "UNKNOWN") -> str:
     return text if re.fullmatch(r"[A-Za-z0-9._:-]{1,100}",text) else fallback
 
 
-def runner_ipv4() -> str:
-    with urllib.request.urlopen("https://checkip.amazonaws.com",timeout=10) as response:
-        raw=response.read(128).decode("ascii").strip()
-    ip=ipaddress.ip_address(raw)
-    if ip.version!=4:
-        raise ValueError("Runner IPv4 unavailable")
-    return str(ip)
-
-
-def normalized_ports(items: list[Mapping[str,Any]]) -> set[tuple[Any,...]]:
-    return {
-        (
-            item.get("fromPort"),item.get("toPort"),item.get("protocol"),
-            tuple(sorted(item.get("cidrs") or [])),
-            tuple(sorted(item.get("ipv6Cidrs") or [])),
-            tuple(sorted(item.get("cidrListAliases") or [])),
-        )
-        for item in items if isinstance(item,Mapping)
-    }
-
-
-def baseline_ports(admin_cidr: str) -> set[tuple[Any,...]]:
-    return {
-        (22,22,"tcp",(admin_cidr,),(),()),
-        (80,80,"tcp",("0.0.0.0/0",),(),()),
-        (443,443,"tcp",("0.0.0.0/0",),(),()),
-    }
-
-
-def load_pins(path: Path) -> set[tuple[str,str]]:
-    value=json.loads(path.read_text(encoding="utf-8"))
-    if (
-        value.get("schema")!=1
-        or value.get("instance_name")!=INSTANCE_NAME
-        or value.get("trust_basis")!="two_independent_github_runner_network_observations"
-    ):
-        raise ValueError("SSH pin metadata invalid")
-    result=set()
-    for item in value.get("host_keys") or []:
-        if not isinstance(item,Mapping):
-            raise ValueError("SSH pin entry invalid")
-        alg=item.get("algorithm")
-        fp=item.get("fingerprint_sha256")
-        if (
-            alg not in {"ssh-ed25519","ssh-rsa","ecdsa-sha2-nistp256"}
-            or not isinstance(fp,str)
-            or not FP_RE.fullmatch(fp)
-        ):
-            raise ValueError("SSH pin invalid")
-        result.add((alg,fp))
-    if len(result)!=3 or not any(a=="ssh-ed25519" for a,_ in result):
-        raise ValueError("SSH pin set incomplete")
-    return result
-
-
-def scan_host(ip: str, pins: set[tuple[str,str]]) -> str:
-    completed=subprocess.run(
-        ["ssh-keyscan","-T","10","-t","ed25519,ecdsa,rsa",ip],
-        stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,timeout=20,check=False,
-    )
-    lines=[]
-    found=set()
-    for line in completed.stdout.splitlines():
-        parts=line.split()
-        if len(parts)<3 or parts[0]!=ip:
-            continue
-        alg,encoded=parts[1],parts[2]
-        if alg not in {"ssh-ed25519","ssh-rsa","ecdsa-sha2-nistp256"}:
-            continue
-        try:
-            raw=base64.b64decode(encoded,validate=True)
-        except Exception:
-            continue
-        fp="SHA256:"+base64.b64encode(hashlib.sha256(raw).digest()).decode().rstrip("=")
-        found.add((alg,fp))
-        lines.append(line)
-    if found != pins:
-        raise ValueError("Observed SSH host key does not match pinned set")
-    return "\n".join(lines)+"\n"
-
-
 def validate_manifest(path: Path) -> dict[str,Any]:
     value=json.loads(path.read_text(encoding="utf-8"))
     if value.get("schema")!=1 or not RELEASE_RE.fullmatch(str(value.get("release_sha",""))):
@@ -311,24 +237,6 @@ def validate_manifest(path: Path) -> dict[str,Any]:
     if not isinstance(tree,str) or not re.fullmatch(r"[a-f0-9]{64}",tree):
         raise ValueError("Frontend digest invalid")
     return value
-
-
-def ssh_command(key: Path,cert: Path,known: Path,username: str,ip: str,*remote: str) -> list[str]:
-    return [
-        "ssh","-i",str(key),"-o",f"CertificateFile={cert}",
-        "-o",f"UserKnownHostsFile={known}","-o","StrictHostKeyChecking=yes",
-        "-o","IdentitiesOnly=yes","-o","BatchMode=yes","-o","ConnectTimeout=15",
-        f"{username}@{ip}",*remote,
-    ]
-
-
-def scp_command(key: Path,cert: Path,known: Path,username: str,ip: str,source: Path,destination: str) -> list[str]:
-    return [
-        "scp","-q","-i",str(key),"-o",f"CertificateFile={cert}",
-        "-o",f"UserKnownHostsFile={known}","-o","StrictHostKeyChecking=yes",
-        "-o","IdentitiesOnly=yes","-o","BatchMode=yes","-o","ConnectTimeout=15",
-        str(source),f"{username}@{ip}:{destination}",
-    ]
 
 
 def remote_json(command: list[str],script: str) -> dict[str,Any]:
