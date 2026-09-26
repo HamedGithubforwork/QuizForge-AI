@@ -14,15 +14,6 @@ on:
       - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/lightsail_test/**"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/lightsail-production-recovery-drill.yml"
-      - "scripts/production/lightsail/recovery_drill.py"
-      - "scripts/production/lightsail/recovery_drill_remote.sh"
-      - "scripts/production/lightsail/test_recovery_drill.py"
-      - "scripts/production/lightsail/release-lock.json"
-      - "scripts/production/lightsail/public-source.json"
   workflow_dispatch:
 
 permissions:
@@ -50,7 +41,7 @@ jobs:
   recover:
     needs: validate
     if: >-
-      github.event_name == 'push' &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI' &&
       github.run_attempt == 1

@@ -9,12 +9,7 @@ on:
       - "scripts/production/systemd/quizforge-backup.timer"
       - "scripts/production/systemd/quizforge-backup-health.timer"
       - "scripts/production/systemd/quizforge-backup-health.service"
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/lightsail-backup-timer-activation.yml"
-      - "scripts/production/lightsail/enable_backup_timers.py"
-      - "scripts/production/lightsail/test_enable_backup_timers.py"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -45,7 +40,7 @@ jobs:
   activate:
     needs: validate
     if: >-
-      github.event_name == 'push' &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI' &&
       github.run_attempt == 1

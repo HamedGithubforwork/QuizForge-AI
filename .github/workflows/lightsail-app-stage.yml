@@ -7,14 +7,6 @@ on:
       - "scripts/production/lightsail/stage_release.py"
       - "scripts/production/lightsail/test_stage_release.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/lightsail-app-stage.yml"
-      - "scripts/production/lightsail/stage_release.py"
-      - "scripts/production/lightsail/test_stage_release.py"
-      - "scripts/production/lightsail/ssh-host-pins.json"
   workflow_dispatch:
 
 permissions:
@@ -57,7 +49,7 @@ jobs:
   stage:
     needs: validate
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
@@ -135,6 +127,7 @@ jobs:
                 "sts:GetCallerIdentity",
                 "cognito-idp:ListUserPools",
                 "cognito-idp:ListUserPoolClients",
+                "cognito-idp:GetUserPoolMfaConfig",
                 "cognito-idp:DescribeUserPoolDomain",
                 "lightsail:GetInstance",
                 "lightsail:GetStaticIp",

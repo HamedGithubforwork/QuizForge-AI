@@ -6,13 +6,6 @@ on:
       - ".github/workflows/lightsail-ssh-host-trust-probe.yml"
       - "scripts/production/lightsail/ssh_trust_probe.py"
       - "scripts/production/lightsail/test_ssh_trust_probe.py"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/lightsail-ssh-host-trust-probe.yml"
-      - "scripts/production/lightsail/ssh_trust_probe.py"
-      - "scripts/production/lightsail/test_ssh_trust_probe.py"
   workflow_dispatch:
 
 permissions:
@@ -39,7 +32,7 @@ jobs:
   probe:
     needs: validate
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     strategy:

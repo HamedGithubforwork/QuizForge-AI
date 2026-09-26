@@ -13,11 +13,8 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/lightsail-frontend-hotfix.yml"
-      - "scripts/production/lightsail/frontend_hotfix.py"
-      - "scripts/production/lightsail/test_frontend_hotfix.py"
       - "scripts/production/lightsail/release-lock.json"
-
+  workflow_dispatch:
 permissions:
   contents: read
 

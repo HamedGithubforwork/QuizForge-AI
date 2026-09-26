@@ -45,3 +45,13 @@ were removed from `main` after the permanent Lightsail/Cognito production stack
 was live and its recovery/canary paths were established.
 
 The shared production Python dependency lockfile, database CA bundle, and encrypted-history transfer primitive now live under `scripts/production/`; the obsolete `scripts/rds_rehearsal/` directory is no longer required on `main`.
+
+
+## Completed one-time production operations
+
+The archive branch also retains the one-time AI activation, first-production-backup
+bootstrap, cached-page backend hotfix, and first-backup diagnostic controllers.
+Those workflows were removed from `main` after their production changes were
+established. Remaining maintenance workflows now require explicit manual dispatch
+for cloud-mutating staging, recovery, trust-probe, backup activation, and production
+canary operations instead of running merely because their controller code changed.

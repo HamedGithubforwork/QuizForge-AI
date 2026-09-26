@@ -28,7 +28,7 @@ permissions:
 jobs:
   backup:
     if: >-
-      (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && inputs.operation == 'verify')) &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       github.repository == 'HamedGithubforwork/QuizForge-AI'
     runs-on: ubuntu-latest
