@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from scripts.production.lightsail.host_control import load_pins
 from scripts.production.lightsail.stage_release import (
     REMOTE_PREFLIGHT,
-    load_pins,
     preflight_ok,
     validate_manifest,
     write_report,
