@@ -33,7 +33,7 @@ jobs:
       - name: Exercise monetary reservations, concurrent limits, failures and month rollover
         env:
           PRODUCTION_TEST_DB: postgresql://postgres:synthetic-cost-ci@127.0.0.1:5432/quizforge
-          PYTHONPATH: scripts/production:scripts/rds_rehearsal
+          PYTHONPATH: scripts/production
         run: python -m unittest test_generation_costs test_runtime test_lightsail_configuration -v
   configuration:
     runs-on: ubuntu-latest

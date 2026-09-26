@@ -34,3 +34,16 @@ DNS cutover, and launch-failure diagnostic workflows. These were removed from
 pre-launch source blobs and had begun producing irrelevant post-launch failures.
 
 Ongoing deployment and recovery paths remain separate and active.
+
+
+## Staging, rehearsal, and legacy-provider tooling
+
+The pre-cleanup archive branch also preserves the disposable AWS staging,
+Cognito-browser rehearsal, RDS rehearsal, temporary Lightsail capacity-test,
+legacy Vercel/Render smoke-test, and one-time domain setup tooling. These paths
+were removed from `main` after the permanent Lightsail/Cognito production stack
+was live and its recovery/canary paths were established.
+
+The shared hash-locked Python dependency files remain temporarily under
+`scripts/rds_rehearsal/` because active production workflows still consume
+that lockfile. They can be renamed in a later dependency-only refactor.
