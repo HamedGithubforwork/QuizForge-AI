@@ -188,6 +188,14 @@ class PostgreSQLRecovery(unittest.TestCase):
                 '00000000-0000-0000-0000-000000000001',
                 3,'2026-09-21 01:05:00+00',1800
             );
+            INSERT INTO app.study_notification_preferences(
+                user_id,enabled,reminder_time,timezone,minimum_due_cards,
+                created_at,updated_at
+            ) VALUES (
+                '00000000-0000-0000-0000-000000000001',
+                true,'20:30','America/Toronto',3,
+                '2026-09-21 01:06:00+00','2026-09-21 01:06:00+00'
+            );
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
             UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
@@ -203,7 +211,7 @@ class PostgreSQLRecovery(unittest.TestCase):
         cls.target.close()
 
     def setUp(self):
-        self.target.execute("TRUNCATE app.card_review_logs,app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
+        self.target.execute("TRUNCATE app.study_notification_preferences,app.card_review_logs,app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
         self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0,monthly_nano_usd=0,pricing_key='',pricing_valid_until='1970-01-01'")
         self.snapshot = backup.export_snapshot(self.source)
 
@@ -247,6 +255,13 @@ class PostgreSQLRecovery(unittest.TestCase):
                     "SELECT rating,review_duration_ms FROM app.card_review_logs"
                 ).fetchall(),
                 [(3, 1800)],
+            )
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT enabled,reminder_time::text,timezone,minimum_due_cards "
+                    "FROM app.study_notification_preferences"
+                ).fetchall(),
+                [(True, '20:30:00', 'America/Toronto', 3)],
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
