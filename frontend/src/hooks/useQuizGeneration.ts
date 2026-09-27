@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
 import {
+  apiFetch,
+} from '../lib/api.ts'
+import {
   requestQuizGeneration,
 } from '../lib/quizGenerationClient.ts'
 import type {
