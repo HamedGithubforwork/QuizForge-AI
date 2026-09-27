@@ -1,6 +1,6 @@
 import {
   apiFetch,
-} from './api'
+} from './api.ts'
 import type {
   CardCreate,
   DeckCreate,
