@@ -100,6 +100,14 @@ export type CardRow = {
   "source_pages"?: number[]
   "id": string
   "deck_id": string
+  "fsrs_state": 1 | 2 | 3
+  "fsrs_step": number | null
+  "stability": number | null
+  "difficulty": number | null
+  "due_at": string
+  "last_reviewed_at": string | null
+  "review_count": number
+  "lapse_count": number
   "created_at": string
   "updated_at": string
 }
@@ -136,6 +144,26 @@ export type DeckDetail = {
   "created_at": string
   "updated_at": string
   "cards": CardRow[]
+}
+
+export type ReviewRequest = {
+  "card_id": string
+  "rating": 1 | 2 | 3 | 4
+  "review_duration_ms"?: number | null
+}
+
+export type ReviewQueue = {
+  "deck_id": string
+  "deck_name": string
+  "due_count": number
+  "next_due_at": string | null
+  "cards": CardRow[]
+}
+
+export type ReviewResult = {
+  "card": CardRow
+  "remaining_due_count": number
+  "next_due_at": string | null
 }
 
 export type PdfJobResponse = {
@@ -222,6 +250,7 @@ export const API_ROUTES = [
   "GET /api/admin/metrics",
   "GET /api/decks",
   "GET /api/decks/{deck_id}",
+  "GET /api/decks/{deck_id}/review",
   "GET /api/documents/jobs",
   "GET /api/documents/jobs/{job_id}",
   "GET /api/documents/{document_sha256}/pages/{page_number}",
@@ -232,6 +261,7 @@ export const API_ROUTES = [
   "POST /api/answers/review",
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
+  "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",
   "POST /api/quiz-history",
