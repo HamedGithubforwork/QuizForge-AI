@@ -14,6 +14,7 @@ import app_shared
 import history_database
 from history_postgres import PostgresHistoryRepository
 from quiz_history import router
+from decks import router as decks_router
 
 pytestmark = pytest.mark.skipif(os.getenv("TEST_HISTORY_POSTGRES") != "1", reason="Requires isolated TLS PostgreSQL")
 ISSUER = "https://history-test.invalid/auth/v1"
@@ -71,6 +72,7 @@ def api(owner, monkeypatch, request, cognito):
     async def run():
         app = app_shared.create_app()
         app.include_router(router)
+        app.include_router(decks_router)
         def authenticate(request):
             if request.url.host == "cognito-idp.ca-central-1.amazonaws.com":
                 return cognito.handler(request)
@@ -311,3 +313,93 @@ def test_identity_role_refuses_owner_or_history_privileges(enrollment, owner):
                 with pytest.raises(RuntimeError, match='excessive'): await check_identity_role(conn)
         finally: owner.execute('REVOKE SELECT ON app.quiz_history FROM quizforge_identity')
     asyncio.run(scenario())
+
+def test_deck_crud_uses_same_verified_owner_mapping(api):
+    async def scenario():
+        async with api() as (client, _):
+            created = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": " Biology Midterm ",
+                    "description": "Cell biology",
+                    "cards": [{
+                        "question_type": "multiple_choice",
+                        "question": "What organelle produces ATP?",
+                        "answer": {
+                            "correct_index": 1,
+                            "correct_answer": "Mitochondria",
+                            "accepted_answers": ["Mitochondria"],
+                        },
+                        "choices": ["Nucleus", "Mitochondria", "Ribosome"],
+                        "explanation": "Mitochondria perform cellular respiration.",
+                        "source_filename": "notes.pdf",
+                        "document_sha256": "a" * 64,
+                        "source_pages": [14, 12],
+                    }],
+                },
+            )
+            assert created.status_code == 201, created.text
+            body = created.json()
+            assert body["name"] == "Biology Midterm"
+            assert body["card_count"] == 1
+            assert body["cards"][0]["source_pages"] == [12, 14]
+            deck_id = body["id"]
+
+            listed = await client.get("/api/decks", headers=headers())
+            assert listed.status_code == 200
+            assert [item["id"] for item in listed.json()] == [deck_id]
+
+            other_list = await client.get("/api/decks", headers=headers("valid-b"))
+            assert other_list.status_code == 200
+            assert other_list.json() == []
+            assert (
+                await client.get(
+                    f"/api/decks/{deck_id}",
+                    headers=headers("valid-b"),
+                )
+            ).status_code == 404
+
+            added = await client.post(
+                f"/api/decks/{deck_id}/cards",
+                headers=headers(),
+                json={
+                    "cards": [{
+                        "question_type": "short_answer",
+                        "question": "What is ATP?",
+                        "answer": {"correct_answer": "Adenosine triphosphate"},
+                        "choices": None,
+                        "explanation": None,
+                        "source_filename": "notes.pdf",
+                        "document_sha256": "a" * 64,
+                        "source_pages": [15],
+                    }]
+                },
+            )
+            assert added.status_code == 201, added.text
+            assert added.json()["card_count"] == 2
+
+            renamed = await client.patch(
+                f"/api/decks/{deck_id}",
+                headers=headers(),
+                json={"name": "Exam Review"},
+            )
+            assert renamed.status_code == 200
+            assert renamed.json()["name"] == "Exam Review"
+
+            assert (
+                await client.delete(
+                    f"/api/decks/{deck_id}",
+                    headers=headers("valid-b"),
+                )
+            ).status_code == 404
+            assert (
+                await client.delete(
+                    f"/api/decks/{deck_id}",
+                    headers=headers(),
+                )
+            ).status_code == 204
+            assert (await client.get("/api/decks", headers=headers())).json() == []
+
+    asyncio.run(scenario())
+
