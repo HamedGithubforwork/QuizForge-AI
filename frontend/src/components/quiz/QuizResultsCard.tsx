@@ -6,9 +6,14 @@ import {
 import type {
   MasteryContext,
   QuestionTypeScore,
+  QuizResult,
+  UploadResult,
 } from '../../types/quiz'
+import SaveDeckPanel from './SaveDeckPanel.tsx'
 
 type QuizResultsCardProps = {
+  quiz: QuizResult
+  documentResult: UploadResult
   questionCount: number
   score: number
   percentage: number
@@ -37,6 +42,8 @@ type QuizResultsCardProps = {
 }
 
 function QuizResultsCard({
+  quiz,
+  documentResult,
   questionCount,
   score,
   percentage,
@@ -230,6 +237,11 @@ function QuizResultsCard({
             </span>
           </div>
         )}
+
+      <SaveDeckPanel
+        quiz={quiz}
+        documentResult={documentResult}
+      />
 
       <div className="result-actions">
         <button
