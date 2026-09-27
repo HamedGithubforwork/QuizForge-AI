@@ -15,6 +15,7 @@ import history_database
 from history_postgres import PostgresHistoryRepository
 from quiz_history import router
 from decks import router as decks_router
+from study_notifications import router as study_notifications_router
 
 pytestmark = pytest.mark.skipif(os.getenv("TEST_HISTORY_POSTGRES") != "1", reason="Requires isolated TLS PostgreSQL")
 ISSUER = "https://history-test.invalid/auth/v1"
@@ -73,6 +74,7 @@ def api(owner, monkeypatch, request, cognito):
         app = app_shared.create_app()
         app.include_router(router)
         app.include_router(decks_router)
+        app.include_router(study_notifications_router)
         def authenticate(request):
             if request.url.host == "cognito-idp.ca-central-1.amazonaws.com":
                 return cognito.handler(request)
@@ -468,6 +470,81 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert owner.execute(
                 "SELECT count(*) FROM app.card_review_logs"
             ).fetchone()[0] == 0
+
+    asyncio.run(scenario())
+
+def test_study_notification_preferences_use_verified_owner_mapping(api, owner):
+    async def scenario():
+        async with api() as (client, _):
+            initial = await client.get(
+                "/api/study-notifications/preferences",
+                headers=headers(),
+            )
+            assert initial.status_code == 200
+            assert initial.json() == {
+                "enabled": False,
+                "reminder_time": "19:00:00",
+                "timezone": "America/Toronto",
+                "minimum_due_cards": 1,
+            }
+
+            saved = await client.put(
+                "/api/study-notifications/preferences",
+                headers=headers(),
+                json={
+                    "enabled": True,
+                    "reminder_time": "20:30",
+                    "timezone": "America/Toronto",
+                    "minimum_due_cards": 3,
+                },
+            )
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["enabled"] is True
+            assert saved.json()["minimum_due_cards"] == 3
+
+            other = await client.get(
+                "/api/study-notifications/preferences",
+                headers=headers("valid-b"),
+            )
+            assert other.status_code == 200
+            assert other.json()["enabled"] is False
+            assert other.json()["minimum_due_cards"] == 1
+
+            row = owner.execute(
+                """SELECT user_id,enabled,reminder_time::text,timezone,minimum_due_cards
+                   FROM app.study_notification_preferences"""
+            ).fetchall()
+            assert row == [
+                (
+                    USERS[0],
+                    True,
+                    "20:30:00",
+                    "America/Toronto",
+                    3,
+                )
+            ]
+
+            other_saved = await client.put(
+                "/api/study-notifications/preferences",
+                headers=headers("valid-b"),
+                json={
+                    "enabled": True,
+                    "reminder_time": "08:15",
+                    "timezone": "America/Vancouver",
+                    "minimum_due_cards": 2,
+                },
+            )
+            assert other_saved.status_code == 200
+
+            rows = owner.execute(
+                """SELECT user_id,timezone,minimum_due_cards
+                   FROM app.study_notification_preferences
+                   ORDER BY user_id"""
+            ).fetchall()
+            assert rows == [
+                (USERS[0], "America/Toronto", 3),
+                (USERS[1], "America/Vancouver", 2),
+            ]
 
     asyncio.run(scenario())
 
