@@ -44,8 +44,8 @@ async def check_application_role(conn):
         raise RuntimeError("History requires a restricted application database role")
     tables = await (await conn.execute("""SELECT tablename, rowsecurity, tableowner=current_user AS owned
         FROM pg_tables WHERE schemaname='app'
-        AND tablename IN ('quiz_history','user_identities','decks','cards')""")).fetchall()
-    if len(tables) != 4 or any(row["owned"] or not row["rowsecurity"] for row in tables):
+        AND tablename IN ('quiz_history','user_identities','decks','cards','card_review_logs')""")).fetchall()
+    if len(tables) != 5 or any(row["owned"] or not row["rowsecurity"] for row in tables):
         raise RuntimeError("Application data requires separate table ownership and enabled RLS")
     privileges = await (await conn.execute("""SELECT
         has_schema_privilege(current_user,'app','CREATE') AS schema_create,
@@ -58,10 +58,25 @@ async def check_application_role(conn):
         has_table_privilege(current_user,'app.cards','UPDATE') AS full_update_cards,
         has_column_privilege(current_user,'app.cards','user_id','UPDATE') AS update_card_owner,
         has_column_privilege(current_user,'app.cards','deck_id','UPDATE') AS move_card_owner,
+        has_table_privilege(current_user,'app.card_review_logs','UPDATE,DELETE,TRUNCATE') AS mutate_review_logs,
+        has_any_column_privilege(current_user,'app.card_review_logs','UPDATE') AS update_review_log_columns,
         has_table_privilege(current_user,'app.user_identities','INSERT,UPDATE,DELETE,TRUNCATE') AS write_identities,
         has_table_privilege(current_user,'app.users','INSERT,UPDATE,DELETE,TRUNCATE') AS write_users""")).fetchone()
     if any(privileges.values()):
-        raise RuntimeError("History database role has excessive privileges")
+        raise RuntimeError("Application database role has excessive privileges")
+
+    required = await (await conn.execute("""SELECT
+        has_table_privilege(current_user,'app.card_review_logs','SELECT,INSERT') AS review_log_access,
+        has_column_privilege(current_user,'app.cards','fsrs_state','UPDATE') AS update_fsrs_state,
+        has_column_privilege(current_user,'app.cards','fsrs_step','UPDATE') AS update_fsrs_step,
+        has_column_privilege(current_user,'app.cards','stability','UPDATE') AS update_stability,
+        has_column_privilege(current_user,'app.cards','difficulty','UPDATE') AS update_difficulty,
+        has_column_privilege(current_user,'app.cards','due_at','UPDATE') AS update_due_at,
+        has_column_privilege(current_user,'app.cards','last_reviewed_at','UPDATE') AS update_last_reviewed_at,
+        has_column_privilege(current_user,'app.cards','review_count','UPDATE') AS update_review_count,
+        has_column_privilege(current_user,'app.cards','lapse_count','UPDATE') AS update_lapse_count""")).fetchone()
+    if not all(required.values()):
+        raise RuntimeError("Application database role is missing review privileges")
 
 
 class _SafePoolLog(logging.Filter):
