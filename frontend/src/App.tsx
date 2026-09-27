@@ -18,6 +18,9 @@ import {
   useQuizAttempt,
 } from './hooks/useQuizAttempt.ts'
 import {
+  useQuizGeneration,
+} from './hooks/useQuizGeneration.ts'
+import {
   apiFetch,
 } from './lib/api.ts'
 import {
@@ -27,12 +30,9 @@ import {
   buildCurrentQuizPracticeFocus,
 } from './lib/currentQuizPractice.ts'
 import type {
-  GeneratedSettings,
   MasteryContext,
   PracticeFocus,
-  QuestionMode,
   QuestionType,
-  QuizResult,
   UploadResult,
 } from './types/quiz.ts'
 
@@ -66,24 +66,8 @@ function App() {
     useState<File | null>(null)
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
-  const [quiz, setQuiz] =
-    useState<QuizResult | null>(null)
-  const [
-    generatedSettings,
-    setGeneratedSettings,
-  ] = useState<GeneratedSettings | null>(null)
-  const [questionCount, setQuestionCount] =
-    useState(5)
-  const [difficulty, setDifficulty] =
-    useState('medium')
-  const [questionType, setQuestionType] =
-    useState<QuestionMode>('multiple_choice')
   const [isProcessing, setIsProcessing] =
     useState(false)
-  const [isGenerating, setIsGenerating] =
-    useState(false)
-  const [generationStage, setGenerationStage] =
-    useState('')
   const [error, setError] = useState('')
   const [
     historyRefreshKey,
@@ -100,10 +84,17 @@ function App() {
   const [masteryContext, setMasteryContext] =
     useState<MasteryContext | null>(null)
 
-  const attempt = useQuizAttempt({
-    quiz,
+  const generation = useQuizGeneration({
+    selectedFile,
     documentResult,
-    generatedSettings,
+    setError,
+  })
+
+  const attempt = useQuizAttempt({
+    quiz: generation.quiz,
+    documentResult,
+    generatedSettings:
+      generation.generatedSettings,
     setError,
     onHistorySaved: () => {
       setHistoryRefreshKey(
@@ -120,8 +111,7 @@ function App() {
 
   function resetProcessedDocument() {
     setDocumentResult(null)
-    setQuiz(null)
-    setGeneratedSettings(null)
+    generation.resetQuizState()
     attempt.resetAttempt()
     resetPracticeMode()
   }
@@ -134,7 +124,7 @@ function App() {
 
     setSelectedFile(file)
     resetProcessedDocument()
-    setGenerationStage('')
+    generation.clearGenerationStage()
     setError('')
   }
 
@@ -180,94 +170,13 @@ function App() {
   }
 
   async function handleGenerateQuiz() {
-    if (!selectedFile) {
-      setError('Please choose a PDF first.')
-      return
-    }
-
-    if (!documentResult) {
-      setError(
-        'Process the PDF before generating a quiz.',
-      )
-      return
-    }
-
-    if (documentResult.scanned_likely) {
-      setError(
-        documentResult.warning ||
-          'This PDF does not contain enough selectable text.',
-      )
-      return
-    }
-
-    const settingsForRequest:
-      GeneratedSettings = {
-        questionCount,
-        difficulty,
-        questionType,
-      }
-
-    setIsGenerating(true)
-    setGenerationStage(
-      'Analyzing document...',
-    )
-    setError('')
-    attempt.resetAttempt()
-    resetPracticeMode()
-
-    const stageTimers: number[] = []
-
-    stageTimers.push(
-      window.setTimeout(() => {
-        setGenerationStage(
-          'Building questions...',
-        )
-      }, 1000),
-    )
-    stageTimers.push(
-      window.setTimeout(() => {
-        setGenerationStage(
-          'Validating quiz...',
-        )
-      }, 3500),
-    )
-
-    try {
-      const data =
-        await requestQuizGeneration(
-          apiFetch,
-          {
-            file: selectedFile,
-            questionCount,
-            difficulty,
-            questionType,
-          },
-          'Quiz generation failed.',
-        )
-
-      setGenerationStage('Quiz ready!')
-      setQuiz(data)
-      setGeneratedSettings(
-        settingsForRequest,
-      )
-
-      scrollToQuiz()
-    } catch (caughtError) {
-      setGenerationStage('')
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Something went wrong while generating the quiz.',
-      )
-    } finally {
-      stageTimers.forEach((timer) =>
-        window.clearTimeout(timer),
-      )
-      setIsGenerating(false)
-      window.setTimeout(() => {
-        setGenerationStage('')
-      }, 900)
-    }
+    await generation.generateQuiz({
+      beforeGenerate: () => {
+        attempt.resetAttempt()
+        resetPracticeMode()
+      },
+      afterGenerate: scrollToQuiz,
+    })
   }
 
   async function generateWeakAreaPractice({
@@ -285,8 +194,9 @@ function App() {
     }
 
     const practiceDifficulty =
-      generatedSettings?.difficulty ??
-      difficulty
+      generation.generatedSettings
+        ?.difficulty ??
+      generation.difficulty
 
     setIsWeakPracticeGenerating(true)
     setError('')
@@ -312,15 +222,17 @@ function App() {
           responseError,
         )
 
-      setQuiz(data)
-      setGeneratedSettings({
-        questionCount:
-          data.questions.length,
-        difficulty:
-          practiceDifficulty,
-        questionType:
-          practiceQuestionType,
-      })
+      generation.replaceGeneratedQuiz(
+        data,
+        {
+          questionCount:
+            data.questions.length,
+          difficulty:
+            practiceDifficulty,
+          questionType:
+            practiceQuestionType,
+        },
+      )
       attempt.resetAttempt()
       setPracticeMode(true)
       setPracticeFocus({
@@ -350,7 +262,7 @@ function App() {
 
   async function handlePracticeWeakAreas() {
     if (
-      !quiz ||
+      !generation.quiz ||
       !selectedFile ||
       !attempt.showResults
     ) {
@@ -359,7 +271,7 @@ function App() {
 
     const focus =
       buildCurrentQuizPracticeFocus(
-        quiz,
+        generation.quiz,
         attempt.selectedAnswers,
         attempt.isQuestionCorrect,
       )
@@ -419,17 +331,14 @@ function App() {
 
   async function handleGenerateNewQuiz() {
     setError('')
-    setQuiz(null)
+    generation.clearQuiz()
     await handleGenerateQuiz()
   }
 
   function handleUploadNewPdf() {
     setSelectedFile(null)
     resetProcessedDocument()
-    setQuestionCount(5)
-    setDifficulty('medium')
-    setQuestionType('multiple_choice')
-    setGenerationStage('')
+    generation.resetSettings()
     setError('')
 
     if (fileInputRef.current) {
@@ -492,11 +401,21 @@ function App() {
             />
 
             <QuizSettingsPanel
-              questionCount={questionCount}
-              difficulty={difficulty}
-              questionType={questionType}
-              hasQuiz={Boolean(quiz)}
-              isGenerating={isGenerating}
+              questionCount={
+                generation.questionCount
+              }
+              difficulty={
+                generation.difficulty
+              }
+              questionType={
+                generation.questionType
+              }
+              hasQuiz={Boolean(
+                generation.quiz,
+              )}
+              isGenerating={
+                generation.isGenerating
+              }
               isWeakPracticeGenerating={
                 isWeakPracticeGenerating
               }
@@ -504,30 +423,30 @@ function App() {
                 documentResult.scanned_likely
               }
               generationStage={
-                generationStage
+                generation.generationStage
               }
               onQuestionCountChange={
-                setQuestionCount
+                generation.setQuestionCount
               }
               onDifficultyChange={
-                setDifficulty
+                generation.setDifficulty
               }
               onQuestionTypeChange={
-                setQuestionType
+                generation.setQuestionType
               }
               onGenerateQuiz={
                 handleGenerateQuiz
               }
             />
 
-            {quiz ? (
+            {generation.quiz ? (
               <QuizSession
-                quiz={quiz}
+                quiz={generation.quiz}
                 documentResult={
                   documentResult
                 }
                 generatedSettings={
-                  generatedSettings
+                  generation.generatedSettings
                 }
                 selectedAnswers={
                   attempt.selectedAnswers
@@ -581,7 +500,9 @@ function App() {
                 isWeakPracticeGenerating={
                   isWeakPracticeGenerating
                 }
-                isGenerating={isGenerating}
+                isGenerating={
+                  generation.isGenerating
+                }
                 saveMessage={
                   attempt.saveMessage
                 }
