@@ -7,13 +7,15 @@ import {
 import type { Session } from '@supabase/supabase-js'
 
 import App from './App'
+import {
+  AuthLoadingView,
+  PasswordResetView,
+  SignedInAccountBar,
+  SignedOutAuthView,
+  type AuthMode,
+} from './components/auth/LegacyAuthViews.tsx'
 import './AuthGate.css'
 import { supabase } from './lib/supabase'
-
-type AuthMode =
-  | 'login'
-  | 'signup'
-  | 'forgot'
 
 function AuthGate() {
   const [session, setSession] =
@@ -294,373 +296,56 @@ function AuthGate() {
   }
 
   if (loading) {
-    return (
-      <main className="auth-page">
-        <section
-          className="auth-card loading-card"
-          aria-busy="true"
-        >
-          <div className="auth-logo">
-            QF
-          </div>
-
-          <div
-            className="auth-spinner"
-            aria-hidden="true"
-          />
-
-          <p>
-            Loading QuizForge...
-          </p>
-        </section>
-      </main>
-    )
+    return <AuthLoadingView />
   }
 
   if (resettingPassword) {
     return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <div className="auth-brand">
-            <div className="auth-logo">
-              QF
-            </div>
-
-            <div>
-              <h1>
-                QuizForge AI
-              </h1>
-
-              <p>
-                AI-generated practice
-                quizzes from your study
-                material.
-              </p>
-            </div>
-          </div>
-
-          <div className="auth-heading">
-            <h2>
-              Set a new password
-            </h2>
-
-            <p>
-              Choose a new password for your account.
-            </p>
-          </div>
-
-          <form
-            className="auth-form"
-            onSubmit={handlePasswordReset}
-          >
-            <label>
-              <span>New password</span>
-
-              <input
-                type="password"
-                value={newPassword}
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
-                disabled={submitting}
-                onChange={(event) =>
-                  setNewPassword(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>Confirm new password</span>
-
-              <input
-                type="password"
-                value={confirmPassword}
-                autoComplete="new-password"
-                placeholder="Enter it again"
-                disabled={submitting}
-                onChange={(event) =>
-                  setConfirmPassword(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            {error && (
-              <div
-                className="auth-error"
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            <button
-              className="auth-submit"
-              type="submit"
-              disabled={submitting}
-            >
-              {submitting
-                ? 'Updating password...'
-                : 'Update Password'}
-            </button>
-          </form>
-        </section>
-      </main>
+      <PasswordResetView
+        newPassword={newPassword}
+        confirmPassword={
+          confirmPassword
+        }
+        submitting={submitting}
+        error={error}
+        onNewPasswordChange={
+          setNewPassword
+        }
+        onConfirmPasswordChange={
+          setConfirmPassword
+        }
+        onSubmit={
+          handlePasswordReset
+        }
+      />
     )
   }
 
   if (!session) {
-    const isForgotMode =
-      mode === 'forgot'
-
     return (
-      <main className="auth-page">
-        <section className="auth-card">
-          <div className="auth-brand">
-            <div className="auth-logo">
-              QF
-            </div>
-
-            <div>
-              <h1>
-                QuizForge AI
-              </h1>
-
-              <p>
-                AI-generated practice
-                quizzes from your study
-                material.
-              </p>
-            </div>
-          </div>
-
-          {!isForgotMode && (
-            <div className="auth-tabs">
-              <button
-                type="button"
-                className={
-                  mode === 'login'
-                    ? 'auth-tab active'
-                    : 'auth-tab'
-                }
-                aria-pressed={
-                  mode === 'login'
-                }
-                onClick={() =>
-                  changeMode('login')
-                }
-              >
-                Log In
-              </button>
-
-              <button
-                type="button"
-                className={
-                  mode === 'signup'
-                    ? 'auth-tab active'
-                    : 'auth-tab'
-                }
-                aria-pressed={
-                  mode === 'signup'
-                }
-                onClick={() =>
-                  changeMode('signup')
-                }
-              >
-                Create Account
-              </button>
-            </div>
-          )}
-
-          <div className="auth-heading">
-            <h2>
-              {mode === 'login'
-                ? 'Welcome back'
-                : mode === 'signup'
-                  ? 'Create your account'
-                  : 'Reset your password'}
-            </h2>
-
-            <p>
-              {mode === 'login'
-                ? 'Log in to continue to QuizForge.'
-                : mode === 'signup'
-                  ? 'Create an account to start using QuizForge.'
-                  : 'Enter your email and we will send you a password reset link.'}
-            </p>
-          </div>
-
-          <form
-            className="auth-form"
-            onSubmit={handleSubmit}
-          >
-            <label>
-              <span>Email</span>
-
-              <input
-                type="email"
-                value={email}
-                autoComplete="email"
-                placeholder="you@example.com"
-                disabled={submitting}
-                onChange={(event) =>
-                  setEmail(
-                    event.target.value,
-                  )
-                }
-              />
-            </label>
-
-            {!isForgotMode && (
-              <label>
-                <span>Password</span>
-
-                <input
-                  type="password"
-                  value={password}
-                  autoComplete={
-                    mode === 'signup'
-                      ? 'new-password'
-                      : 'current-password'
-                  }
-                  placeholder={
-                    mode === 'signup'
-                      ? 'At least 8 characters'
-                      : 'Enter your password'
-                  }
-                  disabled={submitting}
-                  onChange={(event) =>
-                    setPassword(
-                      event.target.value,
-                    )
-                  }
-                />
-              </label>
-            )}
-
-            {mode === 'login' && (
-              <div className="auth-forgot">
-                <button
-                  type="button"
-                  onClick={() =>
-                    changeMode('forgot')
-                  }
-                >
-                  Forgot password?
-                </button>
-              </div>
-            )}
-
-            {error && (
-              <div
-                className="auth-error"
-                role="alert"
-              >
-                {error}
-              </div>
-            )}
-
-            {message && (
-              <div
-                className="auth-message"
-                role="status"
-                aria-live="polite"
-              >
-                {message}
-              </div>
-            )}
-
-            <button
-              className="auth-submit"
-              type="submit"
-              disabled={submitting}
-            >
-              {submitting
-                ? mode === 'login'
-                  ? 'Logging in...'
-                  : mode === 'signup'
-                    ? 'Creating account...'
-                    : 'Sending reset link...'
-                : mode === 'login'
-                  ? 'Log In'
-                  : mode === 'signup'
-                    ? 'Create Account'
-                    : 'Send Reset Link'}
-            </button>
-          </form>
-
-          {isForgotMode ? (
-            <p className="auth-switch">
-              Remember your password?
-
-              {' '}
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeMode('login')
-                }
-              >
-                Back to log in
-              </button>
-            </p>
-          ) : (
-            <p className="auth-switch">
-              {mode === 'login'
-                ? "Don't have an account?"
-                : 'Already have an account?'}
-
-              {' '}
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeMode(
-                    mode === 'login'
-                      ? 'signup'
-                      : 'login',
-                  )
-                }
-              >
-                {mode === 'login'
-                  ? 'Create one'
-                  : 'Log in'}
-              </button>
-            </p>
-          )}
-        </section>
-      </main>
+      <SignedOutAuthView
+        mode={mode}
+        email={email}
+        password={password}
+        submitting={submitting}
+        error={error}
+        message={message}
+        onModeChange={changeMode}
+        onEmailChange={setEmail}
+        onPasswordChange={setPassword}
+        onSubmit={handleSubmit}
+      />
     )
   }
 
   return (
     <>
-      <div className="account-bar">
-        <div className="account-bar-inner">
-          <div className="account-info">
-            <span className="account-dot" />
-
-            <span>
-              Signed in as
-            </span>
-
-            <strong>
-              {session.user.email}
-            </strong>
-          </div>
-
-          <button
-            className="sign-out-button"
-            type="button"
-            onClick={handleSignOut}
-          >
-            Sign Out
-          </button>
-        </div>
-      </div>
-
+      <SignedInAccountBar
+        email={session.user.email}
+        onSignOut={() => {
+          void handleSignOut()
+        }}
+      />
       <App />
     </>
   )
