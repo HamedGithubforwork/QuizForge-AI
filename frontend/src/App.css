@@ -1371,6 +1371,105 @@ button {
 }
 
 
+.study-deck-save {
+  margin-top: 28px;
+  padding: 20px;
+
+  border: 1px solid #d9d6f7;
+  border-radius: 16px;
+
+  background: rgba(255, 255, 255, 0.78);
+
+  text-align: left;
+}
+
+.study-deck-copy {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 20px;
+}
+
+.study-deck-copy h3 {
+  margin: 4px 0 6px;
+
+  color: #2f3650;
+}
+
+.study-deck-copy p {
+  margin: 0;
+
+  color: #6c7384;
+
+  line-height: 1.5;
+}
+
+.study-deck-form {
+  display: grid;
+
+  gap: 14px;
+
+  margin-top: 18px;
+}
+
+.study-deck-form label {
+  display: grid;
+
+  gap: 7px;
+
+  color: #444b60;
+
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.study-deck-form input {
+  width: 100%;
+
+  padding: 12px 14px;
+
+  border: 1px solid #d9dce7;
+  border-radius: 10px;
+
+  outline: none;
+
+  background: white;
+
+  color: #2f3650;
+}
+
+.study-deck-form input:focus {
+  border-color: #7267eb;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(114, 103, 235, 0.12);
+}
+
+.study-deck-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 10px;
+}
+
+.study-deck-message {
+  margin: 14px 0 0;
+
+  color: #27734a;
+
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.study-deck-error {
+  color: #b23c3c;
+}
+
+
 /* PREVIEWS */
 
 .preview-grid {
@@ -1452,6 +1551,16 @@ button {
 
   .score-breakdown {
     grid-template-columns: 1fr;
+  }
+
+  .study-deck-copy {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .study-deck-copy .button,
+  .study-deck-actions .button {
+    width: 100%;
   }
 
   .result-actions {
