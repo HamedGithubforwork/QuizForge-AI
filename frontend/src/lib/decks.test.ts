@@ -4,6 +4,8 @@ import test from 'node:test'
 import {
   buildDeckCreatePayload,
   createStudyDeck,
+  getStudyDeck,
+  listStudyDecks,
 } from './decks.ts'
 import type {
   QuizResult,
@@ -211,3 +213,144 @@ test(
     )
   },
 )
+
+test(
+  'listStudyDecks loads deck summaries',
+  async () => {
+    let path = ''
+
+    const decks =
+      await listStudyDecks(
+        async (requestPath) => {
+          path = requestPath
+          return new Response(
+            JSON.stringify([
+              {
+                id: '11111111-1111-4111-8111-111111111111',
+                name: 'Biology Midterm',
+                description: null,
+                card_count: 12,
+                created_at:
+                  '2026-09-27T15:00:00Z',
+                updated_at:
+                  '2026-09-27T15:30:00Z',
+              },
+            ]),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(path, '/api/decks')
+    assert.equal(decks.length, 1)
+    assert.equal(
+      decks[0].card_count,
+      12,
+    )
+  },
+)
+
+test(
+  'getStudyDeck encodes the deck id and loads cards',
+  async () => {
+    let path = ''
+
+    const deck =
+      await getStudyDeck(
+        'deck/id',
+        async (requestPath) => {
+          path = requestPath
+          return new Response(
+            JSON.stringify({
+              id: '11111111-1111-4111-8111-111111111111',
+              name: 'Biology Midterm',
+              description: null,
+              card_count: 1,
+              created_at:
+                '2026-09-27T15:00:00Z',
+              updated_at:
+                '2026-09-27T15:30:00Z',
+              cards: [
+                {
+                  question_type:
+                    'short_answer',
+                  question:
+                    'What is ATP?',
+                  answer: {
+                    correct_answer:
+                      'Adenosine triphosphate',
+                  },
+                  choices: null,
+                  explanation: null,
+                  source_filename:
+                    'biology.pdf',
+                  document_sha256:
+                    'a'.repeat(64),
+                  source_pages: [3, 5],
+                  id: '22222222-2222-4222-8222-222222222222',
+                  deck_id:
+                    '11111111-1111-4111-8111-111111111111',
+                  created_at:
+                    '2026-09-27T15:00:00Z',
+                  updated_at:
+                    '2026-09-27T15:00:00Z',
+                },
+              ],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid',
+    )
+    assert.equal(
+      deck.cards[0]
+        .source_pages?.join(','),
+      '3,5',
+    )
+  },
+)
+
+test(
+  'deck reads use safe fallback errors for empty failures',
+  async () => {
+    await assert.rejects(
+      () =>
+        listStudyDecks(
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not load your study decks/,
+    )
+
+    await assert.rejects(
+      () =>
+        getStudyDeck(
+          'missing',
+          async () =>
+            new Response(null, {
+              status: 404,
+            }),
+        ),
+      /Could not load this study deck/,
+    )
+  },
+)
+
