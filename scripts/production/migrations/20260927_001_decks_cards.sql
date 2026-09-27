@@ -63,7 +63,7 @@ CREATE TABLE app.cards (
         document_sha256 IS NULL
         OR document_sha256 ~ '^[a-f0-9]{64}$'
     ),
-    source_page integer CHECK (source_page IS NULL OR source_page > 0),
+    source_pages integer[] NOT NULL DEFAULT '{}' CHECK (0 < ALL (source_pages)),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (deck_id, user_id)
@@ -90,7 +90,7 @@ GRANT UPDATE (
     explanation,
     source_filename,
     document_sha256,
-    source_page,
+    source_pages,
     updated_at
 ) ON app.cards TO quizforge_app;
 
