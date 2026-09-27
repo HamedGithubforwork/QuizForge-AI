@@ -43,13 +43,21 @@ async def check_application_role(conn):
     if role is None or any(role.values()):
         raise RuntimeError("History requires a restricted application database role")
     tables = await (await conn.execute("""SELECT tablename, rowsecurity, tableowner=current_user AS owned
-        FROM pg_tables WHERE schemaname='app' AND tablename IN ('quiz_history','user_identities')""")).fetchall()
-    if len(tables) != 2 or any(row["owned"] or not row["rowsecurity"] for row in tables):
-        raise RuntimeError("History requires separate table ownership and enabled RLS")
+        FROM pg_tables WHERE schemaname='app'
+        AND tablename IN ('quiz_history','user_identities','decks','cards')""")).fetchall()
+    if len(tables) != 4 or any(row["owned"] or not row["rowsecurity"] for row in tables):
+        raise RuntimeError("Application data requires separate table ownership and enabled RLS")
     privileges = await (await conn.execute("""SELECT
         has_schema_privilege(current_user,'app','CREATE') AS schema_create,
         has_table_privilege(current_user,'app.quiz_history','TRUNCATE') AS truncate_history,
         has_table_privilege(current_user,'app.quiz_history','UPDATE') AS update_history,
+        has_table_privilege(current_user,'app.decks','TRUNCATE') AS truncate_decks,
+        has_table_privilege(current_user,'app.decks','UPDATE') AS full_update_decks,
+        has_column_privilege(current_user,'app.decks','user_id','UPDATE') AS update_deck_owner,
+        has_table_privilege(current_user,'app.cards','TRUNCATE') AS truncate_cards,
+        has_table_privilege(current_user,'app.cards','UPDATE') AS full_update_cards,
+        has_column_privilege(current_user,'app.cards','user_id','UPDATE') AS update_card_owner,
+        has_column_privilege(current_user,'app.cards','deck_id','UPDATE') AS move_card_owner,
         has_table_privilege(current_user,'app.user_identities','INSERT,UPDATE,DELETE,TRUNCATE') AS write_identities,
         has_table_privilege(current_user,'app.users','INSERT,UPDATE,DELETE,TRUNCATE') AS write_users""")).fetchone()
     if any(privileges.values()):

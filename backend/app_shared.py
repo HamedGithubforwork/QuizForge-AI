@@ -308,6 +308,7 @@ def create_app():
         allow_methods=[
             "GET",
             "POST",
+            "PATCH",
             "DELETE",
         ],
         allow_headers=[
