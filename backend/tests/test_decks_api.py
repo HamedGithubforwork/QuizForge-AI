@@ -55,6 +55,14 @@ def card_row(**overrides):
         "id": CARD_ID,
         "deck_id": DECK_ID,
         "source_pages": [12, 14],
+        "fsrs_state": 1,
+        "fsrs_step": 0,
+        "stability": None,
+        "difficulty": None,
+        "due_at": now,
+        "last_reviewed_at": None,
+        "review_count": 0,
+        "lapse_count": 0,
         "created_at": now,
         "updated_at": now,
         **overrides,
@@ -124,6 +132,69 @@ class FakeRepository:
             for index, item in enumerate(cards)
         ]
         return deck_detail(cards=values)
+
+    async def review_queue(self, deck_id, *, limit):
+        self.calls.append(("review_queue", deck_id, limit))
+        return {
+            "deck_id": deck_id,
+            "deck_name": "Biology Midterm",
+            "due_count": 1,
+            "next_due_at": None,
+            "cards": [card_row()],
+        }
+
+    async def review_card(
+        self,
+        deck_id,
+        *,
+        card_id,
+        rating,
+        review_duration_ms,
+    ):
+        self.calls.append(
+            (
+                "review_card",
+                deck_id,
+                card_id,
+                rating,
+                review_duration_ms,
+            )
+        )
+        return {
+            "card": card_row(
+                id=card_id,
+                fsrs_state=2,
+                fsrs_step=None,
+                stability=3.5,
+                difficulty=5.0,
+                review_count=1,
+                last_reviewed_at=datetime(
+                    2026,
+                    9,
+                    27,
+                    14,
+                    5,
+                    tzinfo=timezone.utc,
+                ),
+                due_at=datetime(
+                    2026,
+                    9,
+                    30,
+                    14,
+                    5,
+                    tzinfo=timezone.utc,
+                ),
+            ),
+            "remaining_due_count": 0,
+            "next_due_at": datetime(
+                2026,
+                9,
+                30,
+                14,
+                5,
+                tzinfo=timezone.utc,
+            ),
+        }
 
 
 @pytest.fixture
@@ -279,3 +350,104 @@ def test_patch_preflight_allows_configured_frontend(monkeypatch):
     allowed = client.options(f"/api/decks/{DECK_ID}", headers=headers)
     assert allowed.status_code == 200
     assert allowed.headers["Access-Control-Allow-Origin"] == "https://frontend.example"
+
+def test_review_queue_returns_due_cards(api):
+    client, repository = api
+
+    response = client.get(
+        f"/api/decks/{DECK_ID}/review?limit=10"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["due_count"] == 1
+    assert body["cards"][0]["id"] == str(CARD_ID)
+    assert body["cards"][0]["fsrs_state"] == 1
+    assert repository.calls == [
+        ("review_queue", DECK_ID, 10)
+    ]
+
+
+@pytest.mark.parametrize("limit", [0, 51])
+def test_review_queue_rejects_invalid_limits(api, limit):
+    client, repository = api
+
+    response = client.get(
+        f"/api/decks/{DECK_ID}/review",
+        params={"limit": limit},
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+
+def test_review_rating_is_forwarded_without_owner_fields(api):
+    client, repository = api
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/review",
+        json={
+            "card_id": str(CARD_ID),
+            "rating": 3,
+            "review_duration_ms": 1500,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["card"]["review_count"] == 1
+    assert body["card"]["fsrs_state"] == 2
+    assert body["remaining_due_count"] == 0
+    assert repository.calls == [
+        (
+            "review_card",
+            DECK_ID,
+            CARD_ID,
+            3,
+            1500,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "card_id": str(CARD_ID),
+            "rating": 0,
+        },
+        {
+            "card_id": str(CARD_ID),
+            "rating": 5,
+        },
+        {
+            "card_id": str(CARD_ID),
+            "rating": 3,
+            "review_duration_ms": -1,
+        },
+        {
+            "card_id": str(CARD_ID),
+            "rating": 3,
+            "review_duration_ms": 86_400_001,
+        },
+        {
+            "card_id": str(CARD_ID),
+            "rating": 3,
+            "user_id": "forged",
+        },
+    ],
+)
+def test_review_rejects_invalid_or_forged_payloads_before_repository(
+    api,
+    payload,
+):
+    client, repository = api
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/review",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
