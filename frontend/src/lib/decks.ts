@@ -2,6 +2,7 @@ import type {
   CardCreate,
   DeckCreate,
   DeckDetail,
+  DeckSummary,
 } from '../types/api.generated'
 import type {
   QuizResult,
@@ -58,21 +59,14 @@ export function buildDeckCreatePayload(
   }
 }
 
-export async function createStudyDeck(
-  payload: DeckCreate,
+async function requestDeckJson<T>(
+  path: string,
   fetcher: ApiFetch,
-): Promise<DeckDetail> {
-  const response = await fetcher(
-    '/api/decks',
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type':
-          'application/json',
-      },
-      body: JSON.stringify(payload),
-    },
-  )
+  init: RequestInit,
+  fallbackError: string,
+): Promise<T> {
+  const response =
+    await fetcher(path, init)
 
   let data: unknown = null
 
@@ -89,10 +83,52 @@ export async function createStudyDeck(
       'detail' in data &&
       typeof data.detail === 'string'
         ? data.detail
-        : 'Could not save this study deck.'
+        : fallbackError
 
     throw new Error(detail)
   }
 
-  return data as DeckDetail
+  return data as T
+}
+
+export async function createStudyDeck(
+  payload: DeckCreate,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    '/api/decks',
+    fetcher,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Could not save this study deck.',
+  )
+}
+
+export async function listStudyDecks(
+  fetcher: ApiFetch,
+): Promise<DeckSummary[]> {
+  return requestDeckJson<DeckSummary[]>(
+    '/api/decks',
+    fetcher,
+    {},
+    'Could not load your study decks.',
+  )
+}
+
+export async function getStudyDeck(
+  deckId: string,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}`,
+    fetcher,
+    {},
+    'Could not load this study deck.',
+  )
 }
