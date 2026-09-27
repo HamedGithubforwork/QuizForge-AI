@@ -1,6 +1,5 @@
 import asyncio
 import random
-import logging
 import os
 import time
 
@@ -28,7 +27,6 @@ from document_generation_support import (
     get_generation_pages as resolve_generation_pages,
 )
 from observability import (
-    elapsed_ms,
     log_event,
     observe_http_request,
     record_document_cache_metric,
@@ -49,6 +47,10 @@ from quiz_service import (
     normalize_quiz_settings,
     validate_pdf_content_type,
     validate_pdf_size,
+)
+from quiz_generation_api import (
+    QuizGenerationRuntime,
+    generate_quiz_response,
 )
 from quiz_generation_support import (
     acquire_quiz_generation_turn as coordinate_quiz_generation_turn,
@@ -121,6 +123,7 @@ async def get_document_pages_with_cache(
         redis_client=redis_client,
         log_event=log_event,
     )
+
 
 async def get_generation_source_identity(
     *,
@@ -210,6 +213,7 @@ async def get_generation_pages(
         log_event=log_event,
     )
 
+
 async def generate_grounded_quiz(
     *,
     pages,
@@ -246,6 +250,32 @@ async def generate_grounded_quiz(
         ),
         cache_quiz=cache_quiz,
         log_event=log_event,
+    )
+
+
+def build_quiz_generation_runtime():
+    return QuizGenerationRuntime(
+        quiz_model=Quiz,
+        redis_client=redis_client,
+        enforce_rate_limit=enforce_quiz_rate_limit,
+        normalize_settings=normalize_quiz_settings,
+        get_source_identity=(
+            get_generation_source_identity
+        ),
+        build_cache_key=(
+            build_quiz_cache_key_from_sha
+        ),
+        get_cached_quiz=get_cached_quiz,
+        record_metrics=record_quiz_metrics,
+        log_event=log_event,
+        acquire_generation_turn=(
+            acquire_quiz_generation_turn
+        ),
+        get_generation_pages=get_generation_pages,
+        generate_grounded_quiz=generate_grounded_quiz,
+        release_generation_lock=(
+            release_quiz_generation_lock
+        ),
     )
 
 
@@ -348,206 +378,18 @@ async def generate_quiz(
         get_current_user
     ),
 ):
-    started_at = time.perf_counter()
-    cache_result = (
-        "bypass"
-        if generate_new_quiz_instead_of_using_cache
-        else "miss"
-    )
-
-    # Redis is the shared rate limiter across backend instances.
-    await enforce_quiz_rate_limit(
-        current_user.id,
-    )
-
-    try:
-        (
-            question_count,
-            difficulty,
-            question_type,
-        ) = normalize_quiz_settings(
-            question_count,
-            difficulty,
-            question_type,
-        )
-
-        (
-            pdf_sha256,
-            content_type,
-            contents,
-        ) = await get_generation_source_identity(
-            document_sha256=(
-                document_sha256
-            ),
-            file=file,
-        )
-
-        cache_key = build_quiz_cache_key_from_sha(
-            user_id=current_user.id,
-            pdf_sha256=pdf_sha256,
-            question_count=question_count,
-            difficulty=difficulty,
-            question_type=question_type,
-            focus_pages=focus_pages,
-            focus_question_types=(
-                focus_question_types
-            ),
-            avoid_questions=avoid_questions,
-            content_type=content_type,
-        )
-
-        if not generate_new_quiz_instead_of_using_cache:
-            cached_quiz = await get_cached_quiz(
-                cache_key,
-                Quiz,
-            )
-
-            if cached_quiz is not None:
-                duration = elapsed_ms(
-                    started_at,
-                )
-
-                await record_quiz_metrics(
-                    redis_client,
-                    cache_result="hit",
-                    duration_ms=duration,
-                )
-
-                log_event(
-                    "quiz_generation_completed",
-                    cache_result="hit",
-                    duration_ms=duration,
-                    question_count=question_count,
-                )
-
-                return cached_quiz
-
-        (
-            singleflight_cached_quiz,
-            generation_lock_token,
-        ) = await acquire_quiz_generation_turn(
-            cache_key,
-            use_cached_result=(
-                not generate_new_quiz_instead_of_using_cache
-            ),
-        )
-
-        if singleflight_cached_quiz is not None:
-            duration = elapsed_ms(
-                started_at,
-            )
-
-            await record_quiz_metrics(
-                redis_client,
-                cache_result="hit",
-                duration_ms=duration,
-            )
-
-            log_event(
-                "quiz_generation_completed",
-                cache_result="hit",
-                duration_ms=duration,
-                question_count=question_count,
-                singleflight_waited=True,
-            )
-
-            return singleflight_cached_quiz
-
-        try:
-            pages = await get_generation_pages(
-                user_id=current_user.id,
-                pdf_sha256=pdf_sha256,
-                contents=contents,
-            )
-
-            quiz = await generate_grounded_quiz(
-                pages=pages,
-                question_count=question_count,
-                difficulty=difficulty,
-                question_type=question_type,
-                focus_pages=focus_pages,
-                focus_question_types=(
-                    focus_question_types
-                ),
-                avoid_questions=avoid_questions,
-                cache_key=cache_key,
-            )
-        finally:
-            if generation_lock_token is not None:
-                await release_quiz_generation_lock(
-                    cache_key,
-                    generation_lock_token,
-                )
-    except HTTPException as error:
-        duration = elapsed_ms(
-            started_at,
-        )
-        failed = error.status_code >= 500
-
-        await record_quiz_metrics(
-            redis_client,
-            cache_result=cache_result,
-            duration_ms=duration,
-            failed=failed,
-        )
-
-        log_event(
-            (
-                "quiz_generation_failed"
-                if failed
-                else "quiz_generation_rejected"
-            ),
-            level=(
-                logging.ERROR
-                if failed
-                else logging.WARNING
-            ),
-            cache_result=cache_result,
-            duration_ms=duration,
-            question_count=question_count,
-            status_code=error.status_code,
-            error_type=type(error).__name__,
-        )
-
-        raise
-    except Exception as error:
-        duration = elapsed_ms(
-            started_at,
-        )
-
-        await record_quiz_metrics(
-            redis_client,
-            cache_result=cache_result,
-            duration_ms=duration,
-            failed=True,
-        )
-
-        log_event(
-            "quiz_generation_failed",
-            level=logging.ERROR,
-            cache_result=cache_result,
-            duration_ms=duration,
-            question_count=question_count,
-            error_type=type(error).__name__,
-        )
-
-        raise
-
-    duration = elapsed_ms(
-        started_at,
-    )
-
-    await record_quiz_metrics(
-        redis_client,
-        cache_result=cache_result,
-        duration_ms=duration,
-    )
-
-    log_event(
-        "quiz_generation_completed",
-        cache_result=cache_result,
-        duration_ms=duration,
+    return await generate_quiz_response(
+        file=file,
+        document_sha256=document_sha256,
         question_count=question_count,
+        difficulty=difficulty,
+        question_type=question_type,
+        focus_pages=focus_pages,
+        focus_question_types=focus_question_types,
+        avoid_questions=avoid_questions,
+        generate_new_quiz_instead_of_using_cache=(
+            generate_new_quiz_instead_of_using_cache
+        ),
+        current_user=current_user,
+        runtime=build_quiz_generation_runtime(),
     )
-
-    return quiz
