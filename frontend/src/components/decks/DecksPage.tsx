@@ -130,12 +130,26 @@ function DeckList({
               ◫
             </span>
 
-            <span className="deck-count">
-              {deck.card_count}{' '}
-              {deck.card_count === 1
-                ? 'card'
-                : 'cards'}
-            </span>
+            <div className="deck-tile-badges">
+              <span className="deck-count">
+                {deck.card_count}{' '}
+                {deck.card_count === 1
+                  ? 'card'
+                  : 'cards'}
+              </span>
+
+              <span
+                className={
+                  deck.due_count > 0
+                    ? 'deck-due-badge deck-due-badge-active'
+                    : 'deck-due-badge'
+                }
+              >
+                {deck.due_count > 0
+                  ? `${deck.due_count} due`
+                  : 'Caught up'}
+              </span>
+            </div>
           </div>
 
           <h2>{deck.name}</h2>
@@ -193,16 +207,32 @@ function DeckDetailView({
         </div>
 
         <div className="deck-detail-actions">
-          <div className="deck-detail-stat">
-            <strong>
-              {deck.card_count}
-            </strong>
+          <div className="deck-detail-stats">
+            <div className="deck-detail-stat">
+              <strong>
+                {deck.card_count}
+              </strong>
 
-            <span>
-              {deck.card_count === 1
-                ? 'card'
-                : 'cards'}
-            </span>
+              <span>
+                {deck.card_count === 1
+                  ? 'card'
+                  : 'cards'}
+              </span>
+            </div>
+
+            <div
+              className={
+                deck.due_count > 0
+                  ? 'deck-detail-stat deck-detail-stat-due'
+                  : 'deck-detail-stat deck-detail-stat-clear'
+              }
+            >
+              <strong>
+                {deck.due_count}
+              </strong>
+
+              <span>due now</span>
+            </div>
           </div>
 
           {deck.card_count > 0 && (
@@ -215,7 +245,9 @@ function DeckDetailView({
                 )
               }
             >
-              Review Deck
+              {deck.due_count > 0
+                ? `Review ${deck.due_count} Due`
+                : 'Review Status'}
             </button>
           )}
         </div>
@@ -434,6 +466,24 @@ export default function DecksPage({
     reviewDeckId,
   ])
 
+  const totalDue =
+    decks.reduce(
+      (total, item) =>
+        total + item.due_count,
+      0,
+    )
+  const totalCards =
+    decks.reduce(
+      (total, item) =>
+        total + item.card_count,
+      0,
+    )
+  const dueDecks =
+    decks.filter(
+      (item) =>
+        item.due_count > 0,
+    ).length
+
   return (
     <main className="decks-page">
       <div className="decks-shell">
@@ -522,6 +572,51 @@ export default function DecksPage({
                 + Generate Quiz
               </button>
             </header>
+
+            {decks.length > 0 && (
+              <section
+                className="decks-overview"
+                aria-label="Study review summary"
+              >
+                <div
+                  className={
+                    totalDue > 0
+                      ? 'decks-overview-item decks-overview-due'
+                      : 'decks-overview-item'
+                  }
+                >
+                  <span>Due now</span>
+                  <strong>
+                    {totalDue}
+                  </strong>
+                  <small>
+                    {totalDue > 0
+                      ? `Across ${dueDecks} ${dueDecks === 1 ? 'deck' : 'decks'}`
+                      : 'All caught up'}
+                  </small>
+                </div>
+
+                <div className="decks-overview-item">
+                  <span>Study decks</span>
+                  <strong>
+                    {decks.length}
+                  </strong>
+                  <small>
+                    Saved collections
+                  </small>
+                </div>
+
+                <div className="decks-overview-item">
+                  <span>Saved cards</span>
+                  <strong>
+                    {totalCards}
+                  </strong>
+                  <small>
+                    Ready for review
+                  </small>
+                </div>
+              </section>
+            )}
 
             <DeckList
               decks={decks}
