@@ -174,6 +174,20 @@ class PostgreSQLRecovery(unittest.TestCase):
                  '00000000-0000-0000-0000-000000000001','multiple_choice','What organelle produces ATP?',
                  '"Mitochondria"','["Nucleus","Mitochondria","Ribosome"]','Cellular respiration source',
                  'notes.pdf',repeat('a',64),ARRAY[12,14],'2026-09-21 01:03:04+00','2026-09-21 01:03:04+00');
+            UPDATE app.cards
+               SET fsrs_state=2,fsrs_step=NULL,stability=4.5,difficulty=5.2,
+                   due_at='2026-09-25 01:03:04+00',
+                   last_reviewed_at='2026-09-21 01:05:00+00',
+                   review_count=1,lapse_count=0
+             WHERE id='40000000-0000-0000-0000-000000000001';
+            INSERT INTO app.card_review_logs(
+                id,card_id,user_id,rating,reviewed_at,review_duration_ms
+            ) VALUES (
+                '50000000-0000-0000-0000-000000000001',
+                '40000000-0000-0000-0000-000000000001',
+                '00000000-0000-0000-0000-000000000001',
+                3,'2026-09-21 01:05:00+00',1800
+            );
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
             UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
@@ -189,7 +203,7 @@ class PostgreSQLRecovery(unittest.TestCase):
         cls.target.close()
 
     def setUp(self):
-        self.target.execute("TRUNCATE app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
+        self.target.execute("TRUNCATE app.card_review_logs,app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
         self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0,monthly_nano_usd=0,pricing_key='',pricing_valid_until='1970-01-01'")
         self.snapshot = backup.export_snapshot(self.source)
 
@@ -221,6 +235,19 @@ class PostgreSQLRecovery(unittest.TestCase):
             self.assertEqual(self.target.execute("SELECT name FROM app.decks").fetchall(), [('Biology Midterm',)])
             self.assertEqual(self.target.execute("SELECT question,source_pages FROM app.cards").fetchall(),
                              [('What organelle produces ATP?', [12, 14])])
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT fsrs_state,fsrs_step,stability,difficulty,review_count,lapse_count "
+                    "FROM app.cards"
+                ).fetchall(),
+                [(2, None, 4.5, 5.2, 1, 0)],
+            )
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT rating,review_duration_ms FROM app.card_review_logs"
+                ).fetchall(),
+                [(3, 1800)],
+            )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
         with self.target.transaction():

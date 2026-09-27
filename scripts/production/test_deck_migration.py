@@ -10,7 +10,9 @@ from lightsail_backup import schema_state
 
 
 HERE = Path(__file__).resolve().parent
-MIGRATION = HERE / "migrations" / "20260927_001_decks_cards.sql"
+MIGRATIONS = sorted(
+    (HERE / "migrations").glob("*.sql")
+)
 
 
 class DeckMigration(unittest.TestCase):
@@ -84,7 +86,10 @@ class DeckMigration(unittest.TestCase):
             (cls.existing_user,),
         )
 
-        cls.upgraded.execute(MIGRATION.read_text())
+        for migration in MIGRATIONS:
+            cls.upgraded.execute(
+                migration.read_text()
+            )
 
         cls.fresh.execute((HERE / "schema.sql").read_text())
         cls.fresh.execute(
@@ -148,6 +153,26 @@ class DeckMigration(unittest.TestCase):
                 (deck_id, self.existing_user),
             )
 
+            card = self.upgraded.execute(
+                """SELECT id,due_at,fsrs_state,fsrs_step,
+                          review_count,lapse_count
+                   FROM app.cards
+                   WHERE deck_id=%s AND user_id=%s""",
+                (deck_id, self.existing_user),
+            ).fetchone()
+            self.assertEqual(card["fsrs_state"], 1)
+            self.assertEqual(card["fsrs_step"], 0)
+            self.assertEqual(card["review_count"], 0)
+            self.assertEqual(card["lapse_count"], 0)
+            self.assertIsNotNone(card["due_at"])
+
+            self.upgraded.execute(
+                """INSERT INTO app.card_review_logs(
+                    card_id,user_id,rating,review_duration_ms
+                ) VALUES (%s,%s,3,1500)""",
+                (card["id"], self.existing_user),
+            )
+
             self.upgraded.execute(
                 "SELECT set_config('quizforge.user_id', %s, false)",
                 (str(self.other_user),),
@@ -164,12 +189,24 @@ class DeckMigration(unittest.TestCase):
                 ).fetchone()["count"],
                 0,
             )
+
+            self.assertEqual(
+                self.upgraded.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.card_review_logs"
+                ).fetchone()["count"],
+                0,
+            )
         finally:
             self.upgraded.execute("RESET ROLE")
 
     def test_second_application_fails_closed(self):
-        with self.assertRaises(psycopg.errors.RaiseException):
-            self.upgraded.execute(MIGRATION.read_text())
+        with self.assertRaises(
+            psycopg.errors.RaiseException
+        ):
+            self.upgraded.execute(
+                MIGRATIONS[0].read_text()
+            )
         self.upgraded.execute("ROLLBACK")
 
         self.assertEqual(
