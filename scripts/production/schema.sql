@@ -93,6 +93,151 @@ CREATE INDEX cards_user_due_at_id_idx
     ON app.cards (user_id, due_at, id);
 CREATE INDEX card_review_logs_user_card_reviewed_at_id_idx
     ON app.card_review_logs (user_id, card_id, reviewed_at DESC, id DESC);
+CREATE TABLE app.study_notification_preferences (
+    user_id uuid PRIMARY KEY REFERENCES app.users(id) ON DELETE CASCADE,
+    enabled boolean NOT NULL DEFAULT false,
+    reminder_time time without time zone NOT NULL DEFAULT '19:00',
+    timezone text NOT NULL DEFAULT 'America/Toronto'
+        CHECK (
+            char_length(timezone) BETWEEN 1 AND 100
+            AND timezone ~ '^[A-Za-z0-9_+./-]+GRANT SELECT ON app.user_identities TO quizforge_app;
+GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
+GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
+GRANT SELECT, INSERT ON app.card_review_logs TO quizforge_app;
+GRANT SELECT, INSERT ON app.study_notification_preferences TO quizforge_app;
+GRANT UPDATE (
+    enabled,
+    reminder_time,
+    timezone,
+    minimum_due_cards,
+    updated_at
+) ON app.study_notification_preferences TO quizforge_app;
+GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
+GRANT UPDATE (
+    question_type,
+    question,
+    answer,
+    choices,
+    explanation,
+    source_filename,
+    document_sha256,
+    source_pages,
+    fsrs_state,
+    fsrs_step,
+    stability,
+    difficulty,
+    due_at,
+    last_reviewed_at,
+    review_count,
+    lapse_count,
+    updated_at
+) ON app.cards TO quizforge_app;
+ALTER TABLE app.user_identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.quiz_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.decks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.cards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.card_review_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.study_notification_preferences ENABLE ROW LEVEL SECURITY;
+-- Owner is a separate migration role. App is never table owner or BYPASSRLS.
+CREATE POLICY identity_lookup ON app.user_identities FOR SELECT TO quizforge_app
+USING (issuer = nullif(current_setting('quizforge.auth_issuer', true), '')
+   AND subject = nullif(current_setting('quizforge.auth_subject', true), ''));
+CREATE POLICY history_read ON app.quiz_history FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY history_insert ON app.quiz_history FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY history_delete ON app.quiz_history FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+
+CREATE POLICY deck_read ON app.decks FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_insert ON app.decks FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_update ON app.decks FOR UPDATE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_delete ON app.decks FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_read ON app.cards FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_insert ON app.cards FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_update ON app.cards FOR UPDATE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_delete ON app.cards FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+
+CREATE POLICY review_log_read ON app.card_review_logs FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY review_log_insert ON app.card_review_logs FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+
+CREATE POLICY notification_preferences_read
+ON app.study_notification_preferences
+FOR SELECT TO quizforge_app
+USING (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+CREATE POLICY notification_preferences_insert
+ON app.study_notification_preferences
+FOR INSERT TO quizforge_app
+WITH CHECK (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+CREATE POLICY notification_preferences_update
+ON app.study_notification_preferences
+FOR UPDATE TO quizforge_app
+USING (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+)
+WITH CHECK (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+
+-- Separate production enrollment authority. Apply after schema.sql as owner.
+-- This role is given only to the separate identity_app process, never the API.
+CREATE ROLE quizforge_identity LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+GRANT CONNECT ON DATABASE quizforge TO quizforge_identity;
+GRANT USAGE ON SCHEMA app TO quizforge_identity;
+GRANT INSERT ON app.users TO quizforge_identity;
+GRANT SELECT, INSERT ON app.user_identities TO quizforge_identity;
+ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY enroll_user ON app.users FOR INSERT TO quizforge_identity
+WITH CHECK (id = nullif(current_setting('quizforge.new_owner',true),'')::uuid);
+CREATE POLICY enrollment_lookup ON app.user_identities FOR SELECT TO quizforge_identity
+USING ((issuer = current_setting('quizforge.cognito_issuer',true) AND subject = current_setting('quizforge.cognito_subject',true))
+    OR (issuer = current_setting('quizforge.legacy_issuer',true) AND subject = current_setting('quizforge.legacy_subject',true)));
+CREATE POLICY enrollment_insert ON app.user_identities FOR INSERT TO quizforge_identity
+WITH CHECK (issuer = current_setting('quizforge.cognito_issuer',true)
+    AND subject = current_setting('quizforge.cognito_subject',true)
+    AND user_id = nullif(current_setting('quizforge.new_owner',true),'')::uuid);
+CREATE TABLE app.identity_challenges (
+    nonce_hash text PRIMARY KEY CHECK (nonce_hash ~ '^[a-f0-9]{64}$'),
+    issuer text NOT NULL,
+    subject text NOT NULL,
+    legacy_issuer text NOT NULL,
+    legacy_subject text NOT NULL,
+    mode text NOT NULL CHECK (mode IN ('enroll','link')),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    used_at timestamptz,
+    CHECK ((mode='enroll' AND legacy_issuer='' AND legacy_subject='') OR
+           (mode='link' AND legacy_issuer<>'' AND legacy_subject<>''))
+);
+CREATE INDEX identity_challenge_rate_idx ON app.identity_challenges(issuer,subject,created_at);
+ALTER TABLE app.identity_challenges ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT ON app.identity_challenges TO quizforge_identity;
+GRANT UPDATE(used_at) ON app.identity_challenges TO quizforge_identity;
+CREATE POLICY challenge_owner ON app.identity_challenges TO quizforge_identity
+USING (issuer = current_setting('quizforge.cognito_issuer',true) AND subject = current_setting('quizforge.cognito_subject',true))
+WITH CHECK (issuer = current_setting('quizforge.cognito_issuer',true) AND subject = current_setting('quizforge.cognito_subject',true));
+
+        ),
+    minimum_due_cards integer NOT NULL DEFAULT 1
+        CHECK (minimum_due_cards BETWEEN 1 AND 1000),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
 GRANT SELECT ON app.user_identities TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
