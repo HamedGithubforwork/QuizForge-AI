@@ -368,6 +368,8 @@ function QuizSession({
 
       {showResults && (
         <QuizResultsCard
+          quiz={quiz}
+          documentResult={documentResult}
           questionCount={
             quiz.questions.length
           }
