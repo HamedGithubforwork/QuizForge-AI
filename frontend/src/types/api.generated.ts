@@ -74,6 +74,70 @@ export type HistoryPage = {
   "nextCursor": HistoryCursor | null
 }
 
+export type CardCreate = {
+  "question_type": "multiple_choice" | "true_false" | "short_answer"
+  "question": string
+  "answer": {
+  [key: string]: unknown
+}
+  "choices"?: string[] | null
+  "explanation"?: string | null
+  "source_filename"?: string | null
+  "document_sha256"?: string | null
+  "source_pages"?: number[]
+}
+
+export type CardRow = {
+  "question_type": "multiple_choice" | "true_false" | "short_answer"
+  "question": string
+  "answer": {
+  [key: string]: unknown
+}
+  "choices"?: string[] | null
+  "explanation"?: string | null
+  "source_filename"?: string | null
+  "document_sha256"?: string | null
+  "source_pages"?: number[]
+  "id": string
+  "deck_id": string
+  "created_at": string
+  "updated_at": string
+}
+
+export type DeckCreate = {
+  "name": string
+  "description"?: string | null
+  "cards"?: CardCreate[]
+}
+
+export type DeckUpdate = {
+  "name"?: string | null
+  "description"?: string | null
+}
+
+export type CardBatchCreate = {
+  "cards": CardCreate[]
+}
+
+export type DeckSummary = {
+  "id": string
+  "name": string
+  "description": string | null
+  "card_count": number
+  "created_at": string
+  "updated_at": string
+}
+
+export type DeckDetail = {
+  "id": string
+  "name": string
+  "description": string | null
+  "card_count": number
+  "created_at": string
+  "updated_at": string
+  "cards": CardRow[]
+}
+
 export type PdfJobResponse = {
   "job_id": string
   "filename": string
@@ -151,17 +215,23 @@ export type UploadResponse = {
 }
 
 export const API_ROUTES = [
+  "DELETE /api/decks/{deck_id}",
   "DELETE /api/documents/jobs/{job_id}",
   "DELETE /api/quiz-history/{entry_id}",
   "GET /",
   "GET /api/admin/metrics",
+  "GET /api/decks",
+  "GET /api/decks/{deck_id}",
   "GET /api/documents/jobs",
   "GET /api/documents/jobs/{job_id}",
   "GET /api/documents/{document_sha256}/pages/{page_number}",
   "GET /api/health",
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
+  "PATCH /api/decks/{deck_id}",
   "POST /api/answers/review",
+  "POST /api/decks",
+  "POST /api/decks/{deck_id}/cards",
   "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",
   "POST /api/quiz-history",
