@@ -169,11 +169,11 @@ class PostgreSQLRecovery(unittest.TestCase):
                 ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001',
                  'Biology Midterm','Cell biology','2026-09-21 01:02:03+00','2026-09-21 01:02:03+00');
             INSERT INTO app.cards(id,deck_id,user_id,question_type,question,answer,choices,explanation,
-                source_filename,document_sha256,source_page,created_at,updated_at) VALUES
+                source_filename,document_sha256,source_pages,created_at,updated_at) VALUES
                 ('40000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001',
                  '00000000-0000-0000-0000-000000000001','multiple_choice','What organelle produces ATP?',
                  '"Mitochondria"','["Nucleus","Mitochondria","Ribosome"]','Cellular respiration source',
-                 'notes.pdf',repeat('a',64),12,'2026-09-21 01:03:04+00','2026-09-21 01:03:04+00');
+                 'notes.pdf',repeat('a',64),ARRAY[12,14],'2026-09-21 01:03:04+00','2026-09-21 01:03:04+00');
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
             UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
@@ -219,8 +219,8 @@ class PostgreSQLRecovery(unittest.TestCase):
             self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
             self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
             self.assertEqual(self.target.execute("SELECT name FROM app.decks").fetchall(), [('Biology Midterm',)])
-            self.assertEqual(self.target.execute("SELECT question,source_page FROM app.cards").fetchall(),
-                             [('What organelle produces ATP?', 12)])
+            self.assertEqual(self.target.execute("SELECT question,source_pages FROM app.cards").fetchall(),
+                             [('What organelle produces ATP?', [12, 14])])
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
         with self.target.transaction():
