@@ -8,6 +8,9 @@ import {
   buildDeckCreatePayload,
   createStudyDeck,
 } from '../../lib/decks'
+import {
+  apiFetch,
+} from '../../lib/api'
 import type {
   QuizResult,
   UploadResult,
@@ -70,6 +73,7 @@ function SaveDeckPanel({
             quiz,
             documentResult,
           ),
+          apiFetch,
         )
 
       setSaved(true)
