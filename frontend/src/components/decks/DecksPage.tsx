@@ -15,6 +15,7 @@ import type {
   DeckDetail,
   DeckSummary,
 } from '../../types/api.generated'
+import ReviewDeckPage from './ReviewDeckPage'
 import './DecksPage.css'
 
 type DecksPageProps = {
@@ -24,6 +25,9 @@ type DecksPageProps = {
 
 const DECK_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
+
+const REVIEW_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/review$/i
 
 function formatDeckDate(
   value: string,
@@ -188,16 +192,32 @@ function DeckDetailView({
           )}
         </div>
 
-        <div className="deck-detail-stat">
-          <strong>
-            {deck.card_count}
-          </strong>
+        <div className="deck-detail-actions">
+          <div className="deck-detail-stat">
+            <strong>
+              {deck.card_count}
+            </strong>
 
-          <span>
-            {deck.card_count === 1
-              ? 'card'
-              : 'cards'}
-          </span>
+            <span>
+              {deck.card_count === 1
+                ? 'card'
+                : 'cards'}
+            </span>
+          </div>
+
+          {deck.card_count > 0 && (
+            <button
+              className="decks-primary-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/review`,
+                )
+              }
+            >
+              Review Deck
+            </button>
+          )}
         </div>
       </section>
 
@@ -334,13 +354,18 @@ export default function DecksPage({
   const [error, setError] =
     useState('')
 
+  const reviewMatch =
+    pathname.match(REVIEW_PATH)
+  const reviewDeckId =
+    reviewMatch?.[1] ?? null
   const detailMatch =
     pathname.match(DECK_PATH)
   const deckId =
     detailMatch?.[1] ?? null
   const invalidPath =
     pathname !== '/decks' &&
-    !deckId
+    !deckId &&
+    !reviewDeckId
 
   useEffect(() => {
     let active = true
@@ -351,6 +376,10 @@ export default function DecksPage({
       setDeck(null)
 
       try {
+        if (reviewDeckId) {
+          return
+        }
+
         if (invalidPath) {
           throw new Error(
             'This study deck link is invalid.',
@@ -402,12 +431,18 @@ export default function DecksPage({
     deckId,
     invalidPath,
     pathname,
+    reviewDeckId,
   ])
 
   return (
     <main className="decks-page">
       <div className="decks-shell">
-        {loading ? (
+        {reviewDeckId ? (
+          <ReviewDeckPage
+            deckId={reviewDeckId}
+            onNavigate={onNavigate}
+          />
+        ) : loading ? (
           <section
             className="decks-status"
             role="status"

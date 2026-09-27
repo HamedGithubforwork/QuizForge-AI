@@ -1,6 +1,7 @@
 # Direct production dependencies.
 # Runtime installs consume requirements.lock via requirements.txt.
 fastapi[standard]
+fsrs==6.3.2
 pymupdf
 openai
 python-dotenv

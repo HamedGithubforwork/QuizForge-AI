@@ -3,6 +3,9 @@ import type {
   DeckCreate,
   DeckDetail,
   DeckSummary,
+  ReviewQueue,
+  ReviewRequest,
+  ReviewResult,
 } from '../types/api.generated'
 import type {
   QuizResult,
@@ -132,3 +135,44 @@ export async function getStudyDeck(
     'Could not load this study deck.',
   )
 }
+
+export async function getReviewQueue(
+  deckId: string,
+  fetcher: ApiFetch,
+  limit = 20,
+): Promise<ReviewQueue> {
+  const params =
+    new URLSearchParams({
+      limit: String(limit),
+    })
+
+  return requestDeckJson<ReviewQueue>(
+    `/api/decks/${encodeURIComponent(deckId)}/review?${params.toString()}`,
+    fetcher,
+    {},
+    'Could not load this review session.',
+  )
+}
+
+export async function submitReview(
+  deckId: string,
+  payload: ReviewRequest,
+  fetcher: ApiFetch,
+): Promise<ReviewResult> {
+  return requestDeckJson<ReviewResult>(
+    `/api/decks/${encodeURIComponent(deckId)}/review`,
+    fetcher,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(
+        payload,
+      ),
+    },
+    'Could not save this review.',
+  )
+}
+
