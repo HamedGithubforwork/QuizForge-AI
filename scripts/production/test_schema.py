@@ -119,7 +119,7 @@ class DeckSchema(unittest.TestCase):
             connection.execute(
                 "INSERT INTO app.cards "
                 "(deck_id, user_id, question_type, question, "
-                "answer, choices, source_filename, source_page) "
+                "answer, choices, source_filename, source_pages) "
                 "VALUES (%s, %s, 'multiple_choice', %s, "
                 "%s::jsonb, %s::jsonb, %s, %s)",
                 (
@@ -129,7 +129,7 @@ class DeckSchema(unittest.TestCase):
                     '"Mitochondria"',
                     '["Nucleus","Mitochondria","Ribosome"]',
                     "biology.pdf",
-                    12,
+                    [12, 14],
                 ),
             )
 
