@@ -16,13 +16,19 @@ MIGRATION = HERE / "migrations" / "20260927_001_decks_cards.sql"
 class DeckMigration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.upgraded_dsn = os.environ[
+            "DECK_MIGRATION_TEST_UPGRADED"
+        ]
+        cls.fresh_dsn = os.environ[
+            "DECK_MIGRATION_TEST_FRESH"
+        ]
         cls.upgraded = psycopg.connect(
-            os.environ["DECK_MIGRATION_TEST_UPGRADED"],
+            cls.upgraded_dsn,
             autocommit=True,
             row_factory=dict_row,
         )
         cls.fresh = psycopg.connect(
-            os.environ["DECK_MIGRATION_TEST_FRESH"],
+            cls.fresh_dsn,
             autocommit=True,
             row_factory=dict_row,
         )
@@ -91,10 +97,22 @@ class DeckMigration(unittest.TestCase):
         cls.fresh.close()
 
     def test_upgrade_matches_fresh_schema_and_security(self):
-        self.assertEqual(
-            schema_state(self.upgraded),
-            schema_state(self.fresh),
-        )
+        # schema_state intentionally consumes the default tuple row shape
+        # used by the production backup verifier.
+        with (
+            psycopg.connect(
+                self.upgraded_dsn,
+                autocommit=True,
+            ) as upgraded_schema,
+            psycopg.connect(
+                self.fresh_dsn,
+                autocommit=True,
+            ) as fresh_schema,
+        ):
+            self.assertEqual(
+                schema_state(upgraded_schema),
+                schema_state(fresh_schema),
+            )
 
     def test_existing_users_and_history_are_preserved(self):
         row = self.upgraded.execute(
