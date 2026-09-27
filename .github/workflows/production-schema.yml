@@ -7,6 +7,9 @@ on:
     paths:
       - "scripts/production/schema.sql"
       - "scripts/production/test_schema.py"
+      - "scripts/production/test_deck_migration.py"
+      - "scripts/production/migrations/**"
+      - "scripts/production/lightsail/release-lock.json"
       - ".github/workflows/production-schema.yml"
   push:
     branches:
@@ -14,6 +17,9 @@ on:
     paths:
       - "scripts/production/schema.sql"
       - "scripts/production/test_schema.py"
+      - "scripts/production/test_deck_migration.py"
+      - "scripts/production/migrations/**"
+      - "scripts/production/lightsail/release-lock.json"
       - ".github/workflows/production-schema.yml"
   workflow_dispatch:
 
@@ -66,3 +72,87 @@ jobs:
 
       - name: Validate fresh production schema and ownership isolation
         run: python scripts/production/test_schema.py
+
+  migration-equivalence:
+    name: Deck migration matches fresh schema
+    runs-on: ubuntu-latest
+
+    services:
+      upgraded:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      fresh:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 55434:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check out proposed source
+        uses: actions/checkout@v7
+
+      - name: Resolve pinned production application baseline
+        id: candidate
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          value = json.loads(
+              Path("scripts/production/lightsail/release-lock.json").read_text()
+          )
+          sha = value.get("application_candidate_sha", "")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              raise SystemExit("Invalid pinned production application SHA")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("sha=" + sha + "\n")
+          PY
+
+      - name: Check out pinned production application baseline
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          path: production-baseline
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+          cache: pip
+          cache-dependency-path: scripts/production/requirements.lock
+
+      - name: Install hash-locked production dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r scripts/production/requirements.lock
+          python -m pip check
+
+      - name: Prove migration equals a fresh install
+        env:
+          DECK_MIGRATION_TEST_UPGRADED: postgresql://postgres:postgres@127.0.0.1:55433/quizforge
+          DECK_MIGRATION_TEST_FRESH: postgresql://postgres:postgres@127.0.0.1:55434/quizforge
+          DECK_MIGRATION_BASELINE_SCHEMA: production-baseline/scripts/production/schema.sql
+          PYTHONPATH: scripts/production
+        run: python scripts/production/test_deck_migration.py
