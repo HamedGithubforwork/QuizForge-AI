@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
+import DecksPage from './components/decks/DecksPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
@@ -58,7 +59,10 @@ export default function CognitoAuthGate() {
       setTotpCode('')
       setPassword('')
       setCode('')
-      if (window.location.pathname.startsWith('/settings')) {
+      if (
+        window.location.pathname.startsWith('/settings') ||
+        window.location.pathname.startsWith('/decks')
+      ) {
         window.history.replaceState({}, '', '/')
         setPathname('/')
       }
@@ -286,6 +290,54 @@ export default function CognitoAuthGate() {
   const logout = <button className="sign-out-button" type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
   const settingsSection: SettingsSection = pathname === '/settings/security' ? 'security' : 'account'
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/')
+  const inDecks = pathname === '/decks' || pathname.startsWith('/decks/')
+
+  const signedInBar = account?.enrolled ? (
+    <div className="account-bar">
+      <div className="account-bar-inner">
+        <span className="account-bar-email">
+          Signed in as {account.email}
+        </span>
+
+        <nav
+          className="account-bar-actions"
+          aria-label="Account navigation"
+        >
+          <button
+            className={pathname === '/' ? 'account-nav-button active' : 'account-nav-button'}
+            type="button"
+            disabled={busy}
+            aria-current={pathname === '/' ? 'page' : undefined}
+            onClick={() => navigate('/')}
+          >
+            Quiz
+          </button>
+
+          <button
+            className={inDecks ? 'account-nav-button active' : 'account-nav-button'}
+            type="button"
+            disabled={busy}
+            aria-current={inDecks ? 'page' : undefined}
+            onClick={() => navigate('/decks')}
+          >
+            Decks
+          </button>
+
+          <button
+            className={inSettings ? 'account-nav-button active' : 'account-nav-button'}
+            type="button"
+            disabled={busy}
+            aria-current={inSettings ? 'page' : undefined}
+            onClick={() => openSettings('security')}
+          >
+            Settings
+          </button>
+
+          {logout}
+        </nav>
+      </div>
+    </div>
+  ) : null
 
   if (account?.enrolled && inSettings) return <SettingsPage
     email={account.email}
@@ -316,15 +368,17 @@ export default function CognitoAuthGate() {
     totpUri={totpSecret ? totpSetupUri(totpSecret, account.email) : ''}
   />
 
+  if (account?.enrolled && inDecks) return <>
+    {signedInBar}
+    {error && <p role="alert">{error}</p>}
+    <DecksPage
+      pathname={pathname}
+      onNavigate={navigate}
+    />
+  </>
+
   if (account?.enrolled) return <>
-    <div className="account-bar"><div className="account-bar-inner">
-      <span>Signed in as {account.email}</span>
-      <div className="account-bar-actions">
-        <button className="account-security-button" type="button" disabled={busy}
-          onClick={() => openSettings('security')}>Settings</button>
-        {logout}
-      </div>
-    </div></div>
+    {signedInBar}
     {error && <p role="alert">{error}</p>}
     <App />
   </>
