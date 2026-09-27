@@ -51,6 +51,8 @@ PUBLIC_SCHEMA_NAMES = (
     "ReviewRequest",
     "ReviewQueue",
     "ReviewResult",
+    "StudyNotificationPreferences",
+    "StudyNotificationPreferencesUpdate",
     "PdfJobResponse",
     "PdfJobList",
     "CachedSelectionRequest",
