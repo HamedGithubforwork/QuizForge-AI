@@ -4,8 +4,10 @@ import test from 'node:test'
 import {
   buildDeckCreatePayload,
   createStudyDeck,
+  getReviewQueue,
   getStudyDeck,
   listStudyDecks,
+  submitReview,
 } from './decks.ts'
 import type {
   QuizResult,
@@ -350,6 +352,149 @@ test(
             }),
         ),
       /Could not load this study deck/,
+    )
+  },
+)
+
+test(
+  'getReviewQueue requests bounded due cards',
+  async () => {
+    let path = ''
+
+    const queue =
+      await getReviewQueue(
+        'deck/id',
+        async (requestPath) => {
+          path = requestPath
+          return new Response(
+            JSON.stringify({
+              deck_id:
+                '11111111-1111-4111-8111-111111111111',
+              deck_name:
+                'Biology Midterm',
+              due_count: 1,
+              next_due_at: null,
+              cards: [],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+        12,
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid/review?limit=12',
+    )
+    assert.equal(
+      queue.due_count,
+      1,
+    )
+  },
+)
+
+test(
+  'submitReview posts the FSRS rating and duration',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const result =
+      await submitReview(
+        'deck/id',
+        {
+          card_id:
+            '22222222-2222-4222-8222-222222222222',
+          rating: 3,
+          review_duration_ms: 1400,
+        },
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init = requestInit ?? {}
+
+          return new Response(
+            JSON.stringify({
+              card: {
+                question_type:
+                  'short_answer',
+                question:
+                  'What is ATP?',
+                answer: {
+                  correct_answer:
+                    'Adenosine triphosphate',
+                },
+                choices: null,
+                explanation: null,
+                source_filename:
+                  'biology.pdf',
+                document_sha256:
+                  'a'.repeat(64),
+                source_pages: [3],
+                id:
+                  '22222222-2222-4222-8222-222222222222',
+                deck_id:
+                  '11111111-1111-4111-8111-111111111111',
+                fsrs_state: 1,
+                fsrs_step: 1,
+                stability: 2,
+                difficulty: 5,
+                due_at:
+                  '2026-09-27T18:00:00Z',
+                last_reviewed_at:
+                  '2026-09-27T17:50:00Z',
+                review_count: 1,
+                lapse_count: 0,
+                created_at:
+                  '2026-09-27T17:00:00Z',
+                updated_at:
+                  '2026-09-27T17:50:00Z',
+              },
+              remaining_due_count: 0,
+              next_due_at:
+                '2026-09-27T18:00:00Z',
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid/review',
+    )
+    assert.equal(
+      init.method,
+      'POST',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {
+        card_id:
+          '22222222-2222-4222-8222-222222222222',
+        rating: 3,
+        review_duration_ms: 1400,
+      },
+    )
+    assert.equal(
+      result.card.review_count,
+      1,
     )
   },
 )
