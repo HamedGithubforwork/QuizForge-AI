@@ -343,6 +343,8 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             body = created.json()
             assert body["name"] == "Biology Midterm"
             assert body["card_count"] == 1
+            assert body["due_count"] == 1
+            assert body["next_due_at"] is None
             assert body["cards"][0]["source_pages"] == [12, 14]
             deck_id = body["id"]
             first_card_id = body["cards"][0]["id"]
@@ -381,6 +383,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             )
             assert added.status_code == 201, added.text
             assert added.json()["card_count"] == 2
+            assert added.json()["due_count"] == 2
             second_card_id = [
                 card["id"]
                 for card in added.json()["cards"]

@@ -34,7 +34,14 @@ def card(**overrides):
     }
 
 
-def deck_detail(*, cards=None, name="Biology Midterm", description="Cell biology"):
+def deck_detail(
+    *,
+    cards=None,
+    name="Biology Midterm",
+    description="Cell biology",
+    due_count=None,
+    next_due_at=None,
+):
     now = datetime(2026, 9, 27, 14, 0, tzinfo=timezone.utc)
     values = cards or []
     return {
@@ -42,6 +49,12 @@ def deck_detail(*, cards=None, name="Biology Midterm", description="Cell biology
         "name": name,
         "description": description,
         "card_count": len(values),
+        "due_count": (
+            len(values)
+            if due_count is None
+            else due_count
+        ),
+        "next_due_at": next_due_at,
         "created_at": now,
         "updated_at": now,
         "cards": values,
@@ -279,6 +292,7 @@ def test_list_and_get_return_decks(api):
     listed = client.get("/api/decks")
     assert listed.status_code == 200
     assert listed.json()[0]["name"] == "Biology Midterm"
+    assert listed.json()[0]["due_count"] == 0
 
     fetched = client.get(f"/api/decks/{DECK_ID}")
     assert fetched.status_code == 200

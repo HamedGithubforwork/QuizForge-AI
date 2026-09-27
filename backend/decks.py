@@ -158,6 +158,8 @@ class DeckSummary(BaseModel):
     name: str
     description: str | None
     card_count: int = Field(ge=0)
+    due_count: int = Field(ge=0)
+    next_due_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
