@@ -1,0 +1,512 @@
+.decks-page {
+  min-height: calc(100vh - 56px);
+  padding: 34px 20px 80px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #fafaff 0%,
+      #f7f8fc 100%
+    );
+}
+
+.decks-shell {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+.decks-header,
+.deck-detail-header {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 24px;
+
+  margin-bottom: 26px;
+  padding: 28px;
+
+  border: 1px solid #e1e2ef;
+  border-radius: 20px;
+
+  background: white;
+
+  box-shadow:
+    0 12px 34px
+    rgba(49, 53, 86, 0.06);
+}
+
+.decks-eyebrow {
+  color: #6659db;
+
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+}
+
+.decks-header h1,
+.deck-detail-header h1 {
+  margin: 7px 0 8px;
+
+  color: #293047;
+
+  font-size: clamp(
+    30px,
+    5vw,
+    42px
+  );
+}
+
+.decks-header p,
+.deck-detail-header p {
+  max-width: 560px;
+
+  margin: 0;
+
+  color: #6a7184;
+
+  line-height: 1.6;
+}
+
+.decks-primary-button,
+.decks-secondary-button,
+.decks-back {
+  border-radius: 10px;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-weight: 800;
+}
+
+.decks-primary-button {
+  padding: 11px 16px;
+
+  border: 1px solid #675ae2;
+
+  background: #675ae2;
+
+  color: white;
+}
+
+.decks-secondary-button,
+.decks-back {
+  padding: 10px 14px;
+
+  border: 1px solid #d8d9e6;
+
+  background: white;
+
+  color: #555d72;
+}
+
+.decks-back {
+  margin-bottom: 14px;
+}
+
+.decks-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      auto-fill,
+      minmax(250px, 1fr)
+    );
+
+  gap: 16px;
+}
+
+.deck-tile {
+  display: flex;
+
+  min-height: 210px;
+
+  flex-direction: column;
+
+  padding: 22px;
+
+  border: 1px solid #e0e2ed;
+  border-radius: 18px;
+
+  background: white;
+
+  color: inherit;
+
+  cursor: pointer;
+
+  text-align: left;
+
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.deck-tile:hover {
+  transform: translateY(-2px);
+
+  border-color: #bdb8ef;
+
+  box-shadow:
+    0 14px 34px
+    rgba(64, 58, 128, 0.1);
+}
+
+.deck-tile-top {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.deck-icon {
+  display: grid;
+
+  width: 40px;
+  height: 40px;
+
+  place-items: center;
+
+  border-radius: 12px;
+
+  background: #efedff;
+
+  color: #6557dd;
+
+  font-size: 22px;
+}
+
+.deck-count {
+  padding: 5px 9px;
+
+  border-radius: 999px;
+
+  background: #f3f4f8;
+
+  color: #676e80;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deck-tile h2 {
+  margin: 22px 0 8px;
+
+  color: #30364c;
+
+  font-size: 20px;
+}
+
+.deck-tile p {
+  display: -webkit-box;
+
+  margin: 0;
+
+  overflow: hidden;
+
+  color: #73798a;
+
+  line-height: 1.5;
+
+  -webkit-box-orient:
+    vertical;
+  -webkit-line-clamp: 2;
+}
+
+.deck-updated {
+  margin-top: auto;
+  padding-top: 18px;
+
+  color: #9297a5;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.decks-empty,
+.decks-status {
+  display: grid;
+
+  min-height: 330px;
+
+  place-items: center;
+
+  padding: 46px 28px;
+
+  border: 1px dashed #d8d9e8;
+  border-radius: 20px;
+
+  background: white;
+
+  text-align: center;
+}
+
+.decks-empty > *,
+.decks-status > * {
+  max-width: 520px;
+}
+
+.decks-empty-icon {
+  display: grid;
+
+  width: 68px;
+  height: 68px;
+
+  place-items: center;
+
+  border-radius: 20px;
+
+  background: #efedff;
+
+  color: #6659db;
+
+  font-size: 34px;
+}
+
+.decks-empty h2,
+.decks-status h1 {
+  margin: 10px 0 0;
+
+  color: #30364c;
+}
+
+.decks-empty p,
+.decks-status p {
+  margin: 0;
+
+  color: #747b8d;
+
+  line-height: 1.6;
+}
+
+.decks-status-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  justify-content: center;
+
+  gap: 10px;
+}
+
+.decks-spinner {
+  width: 30px;
+  height: 30px;
+
+  border: 3px solid #e7e5fb;
+  border-top-color: #675ae2;
+  border-radius: 50%;
+
+  animation:
+    decks-spin 0.8s linear infinite;
+}
+
+@keyframes decks-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.deck-detail-stat {
+  display: grid;
+
+  min-width: 100px;
+
+  place-items: center;
+
+  padding: 16px;
+
+  border-radius: 16px;
+
+  background: #f1efff;
+
+  color: #5c50cf;
+}
+
+.deck-detail-stat strong {
+  font-size: 30px;
+}
+
+.deck-detail-stat span {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deck-card-list {
+  display: grid;
+
+  gap: 14px;
+}
+
+.deck-card-row {
+  display: grid;
+
+  grid-template-columns:
+    42px minmax(0, 1fr);
+
+  gap: 16px;
+
+  padding: 22px;
+
+  border: 1px solid #e1e3ed;
+  border-radius: 16px;
+
+  background: white;
+}
+
+.deck-card-number {
+  display: grid;
+
+  width: 36px;
+  height: 36px;
+
+  place-items: center;
+
+  border-radius: 10px;
+
+  background: #f1efff;
+
+  color: #5f52d3;
+
+  font-weight: 900;
+}
+
+.deck-card-heading {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  align-items: center;
+
+  gap: 8px;
+}
+
+.deck-card-type,
+.deck-card-pages {
+  padding: 4px 8px;
+
+  border-radius: 999px;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.deck-card-type {
+  background: #eff1f6;
+
+  color: #636b7f;
+
+  text-transform: capitalize;
+}
+
+.deck-card-pages {
+  background: #f1efff;
+
+  color: #6659db;
+}
+
+.deck-card-content h2 {
+  margin: 12px 0 16px;
+
+  color: #30364c;
+
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.deck-card-answer {
+  display: grid;
+
+  gap: 4px;
+
+  padding: 13px 15px;
+
+  border-radius: 10px;
+
+  background: #f4faf6;
+
+  color: #2f6d47;
+}
+
+.deck-card-answer span {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.deck-card-choices {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 7px;
+
+  margin-top: 12px;
+}
+
+.deck-card-choices span {
+  padding: 6px 9px;
+
+  border: 1px solid #e0e2ea;
+  border-radius: 8px;
+
+  background: #fafbfc;
+
+  color: #697082;
+
+  font-size: 12px;
+}
+
+.deck-card-explanation {
+  margin: 14px 0 0;
+
+  color: #646b7d;
+
+  line-height: 1.55;
+}
+
+.deck-card-source {
+  display: block;
+
+  margin-top: 14px;
+
+  color: #969baa;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.deck-detail-empty {
+  min-height: 250px;
+}
+
+@media (
+  max-width: 640px
+) {
+  .decks-page {
+    padding-inline: 14px;
+  }
+
+  .decks-header,
+  .deck-detail-header {
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .decks-header
+    .decks-primary-button {
+    width: 100%;
+  }
+
+  .deck-detail-stat {
+    width: 100%;
+  }
+
+  .deck-card-row {
+    grid-template-columns: 1fr;
+  }
+}
