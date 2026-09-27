@@ -55,6 +55,9 @@ from quiz_generation_support import (
     get_generation_source_identity as resolve_generation_source_identity,
     get_quiz_generation_poll_delay as calculate_quiz_generation_poll_delay,
 )
+from quiz_generation_execution import (
+    generate_grounded_quiz as execute_grounded_quiz,
+)
 from redis_integration import (
     QUIZ_GENERATION_POLL_INTERVAL_SECONDS,
     QUIZ_GENERATION_WAIT_SECONDS,
@@ -206,6 +209,45 @@ async def get_generation_pages(
         redis_client=redis_client,
         log_event=log_event,
     )
+
+async def generate_grounded_quiz(
+    *,
+    pages,
+    question_count: int,
+    difficulty: str,
+    question_type: str,
+    focus_pages: str,
+    focus_question_types: str,
+    avoid_questions: str,
+    cache_key: str,
+):
+    return await execute_grounded_quiz(
+        pages=pages,
+        question_count=question_count,
+        difficulty=difficulty,
+        question_type=question_type,
+        focus_pages=focus_pages,
+        focus_question_types=(
+            focus_question_types
+        ),
+        avoid_questions=avoid_questions,
+        cache_key=cache_key,
+        parse_focus_pages=(
+            quiz_service.parse_focus_pages
+        ),
+        parse_avoid_questions=(
+            quiz_service.parse_avoid_questions
+        ),
+        build_generation_pages=(
+            build_generation_pages
+        ),
+        generate_quiz_from_pages=(
+            generate_quiz_from_pages
+        ),
+        cache_quiz=cache_quiz,
+        log_event=log_event,
+    )
+
 
 @app.middleware("http")
 async def observability_middleware(
@@ -418,52 +460,8 @@ async def generate_quiz(
                 contents=contents,
             )
 
-            focus_page_numbers = (
-                quiz_service.parse_focus_pages(
-                    focus_pages,
-                    len(pages),
-                )
-            )
-            previous_questions = (
-                quiz_service.parse_avoid_questions(
-                    avoid_questions
-                )
-            )
-            generation_pages = build_generation_pages(
-                pages,
-                focus_page_numbers=(
-                    focus_page_numbers
-                ),
-                query_texts=previous_questions,
-            )
-            selection = generation_pages.selection
-
-            log_event(
-                "quiz_context_selected",
-                original_page_count=len(pages),
-                selected_page_count=len(
-                    selection.source_pages
-                ),
-                total_chunk_count=(
-                    selection.total_chunk_count
-                ),
-                selected_chunk_count=len(
-                    selection.chunks
-                ),
-                total_character_count=(
-                    selection.total_character_count
-                ),
-                selected_character_count=(
-                    selection.selected_character_count
-                ),
-                truncated=selection.truncated,
-                focus_page_count=len(
-                    focus_page_numbers
-                ),
-            )
-
-            quiz = await generate_quiz_from_pages(
-                pages=generation_pages,
+            quiz = await generate_grounded_quiz(
+                pages=pages,
                 question_count=question_count,
                 difficulty=difficulty,
                 question_type=question_type,
@@ -472,39 +470,7 @@ async def generate_quiz(
                     focus_question_types
                 ),
                 avoid_questions=avoid_questions,
-            )
-
-            cited_pages = {
-                page_number
-                for question in quiz.questions
-                for page_number in question.source_pages
-            }
-            invalid_context_pages = (
-                cited_pages
-                - generation_pages.source_pages
-            )
-
-            if invalid_context_pages:
-                log_event(
-                    "quiz_context_grounding_rejected",
-                    level=logging.WARNING,
-                    invalid_source_page_count=len(
-                        invalid_context_pages
-                    ),
-                )
-                raise HTTPException(
-                    status_code=502,
-                    detail=(
-                        "The AI cited source material that was not included "
-                        "in the selected document context. Please try "
-                        "generating the quiz again."
-                    ),
-                )
-
-            # A requested new generation replaces the older cached quiz.
-            await cache_quiz(
-                cache_key,
-                quiz,
+                cache_key=cache_key,
             )
         finally:
             if generation_lock_token is not None:
