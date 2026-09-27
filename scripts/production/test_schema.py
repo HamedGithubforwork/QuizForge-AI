@@ -37,7 +37,7 @@ class DeckSchema(unittest.TestCase):
             autocommit=True,
         ) as owner:
             owner.execute(
-                "TRUNCATE app.cards, app.decks, "
+                "TRUNCATE app.card_review_logs, app.cards, app.decks, "
                 "app.user_identities, app.users CASCADE"
             )
 
@@ -47,7 +47,11 @@ class DeckSchema(unittest.TestCase):
             autocommit=True,
             row_factory=dict_row,
         ) as owner:
-            for table in ("app.decks", "app.cards"):
+            for table in (
+                "app.decks",
+                "app.cards",
+                "app.card_review_logs",
+            ):
                 self.assertTrue(
                     owner.execute(
                         "SELECT relrowsecurity "
@@ -85,6 +89,28 @@ class DeckSchema(unittest.TestCase):
                     "SELECT has_column_privilege("
                     "'quizforge_app', 'app.decks', "
                     "'name', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'due_at', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'user_id', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_app', 'app.card_review_logs', "
+                    "'UPDATE,DELETE,TRUNCATE') AS allowed"
                 ).fetchone()["allowed"]
             )
 
@@ -133,6 +159,26 @@ class DeckSchema(unittest.TestCase):
                 ),
             )
 
+            card = connection.execute(
+                "SELECT id,due_at,fsrs_state,fsrs_step,"
+                "review_count,lapse_count "
+                "FROM app.cards "
+                "WHERE deck_id=%s",
+                (deck_id,),
+            ).fetchone()
+            self.assertEqual(card["fsrs_state"], 1)
+            self.assertEqual(card["fsrs_step"], 0)
+            self.assertEqual(card["review_count"], 0)
+            self.assertEqual(card["lapse_count"], 0)
+            self.assertIsNotNone(card["due_at"])
+
+            connection.execute(
+                "INSERT INTO app.card_review_logs "
+                "(card_id,user_id,rating,review_duration_ms) "
+                "VALUES (%s,%s,3,1200)",
+                (card["id"], first_user),
+            )
+
             self.assertEqual(
                 connection.execute(
                     "SELECT count(*) AS count FROM app.decks"
@@ -142,6 +188,14 @@ class DeckSchema(unittest.TestCase):
             self.assertEqual(
                 connection.execute(
                     "SELECT count(*) AS count FROM app.cards"
+                ).fetchone()["count"],
+                1,
+            )
+
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.card_review_logs"
                 ).fetchone()["count"],
                 1,
             )
@@ -161,6 +215,14 @@ class DeckSchema(unittest.TestCase):
             self.assertEqual(
                 connection.execute(
                     "SELECT count(*) AS count FROM app.cards"
+                ).fetchone()["count"],
+                0,
+            )
+
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.card_review_logs"
                 ).fetchone()["count"],
                 0,
             )
