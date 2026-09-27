@@ -17,6 +17,7 @@ on:
   pull_request:
     branches:
       - main
+      - application/production
 
 permissions:
   contents: read
