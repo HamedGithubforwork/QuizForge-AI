@@ -318,7 +318,7 @@
   width: min(960px, 100%);
 
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
 
   gap: 14px;
 
@@ -371,6 +371,56 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+
+.account-bar-email {
+  overflow: hidden;
+
+  color: #737a8e;
+
+  font-size: 12px;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-nav-button {
+  padding: 7px 11px;
+
+  border: 1px solid transparent;
+  border-radius: 8px;
+
+  background: transparent;
+
+  color: #666d7f;
+
+  cursor: pointer;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.account-nav-button:hover:not(:disabled) {
+  border-color: #ddd9ff;
+
+  background: #f8f7ff;
+
+  color: #574ad8;
+}
+
+.account-nav-button.active {
+  border-color: #cfc9ff;
+
+  background: #f2f0ff;
+
+  color: #574ad8;
+}
+
+.account-nav-button:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.6;
 }
 
 .account-security-button {
@@ -1004,8 +1054,20 @@
 
 @media (max-width: 700px) {
   .account-bar-inner {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
+  }
+
+  .account-bar-actions {
+    flex-wrap: wrap;
+  }
+
+  .account-nav-button {
+    flex: 1;
+  }
+
+  .sign-out-button {
+    flex: 1;
   }
 
   .security-settings-panel {
