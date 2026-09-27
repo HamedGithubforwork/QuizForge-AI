@@ -314,7 +314,7 @@ def test_identity_role_refuses_owner_or_history_privileges(enrollment, owner):
         finally: owner.execute('REVOKE SELECT ON app.quiz_history FROM quizforge_identity')
     asyncio.run(scenario())
 
-def test_deck_crud_uses_same_verified_owner_mapping(api):
+def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
     async def scenario():
         async with api() as (client, _):
             created = await client.post(
@@ -345,6 +345,9 @@ def test_deck_crud_uses_same_verified_owner_mapping(api):
             assert body["card_count"] == 1
             assert body["cards"][0]["source_pages"] == [12, 14]
             deck_id = body["id"]
+            first_card_id = body["cards"][0]["id"]
+            assert body["cards"][0]["fsrs_state"] == 1
+            assert body["cards"][0]["review_count"] == 0
 
             listed = await client.get("/api/decks", headers=headers())
             assert listed.status_code == 200
@@ -378,6 +381,65 @@ def test_deck_crud_uses_same_verified_owner_mapping(api):
             )
             assert added.status_code == 201, added.text
             assert added.json()["card_count"] == 2
+            second_card_id = [
+                card["id"]
+                for card in added.json()["cards"]
+                if card["id"] != first_card_id
+            ][0]
+
+            queue = await client.get(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+            )
+            assert queue.status_code == 200, queue.text
+            assert queue.json()["due_count"] == 2
+            assert {
+                card["id"]
+                for card in queue.json()["cards"]
+            } == {first_card_id, second_card_id}
+
+            reviewed = await client.post(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                json={
+                    "card_id": first_card_id,
+                    "rating": 3,
+                    "review_duration_ms": 1700,
+                },
+            )
+            assert reviewed.status_code == 200, reviewed.text
+            reviewed_body = reviewed.json()
+            assert reviewed_body["card"]["review_count"] == 1
+            assert reviewed_body["card"]["last_reviewed_at"] is not None
+            assert reviewed_body["card"]["stability"] > 0
+            assert reviewed_body["card"]["difficulty"] > 0
+            assert reviewed_body["remaining_due_count"] == 1
+
+            repeated = await client.post(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                json={
+                    "card_id": first_card_id,
+                    "rating": 3,
+                },
+            )
+            assert repeated.status_code == 409
+
+            hidden_review = await client.post(
+                f"/api/decks/{deck_id}/review",
+                headers=headers("valid-b"),
+                json={
+                    "card_id": second_card_id,
+                    "rating": 3,
+                },
+            )
+            assert hidden_review.status_code == 404
+
+            log = owner.execute(
+                """SELECT user_id,rating,review_duration_ms
+                   FROM app.card_review_logs"""
+            ).fetchall()
+            assert log == [(USERS[0], 3, 1700)]
 
             renamed = await client.patch(
                 f"/api/decks/{deck_id}",
@@ -400,6 +462,9 @@ def test_deck_crud_uses_same_verified_owner_mapping(api):
                 )
             ).status_code == 204
             assert (await client.get("/api/decks", headers=headers())).json() == []
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 0
 
     asyncio.run(scenario())
 
