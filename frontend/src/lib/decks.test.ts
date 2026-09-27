@@ -122,6 +122,8 @@ test(
       name: 'Biology Midterm',
       description: null,
       card_count: 1,
+      due_count: 1,
+      next_due_at: null,
       created_at:
         '2026-09-27T15:00:00Z',
       updated_at:
@@ -232,6 +234,8 @@ test(
                 name: 'Biology Midterm',
                 description: null,
                 card_count: 12,
+                due_count: 4,
+                next_due_at: null,
                 created_at:
                   '2026-09-27T15:00:00Z',
                 updated_at:
@@ -254,6 +258,10 @@ test(
     assert.equal(
       decks[0].card_count,
       12,
+    )
+    assert.equal(
+      decks[0].due_count,
+      4,
     )
   },
 )
