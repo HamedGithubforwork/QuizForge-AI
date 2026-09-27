@@ -23,6 +23,10 @@ from document_api import (
     build_upload_response_from_sha,
 )
 from document_retrieval import build_generation_pages
+from document_generation_support import (
+    get_document_pages_with_cache as resolve_document_pages_with_cache,
+    get_generation_pages as resolve_generation_pages,
+)
 from observability import (
     elapsed_ms,
     log_event,
@@ -87,86 +91,33 @@ async def get_document_pages_with_cache(
     contents: bytes,
     pdf_sha256: str | None = None,
 ):
-    resolved_pdf_sha256 = (
-        pdf_sha256
-        if pdf_sha256 is not None
-        else compute_pdf_sha256(contents)
-    )
-
-    cache_key = build_document_cache_key_from_sha(
+    return await resolve_document_pages_with_cache(
         user_id=user_id,
-        pdf_sha256=resolved_pdf_sha256,
+        contents=contents,
+        pdf_sha256=pdf_sha256,
+        compute_hash=compute_pdf_sha256,
+        build_cache_key=(
+            build_document_cache_key_from_sha
+        ),
+        get_cached_document=(
+            get_cached_document
+        ),
+        extract_pages=(
+            extract_pdf_pages_off_event_loop
+        ),
+        cache_document=cache_document,
+        forget_processed_document=(
+            forget_processed_document
+        ),
+        remember_processed_document=(
+            remember_processed_document
+        ),
+        record_cache_metric=(
+            record_document_cache_metric
+        ),
+        redis_client=redis_client,
+        log_event=log_event,
     )
-
-    cached_document = await get_cached_document(
-        cache_key
-    )
-
-    if cached_document is not None:
-        forget_processed_document(
-            user_id=user_id,
-            pdf_sha256=resolved_pdf_sha256,
-        )
-
-        await record_document_cache_metric(
-            redis_client,
-            "hit",
-        )
-
-        log_event(
-            "document_cache_lookup",
-            cache_result="hit",
-            page_count=len(
-                cached_document["pages"]
-            ),
-        )
-
-        return (
-            resolved_pdf_sha256,
-            cached_document["pages"],
-        )
-
-    pages = await extract_pdf_pages_off_event_loop(
-        contents
-    )
-
-    cached = await cache_document(
-        cache_key,
-        {
-            "pdf_sha256": resolved_pdf_sha256,
-            "pages": pages,
-        },
-    )
-
-    fallback_stored = False
-
-    if cached:
-        forget_processed_document(
-            user_id=user_id,
-            pdf_sha256=resolved_pdf_sha256,
-        )
-    else:
-        fallback_stored = remember_processed_document(
-            user_id=user_id,
-            pdf_sha256=resolved_pdf_sha256,
-            pages=pages,
-        )
-
-    await record_document_cache_metric(
-        redis_client,
-        "miss",
-    )
-
-    log_event(
-        "document_cache_lookup",
-        cache_result="miss",
-        page_count=len(pages),
-        stored=cached,
-        fallback_stored=fallback_stored,
-    )
-
-    return resolved_pdf_sha256, pages
-
 
 async def get_generation_source_identity(
     *,
@@ -239,56 +190,22 @@ async def get_generation_pages(
     pdf_sha256: str,
     contents: bytes | None,
 ):
-    if contents is not None:
-        _resolved_hash, pages = (
-            await get_document_pages_with_cache(
-                user_id=user_id,
-                contents=contents,
-                pdf_sha256=pdf_sha256,
-            )
-        )
-
-        return pages
-
-    document = await get_processed_document(
+    return await resolve_generation_pages(
         user_id=user_id,
         pdf_sha256=pdf_sha256,
-    )
-
-    if document is None:
-        await record_document_cache_metric(
-            redis_client,
-            "miss",
-        )
-
-        log_event(
-            "processed_document_lookup",
-            cache_result="miss",
-        )
-
-        raise HTTPException(
-            status_code=410,
-            detail=(
-                "Processed document expired or is unavailable. "
-                "Please process the PDF again."
-            ),
-        )
-
-    await record_document_cache_metric(
-        redis_client,
-        "hit",
-    )
-
-    log_event(
-        "processed_document_lookup",
-        cache_result="hit",
-        page_count=len(
-            document["pages"]
+        contents=contents,
+        get_document_pages_with_cache=(
+            get_document_pages_with_cache
         ),
+        get_processed_document=(
+            get_processed_document
+        ),
+        record_cache_metric=(
+            record_document_cache_metric
+        ),
+        redis_client=redis_client,
+        log_event=log_event,
     )
-
-    return document["pages"]
-
 
 @app.middleware("http")
 async def observability_middleware(
