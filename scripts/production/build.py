@@ -38,13 +38,70 @@ def public_config(config):
     return config
 
 
+COGNITO_GATE_SOURCE = """export { default } from './CognitoAuthGate'\n"""
+
+COGNITO_SESSION_SOURCE = """import { session } from './cognitoBrowser'
+
+export type AuthSession = {
+  accessToken: string
+  userId: string
+  email: string
+}
+
+export async function authSession(
+  refresh = false,
+): Promise<AuthSession | null> {
+  return session(refresh)
+}
+"""
+
+
+def narrow_production_auth_source(frontend):
+    src = frontend / "src"
+    required = [
+        src / "CognitoAuthGate.tsx",
+        src / "SupabaseAuthGate.tsx",
+        src / "AuthGate.tsx",
+        src / "lib" / "authSession.ts",
+        src / "lib" / "cognitoBrowser.ts",
+        src / "lib" / "supabase.ts",
+    ]
+    missing = [path.relative_to(frontend).as_posix() for path in required if not path.is_file()]
+    if missing:
+        raise ValueError("Pinned frontend lacks reviewed auth source: " + ", ".join(missing))
+
+    (src / "AuthGate.tsx").write_text(COGNITO_GATE_SOURCE, encoding="utf-8")
+    (src / "lib" / "authSession.ts").write_text(COGNITO_SESSION_SOURCE, encoding="utf-8")
+
+    legacy_gate = src / "SupabaseAuthGate.tsx"
+    legacy_adapter = src / "lib" / "supabase.ts"
+    excluded = {legacy_gate.resolve(), legacy_adapter.resolve()}
+    local_adapter = re.compile(
+        r"""(?:from\s+|import\()\s*['"](?:\.\.?/)+[^'"]*supabase(?:\.ts)?['"]"""
+    )
+    for candidate in src.rglob("*"):
+        if candidate.suffix not in {".ts", ".tsx"} or candidate.resolve() in excluded:
+            continue
+        if local_adapter.search(candidate.read_text(encoding="utf-8")):
+            raise ValueError(
+                "Unexpected production dependency on legacy Supabase adapter: "
+                + candidate.relative_to(frontend).as_posix()
+            )
+
+    legacy_gate.unlink()
+    legacy_adapter.unlink()
+
+
 def main():
     config = public_config(json.loads(Path(sys.argv[1]).read_text()))
     source, destination = Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve()
     # Inputs are copied without inherited local env files, credentials or build output.
     shutil.copytree(source,destination,ignore=shutil.ignore_patterns('.env*','node_modules','dist','.git'))
+    # Production is Cognito-only. Keep the Supabase SDK only for the explicit,
+    # non-persistent legacy-account ownership proof inside CognitoAuthGate.
+    narrow_production_auth_source(destination)
     env = {name:os.environ[name] for name in ('PATH','HOME','CI') if name in os.environ}
-    env.update(VITE_AUTH_PROVIDER='cognito',VITE_COGNITO_ENVIRONMENT='production',
+    env.update(VITE_COGNITO_ENVIRONMENT='production',
                VITE_COGNITO_USER_POOL_ID=config['pool'],VITE_COGNITO_CLIENT_ID=config['client'],
                VITE_COGNITO_DOMAIN=config['auth_origin'],VITE_API_URL=config['api_url'],
                VITE_IDENTITY_API_URL=config['api_url'],VITE_SUPABASE_URL=config['legacy_url'],

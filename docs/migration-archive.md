@@ -15,11 +15,13 @@ workflows.
 
 ## Intentionally retained on main
 
-Do not treat every legacy-looking file as disposable. The production release still
-contains a legacy Supabase compatibility path used by the currently pinned
-application candidate, so the frontend Supabase adapter/package and the public
-legacy-provider build configuration remain on `main` until that compatibility
-path is deliberately retired.
+Do not treat every legacy-looking file as disposable. Production authentication and
+normal API/history sessions are Cognito/PostgreSQL-only, but existing pre-migration
+accounts can still prove ownership through a bounded Supabase link flow. The
+production build strips the dormant Supabase AuthGate/session fallback and keeps
+only the public legacy URL/key plus the Supabase SDK needed by that non-persistent
+link-proof client. Those final compatibility inputs remain until existing-account
+linking is deliberately retired.
 
 Ongoing production deployment, Cognito, SMS MFA, backups, disaster recovery,
 cost controls, current canaries, and the active production recovery primitives

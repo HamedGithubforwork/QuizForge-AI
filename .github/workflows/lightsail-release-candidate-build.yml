@@ -30,7 +30,6 @@ permissions:
 env:
   AWS_REGION: ca-central-1
   ECR_REPOSITORY: quizforge-api
-  APPLICATION_CANDIDATE_SHA: 807a4084237f6db544620cdb8322108ebf52251c
 
 jobs:
   validate:
@@ -38,6 +37,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      application_sha: ${{ steps.candidate.outputs.application_sha }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,10 +46,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
       - name: Validate public release configuration code
         run: |
-          python -m py_compile scripts/production/lightsail/release_candidate.py
-          python -m unittest scripts.production.lightsail.test_release_candidate -v
+          python -m py_compile scripts/production/build.py scripts/production/lightsail/release_candidate.py
+          python -m unittest scripts.production.test_build scripts.production.lightsail.test_release_candidate -v
       - name: Require public source configuration only
         run: |
           python - <<'PY'
@@ -59,10 +63,22 @@ jobs:
           assert value["legacy_url"]=="https://vfxmsvphgcaizqnbyjip.supabase.co"
           assert re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}", value["legacy_publishable_key"])
           PY
-      - name: Verify exact tested application candidate
+      - name: Read currently pinned production application candidate
+        id: candidate
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          sha=lock.get("application_candidate_sha","")
+          assert re.fullmatch(r"[0-9a-f]{40}",sha)
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
+              out.write("application_sha="+sha+"\n")
+          PY
+      - name: Verify exact pinned production application candidate
         uses: actions/checkout@v7
         with:
-          ref: ${{ env.APPLICATION_CANDIDATE_SHA }}
+          ref: ${{ steps.candidate.outputs.application_sha }}
           path: application-candidate
           persist-credentials: false
       - name: Require identity-capable backend candidate
@@ -72,6 +88,33 @@ jobs:
           test -f application-candidate/backend/identity_app.py
           test -f application-candidate/backend/identity_database.py
           test -f application-candidate/backend/identity_proofs.py
+      - name: Rehearse narrowed Cognito production frontend build
+        env:
+          CI: "true"
+        run: |
+          cat > "$RUNNER_TEMP/synthetic-public.json" <<'JSON'
+          {
+            "pool": "ca-central-1_SyntheticPool",
+            "client": "syntheticclient123",
+            "auth_origin": "https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
+            "frontend_url": "https://quizfromnotes.com",
+            "api_url": "https://api.quizfromnotes.com",
+            "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
+            "legacy_publishable_key": "sb_publishable_synthetic_public_key_123456789",
+            "sms_mfa_enabled": false
+          }
+          JSON
+          python scripts/production/build.py \
+            "$RUNNER_TEMP/synthetic-public.json" \
+            application-candidate/frontend \
+            "$RUNNER_TEMP/frontend-validation"
+          test -f "$RUNNER_TEMP/frontend-validation/dist/index.html"
+          test ! -e "$RUNNER_TEMP/frontend-validation/src/SupabaseAuthGate.tsx"
+          test ! -e "$RUNNER_TEMP/frontend-validation/src/lib/supabase.ts"
+          grep -F "CognitoAuthGate" "$RUNNER_TEMP/frontend-validation/src/AuthGate.tsx"
+          grep -F "from './cognitoBrowser'" "$RUNNER_TEMP/frontend-validation/src/lib/authSession.ts"
+          ! grep -F "supabase" "$RUNNER_TEMP/frontend-validation/src/lib/authSession.ts"
+          grep -F "@supabase/supabase-js" "$RUNNER_TEMP/frontend-validation/src/CognitoAuthGate.tsx"
 
   build-release:
     needs: validate
@@ -84,6 +127,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      APPLICATION_CANDIDATE_SHA: ${{ needs.validate.outputs.application_sha }}
     concurrency:
       group: quizforge-lightsail-release-candidate-build
       cancel-in-progress: false
@@ -94,7 +139,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.APPLICATION_CANDIDATE_SHA }}
+          ref: ${{ needs.validate.outputs.application_sha }}
           path: application-candidate
           persist-credentials: false
 

@@ -1,7 +1,9 @@
 """Prepare only public application configuration for the permanent Lightsail release.
 
 Reads the already-created Cognito resources and combines them with the public
-legacy Supabase client configuration. No secrets are read and no cloud changes
+legacy Supabase account-link proof configuration. Normal production sign-in and
+API sessions are Cognito-only; the legacy values exist only to prove ownership
+when a pre-migration account is linked. No secrets are read and no cloud changes
 are made.
 """
 from __future__ import annotations
