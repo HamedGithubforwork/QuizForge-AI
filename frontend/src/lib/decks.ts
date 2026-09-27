@@ -1,6 +1,3 @@
-import {
-  apiFetch,
-} from './api.ts'
 import type {
   CardCreate,
   DeckCreate,
@@ -63,7 +60,7 @@ export function buildDeckCreatePayload(
 
 export async function createStudyDeck(
   payload: DeckCreate,
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<DeckDetail> {
   const response = await fetcher(
     '/api/decks',
