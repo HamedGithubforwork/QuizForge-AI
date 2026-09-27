@@ -1,0 +1,68 @@
+name: Production schema checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/production/schema.sql"
+      - "scripts/production/test_schema.py"
+      - ".github/workflows/production-schema.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/production/schema.sql"
+      - "scripts/production/test_schema.py"
+      - ".github/workflows/production-schema.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-schema-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  schema:
+    name: PostgreSQL schema and RLS
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: quizforge
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d quizforge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PRODUCTION_TEST_DB: postgresql://postgres:postgres@127.0.0.1:5432/quizforge
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+          cache: pip
+          cache-dependency-path: scripts/production/requirements.lock
+
+      - name: Install hash-locked production dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r scripts/production/requirements.lock
+          python -m pip check
+
+      - name: Validate fresh production schema and ownership isolation
+        run: python scripts/production/test_schema.py

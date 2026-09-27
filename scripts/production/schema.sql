@@ -31,10 +31,56 @@ CREATE TABLE app.quiz_history (
 );
 CREATE INDEX quiz_history_user_created_at_id_idx ON app.quiz_history (user_id, created_at DESC, id DESC);
 CREATE INDEX quiz_history_user_document_sha256_idx ON app.quiz_history (user_id, document_sha256) WHERE document_sha256 IS NOT NULL;
+CREATE TABLE app.decks (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+    name text NOT NULL CHECK (char_length(btrim(name)) BETWEEN 1 AND 200),
+    description text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (id, user_id)
+);
+CREATE TABLE app.cards (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    deck_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    question_type text NOT NULL CHECK (question_type IN ('multiple_choice', 'true_false', 'short_answer')),
+    question text NOT NULL CHECK (char_length(btrim(question)) > 0),
+    answer jsonb NOT NULL,
+    choices jsonb,
+    explanation text,
+    source_filename text,
+    document_sha256 text CHECK (document_sha256 IS NULL OR document_sha256 ~ '^[a-f0-9]{64}$'),
+    source_page integer CHECK (source_page IS NULL OR source_page > 0),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (deck_id, user_id)
+        REFERENCES app.decks(id, user_id)
+        ON DELETE CASCADE
+);
+CREATE INDEX decks_user_updated_at_id_idx
+    ON app.decks (user_id, updated_at DESC, id DESC);
+CREATE INDEX cards_user_deck_created_at_id_idx
+    ON app.cards (user_id, deck_id, created_at, id);
 GRANT SELECT ON app.user_identities TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
+GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
+GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
+GRANT UPDATE (
+    question_type,
+    question,
+    answer,
+    choices,
+    explanation,
+    source_filename,
+    document_sha256,
+    source_page,
+    updated_at
+) ON app.cards TO quizforge_app;
 ALTER TABLE app.user_identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.quiz_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.decks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.cards ENABLE ROW LEVEL SECURITY;
 -- Owner is a separate migration role. App is never table owner or BYPASSRLS.
 CREATE POLICY identity_lookup ON app.user_identities FOR SELECT TO quizforge_app
 USING (issuer = nullif(current_setting('quizforge.auth_issuer', true), '')
@@ -44,6 +90,25 @@ USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
 CREATE POLICY history_insert ON app.quiz_history FOR INSERT TO quizforge_app
 WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
 CREATE POLICY history_delete ON app.quiz_history FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+
+CREATE POLICY deck_read ON app.decks FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_insert ON app.decks FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_update ON app.decks FOR UPDATE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY deck_delete ON app.decks FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_read ON app.cards FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_insert ON app.cards FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_update ON app.cards FOR UPDATE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY card_delete ON app.cards FOR DELETE TO quizforge_app
 USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
 
 -- Separate production enrollment authority. Apply after schema.sql as owner.
