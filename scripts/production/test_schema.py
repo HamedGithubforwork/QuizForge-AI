@@ -206,7 +206,7 @@ class DeckSchema(unittest.TestCase):
             )
 
             with self.assertRaises(
-                psycopg.errors.InsufficientPrivilege
+                psycopg.errors.ForeignKeyViolation
             ):
                 connection.execute(
                     "INSERT INTO app.cards "
