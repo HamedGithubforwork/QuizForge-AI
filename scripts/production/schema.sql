@@ -52,6 +52,8 @@ CREATE TABLE app.cards (
     source_filename text,
     document_sha256 text CHECK (document_sha256 IS NULL OR document_sha256 ~ '^[a-f0-9]{64}$'),
     source_pages integer[] NOT NULL DEFAULT '{}' CHECK (0 < ALL (source_pages)),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
     fsrs_state smallint NOT NULL DEFAULT 1 CHECK (fsrs_state IN (1, 2, 3)),
     fsrs_step integer DEFAULT 0 CHECK (fsrs_step IS NULL OR fsrs_step >= 0),
     stability double precision CHECK (stability IS NULL OR stability > 0),
@@ -60,8 +62,6 @@ CREATE TABLE app.cards (
     last_reviewed_at timestamptz,
     review_count integer NOT NULL DEFAULT 0 CHECK (review_count >= 0),
     lapse_count integer NOT NULL DEFAULT 0 CHECK (lapse_count >= 0),
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (id, user_id),
     CHECK (
         (fsrs_state = 2 AND fsrs_step IS NULL)
