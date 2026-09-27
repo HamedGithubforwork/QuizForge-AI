@@ -42,6 +42,7 @@ from processed_documents import (
 from pdf_jobs import PdfJobResponse, enabled as background_pdfs_enabled, manager as pdf_job_manager, router as pdf_jobs_router
 import quiz_service
 from quiz_history import router as quiz_history_router
+from decks import router as decks_router
 from quiz_service import (
     Quiz,
     generate_quiz_from_pages,
@@ -66,6 +67,7 @@ from redis_integration import (
 
 app = create_app()
 app.include_router(quiz_history_router)
+app.include_router(decks_router)
 app.include_router(pdf_jobs_router)
 
 QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0
