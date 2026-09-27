@@ -170,6 +170,20 @@ export type ReviewResult = {
   "next_due_at": string | null
 }
 
+export type StudyNotificationPreferences = {
+  "enabled"?: boolean
+  "reminder_time"?: string
+  "timezone"?: string
+  "minimum_due_cards"?: number
+}
+
+export type StudyNotificationPreferencesUpdate = {
+  "enabled": boolean
+  "reminder_time": string
+  "timezone": string
+  "minimum_due_cards": number
+}
+
 export type PdfJobResponse = {
   "job_id": string
   "filename": string
@@ -261,6 +275,7 @@ export const API_ROUTES = [
   "GET /api/health",
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
+  "GET /api/study-notifications/preferences",
   "PATCH /api/decks/{deck_id}",
   "POST /api/answers/review",
   "POST /api/decks",
@@ -270,6 +285,7 @@ export const API_ROUTES = [
   "POST /api/documents/upload",
   "POST /api/quiz-history",
   "POST /api/quizzes/generate",
+  "PUT /api/study-notifications/preferences",
 ] as const
 
 export type ApiRoute = (typeof API_ROUTES)[number]
