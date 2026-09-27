@@ -132,6 +132,8 @@ export type DeckSummary = {
   "name": string
   "description": string | null
   "card_count": number
+  "due_count": number
+  "next_due_at": string | null
   "created_at": string
   "updated_at": string
 }
@@ -141,6 +143,8 @@ export type DeckDetail = {
   "name": string
   "description": string | null
   "card_count": number
+  "due_count": number
+  "next_due_at": string | null
   "created_at": string
   "updated_at": string
   "cards": CardRow[]
