@@ -68,8 +68,42 @@ class CardCreate(BaseModel):
 class CardRow(CardCreate):
     id: UUID
     deck_id: UUID
+    fsrs_state: Literal[1, 2, 3]
+    fsrs_step: int | None
+    stability: float | None
+    difficulty: float | None
+    due_at: datetime
+    last_reviewed_at: datetime | None
+    review_count: int = Field(ge=0)
+    lapse_count: int = Field(ge=0)
     created_at: datetime
     updated_at: datetime
+
+
+class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    card_id: UUID
+    rating: Literal[1, 2, 3, 4]
+    review_duration_ms: int | None = Field(
+        default=None,
+        ge=0,
+        le=86_400_000,
+    )
+
+
+class ReviewQueue(BaseModel):
+    deck_id: UUID
+    deck_name: str
+    due_count: int = Field(ge=0)
+    next_due_at: datetime | None
+    cards: list[CardRow]
+
+
+class ReviewResult(BaseModel):
+    card: CardRow
+    remaining_due_count: int = Field(ge=0)
+    next_due_at: datetime | None
 
 
 class DeckCreate(BaseModel):
@@ -176,6 +210,45 @@ async def get_deck(
     repository=Depends(get_deck_repository),
 ):
     return await repository.get(deck_id)
+
+
+@router.get(
+    "/{deck_id}/review",
+    response_model=ReviewQueue,
+)
+async def get_review_queue(
+    deck_id: UUID,
+    limit: int = 20,
+    repository=Depends(get_deck_repository),
+):
+    if not 1 <= limit <= 50:
+        raise HTTPException(
+            422,
+            "Review limit must be between 1 and 50.",
+        )
+    return await repository.review_queue(
+        deck_id,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/{deck_id}/review",
+    response_model=ReviewResult,
+)
+async def review_card(
+    deck_id: UUID,
+    payload: ReviewRequest,
+    repository=Depends(get_deck_repository),
+):
+    return await repository.review_card(
+        deck_id,
+        card_id=payload.card_id,
+        rating=payload.rating,
+        review_duration_ms=(
+            payload.review_duration_ms
+        ),
+    )
 
 
 @router.patch("/{deck_id}", response_model=DeckDetail)
