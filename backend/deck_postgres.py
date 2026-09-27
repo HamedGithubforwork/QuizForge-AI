@@ -73,6 +73,8 @@ class PostgresDeckRepository:
             "name": row["name"],
             "description": row["description"],
             "card_count": row["card_count"],
+            "due_count": row["due_count"],
+            "next_due_at": row["next_due_at"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -116,7 +118,9 @@ class PostgresDeckRepository:
         return await (
             await conn.execute(
                 """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
-                          count(c.id)::int AS card_count
+                          count(c.id)::int AS card_count,
+                          count(c.id) FILTER (WHERE c.due_at <= now())::int AS due_count,
+                          min(c.due_at) FILTER (WHERE c.due_at > now()) AS next_due_at
                    FROM app.decks d
                    LEFT JOIN app.cards c
                      ON c.deck_id=d.id AND c.user_id=d.user_id
@@ -171,13 +175,18 @@ class PostgresDeckRepository:
             rows = await (
                 await conn.execute(
                     """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
-                              count(c.id)::int AS card_count
+                              count(c.id)::int AS card_count,
+                              count(c.id) FILTER (WHERE c.due_at <= now())::int AS due_count,
+                              min(c.due_at) FILTER (WHERE c.due_at > now()) AS next_due_at
                        FROM app.decks d
                        LEFT JOIN app.cards c
                          ON c.deck_id=d.id AND c.user_id=d.user_id
                        WHERE d.user_id=%s
                        GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at
-                       ORDER BY d.updated_at DESC,d.id DESC""",
+                       ORDER BY
+                         count(c.id) FILTER (WHERE c.due_at <= now()) DESC,
+                         d.updated_at DESC,
+                         d.id DESC""",
                     (user_id,),
                 )
             ).fetchall()
