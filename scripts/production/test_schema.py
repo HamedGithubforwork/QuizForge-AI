@@ -37,7 +37,8 @@ class DeckSchema(unittest.TestCase):
             autocommit=True,
         ) as owner:
             owner.execute(
-                "TRUNCATE app.study_notification_preferences, "
+                "TRUNCATE app.study_notification_deliveries, "
+                "app.web_push_subscriptions, app.study_notification_preferences, "
                 "app.card_review_logs, app.cards, app.decks, "
                 "app.user_identities, app.users CASCADE"
             )
@@ -53,6 +54,8 @@ class DeckSchema(unittest.TestCase):
                 "app.cards",
                 "app.card_review_logs",
                 "app.study_notification_preferences",
+                "app.web_push_subscriptions",
+                "app.study_notification_deliveries",
             ):
                 self.assertTrue(
                     owner.execute(
@@ -141,6 +144,36 @@ class DeckSchema(unittest.TestCase):
                 ).fetchone()["allowed"]
             )
 
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', "
+                    "'app.study_notification_preferences', "
+                    "'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'due_at', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'question', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', 'app.quiz_history', "
+                    "'SELECT,INSERT,UPDATE,DELETE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+
     def test_rls_isolates_decks_and_cards_between_users(self):
         first_user = uuid4()
         second_user = uuid4()
@@ -165,6 +198,18 @@ class DeckSchema(unittest.TestCase):
                 "(user_id,enabled,reminder_time,timezone,minimum_due_cards) "
                 "VALUES (%s,true,'20:30','America/Toronto',3)",
                 (first_user,),
+            )
+
+            connection.execute(
+                "INSERT INTO app.web_push_subscriptions "
+                "(user_id,endpoint,endpoint_sha256,p256dh,auth) "
+                "VALUES (%s,'https://push.example/subscription',%s,%s,%s)",
+                (
+                    first_user,
+                    "a" * 64,
+                    "B" * 64,
+                    "C" * 24,
+                ),
             )
 
             deck_id = connection.execute(
@@ -233,6 +278,14 @@ class DeckSchema(unittest.TestCase):
                 1,
             )
 
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.web_push_subscriptions"
+                ).fetchone()["count"],
+                1,
+            )
+
             connection.execute(
                 "SELECT set_config("
                 "'quizforge.user_id', %s, false)",
@@ -264,6 +317,14 @@ class DeckSchema(unittest.TestCase):
                 connection.execute(
                     "SELECT count(*) AS count "
                     "FROM app.study_notification_preferences"
+                ).fetchone()["count"],
+                0,
+            )
+
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.web_push_subscriptions"
                 ).fetchone()["count"],
                 0,
             )
