@@ -1,5 +1,6 @@
 import base64
 from datetime import datetime, time, timezone
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -67,6 +68,12 @@ def api():
     app.dependency_overrides[
         study_notifications.get_notification_repository
     ] = lambda: repository
+    app.dependency_overrides[
+        study_notifications.get_current_user
+    ] = lambda: SimpleNamespace(
+        issuer="https://unit-test.invalid",
+        subject="unit-test-user",
+    )
     try:
         yield TestClient(app), repository
     finally:
