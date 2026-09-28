@@ -215,6 +215,106 @@ class PostgresDeckRepository:
             )
             return await self._detail(conn, user_id, deck_id)
 
+    async def duplicate(
+        self,
+        deck_id,
+        *,
+        name=None,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            source = await (
+                await conn.execute(
+                    """SELECT name,description
+                       FROM app.decks
+                       WHERE id=%s AND user_id=%s""",
+                    (
+                        deck_id,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+
+            if source is None:
+                raise HTTPException(
+                    404,
+                    "Deck does not exist.",
+                )
+
+            copy_name = name
+            if copy_name is None:
+                prefix = "Copy of "
+                copy_name = (
+                    prefix
+                    + source["name"][
+                        : 200
+                        - len(prefix)
+                    ]
+                )
+
+            created = await (
+                await conn.execute(
+                    """INSERT INTO app.decks(
+                        user_id,name,description
+                    ) VALUES (%s,%s,%s)
+                    RETURNING id""",
+                    (
+                        user_id,
+                        copy_name,
+                        source[
+                            "description"
+                        ],
+                    ),
+                )
+            ).fetchone()
+            new_deck_id = (
+                created["id"]
+            )
+
+            await conn.execute(
+                """INSERT INTO app.cards(
+                    deck_id,
+                    user_id,
+                    question_type,
+                    question,
+                    answer,
+                    choices,
+                    explanation,
+                    source_filename,
+                    document_sha256,
+                    source_pages
+                )
+                SELECT
+                    %s,
+                    %s,
+                    question_type,
+                    question,
+                    answer,
+                    choices,
+                    explanation,
+                    source_filename,
+                    document_sha256,
+                    source_pages
+                FROM app.cards
+                WHERE deck_id=%s
+                  AND user_id=%s
+                ORDER BY created_at,id""",
+                (
+                    new_deck_id,
+                    user_id,
+                    deck_id,
+                    user_id,
+                ),
+            )
+
+            return await self._detail(
+                conn,
+                user_id,
+                new_deck_id,
+            )
+
     async def update(self, deck_id, payload):
         async with self.transaction() as (conn, user_id):
             assignments = []

@@ -117,6 +117,27 @@ class FakeRepository:
         self.calls.append(("get", deck_id))
         return deck_detail(cards=[card_row()])
 
+    async def duplicate(
+        self,
+        deck_id,
+        *,
+        name,
+    ):
+        self.calls.append(
+            (
+                "duplicate",
+                deck_id,
+                name,
+            )
+        )
+        return deck_detail(
+            cards=[card_row()],
+            name=(
+                name
+                or "Copy of Biology Midterm"
+            ),
+        )
+
     async def update(self, deck_id, payload):
         self.calls.append(("update", deck_id, payload))
         return deck_detail(
@@ -459,6 +480,59 @@ def test_review_rejects_invalid_or_forged_payloads_before_repository(
 
     response = client.post(
         f"/api/decks/{DECK_ID}/review",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+def test_duplicate_deck_uses_optional_name(api):
+    client, repository = api
+
+    default = client.post(
+        f"/api/decks/{DECK_ID}/duplicate",
+        json={},
+    )
+    assert default.status_code == 201
+    assert default.json()["name"] == "Copy of Biology Midterm"
+
+    named = client.post(
+        f"/api/decks/{DECK_ID}/duplicate",
+        json={"name": "  Biology Retake  "},
+    )
+    assert named.status_code == 201
+    assert named.json()["name"] == "Biology Retake"
+
+    assert repository.calls == [
+        (
+            "duplicate",
+            DECK_ID,
+            None,
+        ),
+        (
+            "duplicate",
+            DECK_ID,
+            "Biology Retake",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"name": "   "},
+        {"name": None, "user_id": "forged"},
+        {"name": "x" * 201},
+    ],
+)
+def test_duplicate_deck_rejects_invalid_payloads_before_repository(
+    api,
+    payload,
+):
+    client, repository = api
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/duplicate",
         json=payload,
     )
 

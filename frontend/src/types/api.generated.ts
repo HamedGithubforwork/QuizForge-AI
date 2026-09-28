@@ -123,6 +123,10 @@ export type DeckUpdate = {
   "description"?: string | null
 }
 
+export type DeckDuplicate = {
+  "name"?: string | null
+}
+
 export type CardBatchCreate = {
   "cards": CardCreate[]
 }
@@ -296,6 +300,7 @@ export const API_ROUTES = [
   "POST /api/answers/review",
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
+  "POST /api/decks/{deck_id}/duplicate",
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",

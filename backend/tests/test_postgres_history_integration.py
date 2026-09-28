@@ -455,6 +455,48 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert renamed.status_code == 200
             assert renamed.json()["name"] == "Exam Review"
 
+            duplicated = await client.post(
+                f"/api/decks/{deck_id}/duplicate",
+                headers=headers(),
+                json={},
+            )
+            assert duplicated.status_code == 201, duplicated.text
+            duplicate_body = duplicated.json()
+            duplicate_id = duplicate_body["id"]
+            assert duplicate_id != deck_id
+            assert duplicate_body["name"] == "Copy of Exam Review"
+            assert duplicate_body["description"] == "Cell biology"
+            assert duplicate_body["card_count"] == 2
+            assert duplicate_body["due_count"] == 2
+            assert {
+                card["question"]
+                for card in duplicate_body["cards"]
+            } == {
+                "What organelle produces ATP?",
+                "What is ATP?",
+            }
+            assert all(
+                card["fsrs_state"] == 1
+                and card["fsrs_step"] == 0
+                and card["stability"] is None
+                and card["difficulty"] is None
+                and card["last_reviewed_at"] is None
+                and card["review_count"] == 0
+                and card["lapse_count"] == 0
+                for card in duplicate_body["cards"]
+            )
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 1
+
+            assert (
+                await client.post(
+                    f"/api/decks/{deck_id}/duplicate",
+                    headers=headers("valid-b"),
+                    json={},
+                )
+            ).status_code == 404
+
             assert (
                 await client.delete(
                     f"/api/decks/{deck_id}",
@@ -467,10 +509,30 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                     headers=headers(),
                 )
             ).status_code == 204
-            assert (await client.get("/api/decks", headers=headers())).json() == []
+            remaining = await client.get(
+                "/api/decks",
+                headers=headers(),
+            )
+            assert remaining.status_code == 200
+            assert [
+                item["id"]
+                for item in remaining.json()
+            ] == [duplicate_id]
             assert owner.execute(
                 "SELECT count(*) FROM app.card_review_logs"
             ).fetchone()[0] == 0
+            assert (
+                await client.delete(
+                    f"/api/decks/{duplicate_id}",
+                    headers=headers(),
+                )
+            ).status_code == 204
+            assert (
+                await client.get(
+                    "/api/decks",
+                    headers=headers(),
+                )
+            ).json() == []
 
     asyncio.run(scenario())
 
