@@ -1,6 +1,7 @@
 import type {
   CardBatchCreate,
   CardCreate,
+  CardMove,
   CardUpdate,
   DeckCreate,
   DeckDetail,
@@ -335,6 +336,27 @@ export async function duplicateStudyDeck(
       body: JSON.stringify(payload),
     },
     'Could not duplicate this study deck.',
+  )
+}
+
+export async function moveStudyCard(
+  deckId: string,
+  cardId: string,
+  payload: CardMove,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(cardId)}/move`,
+    fetcher,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Could not move this study card.',
   )
 }
 
