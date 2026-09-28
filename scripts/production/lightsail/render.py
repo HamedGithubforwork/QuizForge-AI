@@ -75,6 +75,9 @@ def compose(config):
         REDIS_URL="redis://redis:6379/0", OPENAI_API_KEY="production-budget-guard", OPENAI_BASE_URL="http://127.0.0.1:8002/v1",
         PDF_PROCESS_ISOLATION="true", PDF_BACKGROUND_JOBS="true", PDF_JOB_DIR="/var/lib/quizforge/pdf-jobs", OMP_THREAD_LIMIT="1")
     services["api"]["volumes"].append("/var/lib/quizforge/pdf-jobs:/var/lib/quizforge/pdf-jobs")
+    services["api"]["env_file"].append(
+        {"path": "/etc/quizforge/web-push-public.env", "format": "raw"}
+    )
     services["api"]["depends_on"]["redis"] = {"condition": "service_healthy"}
     services["identity"]["environment"].update(IDENTITY_ENVIRONMENT="production", PRODUCTION_DATABASE_TARGET="lightsail",
         IDENTITY_ALLOWED_ORIGIN=public["frontend_url"], IDENTITY_SUPABASE_URL=public["legacy_url"],
@@ -86,6 +89,26 @@ def compose(config):
                         "PGSSLROOTCERT": "/run/quizforge/db-ca.pem", "PRODUCTION_DATABASE_TARGET": "lightsail", "AWS_EC2_METADATA_DISABLED": "true"},
         "volumes": ["/etc/quizforge/db-ca.pem:/run/quizforge/db-ca.pem:ro"],
         "depends_on": {"api": {"condition": "service_healthy", "restart": True}}}
+    services["notifier"] = service("operations", 128) | {
+        "restart": "no",
+        "profiles": ["scheduled"],
+        "command": ["python", "study_notification_sender.py"],
+        "env_file": [
+            {"path": "/etc/quizforge/notifier.env", "format": "raw"},
+            {"path": "/etc/quizforge/web-push-private.env", "format": "raw"},
+        ],
+        "environment": {
+            "PGHOST": "db.quizforge.internal",
+            "PGDATABASE": "quizforge",
+            "PGUSER": "quizforge_notifier",
+            "PGSSLROOTCERT": "/run/quizforge/db-ca.pem",
+            "PRODUCTION_DATABASE_TARGET": "lightsail",
+            "WEB_PUSH_VAPID_SUBJECT": public["frontend_url"],
+            "AWS_EC2_METADATA_DISABLED": "true",
+        },
+        "volumes": ["/etc/quizforge/db-ca.pem:/run/quizforge/db-ca.pem:ro"],
+        "depends_on": {"db": {"condition": "service_healthy"}},
+    }
     services["db"] = service("postgres", 192, "999:999") | {
         "environment": {"POSTGRES_DB": "quizforge", "POSTGRES_USER": "quizforge_owner", "POSTGRES_PASSWORD_FILE": "/run/quizforge/owner-password"},
         "ports": ["127.0.0.1:5432:5432"], "networks": {"default": {"aliases": ["db.quizforge.internal"]}},
