@@ -2,9 +2,11 @@
 
 from contextlib import asynccontextmanager
 from datetime import time
+import hashlib
 
 from fastapi import HTTPException
 from psycopg import Error as DatabaseError
+from psycopg.errors import UniqueViolation
 from psycopg_pool import PoolClosed, PoolTimeout, TooManyRequests
 
 
@@ -111,3 +113,108 @@ class PostgresNotificationPreferencesRepository:
                     "Study notification settings are temporarily unavailable.",
                 )
             return self.response(row)
+
+    @staticmethod
+    def endpoint_hash(endpoint: str) -> str:
+        return hashlib.sha256(
+            endpoint.encode("utf-8")
+        ).hexdigest()
+
+    async def save_subscription(
+        self,
+        *,
+        endpoint: str,
+        p256dh: str,
+        auth: str,
+        user_agent: str | None,
+    ):
+        endpoint_hash = self.endpoint_hash(
+            endpoint
+        )
+
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            existing = await (
+                await conn.execute(
+                    """SELECT endpoint_hash
+                       FROM app.study_push_subscriptions
+                       WHERE endpoint_hash=%s AND user_id=%s""",
+                    (
+                        endpoint_hash,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+
+            if existing is not None:
+                row = await (
+                    await conn.execute(
+                        """UPDATE app.study_push_subscriptions
+                           SET endpoint=%s,p256dh=%s,auth=%s,user_agent=%s,
+                               updated_at=now()
+                           WHERE endpoint_hash=%s AND user_id=%s
+                           RETURNING endpoint_hash""",
+                        (
+                            endpoint,
+                            p256dh,
+                            auth,
+                            user_agent,
+                            endpoint_hash,
+                            user_id,
+                        ),
+                    )
+                ).fetchone()
+            else:
+                try:
+                    row = await (
+                        await conn.execute(
+                            """INSERT INTO app.study_push_subscriptions(
+                                endpoint_hash,user_id,endpoint,p256dh,auth,user_agent
+                            ) VALUES (%s,%s,%s,%s,%s,%s)
+                            RETURNING endpoint_hash""",
+                            (
+                                endpoint_hash,
+                                user_id,
+                                endpoint,
+                                p256dh,
+                                auth,
+                                user_agent,
+                            ),
+                        )
+                    ).fetchone()
+                except UniqueViolation:
+                    raise HTTPException(
+                        409,
+                        "This browser push subscription is linked to another account.",
+                    ) from None
+
+            if row is None:
+                raise HTTPException(
+                    503,
+                    "Browser push subscription could not be saved.",
+                )
+
+            return {
+                "endpoint_hash":
+                    row["endpoint_hash"],
+            }
+
+    async def delete_subscription(
+        self,
+        endpoint_hash: str,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            await conn.execute(
+                """DELETE FROM app.study_push_subscriptions
+                   WHERE endpoint_hash=%s AND user_id=%s""",
+                (
+                    endpoint_hash,
+                    user_id,
+                ),
+            )
+
