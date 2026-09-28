@@ -1128,6 +1128,55 @@
 }
 
 
+.deck-card-row-suspended {
+  border-color: #d9dbe5;
+
+  background:
+    linear-gradient(
+      180deg,
+      #fafafa 0%,
+      #f7f7f9 100%
+    );
+}
+
+.deck-card-row-suspended
+  .deck-card-content > h2 {
+  color: #777d8b;
+}
+
+.deck-card-suspended {
+  padding: 4px 8px;
+
+  border-radius: 999px;
+
+  background: #eff0f4;
+
+  color: #62697a;
+
+  font-size: 11px;
+  font-weight: 900;
+
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.deck-card-actions
+  .deck-card-reset {
+  border-color: #e6d7b4;
+
+  color: #8f6a24;
+}
+
+.deck-card-actions
+  .deck-card-reset:hover:not(:disabled) {
+  border-color: #d8bd7c;
+
+  background: #fffaf0;
+
+  color: #7c591c;
+}
+
+
 .deck-card-move-panel {
   display: grid;
 
@@ -1463,6 +1512,64 @@
   gap: 7px;
 }
 
+
+.deck-card-reset-confirm {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 14px;
+
+  margin-top: 16px;
+  padding: 13px;
+
+  border: 1px solid #e5d4ac;
+  border-radius: 11px;
+
+  background: #fffbf2;
+}
+
+.deck-card-reset-confirm p {
+  margin: 0;
+
+  color: #7f662d;
+
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.deck-card-reset-confirm > div {
+  display: flex;
+
+  flex: 0 0 auto;
+
+  gap: 7px;
+}
+
+.deck-reset-confirm {
+  padding: 8px 12px;
+
+  border: 1px solid #d5b76d;
+  border-radius: 9px;
+
+  background: #9a7427;
+
+  color: white;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deck-reset-confirm:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
 .deck-card-type,
 .deck-card-pages {
   padding: 4px 8px;
@@ -1654,13 +1761,15 @@
 
   .deck-card-topline,
   .card-editor-heading,
-  .deck-card-delete-confirm {
+  .deck-card-delete-confirm,
+  .deck-card-reset-confirm {
     align-items: stretch;
     flex-direction: column;
   }
 
   .deck-card-actions,
   .deck-card-delete-confirm > div,
+  .deck-card-reset-confirm > div,
   .card-editor-actions,
   .deck-empty-actions {
     width: 100%;
@@ -1668,6 +1777,7 @@
 
   .deck-card-actions > button,
   .deck-card-delete-confirm > div > button,
+  .deck-card-reset-confirm > div > button,
   .card-editor-actions > button,
   .deck-empty-actions > button {
     flex: 1;
