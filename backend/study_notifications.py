@@ -12,6 +12,40 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app_shared import AuthenticatedUser, get_current_user
 
 
+PUSH_ENDPOINT_HOSTS = {
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    "push.services.mozilla.com",
+    "web.push.apple.com",
+}
+
+
+def push_endpoint_allowed(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        host = (
+            parsed.hostname or ""
+        ).lower()
+    except ValueError:
+        return False
+
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        return False
+
+    return (
+        host in PUSH_ENDPOINT_HOSTS
+        or host.endswith(
+            ".notify.windows.com"
+        )
+    )
+
+
 router = APIRouter(
     prefix="/api/study-notifications",
     tags=["study-notifications"],
@@ -39,9 +73,12 @@ class PushSubscriptionCreate(BaseModel):
     @field_validator("endpoint")
     @classmethod
     def validate_endpoint(cls, value: str):
-        parsed = urlparse(value)
-        if parsed.scheme != "https" or not parsed.netloc:
-            raise ValueError("Push endpoint must use HTTPS.")
+        if not push_endpoint_allowed(
+            value
+        ):
+            raise ValueError(
+                "Push endpoint provider is not supported."
+            )
         return value
 
     @field_validator("p256dh", "auth")

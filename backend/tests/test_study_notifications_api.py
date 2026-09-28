@@ -244,7 +244,7 @@ def test_register_push_subscription_uses_request_user_agent(api):
         },
         json={
             "endpoint":
-                "https://push.example/subscription-1",
+                "https://fcm.googleapis.com/fcm/send/subscription-1",
             "p256dh": "p" * 32,
             "auth": "auth-token",
         },
@@ -257,7 +257,7 @@ def test_register_push_subscription_uses_request_user_agent(api):
     assert repository.calls == [
         (
             "save_subscription",
-            "https://push.example/subscription-1",
+            "https://fcm.googleapis.com/fcm/send/subscription-1",
             "p" * 32,
             "auth-token",
             "Synthetic Browser/1.0",
@@ -269,25 +269,50 @@ def test_register_push_subscription_uses_request_user_agent(api):
     "payload",
     [
         {
-            "endpoint": "http://push.example/subscription",
+            "endpoint": "http://fcm.googleapis.com/fcm/send/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://example.com/push/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://fcm.googleapis.com.evil.invalid/push",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://127.0.0.1/push",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://fcm.googleapis.com.evil.invalid/push",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://user:pass@fcm.googleapis.com/push",
             "p256dh": "p" * 32,
             "auth": "auth-token",
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "contains padding=",
             "auth": "auth-token",
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "p" * 32,
             "auth": "bad value!",
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "p" * 32,
             "auth": "auth-token",
             "user_id": "forged",
