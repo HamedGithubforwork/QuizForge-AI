@@ -290,16 +290,31 @@ class FakeRepository:
                 source_filename=item.source_filename,
                 document_sha256=item.document_sha256,
                 source_pages=item.source_pages,
+                tags=item.tags,
             )
             for index, item in enumerate(cards)
         ]
         return deck_detail(cards=values)
 
-    async def review_queue(self, deck_id, *, limit):
-        self.calls.append(("review_queue", deck_id, limit))
+    async def review_queue(
+        self,
+        deck_id,
+        *,
+        limit,
+        tag=None,
+    ):
+        self.calls.append(
+            (
+                "review_queue",
+                deck_id,
+                limit,
+                tag,
+            )
+        )
         return {
             "deck_id": deck_id,
             "deck_name": "Biology Midterm",
+            "tag": tag,
             "due_count": 1,
             "next_due_at": None,
             "cards": [card_row()],
@@ -579,12 +594,64 @@ def test_review_queue_returns_due_cards(api):
 
     assert response.status_code == 200
     body = response.json()
+    assert body["tag"] is None
     assert body["due_count"] == 1
     assert body["cards"][0]["id"] == str(CARD_ID)
     assert body["cards"][0]["fsrs_state"] == 1
     assert repository.calls == [
-        ("review_queue", DECK_ID, 10)
+        (
+            "review_queue",
+            DECK_ID,
+            10,
+            None,
+        )
     ]
+
+
+def test_review_queue_normalizes_tag_filter(api):
+    client, repository = api
+
+    response = client.get(
+        f"/api/decks/{DECK_ID}/review",
+        params={
+            "limit": 7,
+            "tag":
+                "  CELL   Biology ",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tag"] == "cell biology"
+    assert repository.calls == [
+        (
+            "review_queue",
+            DECK_ID,
+            7,
+            "cell biology",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "   ",
+        "x" * 51,
+    ],
+)
+def test_review_queue_rejects_invalid_tag_before_repository(
+    api,
+    tag,
+):
+    client, repository = api
+
+    response = client.get(
+        f"/api/decks/{DECK_ID}/review",
+        params={"tag": tag},
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
 
 
 @pytest.mark.parametrize("limit", [0, 51])
