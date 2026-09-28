@@ -25,6 +25,10 @@ class CardCreate(BaseModel):
     source_filename: str | None = Field(default=None, max_length=1000)
     document_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     source_pages: list[int] = Field(default_factory=list, max_length=50)
+    tags: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
     @field_validator("question")
     @classmethod
@@ -43,6 +47,36 @@ class CardCreate(BaseModel):
         if any(not choice or len(choice) > 2000 for choice in cleaned):
             raise ValueError("Choices must contain non-blank bounded text.")
         return cleaned
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(
+        cls,
+        value: list[str],
+    ):
+        normalized = []
+        seen = set()
+
+        for tag in value:
+            cleaned = " ".join(
+                tag.split()
+            )
+            if (
+                not cleaned
+                or len(cleaned) > 50
+            ):
+                raise ValueError(
+                    "Tags must contain 1 to 50 characters."
+                )
+            key = cleaned.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(
+                cleaned
+            )
+
+        return normalized
 
     @field_validator("source_pages")
     @classmethod
@@ -212,6 +246,10 @@ class CardUpdate(BaseModel):
         default=None,
         max_length=50,
     )
+    tags: list[str] | None = Field(
+        default=None,
+        max_length=20,
+    )
 
     @field_validator("question")
     @classmethod
@@ -250,6 +288,39 @@ class CardUpdate(BaseModel):
             )
         return cleaned
 
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(
+        cls,
+        value: list[str] | None,
+    ):
+        if value is None:
+            return None
+
+        normalized = []
+        seen = set()
+
+        for tag in value:
+            cleaned = " ".join(
+                tag.split()
+            )
+            if (
+                not cleaned
+                or len(cleaned) > 50
+            ):
+                raise ValueError(
+                    "Tags must contain 1 to 50 characters."
+                )
+            key = cleaned.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(
+                cleaned
+            )
+
+        return normalized
+
     @field_validator("source_pages")
     @classmethod
     def validate_source_pages(
@@ -286,6 +357,7 @@ class CardUpdate(BaseModel):
             "question",
             "answer",
             "source_pages",
+            "tags",
         }
         for field_name in required:
             if (
