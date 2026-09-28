@@ -1,12 +1,15 @@
 -- Dedicated production bootstrap: only a fresh quizforge database.
 -- Application identities are separate from provider-managed auth schemas.
 CREATE ROLE quizforge_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+CREATE ROLE quizforge_notifier LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 REVOKE ALL ON DATABASE quizforge FROM PUBLIC;
 GRANT CONNECT ON DATABASE quizforge TO quizforge_app;
+GRANT CONNECT ON DATABASE quizforge TO quizforge_notifier;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA app;
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO quizforge_app;
+GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 CREATE TABLE app.users (id uuid PRIMARY KEY);
 CREATE TABLE app.user_identities (
     issuer text NOT NULL,
@@ -159,6 +162,26 @@ GRANT UPDATE (
     user_agent,
     updated_at
 ) ON app.study_push_subscriptions TO quizforge_app;
+GRANT SELECT (
+    user_id,
+    due_at
+) ON app.cards TO quizforge_notifier;
+GRANT SELECT (
+    user_id,
+    enabled,
+    reminder_time,
+    timezone,
+    minimum_due_cards
+) ON app.study_notification_preferences TO quizforge_notifier;
+GRANT SELECT (
+    endpoint_hash,
+    user_id,
+    endpoint,
+    p256dh,
+    auth
+) ON app.study_push_subscriptions TO quizforge_notifier;
+GRANT DELETE ON app.study_push_subscriptions TO quizforge_notifier;
+GRANT SELECT, INSERT ON app.study_notification_deliveries TO quizforge_notifier;
 GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
 GRANT UPDATE (
     question_type,
@@ -271,6 +294,31 @@ FOR DELETE TO quizforge_app
 USING (
     user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
 );
+
+CREATE POLICY notifier_card_read
+ON app.cards
+FOR SELECT TO quizforge_notifier
+USING (true);
+CREATE POLICY notifier_preferences_read
+ON app.study_notification_preferences
+FOR SELECT TO quizforge_notifier
+USING (true);
+CREATE POLICY notifier_push_subscription_read
+ON app.study_push_subscriptions
+FOR SELECT TO quizforge_notifier
+USING (true);
+CREATE POLICY notifier_push_subscription_delete
+ON app.study_push_subscriptions
+FOR DELETE TO quizforge_notifier
+USING (true);
+CREATE POLICY notifier_delivery_read
+ON app.study_notification_deliveries
+FOR SELECT TO quizforge_notifier
+USING (true);
+CREATE POLICY notifier_delivery_insert
+ON app.study_notification_deliveries
+FOR INSERT TO quizforge_notifier
+WITH CHECK (true);
 
 -- Separate production enrollment authority. Apply after schema.sql as owner.
 -- This role is given only to the separate identity_app process, never the API.
