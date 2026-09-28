@@ -8,6 +8,9 @@ import type {
   CardCreate,
   CardRow,
 } from '../../types/api.generated'
+import {
+  parseCardTags,
+} from '../../lib/cardTags'
 
 type CardEditorProps = {
   card?: CardRow | null
@@ -110,6 +113,11 @@ export default function CardEditor({
   ] = useState(
     card?.explanation ?? '',
   )
+  const [tagText, setTagText] =
+    useState(
+      (card?.tags ?? [])
+        .join(', '),
+    )
   const [saving, setSaving] =
     useState(false)
   const [error, setError] =
@@ -134,6 +142,10 @@ export default function CardEditor({
     )
     setExplanation(
       card?.explanation ?? '',
+    )
+    setTagText(
+      (card?.tags ?? [])
+        .join(', '),
     )
     setError('')
     setSaving(false)
@@ -252,6 +264,20 @@ export default function CardEditor({
       question.trim()
     const cleanExplanation =
       explanation.trim()
+    let tags: string[]
+
+    try {
+      tags = parseCardTags(
+        tagText,
+      )
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : 'Tags are invalid.',
+      )
+      return
+    }
 
     if (!cleanQuestion) {
       setError(
@@ -330,6 +356,7 @@ export default function CardEditor({
         source_pages:
           card?.source_pages ??
           [],
+        tags,
       }
     } else if (
       questionType ===
@@ -374,6 +401,7 @@ export default function CardEditor({
         source_pages:
           card?.source_pages ??
           [],
+        tags,
       }
     } else {
       const cleanAnswer =
@@ -411,6 +439,7 @@ export default function CardEditor({
         source_pages:
           card?.source_pages ??
           [],
+        tags,
       }
     }
 
@@ -674,6 +703,32 @@ export default function CardEditor({
             )
           }
         />
+      </label>
+
+      <label className="card-editor-field">
+        <span>
+          Tags
+          <small>
+            {' '}optional
+          </small>
+        </span>
+
+        <input
+          type="text"
+          value={tagText}
+          maxLength={1050}
+          disabled={saving}
+          placeholder="exam 1, high yield, biology"
+          onChange={(event) =>
+            setTagText(
+              event.target.value,
+            )
+          }
+        />
+
+        <small>
+          Separate tags with commas. Up to 20 tags, 50 characters each.
+        </small>
       </label>
 
       {card?.source_filename && (
