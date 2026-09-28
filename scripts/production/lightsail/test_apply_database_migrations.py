@@ -15,7 +15,7 @@ class MigrationControllerTests(unittest.TestCase):
             [item["name"] for item in items],
             list(migrations.MIGRATION_FILES),
         )
-        self.assertEqual(len(items), 5)
+        self.assertEqual(len(items), 6)
 
         for item in items:
             self.assertRegex(
@@ -93,6 +93,14 @@ class MigrationControllerTests(unittest.TestCase):
         )
         self.assertIn(
             "quizforge_notifier",
+            remote,
+        )
+        self.assertIn(
+            "20260928_006_move_card.sql",
+            remote,
+        )
+        self.assertIn(
+            "app.move_card(uuid,uuid)",
             remote,
         )
         self.assertIn(
