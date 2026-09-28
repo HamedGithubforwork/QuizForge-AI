@@ -3,6 +3,7 @@ import type {
   CardCreate,
   DeckCreate,
   DeckDetail,
+  DeckDuplicate,
   DeckSummary,
   DeckUpdate,
   ReviewQueue,
@@ -314,5 +315,25 @@ export async function deleteStudyDeck(
 
     throw new Error(detail)
   }
+}
+
+export async function duplicateStudyDeck(
+  deckId: string,
+  payload: DeckDuplicate,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}/duplicate`,
+    fetcher,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Could not duplicate this study deck.',
+  )
 }
 
