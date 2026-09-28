@@ -281,6 +281,87 @@
   box-shadow: 0 5px 16px rgba(168, 59, 59, 0.05);
 }
 
+.settings-notice {
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border: 1px solid #bfe1cc;
+  border-radius: 12px;
+  background: #effaf3;
+  color: #247847;
+  font-size: 13px;
+  box-shadow: 0 5px 16px rgba(36, 120, 71, 0.05);
+}
+
+.settings-toggle {
+  display: inline-flex !important;
+  width: fit-content;
+  align-items: center;
+  gap: 9px !important;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  width: 18px !important;
+  min-height: 18px !important;
+  height: 18px;
+  accent-color: #6257e7;
+}
+
+.settings-toggle > span {
+  color: #596174 !important;
+  font-size: 12px !important;
+  font-weight: 850 !important;
+}
+
+.settings-notification-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.settings-timezone-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-timezone-row input {
+  flex: 1;
+}
+
+.settings-device-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin-top: 20px;
+}
+
+.settings-device-summary > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e8e9f2;
+  border-radius: 12px;
+  background: #fafbfe;
+}
+
+.settings-device-summary span {
+  color: #8a91a2;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.settings-device-summary strong {
+  overflow-wrap: anywhere;
+  color: #3e4558;
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.settings-device-actions {
+  margin-top: 16px;
+}
+
 .settings-card {
   margin-bottom: 18px;
   padding: 24px;
@@ -640,7 +721,7 @@
   }
 
   .settings-sidebar nav {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .settings-sidebar nav button.active {
@@ -706,6 +787,20 @@
 
   .settings-method-grid {
     grid-template-columns: 1fr;
+  }
+
+  .settings-notification-grid,
+  .settings-device-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-timezone-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-timezone-row .settings-secondary-button {
+    width: 100%;
   }
 
   .settings-method-grid > div {
