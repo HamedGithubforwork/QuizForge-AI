@@ -46,6 +46,7 @@ MIGRATION_FILES = (
     "20260927_001_decks_cards.sql",
     "20260927_002_fsrs_reviews.sql",
     "20260927_003_study_notification_preferences.sql",
+    "20260928_004_study_push_subscriptions.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -85,11 +86,12 @@ manifest=Path(sys.argv[2])
 value=json.loads(manifest.read_text())
 assert value.get("schema")==1
 items=value.get("migrations")
-assert isinstance(items,list) and len(items)==3
+assert isinstance(items,list) and len(items)==4
 expected=[
  "20260927_001_decks_cards.sql",
  "20260927_002_fsrs_reviews.sql",
  "20260927_003_study_notification_preferences.sql",
+ "20260928_004_study_push_subscriptions.sql",
 ]
 assert [item.get("name") for item in items]==expected
 assert set(path.name for path in root.iterdir())==set(expected)
@@ -148,13 +150,25 @@ esac
 
 test "$(dbq "SELECT (to_regclass('app.study_notification_preferences') IS NOT NULL)::int")" = "1"
 
+# 004: browser push subscriptions + delivery idempotency ledger.
+push_state="$(dbq "SELECT (to_regclass('app.study_push_subscriptions') IS NOT NULL)::int || ':' || (to_regclass('app.study_notification_deliveries') IS NOT NULL)::int")"
+case "$push_state" in
+  "0:0") apply_sql "$root/20260928_004_study_push_subscriptions.sql"; applied_004=true ;;
+  "1:1") applied_004=false ;;
+  *) echo "Partial Web Push schema detected" >&2; exit 44 ;;
+esac
+
+test "$(dbq "SELECT (to_regclass('app.study_push_subscriptions') IS NOT NULL AND to_regclass('app.study_notification_deliveries') IS NOT NULL)::int")" = "1"
+
 # Security postconditions. The runtime app role must remain restricted.
 test "$(dbq "SELECT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)::int FROM pg_roles WHERE rolname='quizforge_app'")" = "0"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.cards'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.card_review_logs'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_preferences'::regclass")" = "1"
+test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
+test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -163,6 +177,7 @@ print("QF_RESULT="+json.dumps({
   "deck_migration_applied": values[0],
   "fsrs_migration_applied": values[1],
   "notification_preferences_migration_applied": values[2],
+  "push_subscriptions_migration_applied": values[3],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -503,6 +518,7 @@ def main() -> int:
             "deck_migration_applied",
             "fsrs_migration_applied",
             "notification_preferences_migration_applied",
+            "push_subscriptions_migration_applied",
             "all_postconditions_verified",
         ):
             report[name] = state.get(

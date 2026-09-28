@@ -107,6 +107,38 @@ CREATE TABLE app.study_notification_preferences (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE app.study_push_subscriptions (
+    endpoint_hash text PRIMARY KEY
+        CHECK (endpoint_hash ~ '^[a-f0-9]{64}$'),
+    user_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+    endpoint text NOT NULL
+        CHECK (
+            char_length(endpoint) BETWEEN 20 AND 4096
+            AND endpoint ~ '^https://'
+        ),
+    p256dh text NOT NULL
+        CHECK (char_length(p256dh) BETWEEN 20 AND 512),
+    auth text NOT NULL
+        CHECK (char_length(auth) BETWEEN 8 AND 256),
+    user_agent text
+        CHECK (user_agent IS NULL OR char_length(user_agent) <= 500),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX study_push_subscriptions_user_updated_idx
+    ON app.study_push_subscriptions (user_id, updated_at DESC);
+
+CREATE TABLE app.study_notification_deliveries (
+    user_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+    endpoint_hash text NOT NULL
+        CHECK (endpoint_hash ~ '^[a-f0-9]{64}$'),
+    local_date date NOT NULL,
+    due_count integer NOT NULL CHECK (due_count BETWEEN 1 AND 100000),
+    sent_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, endpoint_hash, local_date)
+);
+CREATE INDEX study_notification_deliveries_sent_at_idx
+    ON app.study_notification_deliveries (sent_at DESC);
 GRANT SELECT ON app.user_identities TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
@@ -119,6 +151,14 @@ GRANT UPDATE (
     minimum_due_cards,
     updated_at
 ) ON app.study_notification_preferences TO quizforge_app;
+GRANT SELECT, INSERT, DELETE ON app.study_push_subscriptions TO quizforge_app;
+GRANT UPDATE (
+    endpoint,
+    p256dh,
+    auth,
+    user_agent,
+    updated_at
+) ON app.study_push_subscriptions TO quizforge_app;
 GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
 GRANT UPDATE (
     question_type,
@@ -145,6 +185,8 @@ ALTER TABLE app.decks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.cards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.card_review_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.study_notification_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.study_push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.study_notification_deliveries ENABLE ROW LEVEL SECURITY;
 -- Owner is a separate migration role. App is never table owner or BYPASSRLS.
 CREATE POLICY identity_lookup ON app.user_identities FOR SELECT TO quizforge_app
 USING (issuer = nullif(current_setting('quizforge.auth_issuer', true), '')
@@ -199,6 +241,34 @@ USING (
     user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
 )
 WITH CHECK (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+
+CREATE POLICY study_push_subscription_read
+ON app.study_push_subscriptions
+FOR SELECT TO quizforge_app
+USING (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+CREATE POLICY study_push_subscription_insert
+ON app.study_push_subscriptions
+FOR INSERT TO quizforge_app
+WITH CHECK (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+CREATE POLICY study_push_subscription_update
+ON app.study_push_subscriptions
+FOR UPDATE TO quizforge_app
+USING (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+)
+WITH CHECK (
+    user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
+);
+CREATE POLICY study_push_subscription_delete
+ON app.study_push_subscriptions
+FOR DELETE TO quizforge_app
+USING (
     user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid
 );
 

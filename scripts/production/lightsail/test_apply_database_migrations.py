@@ -15,7 +15,7 @@ class MigrationControllerTests(unittest.TestCase):
             [item["name"] for item in items],
             list(migrations.MIGRATION_FILES),
         )
-        self.assertEqual(len(items), 3)
+        self.assertEqual(len(items), 4)
 
         for item in items:
             self.assertRegex(
@@ -85,6 +85,10 @@ class MigrationControllerTests(unittest.TestCase):
         )
         self.assertIn(
             'Partial FSRS schema detected',
+            remote,
+        )
+        self.assertIn(
+            'Partial Web Push schema detected',
             remote,
         )
         self.assertIn(

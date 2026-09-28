@@ -196,6 +196,21 @@ class PostgreSQLRecovery(unittest.TestCase):
                 true,'20:30','America/Toronto',3,
                 '2026-09-21 01:06:00+00','2026-09-21 01:06:00+00'
             );
+            INSERT INTO app.study_push_subscriptions(
+                endpoint_hash,user_id,endpoint,p256dh,auth,user_agent,created_at,updated_at
+            ) VALUES (
+                repeat('c',64),
+                '00000000-0000-0000-0000-000000000001',
+                'https://push.example/subscription-1',
+                repeat('p',32),'auth-token','Synthetic browser',
+                '2026-09-21 01:07:00+00','2026-09-21 01:07:00+00'
+            );
+            INSERT INTO app.study_notification_deliveries(
+                user_id,endpoint_hash,local_date,due_count,sent_at
+            ) VALUES (
+                '00000000-0000-0000-0000-000000000001',
+                repeat('c',64),'2026-09-21',3,'2026-09-21 20:30:00+00'
+            );
             INSERT INTO app.identity_challenges VALUES
                 (repeat('b',64),'cognito','new1','legacy','old1','link',now(),NULL);
             UPDATE billing.generation_policy SET enabled=true,daily_requests=10,monthly_requests=100,monthly_nano_usd=5000000000,pricing_key='synthetic-reviewed-prices',pricing_valid_until=current_date+1;
@@ -211,7 +226,7 @@ class PostgreSQLRecovery(unittest.TestCase):
         cls.target.close()
 
     def setUp(self):
-        self.target.execute("TRUNCATE app.study_notification_preferences,app.card_review_logs,app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
+        self.target.execute("TRUNCATE app.study_notification_deliveries,app.study_push_subscriptions,app.study_notification_preferences,app.card_review_logs,app.cards,app.decks,app.identity_challenges,app.quiz_history,app.user_identities,app.users,billing.generation_usage,billing.generation_reservations")
         self.target.execute("UPDATE billing.generation_policy SET enabled=false,daily_requests=0,monthly_requests=0,monthly_nano_usd=0,pricing_key='',pricing_valid_until='1970-01-01'")
         self.snapshot = backup.export_snapshot(self.source)
 
@@ -263,6 +278,18 @@ class PostgreSQLRecovery(unittest.TestCase):
                 ).fetchall(),
                 [(True, '20:30:00', 'America/Toronto', 3)],
             )
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT endpoint_hash,endpoint,user_agent "
+                    "FROM app.study_push_subscriptions"
+                ).fetchall(),
+                [('c' * 64, 'https://push.example/subscription-1', 'Synthetic browser')],
+            )
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                with self.target.transaction():
+                    self.target.execute(
+                        "SELECT * FROM app.study_notification_deliveries"
+                    )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
         with self.target.transaction():
