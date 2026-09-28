@@ -1,14 +1,17 @@
 import {
   useEffect,
   useState,
+  type FormEvent,
 } from 'react'
 
 import {
   apiFetch,
 } from '../../lib/api'
 import {
+  deleteStudyDeck,
   getStudyDeck,
   listStudyDecks,
+  updateStudyDeck,
 } from '../../lib/decks'
 import type {
   CardRow,
@@ -175,10 +178,108 @@ function DeckList({
 function DeckDetailView({
   deck,
   onNavigate,
+  onDeckUpdated,
 }: {
   deck: DeckDetail
   onNavigate: (path: string) => void
+  onDeckUpdated: (
+    deck: DeckDetail,
+  ) => void
 }) {
+  const [editing, setEditing] =
+    useState(false)
+  const [
+    confirmingDelete,
+    setConfirmingDelete,
+  ] = useState(false)
+  const [deckName, setDeckName] =
+    useState(deck.name)
+  const [busy, setBusy] =
+    useState(false)
+  const [
+    managementError,
+    setManagementError,
+  ] = useState('')
+
+  useEffect(() => {
+    setDeckName(deck.name)
+    setEditing(false)
+    setConfirmingDelete(false)
+    setManagementError('')
+  }, [
+    deck.id,
+    deck.name,
+  ])
+
+  async function handleRename(
+    event: FormEvent,
+  ) {
+    event.preventDefault()
+
+    const cleanName =
+      deckName.trim()
+
+    if (!cleanName) {
+      setManagementError(
+        'Deck name cannot be blank.',
+      )
+      return
+    }
+
+    if (cleanName === deck.name) {
+      setEditing(false)
+      setManagementError('')
+      return
+    }
+
+    setBusy(true)
+    setManagementError('')
+
+    try {
+      const updated =
+        await updateStudyDeck(
+          deck.id,
+          {
+            name: cleanName,
+          },
+          apiFetch,
+        )
+
+      onDeckUpdated(updated)
+      setDeckName(updated.name)
+      setEditing(false)
+    } catch (caught) {
+      setManagementError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not rename this study deck.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDelete() {
+    setBusy(true)
+    setManagementError('')
+
+    try {
+      await deleteStudyDeck(
+        deck.id,
+        apiFetch,
+      )
+
+      onNavigate('/decks')
+    } catch (caught) {
+      setManagementError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not delete this study deck.',
+      )
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       <button
@@ -204,6 +305,35 @@ function DeckDetailView({
               {deck.description}
             </p>
           )}
+
+          <div className="deck-management-buttons">
+            <button
+              className="deck-management-button"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setEditing(true)
+                setConfirmingDelete(false)
+                setDeckName(deck.name)
+                setManagementError('')
+              }}
+            >
+              Rename
+            </button>
+
+            <button
+              className="deck-management-button deck-management-danger"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirmingDelete(true)
+                setEditing(false)
+                setManagementError('')
+              }}
+            >
+              Delete
+            </button>
+          </div>
         </div>
 
         <div className="deck-detail-actions">
@@ -252,6 +382,124 @@ function DeckDetailView({
           )}
         </div>
       </section>
+
+      {editing && (
+        <form
+          className="deck-management-panel"
+          onSubmit={handleRename}
+        >
+          <div>
+            <span className="decks-eyebrow">
+              RENAME DECK
+            </span>
+
+            <h2>
+              Change deck name
+            </h2>
+          </div>
+
+          <input
+            type="text"
+            value={deckName}
+            maxLength={200}
+            autoFocus
+            disabled={busy}
+            aria-label="Deck name"
+            onChange={(event) =>
+              setDeckName(
+                event.target.value,
+              )
+            }
+          />
+
+          <div className="deck-management-panel-actions">
+            <button
+              className="decks-primary-button"
+              type="submit"
+              disabled={
+                busy ||
+                !deckName.trim()
+              }
+            >
+              {busy
+                ? 'Saving…'
+                : 'Save Name'}
+            </button>
+
+            <button
+              className="decks-secondary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setEditing(false)
+                setDeckName(deck.name)
+                setManagementError('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {confirmingDelete && (
+        <section
+          className="deck-management-panel deck-delete-panel"
+          aria-labelledby="delete-deck-heading"
+        >
+          <div>
+            <span className="decks-eyebrow">
+              DELETE DECK
+            </span>
+
+            <h2 id="delete-deck-heading">
+              Delete “{deck.name}”?
+            </h2>
+
+            <p>
+              This permanently deletes
+              the deck, its cards, and
+              their review history.
+            </p>
+          </div>
+
+          <div className="deck-management-panel-actions">
+            <button
+              className="deck-delete-confirm"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void handleDelete()
+              }
+            >
+              {busy
+                ? 'Deleting…'
+                : 'Delete Permanently'}
+            </button>
+
+            <button
+              className="decks-secondary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirmingDelete(false)
+                setManagementError('')
+              }}
+            >
+              Keep Deck
+            </button>
+          </div>
+        </section>
+      )}
+
+      {managementError && (
+        <p
+          className="deck-management-error"
+          role="alert"
+        >
+          {managementError}
+        </p>
+      )}
 
       {deck.cards.length === 0 ? (
         <section className="decks-empty deck-detail-empty">
@@ -542,6 +790,9 @@ export default function DecksPage({
           <DeckDetailView
             deck={deck}
             onNavigate={onNavigate}
+            onDeckUpdated={
+              setDeck
+            }
           />
         ) : (
           <>
