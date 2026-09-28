@@ -64,15 +64,32 @@ class Configuration(unittest.TestCase):
             self.assertEqual(value["cgroup_parent"], "quizforge.slice")
             if name != "web":
                 self.assertTrue(all(port.startswith("127.0.0.1:") for port in value.get("ports", [])))
-        self.assertLessEqual(sum(int(s["mem_limit"][:-1]) for s in services.values()) + 256, 1536)
+        steady = [
+            value for value in services.values()
+            if "scheduled" not in value.get("profiles", [])
+        ]
+        self.assertLessEqual(sum(int(s["mem_limit"][:-1]) for s in steady) + 256, 1536)
         self.assertEqual(services["guard"]["network_mode"], "service:api")
+        self.assertEqual(services["notifier"]["profiles"], ["scheduled"])
+        self.assertEqual(services["notifier"]["restart"], "no")
+        self.assertNotIn("ports", services["notifier"])
+        self.assertNotIn("OPENAI_API_KEY", services["notifier"]["environment"])
+        self.assertEqual(services["notifier"]["environment"]["PGUSER"], "quizforge_notifier")
+        self.assertEqual(
+            [item["path"] for item in services["notifier"]["env_file"]],
+            ["/etc/quizforge/notifier.env", "/etc/quizforge/web-push-private.env"],
+        )
         self.assertNotIn("ports", services["guard"])
         self.assertNotIn("ports", services["redis"])
         self.assertEqual(services["api"]["environment"]["OPENAI_API_KEY"], "production-budget-guard")
         self.assertEqual(services["api"]["environment"]["PDF_BACKGROUND_JOBS"], "true")
         self.assertEqual(services["identity"]["environment"]["IDENTITY_DB_USER"], "quizforge_identity")
         self.assertEqual(services["identity"]["environment"]["PRODUCTION_DATABASE_TARGET"], "lightsail")
-        for name in ("api", "identity", "guard"):
+        self.assertEqual(
+            [item["path"] for item in services["api"]["env_file"]],
+            ["/etc/quizforge/api.env", "/etc/quizforge/web-push-public.env"],
+        )
+        for name in ("identity", "guard"):
             self.assertEqual(len(services[name]["env_file"]), 1)
         self.assertNotIn("postgres/", json.dumps(services["api"]))
 
