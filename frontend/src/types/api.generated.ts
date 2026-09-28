@@ -131,6 +131,10 @@ export type CardBatchCreate = {
   "cards": CardCreate[]
 }
 
+export type CardMove = {
+  "target_deck_id": string
+}
+
 export type CardUpdate = {
   "question_type"?: "multiple_choice" | "true_false" | "short_answer" | null
   "question"?: string | null
@@ -315,6 +319,7 @@ export const API_ROUTES = [
   "POST /api/answers/review",
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
+  "POST /api/decks/{deck_id}/cards/{card_id}/move",
   "POST /api/decks/{deck_id}/duplicate",
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",
