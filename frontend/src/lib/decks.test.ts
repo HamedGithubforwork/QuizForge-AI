@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  addCardsToStudyDeck,
   buildDeckCreatePayload,
+  buildSelectedDeckCards,
   createStudyDeck,
   getReviewQueue,
   getStudyDeck,
@@ -48,6 +50,36 @@ const quiz: QuizResult = {
         'Mitochondria perform cellular respiration.',
       source_pages: [14, 12],
     },
+    {
+      question_type:
+        'true_false',
+      question:
+        'Ribosomes synthesize proteins.',
+      choices: [
+        'True',
+        'False',
+      ],
+      correct_index: 0,
+      correct_answer:
+        'True',
+      accepted_answers: [
+        'True',
+      ],
+      grading: {
+        grading_version: 2,
+        grading_mode: 'exact',
+        answer_groups: [
+          ['True'],
+        ],
+        required_group_count: 1,
+        numeric_value: 0,
+        numeric_tolerance: 0,
+        numeric_unit: '',
+      },
+      explanation:
+        'Ribosomes are responsible for protein synthesis.',
+      source_pages: [7],
+    },
   ],
 }
 
@@ -78,7 +110,7 @@ test(
     )
     assert.equal(
       payload.cards?.length,
-      1,
+      2,
     )
 
     const card = payload.cards?.[0]
@@ -503,6 +535,158 @@ test(
     assert.equal(
       result.card.review_count,
       1,
+    )
+  },
+)
+
+test(
+  'buildSelectedDeckCards keeps only unique selected questions in quiz order',
+  () => {
+    const cards =
+      buildSelectedDeckCards(
+        quiz,
+        documentResult,
+        [1, 0, 1],
+      )
+
+    assert.equal(
+      cards.length,
+      2,
+    )
+    assert.equal(
+      cards[0].question,
+      'What organelle produces ATP?',
+    )
+    assert.equal(
+      cards[1].question,
+      'Ribosomes synthesize proteins.',
+    )
+  },
+)
+
+test(
+  'buildSelectedDeckCards rejects empty or invalid selections',
+  () => {
+    assert.throws(
+      () =>
+        buildSelectedDeckCards(
+          quiz,
+          documentResult,
+          [],
+        ),
+      /Choose at least one valid quiz question/,
+    )
+
+    assert.throws(
+      () =>
+        buildSelectedDeckCards(
+          quiz,
+          documentResult,
+          [99],
+        ),
+      /Choose at least one valid quiz question/,
+    )
+  },
+)
+
+test(
+  'addCardsToStudyDeck posts selected cards to an existing deck',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const responseBody = {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Biology Midterm',
+      description: null,
+      card_count: 2,
+      due_count: 2,
+      next_due_at: null,
+      created_at:
+        '2026-09-27T15:00:00Z',
+      updated_at:
+        '2026-09-28T08:00:00Z',
+      cards: [],
+    }
+
+    const cards =
+      buildSelectedDeckCards(
+        quiz,
+        documentResult,
+        [1],
+      )
+
+    const result =
+      await addCardsToStudyDeck(
+        responseBody.id,
+        cards,
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init =
+            requestInit ?? {}
+
+          return new Response(
+            JSON.stringify(
+              responseBody,
+            ),
+            {
+              status: 201,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/11111111-1111-4111-8111-111111111111/cards',
+    )
+    assert.equal(
+      init.method,
+      'POST',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {
+        cards,
+      },
+    )
+    assert.equal(
+      result.card_count,
+      2,
+    )
+  },
+)
+
+test(
+  'addCardsToStudyDeck rejects an empty card list before the request',
+  async () => {
+    let called = false
+
+    await assert.rejects(
+      () =>
+        addCardsToStudyDeck(
+          'deck-id',
+          [],
+          async () => {
+            called = true
+            return new Response()
+          },
+        ),
+      /Choose at least one question/,
+    )
+
+    assert.equal(
+      called,
+      false,
     )
   },
 )
