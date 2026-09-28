@@ -339,6 +339,11 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                         "source_filename": "notes.pdf",
                         "document_sha256": "a" * 64,
                         "source_pages": [14, 12],
+                        "tags": [
+                            "  Finals ",
+                            "CELL   Biology",
+                            "finals",
+                        ],
                     }],
                 },
             )
@@ -349,6 +354,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert body["due_count"] == 1
             assert body["next_due_at"] is None
             assert body["cards"][0]["source_pages"] == [12, 14]
+            assert body["cards"][0]["tags"] == ["finals", "cell biology"]
             deck_id = body["id"]
             first_card_id = body["cards"][0]["id"]
             assert body["cards"][0]["fsrs_state"] == 1
@@ -381,6 +387,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                         "source_filename": "notes.pdf",
                         "document_sha256": "a" * 64,
                         "source_pages": [15],
+                        "tags": ["biochemistry"],
                     }]
                 },
             )
@@ -403,6 +410,12 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                 card["id"]
                 for card in queue.json()["cards"]
             } == {first_card_id, second_card_id}
+            queued_tags = {
+                card["id"]: card["tags"]
+                for card in queue.json()["cards"]
+            }
+            assert queued_tags[first_card_id] == ["finals", "cell biology"]
+            assert queued_tags[second_card_id] == ["biochemistry"]
 
             reviewed = await client.post(
                 f"/api/decks/{deck_id}/review",
@@ -453,6 +466,11 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                 json={
                     "question": "Where is ATP produced?",
                     "explanation": None,
+                    "tags": [
+                        "High   Yield",
+                        "high yield",
+                        "mitochondria",
+                    ],
                 },
             )
             assert edited.status_code == 200, edited.text
@@ -463,6 +481,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             )
             assert edited_card["question"] == "Where is ATP produced?"
             assert edited_card["explanation"] is None
+            assert edited_card["tags"] == ["high yield", "mitochondria"]
             assert edited_card["review_count"] == 1
             assert edited_card["stability"] == reviewed_body["card"]["stability"]
             assert edited_card["difficulty"] == reviewed_body["card"]["difficulty"]
@@ -503,6 +522,14 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             } == {
                 "Where is ATP produced?",
                 "What is ATP?",
+            }
+            duplicate_tags = {
+                card["question"]: card["tags"]
+                for card in duplicate_body["cards"]
+            }
+            assert duplicate_tags == {
+                "Where is ATP produced?": ["high yield", "mitochondria"],
+                "What is ATP?": ["biochemistry"],
             }
             assert all(
                 card["fsrs_state"] == 1

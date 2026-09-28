@@ -14,6 +14,36 @@ from app_shared import AuthenticatedUser, get_current_user
 router = APIRouter(prefix="/api/decks", tags=["decks"])
 
 
+def normalize_card_tags(
+    value: list[str],
+) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for tag in value:
+        cleaned = " ".join(
+            tag.split()
+        ).casefold()
+
+        if (
+            not cleaned
+            or len(cleaned) > 50
+        ):
+            raise ValueError(
+                "Tags must contain 1 to 50 characters."
+            )
+
+        if cleaned in seen:
+            continue
+
+        seen.add(cleaned)
+        normalized.append(
+            cleaned
+        )
+
+    return normalized
+
+
 class CardCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -25,6 +55,10 @@ class CardCreate(BaseModel):
     source_filename: str | None = Field(default=None, max_length=1000)
     document_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     source_pages: list[int] = Field(default_factory=list, max_length=50)
+    tags: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
     @field_validator("question")
     @classmethod
@@ -43,6 +77,16 @@ class CardCreate(BaseModel):
         if any(not choice or len(choice) > 2000 for choice in cleaned):
             raise ValueError("Choices must contain non-blank bounded text.")
         return cleaned
+
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(
+        cls,
+        value: list[str],
+    ):
+        return normalize_card_tags(
+            value
+        )
 
     @field_validator("source_pages")
     @classmethod
@@ -212,6 +256,10 @@ class CardUpdate(BaseModel):
         default=None,
         max_length=50,
     )
+    tags: list[str] | None = Field(
+        default=None,
+        max_length=20,
+    )
 
     @field_validator("question")
     @classmethod
@@ -250,6 +298,19 @@ class CardUpdate(BaseModel):
             )
         return cleaned
 
+    @field_validator("tags")
+    @classmethod
+    def normalize_tags(
+        cls,
+        value: list[str] | None,
+    ):
+        if value is None:
+            return None
+
+        return normalize_card_tags(
+            value
+        )
+
     @field_validator("source_pages")
     @classmethod
     def validate_source_pages(
@@ -286,6 +347,7 @@ class CardUpdate(BaseModel):
             "question",
             "answer",
             "source_pages",
+            "tags",
         }
         for field_name in required:
             if (
