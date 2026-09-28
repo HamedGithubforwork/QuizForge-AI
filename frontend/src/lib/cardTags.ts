@@ -20,7 +20,7 @@ export function normalizeCardTags(
           /\s+/g,
           ' ',
         )
-        .toLocaleLowerCase()
+        .toLowerCase()
 
     if (!cleaned) {
       continue
@@ -110,11 +110,11 @@ export function filterStudyCards(
   const cleanQuery =
     query
       .trim()
-      .toLocaleLowerCase()
+      .toLowerCase()
   const cleanTag =
     tag
       .trim()
-      .toLocaleLowerCase()
+      .toLowerCase()
 
   return cards.filter(
     (card) => {
@@ -140,7 +140,7 @@ export function filterStudyCards(
         ...(card.tags ?? []),
       ]
         .join(' ')
-        .toLocaleLowerCase()
+        .toLowerCase()
 
       return haystack.includes(
         cleanQuery,
