@@ -85,6 +85,7 @@ export type CardCreate = {
   "source_filename"?: string | null
   "document_sha256"?: string | null
   "source_pages"?: number[]
+  "tags"?: string[]
 }
 
 export type CardRow = {
@@ -98,6 +99,7 @@ export type CardRow = {
   "source_filename"?: string | null
   "document_sha256"?: string | null
   "source_pages"?: number[]
+  "tags"?: string[]
   "id": string
   "deck_id": string
   "fsrs_state": 1 | 2 | 3
@@ -144,6 +146,7 @@ export type CardUpdate = {
   "source_filename"?: string | null
   "document_sha256"?: string | null
   "source_pages"?: number[] | null
+  "tags"?: string[] | null
 }
 
 export type CardMove = {
