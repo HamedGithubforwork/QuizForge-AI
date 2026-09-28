@@ -9,7 +9,6 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA app;
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO quizforge_app;
-GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 CREATE TABLE app.users (id uuid PRIMARY KEY);
 CREATE TABLE app.user_identities (
     issuer text NOT NULL,
@@ -325,6 +324,7 @@ WITH CHECK (true);
 CREATE ROLE quizforge_identity LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 GRANT CONNECT ON DATABASE quizforge TO quizforge_identity;
 GRANT USAGE ON SCHEMA app TO quizforge_identity;
+GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 GRANT INSERT ON app.users TO quizforge_identity;
 GRANT SELECT, INSERT ON app.user_identities TO quizforge_identity;
 ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
