@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from uuid import UUID
@@ -16,6 +17,7 @@ import history_database
 from history_postgres import PostgresHistoryRepository
 from quiz_history import router
 from decks import router as decks_router
+from study_notification_sender import load_candidates, push_once
 from study_notifications import router as study_notifications_router
 
 pytestmark = pytest.mark.skipif(os.getenv("TEST_HISTORY_POSTGRES") != "1", reason="Requires isolated TLS PostgreSQL")
@@ -45,6 +47,7 @@ def owner():
         with psycopg.ClientCursor(conn) as cursor:
             cursor.execute("ALTER ROLE quizforge_app PASSWORD %s", ("local-application-only",))
             cursor.execute("ALTER ROLE quizforge_identity PASSWORD %s", ("local-identity-only",))
+            cursor.execute("ALTER ROLE quizforge_notifier PASSWORD %s", ("local-notifier-only",))
         yield conn
 
 
@@ -627,6 +630,127 @@ def test_push_subscription_cannot_be_claimed_by_another_owner(api, owner):
             assert row == [
                 (USERS[1], "q" * 32)
             ]
+
+    asyncio.run(scenario())
+
+def test_study_notification_sender_uses_notifier_role_only(api, owner):
+    async def scenario():
+        endpoint = (
+            "https://push.example/"
+            "scheduled-reminder"
+        )
+
+        async with api() as (client, _):
+            deck = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": "Reminder Deck",
+                    "cards": [{
+                        "question_type": "short_answer",
+                        "question": "Secret question text",
+                        "answer": {
+                            "correct_answer": "Secret answer text",
+                        },
+                        "choices": None,
+                        "explanation": None,
+                        "source_filename": "notes.pdf",
+                        "document_sha256": "a" * 64,
+                        "source_pages": [1],
+                    }],
+                },
+            )
+            assert deck.status_code == 201, deck.text
+
+            prefs = await client.put(
+                "/api/study-notifications/preferences",
+                headers=headers(),
+                json={
+                    "enabled": True,
+                    "reminder_time": "00:00",
+                    "timezone": "UTC",
+                    "minimum_due_cards": 1,
+                },
+            )
+            assert prefs.status_code == 200, prefs.text
+
+            push = await client.post(
+                "/api/study-notifications/push/subscriptions",
+                headers=headers(),
+                json={
+                    "endpoint": endpoint,
+                    "p256dh": "p" * 32,
+                    "auth": "auth-token",
+                },
+            )
+            assert push.status_code == 201, push.text
+
+        with psycopg.connect(
+            host=os.environ["PGHOST"],
+            dbname=os.environ["PGDATABASE"],
+            user="quizforge_notifier",
+            password="local-notifier-only",
+            sslmode="verify-full",
+            sslrootcert=os.environ["PGSSLROOTCERT"],
+            autocommit=True,
+            row_factory=psycopg.rows.dict_row,
+        ) as notifier:
+            with pytest.raises(
+                psycopg.errors.InsufficientPrivilege
+            ):
+                notifier.execute(
+                    "SELECT question FROM app.cards"
+                )
+
+            with pytest.raises(
+                psycopg.errors.InsufficientPrivilege
+            ):
+                notifier.execute(
+                    "SELECT * FROM app.quiz_history"
+                )
+
+            current = datetime.now(
+                timezone.utc
+            )
+            candidates = load_candidates(
+                notifier,
+                current,
+            )
+            assert len(candidates) == 1
+            candidate = candidates[0]
+            assert candidate.user_id == str(USERS[0])
+            assert candidate.due_count == 1
+            assert candidate.endpoint == endpoint
+
+            sends = []
+            result = push_once(
+                notifier,
+                candidate,
+                current.date(),
+                private_key="A" * 90,
+                subject="mailto:test@example.invalid",
+                send=lambda **kwargs: sends.append(kwargs),
+            )
+            assert result == "sent"
+            assert len(sends) == 1
+            assert "Secret question" not in sends[0]["data"]
+            assert "Secret answer" not in sends[0]["data"]
+
+            assert notifier.execute(
+                "SELECT due_count "
+                "FROM app.study_notification_deliveries"
+            ).fetchall() == [{"due_count": 1}]
+
+            duplicate = push_once(
+                notifier,
+                candidate,
+                current.date(),
+                private_key="A" * 90,
+                subject="mailto:test@example.invalid",
+                send=lambda **kwargs: sends.append(kwargs),
+            )
+            assert duplicate == "duplicate"
+            assert len(sends) == 1
 
     asyncio.run(scenario())
 
