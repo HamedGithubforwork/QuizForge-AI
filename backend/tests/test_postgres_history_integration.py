@@ -548,3 +548,80 @@ def test_study_notification_preferences_use_verified_owner_mapping(api, owner):
 
     asyncio.run(scenario())
 
+def test_web_push_subscriptions_are_isolated_and_globally_unique(api, owner, monkeypatch):
+    async def scenario():
+        monkeypatch.setenv(
+            "WEB_PUSH_VAPID_PUBLIC_KEY",
+            "B" * 87,
+        )
+        async with api() as (client, _):
+            payload = {
+                "endpoint":
+                    "https://push.example/subscription-a",
+                "keys": {
+                    "p256dh": "B" * 64,
+                    "auth": "C" * 24,
+                },
+            }
+
+            created = await client.post(
+                "/api/study-notifications/subscriptions",
+                headers=headers(),
+                json=payload,
+            )
+            assert created.status_code == 201, created.text
+            subscription_id = created.json()["id"]
+            assert "endpoint" not in created.json()
+            assert "p256dh" not in created.json()
+            assert "auth" not in created.json()
+
+            own = await client.get(
+                "/api/study-notifications/subscriptions",
+                headers=headers(),
+            )
+            assert own.status_code == 200
+            assert [item["id"] for item in own.json()] == [
+                subscription_id
+            ]
+
+            other = await client.get(
+                "/api/study-notifications/subscriptions",
+                headers=headers("valid-b"),
+            )
+            assert other.status_code == 200
+            assert other.json() == []
+
+            conflict = await client.post(
+                "/api/study-notifications/subscriptions",
+                headers=headers("valid-b"),
+                json=payload,
+            )
+            assert conflict.status_code == 409
+
+            hidden_delete = await client.delete(
+                f"/api/study-notifications/subscriptions/{subscription_id}",
+                headers=headers("valid-b"),
+            )
+            assert hidden_delete.status_code == 404
+
+            row = owner.execute(
+                """SELECT user_id,endpoint,endpoint_sha256,p256dh,auth
+                   FROM app.web_push_subscriptions"""
+            ).fetchone()
+            assert row[0] == USERS[0]
+            assert row[1] == payload["endpoint"]
+            assert len(row[2]) == 64
+            assert row[3] == "B" * 64
+            assert row[4] == "C" * 24
+
+            deleted = await client.delete(
+                f"/api/study-notifications/subscriptions/{subscription_id}",
+                headers=headers(),
+            )
+            assert deleted.status_code == 204
+            assert owner.execute(
+                "SELECT count(*) FROM app.web_push_subscriptions"
+            ).fetchone()[0] == 0
+
+    asyncio.run(scenario())
+
