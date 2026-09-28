@@ -100,6 +100,26 @@ class MigrationControllerTests(unittest.TestCase):
             remote,
         )
         self.assertIn(
+            "/etc/quizforge/web-push-private.env",
+            remote,
+        )
+        self.assertIn(
+            "/etc/quizforge/web-push-public.env",
+            remote,
+        )
+        self.assertIn(
+            "WEB_PUSH_VAPID_PRIVATE_KEY",
+            remote,
+        )
+        self.assertIn(
+            "WEB_PUSH_VAPID_PUBLIC_KEY",
+            remote,
+        )
+        self.assertNotIn(
+            'print(private_value)',
+            remote,
+        )
+        self.assertIn(
             "systemctl start quizforge-backup.service",
             remote,
         )
