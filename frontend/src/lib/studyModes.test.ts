@@ -3,6 +3,10 @@ import test from 'node:test'
 
 import {
   cramStudyCards,
+  isWeakStudyCard,
+  weakCardLabel,
+  weakCardLapseRate,
+  weakStudyCards,
 } from './studyModes.ts'
 import type {
   CardRow,
@@ -93,3 +97,112 @@ test(
     )
   },
 )
+
+test(
+  'weakStudyCards excludes unreviewed and suspended cards',
+  () => {
+    const cards = [
+      card('new'),
+      {
+        ...card('hard'),
+        review_count: 2,
+        difficulty: 7.2,
+      },
+      {
+        ...card('lapsed'),
+        review_count: 4,
+        lapse_count: 1,
+        difficulty: 5.4,
+      },
+      {
+        ...card('suspended', true),
+        review_count: 5,
+        lapse_count: 3,
+        difficulty: 8.0,
+      },
+    ]
+
+    assert.deepEqual(
+      weakStudyCards(cards).map(
+        (item) => item.id,
+      ),
+      ['lapsed', 'hard'],
+    )
+    assert.equal(
+      isWeakStudyCard(cards[0]),
+      false,
+    )
+    assert.equal(
+      isWeakStudyCard(cards[3]),
+      false,
+    )
+  },
+)
+
+test(
+  'weakStudyCards ranks lapse rate then lapse count then difficulty',
+  () => {
+    const cards = [
+      {
+        ...card('difficulty'),
+        review_count: 8,
+        lapse_count: 0,
+        difficulty: 8.4,
+      },
+      {
+        ...card('rate'),
+        review_count: 2,
+        lapse_count: 1,
+        difficulty: 6.1,
+      },
+      {
+        ...card('count'),
+        review_count: 8,
+        lapse_count: 2,
+        difficulty: 8.8,
+      },
+      {
+        ...card('same-rate-more-lapses'),
+        review_count: 4,
+        lapse_count: 2,
+        difficulty: 6.2,
+      },
+    ]
+
+    assert.deepEqual(
+      weakStudyCards(cards).map(
+        (item) => item.id,
+      ),
+      [
+        'same-rate-more-lapses',
+        'rate',
+        'count',
+        'difficulty',
+      ],
+    )
+  },
+)
+
+test(
+  'weak-card helpers expose bounded evidence labels',
+  () => {
+    const target = {
+      ...card('weak'),
+      review_count: 5,
+      lapse_count: 2,
+      difficulty: 7.25,
+    }
+
+    assert.equal(
+      weakCardLapseRate(
+        target,
+      ),
+      0.4,
+    )
+    assert.equal(
+      weakCardLabel(target),
+      '2 lapses · difficulty 7.3',
+    )
+  },
+)
+
