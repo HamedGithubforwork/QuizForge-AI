@@ -552,7 +552,7 @@ def test_study_notification_preferences_use_verified_owner_mapping(api, owner):
 def test_push_subscription_cannot_be_claimed_by_another_owner(api, owner):
     async def scenario():
         endpoint = (
-            "https://push.example/"
+            "https://fcm.googleapis.com/fcm/send/"
             "subscription-owner-isolation"
         )
         endpoint_hash = hashlib.sha256(
