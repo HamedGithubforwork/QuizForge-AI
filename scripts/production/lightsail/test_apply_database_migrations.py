@@ -88,7 +88,7 @@ class MigrationControllerTests(unittest.TestCase):
             remote,
         )
         self.assertIn(
-            "relbypassrls",
+            "rolbypassrls",
             remote,
         )
         self.assertNotIn(
