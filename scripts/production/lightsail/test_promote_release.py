@@ -17,7 +17,7 @@ class PromoteReleaseTests(unittest.TestCase):
             "quizforge_notifier",
             "web-push-private.env",
             "web-push-public.env",
-            "docker compose -f "$stage/compose.json" --profile scheduled config --quiet",
+            'docker compose -f "$stage/compose.json" --profile scheduled config --quiet',
             "rollback()",
             "ln -sfn "$final" /opt/quizforge/current.next",
             "ln -sfn "$new_frontend" /opt/quizforge/frontend.next",
