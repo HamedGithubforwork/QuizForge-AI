@@ -430,6 +430,182 @@
 }
 
 
+.deck-management-buttons {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 8px;
+
+  margin-top: 16px;
+}
+
+.deck-management-button {
+  padding: 8px 11px;
+
+  border: 1px solid #d9dce7;
+  border-radius: 9px;
+
+  background: white;
+
+  color: #5a6275;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deck-management-button:hover:not(:disabled) {
+  border-color: #beb9eb;
+
+  background: #f8f7ff;
+
+  color: #5a4fd0;
+}
+
+.deck-management-danger {
+  border-color: #eed0d0;
+
+  color: #a74646;
+}
+
+.deck-management-danger:hover:not(:disabled) {
+  border-color: #e2aaaa;
+
+  background: #fff5f5;
+
+  color: #9b3434;
+}
+
+.deck-management-button:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
+.deck-management-panel {
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(220px, 360px)
+    auto;
+
+  align-items: end;
+
+  gap: 18px;
+
+  margin: -10px 0 22px;
+  padding: 20px;
+
+  border: 1px solid #dddff0;
+  border-radius: 16px;
+
+  background: white;
+}
+
+.deck-management-panel h2 {
+  margin: 5px 0 0;
+
+  color: #30364c;
+
+  font-size: 18px;
+}
+
+.deck-management-panel p {
+  margin: 6px 0 0;
+
+  color: #747b8d;
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.deck-management-panel input {
+  min-height: 43px;
+
+  padding: 0 12px;
+
+  border: 1px solid #d7dae7;
+  border-radius: 10px;
+
+  background: white;
+
+  color: #30364c;
+
+  font: inherit;
+}
+
+.deck-management-panel input:focus {
+  border-color: #7367e7;
+
+  outline: 0;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(103, 90, 226, 0.11);
+}
+
+.deck-management-panel-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 8px;
+}
+
+.deck-delete-panel {
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto;
+
+  align-items: center;
+
+  border-color: #edcaca;
+
+  background: #fff9f9;
+}
+
+.deck-delete-confirm {
+  padding: 11px 14px;
+
+  border: 1px solid #ba4747;
+  border-radius: 10px;
+
+  background: #ba4747;
+
+  color: white;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-weight: 900;
+}
+
+.deck-delete-confirm:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
+.deck-management-error {
+  margin: -10px 0 20px;
+  padding: 11px 13px;
+
+  border: 1px solid #efcaca;
+  border-radius: 10px;
+
+  background: #fff7f7;
+
+  color: #a33e3e;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+
 .deck-detail-stats {
   display: grid;
 
@@ -1009,6 +1185,20 @@
   }
 
   .deck-detail-actions {
+    width: 100%;
+  }
+
+  .deck-management-panel,
+  .deck-delete-panel {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .deck-management-panel-actions {
+    flex-direction: column;
+  }
+
+  .deck-management-panel-actions > button {
     width: 100%;
   }
 
