@@ -1,0 +1,10 @@
+[Unit]
+Description=QuizForge study reminder sender
+Requires=quizforge.service
+After=quizforge.service network-online.target
+
+[Service]
+Type=oneshot
+UMask=0077
+TimeoutStartSec=120
+ExecStart=/usr/bin/docker compose -f /opt/quizforge/current/compose.json --profile scheduled run --rm --no-deps notifier
