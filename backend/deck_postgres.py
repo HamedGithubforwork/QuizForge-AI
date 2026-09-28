@@ -100,6 +100,7 @@ class PostgresDeckRepository:
                     "source_filename": row["source_filename"],
                     "document_sha256": row["document_sha256"],
                     "source_pages": row["source_pages"],
+                    "tags": row["tags"],
                     "fsrs_state": row["fsrs_state"],
                     "fsrs_step": row["fsrs_step"],
                     "stability": row["stability"],
@@ -140,7 +141,7 @@ class PostgresDeckRepository:
         rows = await (
             await conn.execute(
                 """SELECT id,deck_id,user_id,question_type,question,answer,choices,
-                          explanation,source_filename,document_sha256,source_pages,
+                          explanation,source_filename,document_sha256,source_pages,tags,
                           fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
                           review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                    FROM app.cards
@@ -156,8 +157,8 @@ class PostgresDeckRepository:
             await conn.execute(
                 """INSERT INTO app.cards(
                     deck_id,user_id,question_type,question,answer,choices,
-                    explanation,source_filename,document_sha256,source_pages
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    explanation,source_filename,document_sha256,source_pages,tags
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     deck_id,
                     user_id,
@@ -169,6 +170,7 @@ class PostgresDeckRepository:
                     card.source_filename,
                     card.document_sha256,
                     card.source_pages,
+                    card.tags,
                 ),
             )
 
@@ -286,7 +288,8 @@ class PostgresDeckRepository:
                     explanation,
                     source_filename,
                     document_sha256,
-                    source_pages
+                    source_pages,
+                    tags
                 )
                 SELECT
                     %s,
@@ -298,7 +301,8 @@ class PostgresDeckRepository:
                     explanation,
                     source_filename,
                     document_sha256,
-                    source_pages
+                    source_pages,
+                    tags
                 FROM app.cards
                 WHERE deck_id=%s
                   AND user_id=%s
@@ -410,6 +414,7 @@ class PostgresDeckRepository:
                 "source_filename",
                 "document_sha256",
                 "source_pages",
+                "tags",
             ):
                 if (
                     field_name
@@ -680,7 +685,7 @@ class PostgresDeckRepository:
             rows = await (
                 await conn.execute(
                     """SELECT id,deck_id,user_id,question_type,question,answer,choices,
-                              explanation,source_filename,document_sha256,source_pages,
+                              explanation,source_filename,document_sha256,source_pages,tags,
                               fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
                               review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                        FROM app.cards
@@ -712,7 +717,7 @@ class PostgresDeckRepository:
             row = await (
                 await conn.execute(
                     """SELECT id,deck_id,user_id,question_type,question,answer,choices,
-                              explanation,source_filename,document_sha256,source_pages,
+                              explanation,source_filename,document_sha256,source_pages,tags,
                               fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
                               review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                        FROM app.cards
@@ -774,7 +779,7 @@ class PostgresDeckRepository:
                         updated_at=now()
                        WHERE id=%s AND deck_id=%s AND user_id=%s
                        RETURNING id,deck_id,user_id,question_type,question,answer,choices,
-                                 explanation,source_filename,document_sha256,source_pages,
+                                 explanation,source_filename,document_sha256,source_pages,tags,
                                  fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
                                  review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at""",
                     (

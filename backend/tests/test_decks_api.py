@@ -106,6 +106,7 @@ class FakeRepository:
                 source_filename=item.source_filename,
                 document_sha256=item.document_sha256,
                 source_pages=item.source_pages,
+                tags=item.tags,
             )
             for index, item in enumerate(payload.cards)
         ]
@@ -178,6 +179,12 @@ class FakeRepository:
                         if "explanation"
                         in payload.model_fields_set
                         else "Mitochondria perform cellular respiration."
+                    ),
+                    tags=(
+                        payload.tags
+                        if "tags"
+                        in payload.model_fields_set
+                        else []
                     ),
                 )
             ]
@@ -389,6 +396,38 @@ def test_create_deck_sorts_and_preserves_all_source_pages(api):
     assert payload.cards[0].source_pages == [12, 14]
 
 
+def test_create_card_normalizes_and_deduplicates_tags(api):
+    client, repository = api
+
+    response = client.post(
+        "/api/decks",
+        json={
+            "name": "Tagged Deck",
+            "cards": [
+                card(
+                    tags=[
+                        "  Exam  One ",
+                        "exam one",
+                        "Neuro   Biology",
+                    ]
+                )
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["cards"][0]["tags"] == [
+        "exam one",
+        "neuro biology",
+    ]
+
+    _, payload = repository.calls[0]
+    assert payload.cards[0].tags == [
+        "exam one",
+        "neuro biology",
+    ]
+
+
 @pytest.mark.parametrize(
     "payload",
     [
@@ -417,6 +456,30 @@ def test_create_deck_sorts_and_preserves_all_source_pages(api):
             "name": "Deck",
             "cards": [
                 card(document_sha256="bad"),
+            ],
+        },
+        {
+            "name": "Deck",
+            "cards": [
+                card(tags=["   "]),
+            ],
+        },
+        {
+            "name": "Deck",
+            "cards": [
+                card(tags=["x" * 51]),
+            ],
+        },
+        {
+            "name": "Deck",
+            "cards": [
+                card(tags=[f"tag-{index}" for index in range(21)]),
+            ],
+        },
+        {
+            "name": "Deck",
+            "cards": [
+                card(tags=["valid", None]),
             ],
         },
     ],
@@ -682,6 +745,30 @@ def test_update_card_accepts_partial_changes_and_preserves_null_clearable_fields
         is None
     )
 
+
+    tags = client.patch(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}",
+        json={
+            "tags": [
+                "  Finals ",
+                "finals",
+                "High   Yield",
+            ]
+        },
+    )
+    assert tags.status_code == 200
+    assert tags.json()["cards"][0]["tags"] == [
+        "finals",
+        "high yield",
+    ]
+
+    cleared = client.patch(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}",
+        json={"tags": []},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["cards"][0]["tags"] == []
+
     _, deck_id, card_id, payload = (
         repository.calls[0]
     )
@@ -704,6 +791,10 @@ def test_update_card_accepts_partial_changes_and_preserves_null_clearable_fields
         {"question_type": None},
         {"answer": None},
         {"source_pages": None},
+        {"tags": None},
+        {"tags": [""]},
+        {"tags": ["x" * 51]},
+        {"tags": [f"tag-{index}" for index in range(21)]},
         {"source_pages": [2, 2]},
         {"source_pages": [0]},
         {"document_sha256": "bad"},
