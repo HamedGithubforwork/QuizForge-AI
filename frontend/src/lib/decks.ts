@@ -4,6 +4,7 @@ import type {
   DeckCreate,
   DeckDetail,
   DeckSummary,
+  DeckUpdate,
   ReviewQueue,
   ReviewRequest,
   ReviewResult,
@@ -256,5 +257,62 @@ export async function addCardsToStudyDeck(
     },
     'Could not add these questions to the study deck.',
   )
+}
+
+export async function updateStudyDeck(
+  deckId: string,
+  payload: DeckUpdate,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}`,
+    fetcher,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Could not update this study deck.',
+  )
+}
+
+export async function deleteStudyDeck(
+  deckId: string,
+  fetcher: ApiFetch,
+): Promise<void> {
+  const response =
+    await fetcher(
+      `/api/decks/${encodeURIComponent(deckId)}`,
+      {
+        method: 'DELETE',
+      },
+    )
+
+  if (!response.ok) {
+    let detail =
+      'Could not delete this study deck.'
+
+    try {
+      const data =
+        await response.json()
+
+      if (
+        data &&
+        typeof data === 'object' &&
+        'detail' in data &&
+        typeof data.detail ===
+          'string'
+      ) {
+        detail = data.detail
+      }
+    } catch {
+      // Keep bounded fallback.
+    }
+
+    throw new Error(detail)
+  }
 }
 
