@@ -747,3 +747,117 @@ def test_push_subscription_cannot_be_claimed_by_another_owner(api, owner):
 
     asyncio.run(scenario())
 
+def test_move_card_preserves_review_state_and_owner_boundary(api, owner):
+    async def scenario():
+        async with api() as (client, _):
+            source = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": "Source",
+                    "cards": [{
+                        "question_type": "short_answer",
+                        "question": "Move me",
+                        "answer": {
+                            "correct_answer": "Answer"
+                        },
+                        "choices": None,
+                        "explanation": None,
+                        "source_filename": "notes.pdf",
+                        "document_sha256": "a" * 64,
+                        "source_pages": [1],
+                    }],
+                },
+            )
+            assert source.status_code == 201, source.text
+            source_body = source.json()
+            source_id = source_body["id"]
+            card_id = source_body["cards"][0]["id"]
+
+            target = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": "Target",
+                    "cards": [],
+                },
+            )
+            assert target.status_code == 201, target.text
+            target_id = target.json()["id"]
+
+            reviewed = await client.post(
+                f"/api/decks/{source_id}/review",
+                headers=headers(),
+                json={
+                    "card_id": card_id,
+                    "rating": 3,
+                    "review_duration_ms": 700,
+                },
+            )
+            assert reviewed.status_code == 200, reviewed.text
+            state = reviewed.json()["card"]
+            assert state["review_count"] == 1
+            assert state["stability"] > 0
+
+            moved = await client.post(
+                f"/api/decks/{source_id}/cards/{card_id}/move",
+                headers=headers(),
+                json={
+                    "target_deck_id":
+                        target_id,
+                },
+            )
+            assert moved.status_code == 200, moved.text
+            assert moved.json()["card_count"] == 0
+
+            target_after = await client.get(
+                f"/api/decks/{target_id}",
+                headers=headers(),
+            )
+            assert target_after.status_code == 200
+            moved_card = target_after.json()["cards"][0]
+            assert moved_card["id"] == card_id
+            assert moved_card["review_count"] == 1
+            assert moved_card["stability"] == state["stability"]
+            assert moved_card["difficulty"] == state["difficulty"]
+            assert moved_card["last_reviewed_at"] == state["last_reviewed_at"]
+
+            log_count = owner.execute(
+                "SELECT count(*) FROM app.card_review_logs "
+                "WHERE card_id=%s",
+                (card_id,),
+            ).fetchone()[0]
+            assert log_count == 1
+
+            foreign_target = await client.post(
+                "/api/decks",
+                headers=headers("valid-b"),
+                json={
+                    "name": "Foreign",
+                    "cards": [],
+                },
+            )
+            assert foreign_target.status_code == 201
+
+            blocked = await client.post(
+                f"/api/decks/{target_id}/cards/{card_id}/move",
+                headers=headers(),
+                json={
+                    "target_deck_id":
+                        foreign_target.json()["id"],
+                },
+            )
+            assert blocked.status_code == 404
+
+            stale = await client.post(
+                f"/api/decks/{source_id}/cards/{card_id}/move",
+                headers=headers(),
+                json={
+                    "target_deck_id":
+                        target_id,
+                },
+            )
+            assert stale.status_code == 404
+
+    asyncio.run(scenario())
+

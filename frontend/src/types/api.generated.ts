@@ -144,6 +144,10 @@ export type CardUpdate = {
   "source_pages"?: number[] | null
 }
 
+export type CardMove = {
+  "target_deck_id": string
+}
+
 export type DeckSummary = {
   "id": string
   "name": string
@@ -315,6 +319,7 @@ export const API_ROUTES = [
   "POST /api/answers/review",
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
+  "POST /api/decks/{deck_id}/cards/{card_id}/move",
   "POST /api/decks/{deck_id}/duplicate",
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",

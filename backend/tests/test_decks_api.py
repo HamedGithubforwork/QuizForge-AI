@@ -181,6 +181,24 @@ class FakeRepository:
             ]
         )
 
+    async def move_card(
+        self,
+        deck_id,
+        card_id,
+        target_deck_id,
+    ):
+        self.calls.append(
+            (
+                "move_card",
+                deck_id,
+                card_id,
+                target_deck_id,
+            )
+        )
+        return deck_detail(
+            cards=[],
+        )
+
     async def delete_card(
         self,
         deck_id,
@@ -666,4 +684,67 @@ def test_delete_card_uses_owned_path_identifiers_only(api):
             CARD_ID,
         )
     ]
+
+def test_move_card_forwards_owned_identifiers_and_returns_source_deck(api):
+    client, repository = api
+    target_deck_id = UUID(
+        "33333333-3333-4333-8333-333333333333"
+    )
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}/move",
+        json={
+            "target_deck_id":
+                str(target_deck_id),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == str(DECK_ID)
+    assert response.json()["card_count"] == 0
+    assert repository.calls == [
+        (
+            "move_card",
+            DECK_ID,
+            CARD_ID,
+            target_deck_id,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "target_deck_id":
+                str(DECK_ID),
+        },
+        {
+            "target_deck_id":
+                "not-a-uuid",
+        },
+        {
+            "target_deck_id":
+                str(UUID(int=9)),
+            "user_id":
+                "forged",
+        },
+    ],
+)
+def test_move_card_rejects_same_deck_invalid_or_forged_payloads_before_repository(
+    api,
+    payload,
+):
+    client, repository = api
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}/move",
+        json=payload,
+    )
+
+    assert response.status_code in (
+        409,
+        422,
+    )
+    assert repository.calls == []
 

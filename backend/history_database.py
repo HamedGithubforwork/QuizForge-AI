@@ -88,7 +88,8 @@ async def check_application_role(conn):
         has_column_privilege(current_user,'app.study_push_subscriptions','endpoint','UPDATE') AS update_push_endpoint,
         has_column_privilege(current_user,'app.study_push_subscriptions','p256dh','UPDATE') AS update_push_p256dh,
         has_column_privilege(current_user,'app.study_push_subscriptions','auth','UPDATE') AS update_push_auth,
-        has_column_privilege(current_user,'app.study_push_subscriptions','user_agent','UPDATE') AS update_push_user_agent""")).fetchone()
+        has_column_privilege(current_user,'app.study_push_subscriptions','user_agent','UPDATE') AS update_push_user_agent,
+        has_function_privilege(current_user,'app.move_card(uuid,uuid,uuid)','EXECUTE') AS move_card_function""")).fetchone()
     if not all(required.values()):
         raise RuntimeError("Application database role is missing review privileges")
 
