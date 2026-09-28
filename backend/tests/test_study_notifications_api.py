@@ -24,6 +24,38 @@ class FakeRepository:
         self.calls.append(("save", payload))
         return payload.model_dump()
 
+    async def save_subscription(
+        self,
+        *,
+        endpoint,
+        p256dh,
+        auth,
+        user_agent,
+    ):
+        self.calls.append(
+            (
+                "save_subscription",
+                endpoint,
+                p256dh,
+                auth,
+                user_agent,
+            )
+        )
+        return {
+            "endpoint_hash": "a" * 64,
+        }
+
+    async def delete_subscription(
+        self,
+        endpoint_hash,
+    ):
+        self.calls.append(
+            (
+                "delete_subscription",
+                endpoint_hash,
+            )
+        )
+
 
 @pytest.fixture
 def api():
@@ -164,3 +196,138 @@ def test_put_preflight_preserves_origin_allowlist(monkeypatch):
         ]
         == "https://frontend.example"
     )
+
+def test_push_public_key_requires_valid_configuration(monkeypatch):
+    client = TestClient(app)
+
+    monkeypatch.delenv(
+        "WEB_PUSH_VAPID_PUBLIC_KEY",
+        raising=False,
+    )
+    app.dependency_overrides[
+        study_notifications.get_current_user
+    ] = lambda: study_notifications.AuthenticatedUser(
+        id="synthetic",
+        email="user@example.invalid",
+        issuer="https://issuer.invalid",
+        subject="subject",
+    )
+    try:
+        response = client.get(
+            "/api/study-notifications/push/public-key"
+        )
+        assert response.status_code == 503
+
+        monkeypatch.setenv(
+            "WEB_PUSH_VAPID_PUBLIC_KEY",
+            "A" * 87,
+        )
+        response = client.get(
+            "/api/study-notifications/push/public-key"
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "public_key": "A" * 87,
+        }
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_register_push_subscription_uses_request_user_agent(api):
+    client, repository = api
+
+    response = client.post(
+        "/api/study-notifications/push/subscriptions",
+        headers={
+            "User-Agent":
+                "Synthetic Browser/1.0",
+        },
+        json={
+            "endpoint":
+                "https://push.example/subscription-1",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "endpoint_hash": "a" * 64,
+    }
+    assert repository.calls == [
+        (
+            "save_subscription",
+            "https://push.example/subscription-1",
+            "p" * 32,
+            "auth-token",
+            "Synthetic Browser/1.0",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "endpoint": "http://push.example/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint":
+                "https://push.example/subscription",
+            "p256dh": "contains padding=",
+            "auth": "auth-token",
+        },
+        {
+            "endpoint":
+                "https://push.example/subscription",
+            "p256dh": "p" * 32,
+            "auth": "bad value!",
+        },
+        {
+            "endpoint":
+                "https://push.example/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+            "user_id": "forged",
+        },
+    ],
+)
+def test_invalid_push_subscriptions_are_rejected_before_repository(
+    api,
+    payload,
+):
+    client, repository = api
+
+    response = client.post(
+        "/api/study-notifications/push/subscriptions",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+
+def test_unregister_push_subscription_is_idempotent(api):
+    client, repository = api
+
+    response = client.delete(
+        "/api/study-notifications/push/subscriptions/"
+        + "b" * 64
+    )
+
+    assert response.status_code == 204
+    assert repository.calls == [
+        (
+            "delete_subscription",
+            "b" * 64,
+        )
+    ]
+
+    invalid = client.delete(
+        "/api/study-notifications/push/subscriptions/not-a-hash"
+    )
+    assert invalid.status_code == 422
+    assert len(repository.calls) == 1
+
