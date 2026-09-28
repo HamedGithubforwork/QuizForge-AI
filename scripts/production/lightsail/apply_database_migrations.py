@@ -47,6 +47,7 @@ MIGRATION_FILES = (
     "20260927_002_fsrs_reviews.sql",
     "20260927_003_study_notification_preferences.sql",
     "20260928_004_study_push_subscriptions.sql",
+    "20260928_005_study_notifier_role.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -86,12 +87,13 @@ manifest=Path(sys.argv[2])
 value=json.loads(manifest.read_text())
 assert value.get("schema")==1
 items=value.get("migrations")
-assert isinstance(items,list) and len(items)==4
+assert isinstance(items,list) and len(items)==5
 expected=[
  "20260927_001_decks_cards.sql",
  "20260927_002_fsrs_reviews.sql",
  "20260927_003_study_notification_preferences.sql",
  "20260928_004_study_push_subscriptions.sql",
+ "20260928_005_study_notifier_role.sql",
 ]
 assert [item.get("name") for item in items]==expected
 assert set(path.name for path in root.iterdir())==set(expected)
@@ -160,15 +162,92 @@ esac
 
 test "$(dbq "SELECT (to_regclass('app.study_push_subscriptions') IS NOT NULL AND to_regclass('app.study_notification_deliveries') IS NOT NULL)::int")" = "1"
 
-# Security postconditions. The runtime app role must remain restricted.
+# 005: dedicated least-privilege notifier role.
+notifier_state="$(dbq "SELECT (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='quizforge_notifier'))::int")"
+case "$notifier_state" in
+  "0") apply_sql "$root/20260928_005_study_notifier_role.sql"; applied_005=true ;;
+  "1") applied_005=false ;;
+  *) exit 45 ;;
+esac
+
+test "$(dbq "SELECT (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='quizforge_notifier'))::int")" = "1"
+
+# Create or reconcile the private notifier credential only on the host.
+# No credential value is printed.
+test -x /opt/quizforge/backup-venv/bin/python
+test -s /etc/quizforge/postgres/owner-password
+test -s /etc/quizforge/db-ca.pem
+/opt/quizforge/backup-venv/bin/python - <<'PY'
+import os
+from pathlib import Path
+import secrets
+import stat
+import tempfile
+
+import psycopg
+from psycopg import sql
+
+destination=Path("/etc/quizforge/notifier.env")
+if destination.exists() or destination.is_symlink():
+    info=destination.lstat()
+    if (
+        destination.is_symlink()
+        or not stat.S_ISREG(info.st_mode)
+        or stat.S_IMODE(info.st_mode) & 0o077
+        or info.st_uid != 0
+    ):
+        raise SystemExit("unsafe notifier credential file")
+else:
+    password=secrets.token_urlsafe(48)
+    owner=Path("/etc/quizforge/postgres/owner-password").read_text().strip()
+    with psycopg.connect(
+        host="db.quizforge.internal",
+        hostaddr="127.0.0.1",
+        port=5432,
+        dbname="quizforge",
+        user="quizforge_owner",
+        password=owner,
+        sslmode="verify-full",
+        sslrootcert="/etc/quizforge/db-ca.pem",
+        connect_timeout=10,
+    ) as connection:
+        with connection.transaction():
+            with psycopg.ClientCursor(connection) as cursor:
+                cursor.execute(
+                    sql.SQL("ALTER ROLE {} PASSWORD %s").format(
+                        sql.Identifier("quizforge_notifier")
+                    ),
+                    (password,),
+                )
+    fd,name=tempfile.mkstemp(prefix=".notifier-",dir="/etc/quizforge")
+    try:
+        os.fchmod(fd,0o600)
+        os.write(fd,("NOTIFIER_DB_PASSWORD="+password+"\n").encode())
+        os.fsync(fd)
+        os.close(fd)
+        fd=-1
+        os.replace(name,destination)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if os.path.exists(name):
+            os.unlink(name)
+PY
+
+test -s /etc/quizforge/notifier.env
+test "$(stat -c %a /etc/quizforge/notifier.env)" = "600"
+notifier_credential_ready=true
+
+# Security postconditions. Runtime roles must remain restricted.
 test "$(dbq "SELECT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)::int FROM pg_roles WHERE rolname='quizforge_app'")" = "0"
+test "$(dbq "SELECT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)::int FROM pg_roles WHERE rolname='quizforge_notifier'")" = "0"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.cards'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.card_review_logs'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_preferences'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$notifier_credential_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -178,6 +257,8 @@ print("QF_RESULT="+json.dumps({
   "fsrs_migration_applied": values[1],
   "notification_preferences_migration_applied": values[2],
   "push_subscriptions_migration_applied": values[3],
+  "notifier_role_migration_applied": values[4],
+  "notifier_credential_ready": values[5],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -519,6 +600,8 @@ def main() -> int:
             "fsrs_migration_applied",
             "notification_preferences_migration_applied",
             "push_subscriptions_migration_applied",
+            "notifier_role_migration_applied",
+            "notifier_credential_ready",
             "all_postconditions_verified",
         ):
             report[name] = state.get(

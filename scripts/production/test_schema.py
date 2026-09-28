@@ -176,6 +176,66 @@ class DeckSchema(unittest.TestCase):
                 ).fetchone()["allowed"]
             )
 
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', 'app.quiz_history', "
+                    "'SELECT,INSERT,UPDATE,DELETE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'due_at', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'user_id', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'question', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
+                    "'answer', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', "
+                    "'app.study_notification_deliveries', "
+                    "'SELECT,INSERT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', "
+                    "'app.study_notification_deliveries', "
+                    "'UPDATE,DELETE,TRUNCATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_table_privilege("
+                    "'quizforge_notifier', "
+                    "'app.study_push_subscriptions', "
+                    "'DELETE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+
     def test_rls_isolates_decks_and_cards_between_users(self):
         first_user = uuid4()
         second_user = uuid4()

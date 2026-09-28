@@ -15,7 +15,7 @@ class MigrationControllerTests(unittest.TestCase):
             [item["name"] for item in items],
             list(migrations.MIGRATION_FILES),
         )
-        self.assertEqual(len(items), 4)
+        self.assertEqual(len(items), 5)
 
         for item in items:
             self.assertRegex(
@@ -89,6 +89,18 @@ class MigrationControllerTests(unittest.TestCase):
         )
         self.assertIn(
             'Partial Web Push schema detected',
+            remote,
+        )
+        self.assertIn(
+            "quizforge_notifier",
+            remote,
+        )
+        self.assertIn(
+            "/etc/quizforge/notifier.env",
+            remote,
+        )
+        self.assertIn(
+            "systemctl start quizforge-backup.service",
             remote,
         )
         self.assertIn(
