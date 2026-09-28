@@ -2,9 +2,11 @@
 
 from contextlib import asynccontextmanager
 from datetime import time
+import hashlib
 
 from fastapi import HTTPException
 from psycopg import Error as DatabaseError
+from psycopg.errors import UniqueViolation
 from psycopg_pool import PoolClosed, PoolTimeout, TooManyRequests
 
 
@@ -111,3 +113,139 @@ class PostgresNotificationPreferencesRepository:
                     "Study notification settings are temporarily unavailable.",
                 )
             return self.response(row)
+
+    @staticmethod
+    def subscription_response(row):
+        return {
+            "id": row["id"],
+            "endpoint_sha256":
+                row["endpoint_sha256"],
+            "failure_count":
+                row["failure_count"],
+            "last_success_at":
+                row["last_success_at"],
+            "created_at":
+                row["created_at"],
+            "updated_at":
+                row["updated_at"],
+        }
+
+    async def list_subscriptions(self):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            rows = await (
+                await conn.execute(
+                    """SELECT
+                        id,
+                        endpoint_sha256,
+                        failure_count,
+                        last_success_at,
+                        created_at,
+                        updated_at
+                       FROM app.web_push_subscriptions
+                       WHERE user_id=%s
+                       ORDER BY updated_at DESC,id DESC""",
+                    (user_id,),
+                )
+            ).fetchall()
+            return [
+                self.subscription_response(
+                    row
+                )
+                for row in rows
+            ]
+
+    async def save_subscription(
+        self,
+        payload,
+    ):
+        endpoint_sha256 = (
+            hashlib.sha256(
+                payload.endpoint.encode(
+                    "utf-8"
+                )
+            ).hexdigest()
+        )
+
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            try:
+                row = await (
+                    await conn.execute(
+                        """INSERT INTO app.web_push_subscriptions(
+                            user_id,
+                            endpoint,
+                            endpoint_sha256,
+                            p256dh,
+                            auth
+                        ) VALUES (%s,%s,%s,%s,%s)
+                        ON CONFLICT (
+                            user_id,
+                            endpoint_sha256
+                        ) DO UPDATE SET
+                            endpoint=EXCLUDED.endpoint,
+                            p256dh=EXCLUDED.p256dh,
+                            auth=EXCLUDED.auth,
+                            updated_at=now()
+                        RETURNING
+                            id,
+                            endpoint_sha256,
+                            failure_count,
+                            last_success_at,
+                            created_at,
+                            updated_at""",
+                        (
+                            user_id,
+                            payload.endpoint,
+                            endpoint_sha256,
+                            payload.keys.p256dh,
+                            payload.keys.auth,
+                        ),
+                    )
+                ).fetchone()
+            except UniqueViolation:
+                raise HTTPException(
+                    409,
+                    "This browser notification subscription is already linked to another account.",
+                ) from None
+
+            if row is None:
+                raise HTTPException(
+                    503,
+                    "Browser notification subscription could not be saved.",
+                )
+
+            return self.subscription_response(
+                row
+            )
+
+    async def delete_subscription(
+        self,
+        subscription_id,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            row = await (
+                await conn.execute(
+                    """DELETE
+                       FROM app.web_push_subscriptions
+                       WHERE id=%s AND user_id=%s
+                       RETURNING id""",
+                    (
+                        subscription_id,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+            if row is None:
+                raise HTTPException(
+                    404,
+                    "Browser notification subscription does not exist.",
+                )
+
