@@ -1,12 +1,15 @@
 -- Disposable rehearsal only. Never run this bootstrap against production.
 -- Application identities are separate from provider-managed auth schemas.
 CREATE ROLE quizforge_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+CREATE ROLE quizforge_notifier LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 REVOKE ALL ON DATABASE quizforge_rehearsal FROM PUBLIC;
 GRANT CONNECT ON DATABASE quizforge_rehearsal TO quizforge_app;
+GRANT CONNECT ON DATABASE quizforge_rehearsal TO quizforge_notifier;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA app;
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO quizforge_app;
+GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 CREATE TABLE app.users (id uuid PRIMARY KEY);
 CREATE TABLE app.user_identities (
     issuer text NOT NULL,
@@ -104,11 +107,58 @@ CREATE TABLE app.study_notification_preferences (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
+CREATE TABLE app.web_push_subscriptions (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+    endpoint text NOT NULL
+        CHECK (
+            char_length(endpoint) BETWEEN 10 AND 4096
+            AND endpoint ~ '^https://'
+        ),
+    endpoint_sha256 text NOT NULL UNIQUE
+        CHECK (endpoint_sha256 ~ '^[a-f0-9]{64}$'),
+    p256dh text NOT NULL
+        CHECK (
+            char_length(p256dh) BETWEEN 40 AND 256
+            AND p256dh ~ '^[A-Za-z0-9_-]+$'
+        ),
+    auth text NOT NULL
+        CHECK (
+            char_length(auth) BETWEEN 16 AND 128
+            AND auth ~ '^[A-Za-z0-9_-]+$'
+        ),
+    failure_count integer NOT NULL DEFAULT 0
+        CHECK (failure_count BETWEEN 0 AND 1000),
+    last_success_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, endpoint_sha256)
+);
+CREATE TABLE app.study_notification_deliveries (
+    user_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+    local_date date NOT NULL,
+    channel text NOT NULL DEFAULT 'web_push'
+        CHECK (channel = 'web_push'),
+    due_count integer NOT NULL CHECK (due_count > 0),
+    sent_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, local_date, channel)
+);
+CREATE INDEX web_push_subscriptions_user_updated_at_idx
+    ON app.web_push_subscriptions (user_id, updated_at DESC, id DESC);
 GRANT SELECT ON app.user_identities TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
 GRANT SELECT, INSERT ON app.card_review_logs TO quizforge_app;
 GRANT SELECT, INSERT ON app.study_notification_preferences TO quizforge_app;
+GRANT SELECT ON app.study_notification_preferences TO quizforge_notifier;
+GRANT SELECT (user_id, due_at) ON app.cards TO quizforge_notifier;
+GRANT SELECT, DELETE ON app.web_push_subscriptions TO quizforge_notifier;
+GRANT UPDATE (
+    failure_count,
+    last_success_at,
+    updated_at
+) ON app.web_push_subscriptions TO quizforge_notifier;
+GRANT SELECT, INSERT ON app.study_notification_deliveries TO quizforge_notifier;
 GRANT UPDATE (
     enabled,
     reminder_time,
@@ -116,6 +166,14 @@ GRANT UPDATE (
     minimum_due_cards,
     updated_at
 ) ON app.study_notification_preferences TO quizforge_app;
+GRANT SELECT, INSERT, DELETE ON app.web_push_subscriptions TO quizforge_app;
+GRANT UPDATE (
+    endpoint,
+    p256dh,
+    auth,
+    updated_at
+) ON app.web_push_subscriptions TO quizforge_app;
+GRANT SELECT ON app.study_notification_deliveries TO quizforge_app;
 GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
 GRANT UPDATE (
     question_type,
@@ -142,6 +200,8 @@ ALTER TABLE app.decks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.cards ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.card_review_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.study_notification_preferences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.web_push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.study_notification_deliveries ENABLE ROW LEVEL SECURITY;
 -- Owner is a separate migration role. App is never table owner or BYPASSRLS.
 CREATE POLICY identity_lookup ON app.user_identities FOR SELECT TO quizforge_app
 USING (issuer = nullif(current_setting('quizforge.auth_issuer', true), '')
@@ -183,3 +243,22 @@ WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uu
 CREATE POLICY notification_preferences_update ON app.study_notification_preferences FOR UPDATE TO quizforge_app
 USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
 WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+
+CREATE POLICY web_push_subscription_read ON app.web_push_subscriptions FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY web_push_subscription_insert ON app.web_push_subscriptions FOR INSERT TO quizforge_app
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY web_push_subscription_update ON app.web_push_subscriptions FOR UPDATE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid)
+WITH CHECK (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY web_push_subscription_delete ON app.web_push_subscriptions FOR DELETE TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY notification_delivery_read ON app.study_notification_deliveries FOR SELECT TO quizforge_app
+USING (user_id = nullif(current_setting('quizforge.user_id', true), '')::uuid);
+CREATE POLICY notifier_preferences_read ON app.study_notification_preferences FOR SELECT TO quizforge_notifier USING (true);
+CREATE POLICY notifier_cards_read ON app.cards FOR SELECT TO quizforge_notifier USING (true);
+CREATE POLICY notifier_subscriptions_read ON app.web_push_subscriptions FOR SELECT TO quizforge_notifier USING (true);
+CREATE POLICY notifier_subscriptions_update ON app.web_push_subscriptions FOR UPDATE TO quizforge_notifier USING (true) WITH CHECK (true);
+CREATE POLICY notifier_subscriptions_delete ON app.web_push_subscriptions FOR DELETE TO quizforge_notifier USING (true);
+CREATE POLICY notifier_deliveries_read ON app.study_notification_deliveries FOR SELECT TO quizforge_notifier USING (true);
+CREATE POLICY notifier_deliveries_insert ON app.study_notification_deliveries FOR INSERT TO quizforge_notifier WITH CHECK (true);
