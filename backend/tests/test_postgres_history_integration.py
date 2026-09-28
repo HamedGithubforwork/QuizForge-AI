@@ -447,6 +447,35 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             ).fetchall()
             assert log == [(USERS[0], 3, 1700)]
 
+            edited = await client.patch(
+                f"/api/decks/{deck_id}/cards/{first_card_id}",
+                headers=headers(),
+                json={
+                    "question": "Where is ATP produced?",
+                    "explanation": None,
+                },
+            )
+            assert edited.status_code == 200, edited.text
+            edited_card = next(
+                card
+                for card in edited.json()["cards"]
+                if card["id"] == first_card_id
+            )
+            assert edited_card["question"] == "Where is ATP produced?"
+            assert edited_card["explanation"] is None
+            assert edited_card["review_count"] == 1
+            assert edited_card["stability"] == reviewed_body["card"]["stability"]
+            assert edited_card["difficulty"] == reviewed_body["card"]["difficulty"]
+            assert edited_card["last_reviewed_at"] == reviewed_body["card"]["last_reviewed_at"]
+
+            assert (
+                await client.patch(
+                    f"/api/decks/{deck_id}/cards/{first_card_id}",
+                    headers=headers("valid-b"),
+                    json={"question": "Forged edit"},
+                )
+            ).status_code == 404
+
             renamed = await client.patch(
                 f"/api/decks/{deck_id}",
                 headers=headers(),
@@ -472,7 +501,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                 card["question"]
                 for card in duplicate_body["cards"]
             } == {
-                "What organelle produces ATP?",
+                "Where is ATP produced?",
                 "What is ATP?",
             }
             assert all(
@@ -496,6 +525,32 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                     json={},
                 )
             ).status_code == 404
+
+            assert (
+                await client.delete(
+                    f"/api/decks/{deck_id}/cards/{second_card_id}",
+                    headers=headers("valid-b"),
+                )
+            ).status_code == 404
+
+            deleted_card = await client.delete(
+                f"/api/decks/{deck_id}/cards/{first_card_id}",
+                headers=headers(),
+            )
+            assert deleted_card.status_code == 204
+            source_after_delete = await client.get(
+                f"/api/decks/{deck_id}",
+                headers=headers(),
+            )
+            assert source_after_delete.status_code == 200
+            assert source_after_delete.json()["card_count"] == 1
+            assert [
+                card["id"]
+                for card in source_after_delete.json()["cards"]
+            ] == [second_card_id]
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 0
 
             assert (
                 await client.delete(

@@ -348,6 +348,157 @@ class PostgresDeckRepository:
             if row is None:
                 raise HTTPException(404, "Deck does not exist.")
 
+    async def update_card(
+        self,
+        deck_id,
+        card_id,
+        payload,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            assignments = []
+            values = []
+
+            for field_name in (
+                "question_type",
+                "question",
+                "answer",
+                "choices",
+                "explanation",
+                "source_filename",
+                "document_sha256",
+                "source_pages",
+            ):
+                if (
+                    field_name
+                    not in
+                    payload.model_fields_set
+                ):
+                    continue
+
+                value = getattr(
+                    payload,
+                    field_name,
+                )
+
+                if field_name in (
+                    "answer",
+                    "choices",
+                ) and value is not None:
+                    value = Jsonb(
+                        value
+                    )
+
+                assignments.append(
+                    sql.SQL(
+                        "{}=%s"
+                    ).format(
+                        sql.Identifier(
+                            field_name
+                        )
+                    )
+                )
+                values.append(
+                    value
+                )
+
+            assignments.append(
+                sql.SQL(
+                    "updated_at=now()"
+                )
+            )
+            values.extend(
+                (
+                    card_id,
+                    deck_id,
+                    user_id,
+                )
+            )
+
+            query = sql.SQL(
+                """UPDATE app.cards
+                   SET {}
+                   WHERE id=%s
+                     AND deck_id=%s
+                     AND user_id=%s
+                   RETURNING id"""
+            ).format(
+                sql.SQL(",").join(
+                    assignments
+                )
+            )
+
+            row = await (
+                await conn.execute(
+                    query,
+                    values,
+                )
+            ).fetchone()
+
+            if row is None:
+                raise HTTPException(
+                    404,
+                    "Card does not exist in this deck.",
+                )
+
+            await conn.execute(
+                """UPDATE app.decks
+                   SET updated_at=now()
+                   WHERE id=%s AND user_id=%s""",
+                (
+                    deck_id,
+                    user_id,
+                ),
+            )
+
+            return await self._detail(
+                conn,
+                user_id,
+                deck_id,
+            )
+
+    async def delete_card(
+        self,
+        deck_id,
+        card_id,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            row = await (
+                await conn.execute(
+                    """DELETE FROM app.cards
+                       WHERE id=%s
+                         AND deck_id=%s
+                         AND user_id=%s
+                       RETURNING id""",
+                    (
+                        card_id,
+                        deck_id,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+
+            if row is None:
+                raise HTTPException(
+                    404,
+                    "Card does not exist in this deck.",
+                )
+
+            await conn.execute(
+                """UPDATE app.decks
+                   SET updated_at=now()
+                   WHERE id=%s AND user_id=%s""",
+                (
+                    deck_id,
+                    user_id,
+                ),
+            )
+
     async def add_cards(self, deck_id, cards):
         async with self.transaction() as (conn, user_id):
             if await self._summary_row(conn, user_id, deck_id) is None:

@@ -171,6 +171,143 @@ class DeckUpdate(BaseModel):
         return self
 
 
+class CardUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_type: Literal[
+        "multiple_choice",
+        "true_false",
+        "short_answer",
+    ] | None = None
+    question: str | None = Field(
+        default=None,
+        max_length=10_000,
+    )
+    answer: dict[str, Any] | None = None
+    choices: list[str] | None = Field(
+        default=None,
+        max_length=8,
+    )
+    explanation: str | None = Field(
+        default=None,
+        max_length=20_000,
+    )
+    source_filename: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
+    document_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    source_pages: list[int] | None = Field(
+        default=None,
+        max_length=50,
+    )
+
+    @field_validator("question")
+    @classmethod
+    def clean_question(
+        cls,
+        value: str | None,
+    ):
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError(
+                "Question cannot be blank."
+            )
+        return cleaned
+
+    @field_validator("choices")
+    @classmethod
+    def validate_choices(
+        cls,
+        value: list[str] | None,
+    ):
+        if value is None:
+            return None
+        cleaned = [
+            choice.strip()
+            for choice in value
+        ]
+        if any(
+            not choice
+            or len(choice) > 2000
+            for choice in cleaned
+        ):
+            raise ValueError(
+                "Choices must contain non-blank bounded text."
+            )
+        return cleaned
+
+    @field_validator("source_pages")
+    @classmethod
+    def validate_source_pages(
+        cls,
+        value: list[int] | None,
+    ):
+        if value is None:
+            return None
+        if any(
+            type(page) is not int
+            or page < 1
+            for page in value
+        ):
+            raise ValueError(
+                "Source pages must be positive integers."
+            )
+        if len(value) != len(
+            set(value)
+        ):
+            raise ValueError(
+                "Source pages must be unique."
+            )
+        return sorted(value)
+
+    @model_validator(mode="after")
+    def validate_changes(self):
+        if not self.model_fields_set:
+            raise ValueError(
+                "At least one card field must be changed."
+            )
+
+        required = {
+            "question_type",
+            "question",
+            "answer",
+            "source_pages",
+        }
+        for field_name in required:
+            if (
+                field_name
+                in self.model_fields_set
+                and getattr(
+                    self,
+                    field_name,
+                )
+                is None
+            ):
+                raise ValueError(
+                    f"{field_name} cannot be null."
+                )
+
+        encoded = json.dumps(
+            self.model_dump(
+                mode="json",
+                exclude_unset=True,
+            ),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode()
+        if len(encoded) > 100_000:
+            raise ValueError(
+                "Card update is too large."
+            )
+        return self
+
+
 class CardBatchCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -311,6 +448,46 @@ async def delete_deck(
 ):
     await repository.delete(deck_id)
     return Response(status_code=204)
+
+
+@router.patch(
+    "/{deck_id}/cards/{card_id}",
+    response_model=DeckDetail,
+)
+async def update_card(
+    deck_id: UUID,
+    card_id: UUID,
+    payload: CardUpdate,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return await repository.update_card(
+        deck_id,
+        card_id,
+        payload,
+    )
+
+
+@router.delete(
+    "/{deck_id}/cards/{card_id}",
+    status_code=204,
+    response_class=Response,
+)
+async def delete_card(
+    deck_id: UUID,
+    card_id: UUID,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    await repository.delete_card(
+        deck_id,
+        card_id,
+    )
+    return Response(
+        status_code=204
+    )
 
 
 @router.post("/{deck_id}/cards", status_code=201, response_model=DeckDetail)
