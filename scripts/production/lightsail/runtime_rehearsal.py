@@ -62,7 +62,8 @@ def main():
     # Rehearsal images only. Production rendering always requires pinned digests.
     stack = json.loads((root/'compose.json').read_text())
     tags = {'db': 'postgres:17', 'redis': 'redis:7', 'web': 'quizforge-ci-caddy', 'api': 'quizforge-ci-api',
-            'identity': 'quizforge-ci-api', 'guard': 'quizforge-ci-operations'}
+            'identity': 'quizforge-ci-api', 'guard': 'quizforge-ci-operations',
+            'notifier': 'quizforge-ci-operations'}
     for name, service in stack['services'].items():
         service['image'] = tags[name]
         service.pop('cgroup_parent')
