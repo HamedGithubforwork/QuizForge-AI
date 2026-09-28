@@ -34,6 +34,7 @@ import type {
 import CardEditor from './CardEditor'
 import CramDeckPage from './CramDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
+import WeakCardsPage from './WeakCardsPage'
 import './DecksPage.css'
 
 type DecksPageProps = {
@@ -49,6 +50,9 @@ const REVIEW_PATH =
 
 const CRAM_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/cram$/i
+
+const WEAK_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/weak$/i
 
 function formatDeckDate(
   value: string,
@@ -727,6 +731,20 @@ function DeckDetailView({
               }
             >
               Study All (Cram)
+            </button>
+          )}
+
+          {activeCardCount > 0 && (
+            <button
+              className="decks-secondary-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/weak`,
+                )
+              }
+            >
+              Practice Weak Cards
             </button>
           )}
 
@@ -1460,6 +1478,10 @@ export default function DecksPage({
     pathname.match(CRAM_PATH)
   const cramDeckId =
     cramMatch?.[1] ?? null
+  const weakMatch =
+    pathname.match(WEAK_PATH)
+  const weakDeckId =
+    weakMatch?.[1] ?? null
   const detailMatch =
     pathname.match(DECK_PATH)
   const deckId =
@@ -1468,7 +1490,8 @@ export default function DecksPage({
     pathname !== '/decks' &&
     !deckId &&
     !reviewDeckId &&
-    !cramDeckId
+    !cramDeckId &&
+    !weakDeckId
 
   useEffect(() => {
     let active = true
@@ -1481,7 +1504,8 @@ export default function DecksPage({
       try {
         if (
           reviewDeckId ||
-          cramDeckId
+          cramDeckId ||
+          weakDeckId
         ) {
           return
         }
@@ -1547,6 +1571,7 @@ export default function DecksPage({
     invalidPath,
     pathname,
     reviewDeckId,
+    weakDeckId,
   ])
 
   const totalDue =
@@ -1578,6 +1603,11 @@ export default function DecksPage({
         ) : cramDeckId ? (
           <CramDeckPage
             deckId={cramDeckId}
+            onNavigate={onNavigate}
+          />
+        ) : weakDeckId ? (
+          <WeakCardsPage
+            deckId={weakDeckId}
             onNavigate={onNavigate}
           />
         ) : loading ? (
