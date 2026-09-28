@@ -447,6 +447,22 @@ export default function ReviewDeckPage({
             {current.question}
           </h1>
 
+          {current.tags &&
+            current.tags.length > 0 && (
+            <div className="review-card-tags">
+              {current.tags.map(
+                (tag) => (
+                  <span
+                    className="deck-card-tag"
+                    key={tag}
+                  >
+                    #{tag}
+                  </span>
+                ),
+              )}
+            </div>
+          )}
+
           {current.choices &&
             current.choices.length >
               0 && (
