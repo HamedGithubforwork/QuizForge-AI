@@ -185,6 +185,7 @@ export type ReviewRequest = {
 export type ReviewQueue = {
   "deck_id": string
   "deck_name": string
+  "tag": string | null
   "due_count": number
   "next_due_at": string | null
   "cards": CardRow[]
