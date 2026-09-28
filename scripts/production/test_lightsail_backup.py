@@ -286,9 +286,10 @@ class PostgreSQLRecovery(unittest.TestCase):
                 [('c' * 64, 'https://push.example/subscription-1', 'Synthetic browser')],
             )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
-                self.target.execute(
-                    "SELECT * FROM app.study_notification_deliveries"
-                )
+                with self.target.transaction():
+                    self.target.execute(
+                        "SELECT * FROM app.study_notification_deliveries"
+                    )
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 with self.target.transaction(): self.target.execute("DELETE FROM billing.generation_usage")
         with self.target.transaction():
