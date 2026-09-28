@@ -131,10 +131,6 @@ export type CardBatchCreate = {
   "cards": CardCreate[]
 }
 
-export type CardMove = {
-  "target_deck_id": string
-}
-
 export type CardUpdate = {
   "question_type"?: "multiple_choice" | "true_false" | "short_answer" | null
   "question"?: string | null
@@ -146,6 +142,10 @@ export type CardUpdate = {
   "source_filename"?: string | null
   "document_sha256"?: string | null
   "source_pages"?: number[] | null
+}
+
+export type CardMove = {
+  "target_deck_id": string
 }
 
 export type DeckSummary = {
