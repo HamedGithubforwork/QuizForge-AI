@@ -111,6 +111,39 @@ class DeckSchema(unittest.TestCase):
                     "'user_id', 'UPDATE') AS allowed"
                 ).fetchone()["allowed"]
             )
+
+            self.assertFalse(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'deck_id', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_function_privilege("
+                    "'quizforge_app', "
+                    "'app.move_card(uuid,uuid,uuid)', "
+                    "'EXECUTE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    """SELECT NOT EXISTS (
+                         SELECT 1
+                         FROM pg_proc p,
+                              aclexplode(
+                                  coalesce(
+                                      p.proacl,
+                                      acldefault('f',p.proowner)
+                                  )
+                              ) a
+                         WHERE p.oid='app.move_card(uuid,uuid,uuid)'::regprocedure
+                           AND a.grantee=0
+                           AND a.privilege_type='EXECUTE'
+                       ) AS public_execute_revoked"""
+                ).fetchone()["public_execute_revoked"]
+            )
             self.assertFalse(
                 owner.execute(
                     "SELECT has_table_privilege("
@@ -391,6 +424,150 @@ class DeckSchema(unittest.TestCase):
                     "VALUES (%s, 'Not Mine')",
                     (first_user,),
                 )
+
+    def test_move_card_preserves_fsrs_and_review_history_with_owner_boundary(self):
+        first_user = uuid4()
+        second_user = uuid4()
+
+        with psycopg.connect(
+            self.dsn,
+            autocommit=True,
+            row_factory=dict_row,
+        ) as connection:
+            connection.execute(
+                "INSERT INTO app.users (id) VALUES (%s), (%s)",
+                (first_user, second_user),
+            )
+            source_deck = connection.execute(
+                "INSERT INTO app.decks(user_id,name) "
+                "VALUES (%s,'Source') RETURNING id",
+                (first_user,),
+            ).fetchone()["id"]
+            target_deck = connection.execute(
+                "INSERT INTO app.decks(user_id,name) "
+                "VALUES (%s,'Target') RETURNING id",
+                (first_user,),
+            ).fetchone()["id"]
+            foreign_deck = connection.execute(
+                "INSERT INTO app.decks(user_id,name) "
+                "VALUES (%s,'Foreign') RETURNING id",
+                (second_user,),
+            ).fetchone()["id"]
+            card_id = connection.execute(
+                """INSERT INTO app.cards(
+                       deck_id,user_id,question_type,question,answer,
+                       fsrs_state,fsrs_step,stability,difficulty,
+                       due_at,last_reviewed_at,review_count,lapse_count
+                   ) VALUES (
+                       %s,%s,'short_answer','Moved question',
+                       %s::jsonb,2,NULL,6.5,4.7,
+                       now()+interval '3 days',now()-interval '2 days',4,1
+                   ) RETURNING id""",
+                (
+                    source_deck,
+                    first_user,
+                    '{"correct_answer":"Moved answer"}',
+                ),
+            ).fetchone()["id"]
+            connection.execute(
+                """INSERT INTO app.card_review_logs(
+                       card_id,user_id,rating,review_duration_ms
+                   ) VALUES (%s,%s,3,900)""",
+                (card_id, first_user),
+            )
+
+            connection.execute("SET ROLE quizforge_app")
+            connection.execute(
+                "SELECT set_config("
+                "'quizforge.user_id', %s, false)",
+                (str(first_user),),
+            )
+
+            self.assertTrue(
+                connection.execute(
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, source_deck, target_deck),
+                ).fetchone()["moved"]
+            )
+
+            moved = connection.execute(
+                """SELECT deck_id,fsrs_state,fsrs_step,stability,difficulty,
+                          last_reviewed_at,review_count,lapse_count
+                   FROM app.cards
+                   WHERE id=%s""",
+                (card_id,),
+            ).fetchone()
+            self.assertEqual(
+                moved["deck_id"],
+                target_deck,
+            )
+            self.assertEqual(
+                moved["fsrs_state"],
+                2,
+            )
+            self.assertIsNone(
+                moved["fsrs_step"]
+            )
+            self.assertEqual(
+                moved["stability"],
+                6.5,
+            )
+            self.assertEqual(
+                moved["difficulty"],
+                4.7,
+            )
+            self.assertIsNotNone(
+                moved["last_reviewed_at"]
+            )
+            self.assertEqual(
+                moved["review_count"],
+                4,
+            )
+            self.assertEqual(
+                moved["lapse_count"],
+                1,
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT count(*) AS count "
+                    "FROM app.card_review_logs "
+                    "WHERE card_id=%s",
+                    (card_id,),
+                ).fetchone()["count"],
+                1,
+            )
+
+            self.assertFalse(
+                connection.execute(
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, source_deck, target_deck),
+                ).fetchone()["moved"]
+            )
+            self.assertFalse(
+                connection.execute(
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, target_deck, foreign_deck),
+                ).fetchone()["moved"]
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT deck_id FROM app.cards WHERE id=%s",
+                    (card_id,),
+                ).fetchone()["deck_id"],
+                target_deck,
+            )
+
+            connection.execute(
+                "SELECT set_config("
+                "'quizforge.user_id', %s, false)",
+                (str(second_user),),
+            )
+            self.assertFalse(
+                connection.execute(
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, target_deck, foreign_deck),
+                ).fetchone()["moved"]
+            )
 
     def test_card_owner_must_match_deck_owner(self):
         first_user = uuid4()

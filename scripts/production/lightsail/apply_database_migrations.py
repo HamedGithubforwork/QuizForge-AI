@@ -48,6 +48,7 @@ MIGRATION_FILES = (
     "20260927_003_study_notification_preferences.sql",
     "20260928_004_study_push_subscriptions.sql",
     "20260928_005_study_notifier_role.sql",
+    "20260928_006_move_card.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -87,13 +88,14 @@ manifest=Path(sys.argv[2])
 value=json.loads(manifest.read_text())
 assert value.get("schema")==1
 items=value.get("migrations")
-assert isinstance(items,list) and len(items)==5
+assert isinstance(items,list) and len(items)==6
 expected=[
  "20260927_001_decks_cards.sql",
  "20260927_002_fsrs_reviews.sql",
  "20260927_003_study_notification_preferences.sql",
  "20260928_004_study_push_subscriptions.sql",
  "20260928_005_study_notifier_role.sql",
+ "20260928_006_move_card.sql",
 ]
 assert [item.get("name") for item in items]==expected
 assert set(path.name for path in root.iterdir())==set(expected)
@@ -171,6 +173,18 @@ case "$notifier_state" in
 esac
 
 test "$(dbq "SELECT (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='quizforge_notifier'))::int")" = "1"
+
+# 006: narrowly scoped card movement function.
+move_state="$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL)::int")"
+case "$move_state" in
+  "0") apply_sql "$root/20260928_006_move_card.sql"; applied_006=true ;;
+  "1") applied_006=false ;;
+  *) exit 46 ;;
+esac
+
+test "$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL)::int")" = "1"
+test "$(dbq "SELECT has_function_privilege('quizforge_app','app.move_card(uuid,uuid,uuid)','EXECUTE')::int")" = "1"
+test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='app.move_card(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'))::int")" = "1"
 
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
@@ -334,7 +348,7 @@ test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_not
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -345,8 +359,9 @@ print("QF_RESULT="+json.dumps({
   "notification_preferences_migration_applied": values[2],
   "push_subscriptions_migration_applied": values[3],
   "notifier_role_migration_applied": values[4],
-  "notifier_credential_ready": values[5],
-  "vapid_credentials_ready": values[6],
+  "move_card_migration_applied": values[5],
+  "notifier_credential_ready": values[6],
+  "vapid_credentials_ready": values[7],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -689,6 +704,7 @@ def main() -> int:
             "notification_preferences_migration_applied",
             "push_subscriptions_migration_applied",
             "notifier_role_migration_applied",
+            "move_card_migration_applied",
             "notifier_credential_ready",
             "vapid_credentials_ready",
             "all_postconditions_verified",
