@@ -48,6 +48,7 @@ PUBLIC_SCHEMA_NAMES = (
     "DeckDuplicate",
     "CardBatchCreate",
     "CardUpdate",
+    "CardMove",
     "DeckSummary",
     "DeckDetail",
     "ReviewRequest",
