@@ -32,6 +32,7 @@ import type {
   DeckSummary,
 } from '../../types/api.generated'
 import CardEditor from './CardEditor'
+import CramDeckPage from './CramDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
 import './DecksPage.css'
 
@@ -45,6 +46,9 @@ const DECK_PATH =
 
 const REVIEW_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/review$/i
+
+const CRAM_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/cram$/i
 
 function formatDeckDate(
   value: string,
@@ -596,6 +600,11 @@ function DeckDetailView({
       cardSearch.trim()
       || selectedTag,
     )
+  const activeCardCount =
+    deck.cards.filter(
+      (card) =>
+        !card.suspended,
+    ).length
 
   return (
     <>
@@ -706,6 +715,20 @@ function DeckDetailView({
           >
             + Add Card
           </button>
+
+          {activeCardCount > 0 && (
+            <button
+              className="decks-secondary-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/cram`,
+                )
+              }
+            >
+              Study All (Cram)
+            </button>
+          )}
 
           {deck.card_count > 0 && (
             <button
@@ -1433,6 +1456,10 @@ export default function DecksPage({
     pathname.match(REVIEW_PATH)
   const reviewDeckId =
     reviewMatch?.[1] ?? null
+  const cramMatch =
+    pathname.match(CRAM_PATH)
+  const cramDeckId =
+    cramMatch?.[1] ?? null
   const detailMatch =
     pathname.match(DECK_PATH)
   const deckId =
@@ -1440,7 +1467,8 @@ export default function DecksPage({
   const invalidPath =
     pathname !== '/decks' &&
     !deckId &&
-    !reviewDeckId
+    !reviewDeckId &&
+    !cramDeckId
 
   useEffect(() => {
     let active = true
@@ -1451,7 +1479,10 @@ export default function DecksPage({
       setDeck(null)
 
       try {
-        if (reviewDeckId) {
+        if (
+          reviewDeckId ||
+          cramDeckId
+        ) {
           return
         }
 
@@ -1511,6 +1542,7 @@ export default function DecksPage({
       active = false
     }
   }, [
+    cramDeckId,
     deckId,
     invalidPath,
     pathname,
@@ -1541,6 +1573,11 @@ export default function DecksPage({
         {reviewDeckId ? (
           <ReviewDeckPage
             deckId={reviewDeckId}
+            onNavigate={onNavigate}
+          />
+        ) : cramDeckId ? (
+          <CramDeckPage
+            deckId={cramDeckId}
             onNavigate={onNavigate}
           />
         ) : loading ? (
