@@ -178,7 +178,9 @@ class PostgreSQLRecovery(unittest.TestCase):
                SET fsrs_state=2,fsrs_step=NULL,stability=4.5,difficulty=5.2,
                    due_at='2026-09-25 01:03:04+00',
                    last_reviewed_at='2026-09-21 01:05:00+00',
-                   review_count=1,lapse_count=0
+                   review_count=1,lapse_count=0,
+                   suspended=true,
+                   progress_reset_at='2026-09-21 01:05:30+00'
              WHERE id='40000000-0000-0000-0000-000000000001';
             INSERT INTO app.card_review_logs(
                 id,card_id,user_id,rating,reviewed_at,review_duration_ms
@@ -260,10 +262,11 @@ class PostgreSQLRecovery(unittest.TestCase):
                              [('What organelle produces ATP?', [12, 14])])
             self.assertEqual(
                 self.target.execute(
-                    "SELECT fsrs_state,fsrs_step,stability,difficulty,review_count,lapse_count "
+                    "SELECT fsrs_state,fsrs_step,stability,difficulty,review_count,lapse_count,"
+                    "suspended,progress_reset_at::text "
                     "FROM app.cards"
                 ).fetchall(),
-                [(2, None, 4.5, 5.2, 1, 0)],
+                [(2, None, 4.5, 5.2, 1, 0, True, '2026-09-21 01:05:30+00')],
             )
             self.assertEqual(
                 self.target.execute(
