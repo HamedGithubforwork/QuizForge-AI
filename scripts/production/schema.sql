@@ -4,12 +4,10 @@ CREATE ROLE quizforge_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NO
 CREATE ROLE quizforge_notifier LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 REVOKE ALL ON DATABASE quizforge FROM PUBLIC;
 GRANT CONNECT ON DATABASE quizforge TO quizforge_app;
-GRANT CONNECT ON DATABASE quizforge TO quizforge_notifier;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA app;
 REVOKE ALL ON SCHEMA app FROM PUBLIC;
 GRANT USAGE ON SCHEMA app TO quizforge_app;
-GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 CREATE TABLE app.users (id uuid PRIMARY KEY);
 CREATE TABLE app.user_identities (
     issuer text NOT NULL,
@@ -153,15 +151,6 @@ GRANT SELECT, INSERT, DELETE ON app.quiz_history TO quizforge_app;
 GRANT SELECT, INSERT, DELETE ON app.decks, app.cards TO quizforge_app;
 GRANT SELECT, INSERT ON app.card_review_logs TO quizforge_app;
 GRANT SELECT, INSERT ON app.study_notification_preferences TO quizforge_app;
-GRANT SELECT ON app.study_notification_preferences TO quizforge_notifier;
-GRANT SELECT (user_id, due_at) ON app.cards TO quizforge_notifier;
-GRANT SELECT, DELETE ON app.web_push_subscriptions TO quizforge_notifier;
-GRANT UPDATE (
-    failure_count,
-    last_success_at,
-    updated_at
-) ON app.web_push_subscriptions TO quizforge_notifier;
-GRANT SELECT, INSERT ON app.study_notification_deliveries TO quizforge_notifier;
 GRANT UPDATE (
     enabled,
     reminder_time,
@@ -197,6 +186,15 @@ GRANT UPDATE (
     lapse_count,
     updated_at
 ) ON app.cards TO quizforge_app;
+GRANT SELECT ON app.study_notification_preferences TO quizforge_notifier;
+GRANT SELECT (user_id, due_at) ON app.cards TO quizforge_notifier;
+GRANT SELECT, DELETE ON app.web_push_subscriptions TO quizforge_notifier;
+GRANT UPDATE (
+    failure_count,
+    last_success_at,
+    updated_at
+) ON app.web_push_subscriptions TO quizforge_notifier;
+GRANT SELECT, INSERT ON app.study_notification_deliveries TO quizforge_notifier;
 ALTER TABLE app.user_identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.quiz_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app.decks ENABLE ROW LEVEL SECURITY;
@@ -331,6 +329,8 @@ WITH CHECK (true);
 CREATE ROLE quizforge_identity LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 GRANT CONNECT ON DATABASE quizforge TO quizforge_identity;
 GRANT USAGE ON SCHEMA app TO quizforge_identity;
+GRANT CONNECT ON DATABASE quizforge TO quizforge_notifier;
+GRANT USAGE ON SCHEMA app TO quizforge_notifier;
 GRANT INSERT ON app.users TO quizforge_identity;
 GRANT SELECT, INSERT ON app.user_identities TO quizforge_identity;
 ALTER TABLE app.users ENABLE ROW LEVEL SECURITY;
