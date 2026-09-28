@@ -15,8 +15,10 @@ on:
   push:
     branches:
       - main
+    # A promoted release-lock is output from this workflow and must not
+    # recursively create a new release SHA. Candidate builds after a lock pin
+    # are started explicitly with workflow_dispatch.
     paths:
-      - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
