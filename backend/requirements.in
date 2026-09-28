@@ -2,6 +2,7 @@
 # Runtime installs consume requirements.lock via requirements.txt.
 fastapi[standard]
 fsrs==6.3.2
+pywebpush==2.5.0
 pymupdf
 openai
 python-dotenv
