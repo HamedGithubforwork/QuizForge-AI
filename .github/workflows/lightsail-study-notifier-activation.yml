@@ -38,7 +38,16 @@ jobs:
           mkdir -p /tmp/quizforge-study-notifier-unit-check
           cp scripts/production/lightsail/quizforge-study-notifier.service /tmp/quizforge-study-notifier-unit-check/
           cp scripts/production/lightsail/quizforge-study-notifier.timer /tmp/quizforge-study-notifier-unit-check/
-          sed -i 's@^ExecStart=.*@ExecStart=/usr/bin/true@' /tmp/quizforge-study-notifier-unit-check/*.service
+          cat > /tmp/quizforge-study-notifier-unit-check/quizforge.service <<'EOF'
+          [Unit]
+          Description=Synthetic QuizForge parent service for unit verification
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/true
+          RemainAfterExit=yes
+          EOF
+          sed -i 's@^ExecStart=.*@ExecStart=/usr/bin/true@' /tmp/quizforge-study-notifier-unit-check/quizforge-study-notifier.service
           systemd-analyze verify /tmp/quizforge-study-notifier-unit-check/*
 
   activate:
