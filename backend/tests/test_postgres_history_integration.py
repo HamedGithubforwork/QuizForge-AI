@@ -9,6 +9,7 @@ from uuid import UUID
 
 import httpx
 import psycopg
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 import pytest
 
@@ -693,7 +694,7 @@ def test_study_notification_sender_uses_notifier_role_only(api, owner):
             sslmode="verify-full",
             sslrootcert=os.environ["PGSSLROOTCERT"],
             autocommit=True,
-            row_factory=psycopg.rows.dict_row,
+            row_factory=dict_row,
         ) as notifier:
             with pytest.raises(
                 psycopg.errors.InsufficientPrivilege
