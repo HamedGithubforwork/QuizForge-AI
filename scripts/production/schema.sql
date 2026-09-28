@@ -66,6 +66,12 @@ CREATE TABLE app.cards (
     lapse_count integer NOT NULL DEFAULT 0 CHECK (lapse_count >= 0),
     suspended boolean NOT NULL DEFAULT false,
     progress_reset_at timestamptz,
+    tags text[] NOT NULL DEFAULT '{}'
+        CHECK (
+            cardinality(tags) <= 20
+            AND array_position(tags, NULL) IS NULL
+            AND array_position(tags, '') IS NULL
+        ),
     UNIQUE (id, user_id),
     CHECK (
         (fsrs_state = 2 AND fsrs_step IS NULL)
@@ -98,6 +104,8 @@ CREATE INDEX cards_user_due_at_id_idx
 CREATE INDEX cards_user_active_due_at_id_idx
     ON app.cards (user_id, due_at, id)
     WHERE suspended = false;
+CREATE INDEX cards_tags_gin_idx
+    ON app.cards USING gin (tags);
 CREATE INDEX card_review_logs_user_card_reviewed_at_id_idx
     ON app.card_review_logs (user_id, card_id, reviewed_at DESC, id DESC);
 CREATE TABLE app.study_notification_preferences (
@@ -207,6 +215,7 @@ GRANT UPDATE (
     lapse_count,
     suspended,
     progress_reset_at,
+    tags,
     updated_at
 ) ON app.cards TO quizforge_app;
 ALTER TABLE app.user_identities ENABLE ROW LEVEL SECURITY;
