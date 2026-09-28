@@ -8,6 +8,10 @@ import {
   apiFetch,
 } from '../../lib/api'
 import {
+  deckTagOptions,
+  filterStudyCards,
+} from '../../lib/cardTags'
+import {
   addCardsToStudyDeck,
   deleteStudyCard,
   deleteStudyDeck,
@@ -265,6 +269,10 @@ function DeckDetailView({
     cardActionError,
     setCardActionError,
   ] = useState('')
+  const [cardSearch, setCardSearch] =
+    useState('')
+  const [selectedTag, setSelectedTag] =
+    useState('')
 
   useEffect(() => {
     setDeckName(deck.name)
@@ -279,6 +287,8 @@ function DeckDetailView({
     setMoveTargetDeckId('')
     setCardActionError('')
     setCardActionBusy(false)
+    setCardSearch('')
+    setSelectedTag('')
   }, [
     deck.id,
     deck.name,
@@ -571,6 +581,22 @@ function DeckDetailView({
     }
   }
 
+  const tagOptions =
+    deckTagOptions(
+      deck.cards,
+    )
+  const visibleCards =
+    filterStudyCards(
+      deck.cards,
+      cardSearch,
+      selectedTag,
+    )
+  const filtersActive =
+    Boolean(
+      cardSearch.trim()
+      || selectedTag,
+    )
+
   return (
     <>
       <button
@@ -836,6 +862,79 @@ function DeckDetailView({
         </p>
       )}
 
+      {deck.cards.length > 0 && (
+        <section className="deck-card-filters">
+          <label className="deck-card-search">
+            <span>Search cards</span>
+
+            <input
+              type="search"
+              value={cardSearch}
+              placeholder="Question, answer, explanation, or tag"
+              onChange={(event) =>
+                setCardSearch(
+                  event.target.value,
+                )
+              }
+            />
+          </label>
+
+          <label className="deck-card-tag-filter">
+            <span>Tag</span>
+
+            <select
+              value={selectedTag}
+              onChange={(event) =>
+                setSelectedTag(
+                  event.target.value,
+                )
+              }
+            >
+              <option value="">
+                All tags
+              </option>
+
+              {tagOptions.map(
+                (tag) => (
+                  <option
+                    key={tag}
+                    value={tag}
+                  >
+                    {tag}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+
+          <div className="deck-card-filter-summary">
+            <strong>
+              {visibleCards.length}
+            </strong>
+            {' '}
+            {visibleCards.length === 1
+              ? 'card'
+              : 'cards'}
+            {filtersActive
+              ? ' match'
+              : ''}
+          </div>
+
+          {filtersActive && (
+            <button
+              className="deck-filter-clear"
+              type="button"
+              onClick={() => {
+                setCardSearch('')
+                setSelectedTag('')
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+        </section>
+      )}
+
       {deck.cards.length === 0 ? (
         <section className="decks-empty deck-detail-empty">
           <h2>
@@ -870,9 +969,29 @@ function DeckDetailView({
             </button>
           </div>
         </section>
+      ) : visibleCards.length === 0 ? (
+        <section className="decks-empty deck-filter-empty">
+          <h2>No matching cards</h2>
+
+          <p>
+            Try a different search
+            or tag filter.
+          </p>
+
+          <button
+            className="decks-secondary-button"
+            type="button"
+            onClick={() => {
+              setCardSearch('')
+              setSelectedTag('')
+            }}
+          >
+            Clear filters
+          </button>
+        </section>
       ) : (
         <div className="deck-card-list">
-          {deck.cards.map(
+          {visibleCards.map(
             (card, index) => (
               <article
                 className={
@@ -1032,6 +1151,28 @@ function DeckDetailView({
                   <h2>
                     {card.question}
                   </h2>
+
+                  {card.tags &&
+                    card.tags.length > 0 && (
+                    <div className="deck-card-tags">
+                      {card.tags.map(
+                        (tag) => (
+                          <button
+                            type="button"
+                            className="deck-card-tag"
+                            key={tag}
+                            onClick={() =>
+                              setSelectedTag(
+                                tag,
+                              )
+                            }
+                          >
+                            #{tag}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  )}
 
                   <div className="deck-card-answer">
                     <span>
