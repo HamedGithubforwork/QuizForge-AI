@@ -1,4 +1,6 @@
-from datetime import time
+import base64
+from datetime import datetime, time, timezone
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 import pytest
@@ -23,6 +25,40 @@ class FakeRepository:
     async def save(self, payload):
         self.calls.append(("save", payload))
         return payload.model_dump()
+
+    async def list_subscriptions(self):
+        self.calls.append(("list_subscriptions",))
+        return [
+            {
+                "id": UUID(
+                    "11111111-1111-4111-8111-111111111111"
+                ),
+                "endpoint_sha256": "a" * 64,
+                "failure_count": 0,
+                "last_success_at": None,
+                "created_at": datetime(
+                    2026, 9, 28, 4, 0,
+                    tzinfo=timezone.utc,
+                ),
+                "updated_at": datetime(
+                    2026, 9, 28, 4, 0,
+                    tzinfo=timezone.utc,
+                ),
+            }
+        ]
+
+    async def save_subscription(self, payload):
+        self.calls.append(
+            ("save_subscription", payload)
+        )
+        return (
+            await self.list_subscriptions()
+        )[0]
+
+    async def delete_subscription(self, subscription_id):
+        self.calls.append(
+            ("delete_subscription", subscription_id)
+        )
 
 
 @pytest.fixture
@@ -164,3 +200,175 @@ def test_put_preflight_preserves_origin_allowlist(monkeypatch):
         ]
         == "https://frontend.example"
     )
+
+def valid_vapid_public_key():
+    raw = bytes([4]) + bytes(range(1, 65))
+    return (
+        base64.urlsafe_b64encode(raw)
+        .decode()
+        .rstrip("=")
+    )
+
+
+def test_vapid_public_key_requires_authentication(monkeypatch):
+    monkeypatch.setenv(
+        "WEB_PUSH_VAPID_PUBLIC_KEY",
+        valid_vapid_public_key(),
+    )
+    response = TestClient(app).get(
+        "/api/study-notifications/vapid-public-key"
+    )
+    assert response.status_code == 401
+
+
+def test_vapid_public_key_is_returned_for_signed_in_user(api, monkeypatch):
+    client, _ = api
+    value = valid_vapid_public_key()
+    monkeypatch.setenv(
+        "WEB_PUSH_VAPID_PUBLIC_KEY",
+        value,
+    )
+
+    response = client.get(
+        "/api/study-notifications/vapid-public-key"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "public_key": value,
+    }
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "",
+        "not-base64",
+        "A" * 87,
+    ],
+)
+def test_invalid_vapid_configuration_fails_closed(api, monkeypatch, value):
+    client, _ = api
+    monkeypatch.setenv(
+        "WEB_PUSH_VAPID_PUBLIC_KEY",
+        value,
+    )
+
+    response = client.get(
+        "/api/study-notifications/vapid-public-key"
+    )
+
+    assert response.status_code == 503
+
+
+def test_push_subscription_crud_uses_only_validated_payload(api):
+    client, repository = api
+
+    listed = client.get(
+        "/api/study-notifications/subscriptions"
+    )
+    assert listed.status_code == 200
+    assert listed.json()[0]["endpoint_sha256"] == "a" * 64
+
+    payload = {
+        "endpoint":
+            "https://push.example/subscription",
+        "keys": {
+            "p256dh": "B" * 64,
+            "auth": "C" * 24,
+        },
+    }
+    saved = client.post(
+        "/api/study-notifications/subscriptions",
+        json=payload,
+    )
+    assert saved.status_code == 201
+
+    deleted = client.delete(
+        "/api/study-notifications/subscriptions/"
+        "11111111-1111-4111-8111-111111111111"
+    )
+    assert deleted.status_code == 204
+
+    assert repository.calls[0] == (
+        "list_subscriptions",
+    )
+    assert repository.calls[1][0] == (
+        "save_subscription"
+    )
+    assert (
+        repository.calls[1][1].endpoint
+        == payload["endpoint"]
+    )
+    assert repository.calls[-1] == (
+        "delete_subscription",
+        UUID(
+            "11111111-1111-4111-8111-111111111111"
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "endpoint": "http://push.example/sub",
+            "keys": {
+                "p256dh": "B" * 64,
+                "auth": "C" * 24,
+            },
+        },
+        {
+            "endpoint":
+                "https://user:pass@push.example/sub",
+            "keys": {
+                "p256dh": "B" * 64,
+                "auth": "C" * 24,
+            },
+        },
+        {
+            "endpoint":
+                "https://push.example/sub#fragment",
+            "keys": {
+                "p256dh": "B" * 64,
+                "auth": "C" * 24,
+            },
+        },
+        {
+            "endpoint":
+                "https://push.example/sub",
+            "keys": {
+                "p256dh": "bad!",
+                "auth": "C" * 24,
+            },
+        },
+        {
+            "endpoint":
+                "https://push.example/sub",
+            "keys": {
+                "p256dh": "B" * 64,
+                "auth": "bad!",
+            },
+        },
+        {
+            "endpoint":
+                "https://push.example/sub",
+            "keys": {
+                "p256dh": "B" * 64,
+                "auth": "C" * 24,
+            },
+            "user_id": "forged",
+        },
+    ],
+)
+def test_invalid_push_subscriptions_are_rejected_before_repository(api, payload):
+    client, repository = api
+
+    response = client.post(
+        "/api/study-notifications/subscriptions",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
