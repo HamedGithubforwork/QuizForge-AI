@@ -115,3 +115,52 @@ export function weakCardLabel(
     'Needs practice'
   )
 }
+
+export const RECENTLY_ADDED_LIMIT =
+  20
+
+export function recentlyAddedStudyCards(
+  cards: CardRow[],
+  limit =
+    RECENTLY_ADDED_LIMIT,
+): CardRow[] {
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 100
+  ) {
+    throw new RangeError(
+      'Recently Added limit must be between 1 and 100.',
+    )
+  }
+
+  return cards
+    .filter(
+      (card) =>
+        !card.suspended,
+    )
+    .sort((left, right) => {
+      const createdDifference =
+        Date.parse(
+          right.created_at,
+        ) -
+        Date.parse(
+          left.created_at,
+        )
+
+      if (
+        Number.isFinite(
+          createdDifference,
+        ) &&
+        createdDifference !== 0
+      ) {
+        return createdDifference
+      }
+
+      return right.id.localeCompare(
+        left.id,
+      )
+    })
+    .slice(0, limit)
+}
+
