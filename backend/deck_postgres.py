@@ -108,6 +108,8 @@ class PostgresDeckRepository:
                     "last_reviewed_at": row["last_reviewed_at"],
                     "review_count": row["review_count"],
                     "lapse_count": row["lapse_count"],
+                    "suspended": row["suspended"],
+                    "progress_reset_at": row["progress_reset_at"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                 }
@@ -119,8 +121,8 @@ class PostgresDeckRepository:
             await conn.execute(
                 """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
                           count(c.id)::int AS card_count,
-                          count(c.id) FILTER (WHERE c.due_at <= now())::int AS due_count,
-                          min(c.due_at) FILTER (WHERE c.due_at > now()) AS next_due_at
+                          count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
+                          min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
                    FROM app.decks d
                    LEFT JOIN app.cards c
                      ON c.deck_id=d.id AND c.user_id=d.user_id
@@ -140,7 +142,7 @@ class PostgresDeckRepository:
                 """SELECT id,deck_id,user_id,question_type,question,answer,choices,
                           explanation,source_filename,document_sha256,source_pages,
                           fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                          review_count,lapse_count,created_at,updated_at
+                          review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                    FROM app.cards
                    WHERE deck_id=%s AND user_id=%s
                    ORDER BY created_at,id""",
@@ -176,15 +178,15 @@ class PostgresDeckRepository:
                 await conn.execute(
                     """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
                               count(c.id)::int AS card_count,
-                              count(c.id) FILTER (WHERE c.due_at <= now())::int AS due_count,
-                              min(c.due_at) FILTER (WHERE c.due_at > now()) AS next_due_at
+                              count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
+                              min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
                        FROM app.decks d
                        LEFT JOIN app.cards c
                          ON c.deck_id=d.id AND c.user_id=d.user_id
                        WHERE d.user_id=%s
                        GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at
                        ORDER BY
-                         count(c.id) FILTER (WHERE c.due_at <= now()) DESC,
+                         count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now()) DESC,
                          d.updated_at DESC,
                          d.id DESC""",
                     (user_id,),
@@ -497,6 +499,112 @@ class PostgresDeckRepository:
                 deck_id,
             )
 
+    async def set_card_suspended(
+        self,
+        deck_id,
+        card_id,
+        suspended,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            row = await (
+                await conn.execute(
+                    """UPDATE app.cards
+                       SET suspended=%s,
+                           updated_at=now()
+                       WHERE id=%s
+                         AND deck_id=%s
+                         AND user_id=%s
+                       RETURNING id""",
+                    (
+                        suspended,
+                        card_id,
+                        deck_id,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+
+            if row is None:
+                raise HTTPException(
+                    404,
+                    "Card does not exist in this deck.",
+                )
+
+            await conn.execute(
+                """UPDATE app.decks
+                   SET updated_at=now()
+                   WHERE id=%s AND user_id=%s""",
+                (
+                    deck_id,
+                    user_id,
+                ),
+            )
+
+            return await self._detail(
+                conn,
+                user_id,
+                deck_id,
+            )
+
+    async def reset_card_progress(
+        self,
+        deck_id,
+        card_id,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            row = await (
+                await conn.execute(
+                    """UPDATE app.cards
+                       SET fsrs_state=1,
+                           fsrs_step=0,
+                           stability=NULL,
+                           difficulty=NULL,
+                           due_at=now(),
+                           last_reviewed_at=NULL,
+                           review_count=0,
+                           lapse_count=0,
+                           progress_reset_at=now(),
+                           updated_at=now()
+                       WHERE id=%s
+                         AND deck_id=%s
+                         AND user_id=%s
+                       RETURNING id""",
+                    (
+                        card_id,
+                        deck_id,
+                        user_id,
+                    ),
+                )
+            ).fetchone()
+
+            if row is None:
+                raise HTTPException(
+                    404,
+                    "Card does not exist in this deck.",
+                )
+
+            await conn.execute(
+                """UPDATE app.decks
+                   SET updated_at=now()
+                   WHERE id=%s AND user_id=%s""",
+                (
+                    deck_id,
+                    user_id,
+                ),
+            )
+
+            return await self._detail(
+                conn,
+                user_id,
+                deck_id,
+            )
+
     async def delete_card(
         self,
         deck_id,
@@ -565,7 +673,7 @@ class PostgresDeckRepository:
                         count(*) FILTER (WHERE due_at <= now())::int AS due_count,
                         min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
                        FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s""",
+                       WHERE deck_id=%s AND user_id=%s AND suspended=false""",
                     (deck_id, user_id),
                 )
             ).fetchone()
@@ -574,9 +682,9 @@ class PostgresDeckRepository:
                     """SELECT id,deck_id,user_id,question_type,question,answer,choices,
                               explanation,source_filename,document_sha256,source_pages,
                               fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                              review_count,lapse_count,created_at,updated_at
+                              review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                        FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s AND due_at <= now()
+                       WHERE deck_id=%s AND user_id=%s AND suspended=false AND due_at <= now()
                        ORDER BY due_at,created_at,id
                        LIMIT %s""",
                     (deck_id, user_id, limit),
@@ -606,7 +714,7 @@ class PostgresDeckRepository:
                     """SELECT id,deck_id,user_id,question_type,question,answer,choices,
                               explanation,source_filename,document_sha256,source_pages,
                               fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                              review_count,lapse_count,created_at,updated_at
+                              review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                        FROM app.cards
                        WHERE id=%s AND deck_id=%s AND user_id=%s
                        FOR UPDATE""",
@@ -617,6 +725,12 @@ class PostgresDeckRepository:
                 raise HTTPException(
                     404,
                     "Card does not exist in this deck.",
+                )
+
+            if row["suspended"]:
+                raise HTTPException(
+                    409,
+                    "This card is suspended.",
                 )
 
             reviewed_at = datetime.now(
@@ -662,7 +776,7 @@ class PostgresDeckRepository:
                        RETURNING id,deck_id,user_id,question_type,question,answer,choices,
                                  explanation,source_filename,document_sha256,source_pages,
                                  fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                                 review_count,lapse_count,created_at,updated_at""",
+                                 review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at""",
                     (
                         scheduled.fsrs_state,
                         scheduled.fsrs_step,
@@ -702,7 +816,7 @@ class PostgresDeckRepository:
                         count(*) FILTER (WHERE due_at <= now())::int AS due_count,
                         min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
                        FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s""",
+                       WHERE deck_id=%s AND user_id=%s AND suspended=false""",
                     (deck_id, user_id),
                 )
             ).fetchone()

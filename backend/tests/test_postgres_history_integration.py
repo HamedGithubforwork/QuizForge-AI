@@ -591,6 +591,129 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
 
     asyncio.run(scenario())
 
+
+def test_card_suspend_resume_and_reset_progress_preserve_history(api, owner):
+    async def scenario():
+        async with api() as (client, _):
+            created = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": "Spaced review state",
+                    "cards": [{
+                        "question_type": "short_answer",
+                        "question": "What is ATP?",
+                        "answer": {
+                            "correct_answer": "Adenosine triphosphate",
+                        },
+                        "source_pages": [1],
+                    }],
+                },
+            )
+            assert created.status_code == 201, created.text
+            body = created.json()
+            deck_id = body["id"]
+            card_id = body["cards"][0]["id"]
+            assert body["due_count"] == 1
+            assert body["cards"][0]["suspended"] is False
+            assert body["cards"][0]["progress_reset_at"] is None
+
+            suspended = await client.post(
+                f"/api/decks/{deck_id}/cards/{card_id}/suspend",
+                headers=headers(),
+            )
+            assert suspended.status_code == 200, suspended.text
+            suspended_body = suspended.json()
+            assert suspended_body["due_count"] == 0
+            assert suspended_body["cards"][0]["suspended"] is True
+
+            queue = await client.get(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+            )
+            assert queue.status_code == 200
+            assert queue.json()["due_count"] == 0
+            assert queue.json()["cards"] == []
+
+            blocked = await client.post(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                json={
+                    "card_id": card_id,
+                    "rating": 3,
+                },
+            )
+            assert blocked.status_code == 409
+
+            resumed = await client.post(
+                f"/api/decks/{deck_id}/cards/{card_id}/resume",
+                headers=headers(),
+            )
+            assert resumed.status_code == 200
+            assert resumed.json()["due_count"] == 1
+            assert resumed.json()["cards"][0]["suspended"] is False
+
+            reviewed = await client.post(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                json={
+                    "card_id": card_id,
+                    "rating": 3,
+                    "review_duration_ms": 900,
+                },
+            )
+            assert reviewed.status_code == 200, reviewed.text
+            assert reviewed.json()["card"]["review_count"] == 1
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 1
+
+            reset = await client.post(
+                f"/api/decks/{deck_id}/cards/{card_id}/reset-progress",
+                headers=headers(),
+            )
+            assert reset.status_code == 200, reset.text
+            reset_body = reset.json()
+            reset_card = reset_body["cards"][0]
+            assert reset_body["due_count"] == 1
+            assert reset_card["suspended"] is False
+            assert reset_card["fsrs_state"] == 1
+            assert reset_card["fsrs_step"] == 0
+            assert reset_card["stability"] is None
+            assert reset_card["difficulty"] is None
+            assert reset_card["last_reviewed_at"] is None
+            assert reset_card["review_count"] == 0
+            assert reset_card["lapse_count"] == 0
+            assert reset_card["progress_reset_at"] is not None
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 1
+
+            await client.post(
+                f"/api/decks/{deck_id}/cards/{card_id}/suspend",
+                headers=headers(),
+            )
+            reset_suspended = await client.post(
+                f"/api/decks/{deck_id}/cards/{card_id}/reset-progress",
+                headers=headers(),
+            )
+            assert reset_suspended.status_code == 200
+            assert reset_suspended.json()["due_count"] == 0
+            assert reset_suspended.json()["cards"][0]["suspended"] is True
+            assert owner.execute(
+                "SELECT count(*) FROM app.card_review_logs"
+            ).fetchone()[0] == 1
+
+            assert (
+                await client.post(
+                    f"/api/decks/{deck_id}/cards/{card_id}/resume",
+                    headers=headers("valid-b"),
+                )
+            ).status_code == 404
+
+    asyncio.run(scenario())
+
+
 def test_study_notification_preferences_use_verified_owner_mapping(api, owner):
     async def scenario():
         async with api() as (client, _):

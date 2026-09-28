@@ -108,6 +108,8 @@ export type CardRow = {
   "last_reviewed_at": string | null
   "review_count": number
   "lapse_count": number
+  "suspended": boolean
+  "progress_reset_at": string | null
   "created_at": string
   "updated_at": string
 }
@@ -320,6 +322,9 @@ export const API_ROUTES = [
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
   "POST /api/decks/{deck_id}/cards/{card_id}/move",
+  "POST /api/decks/{deck_id}/cards/{card_id}/reset-progress",
+  "POST /api/decks/{deck_id}/cards/{card_id}/resume",
+  "POST /api/decks/{deck_id}/cards/{card_id}/suspend",
   "POST /api/decks/{deck_id}/duplicate",
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",

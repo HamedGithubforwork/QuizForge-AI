@@ -76,6 +76,8 @@ def card_row(**overrides):
         "last_reviewed_at": None,
         "review_count": 0,
         "lapse_count": 0,
+        "suspended": False,
+        "progress_reset_at": None,
         "created_at": now,
         "updated_at": now,
         **overrides,
@@ -197,6 +199,62 @@ class FakeRepository:
         )
         return deck_detail(
             cards=[],
+        )
+
+    async def set_card_suspended(
+        self,
+        deck_id,
+        card_id,
+        suspended,
+    ):
+        self.calls.append(
+            (
+                "set_card_suspended",
+                deck_id,
+                card_id,
+                suspended,
+            )
+        )
+        return deck_detail(
+            cards=[
+                card_row(
+                    suspended=suspended,
+                )
+            ]
+        )
+
+    async def reset_card_progress(
+        self,
+        deck_id,
+        card_id,
+    ):
+        self.calls.append(
+            (
+                "reset_card_progress",
+                deck_id,
+                card_id,
+            )
+        )
+        return deck_detail(
+            cards=[
+                card_row(
+                    fsrs_state=1,
+                    fsrs_step=0,
+                    stability=None,
+                    difficulty=None,
+                    last_reviewed_at=None,
+                    review_count=0,
+                    lapse_count=0,
+                    progress_reset_at=datetime(
+                        2026,
+                        9,
+                        28,
+                        12,
+                        0,
+                        tzinfo=timezone.utc,
+                    ),
+                )
+            ]
         )
 
     async def delete_card(
@@ -747,4 +805,60 @@ def test_move_card_rejects_same_deck_invalid_or_forged_payloads_before_repositor
         422,
     )
     assert repository.calls == []
+
+def test_suspend_and_resume_card_use_owned_path_identifiers(api):
+    client, repository = api
+
+    suspended = client.post(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}/suspend"
+    )
+    assert suspended.status_code == 200
+    assert suspended.json()["cards"][0]["suspended"] is True
+
+    resumed = client.post(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}/resume"
+    )
+    assert resumed.status_code == 200
+    assert resumed.json()["cards"][0]["suspended"] is False
+
+    assert repository.calls == [
+        (
+            "set_card_suspended",
+            DECK_ID,
+            CARD_ID,
+            True,
+        ),
+        (
+            "set_card_suspended",
+            DECK_ID,
+            CARD_ID,
+            False,
+        ),
+    ]
+
+
+def test_reset_progress_returns_fresh_scheduler_state(api):
+    client, repository = api
+
+    response = client.post(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}/reset-progress"
+    )
+
+    assert response.status_code == 200
+    card = response.json()["cards"][0]
+    assert card["fsrs_state"] == 1
+    assert card["fsrs_step"] == 0
+    assert card["stability"] is None
+    assert card["difficulty"] is None
+    assert card["last_reviewed_at"] is None
+    assert card["review_count"] == 0
+    assert card["lapse_count"] == 0
+    assert card["progress_reset_at"] is not None
+    assert repository.calls == [
+        (
+            "reset_card_progress",
+            DECK_ID,
+            CARD_ID,
+        )
+    ]
 

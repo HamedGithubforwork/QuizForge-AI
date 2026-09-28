@@ -76,6 +76,8 @@ class CardRow(CardCreate):
     last_reviewed_at: datetime | None
     review_count: int = Field(ge=0)
     lapse_count: int = Field(ge=0)
+    suspended: bool
+    progress_reset_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -497,6 +499,59 @@ async def update_card(
         deck_id,
         card_id,
         payload,
+    )
+
+
+@router.post(
+    "/{deck_id}/cards/{card_id}/suspend",
+    response_model=DeckDetail,
+)
+async def suspend_card(
+    deck_id: UUID,
+    card_id: UUID,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return await repository.set_card_suspended(
+        deck_id,
+        card_id,
+        True,
+    )
+
+
+@router.post(
+    "/{deck_id}/cards/{card_id}/resume",
+    response_model=DeckDetail,
+)
+async def resume_card(
+    deck_id: UUID,
+    card_id: UUID,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return await repository.set_card_suspended(
+        deck_id,
+        card_id,
+        False,
+    )
+
+
+@router.post(
+    "/{deck_id}/cards/{card_id}/reset-progress",
+    response_model=DeckDetail,
+)
+async def reset_card_progress(
+    deck_id: UUID,
+    card_id: UUID,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return await repository.reset_card_progress(
+        deck_id,
+        card_id,
     )
 
 
