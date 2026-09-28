@@ -1,5 +1,6 @@
 """Real TLS PostgreSQL and FastAPI auth; only Supabase's HTTP response is mocked."""
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
@@ -544,6 +545,87 @@ def test_study_notification_preferences_use_verified_owner_mapping(api, owner):
             assert rows == [
                 (USERS[0], "America/Toronto", 3),
                 (USERS[1], "America/Vancouver", 2),
+            ]
+
+    asyncio.run(scenario())
+
+def test_push_subscription_cannot_be_claimed_by_another_owner(api, owner):
+    async def scenario():
+        endpoint = (
+            "https://push.example/"
+            "subscription-owner-isolation"
+        )
+        endpoint_hash = hashlib.sha256(
+            endpoint.encode()
+        ).hexdigest()
+
+        async with api() as (client, _):
+            created = await client.post(
+                "/api/study-notifications/push/subscriptions",
+                headers={
+                    **headers(),
+                    "User-Agent":
+                        "Synthetic Browser A",
+                },
+                json={
+                    "endpoint": endpoint,
+                    "p256dh": "p" * 32,
+                    "auth": "auth-token",
+                },
+            )
+            assert created.status_code == 201, created.text
+            assert created.json()["endpoint_hash"] == endpoint_hash
+
+            row = owner.execute(
+                """SELECT user_id,endpoint_hash,user_agent
+                   FROM app.study_push_subscriptions"""
+            ).fetchall()
+            assert row == [
+                (
+                    USERS[0],
+                    endpoint_hash,
+                    "Synthetic Browser A",
+                )
+            ]
+
+            conflict = await client.post(
+                "/api/study-notifications/push/subscriptions",
+                headers=headers("valid-b"),
+                json={
+                    "endpoint": endpoint,
+                    "p256dh": "q" * 32,
+                    "auth": "second-auth",
+                },
+            )
+            assert conflict.status_code == 409
+
+            deleted = await client.delete(
+                "/api/study-notifications/push/subscriptions/"
+                + endpoint_hash,
+                headers=headers(),
+            )
+            assert deleted.status_code == 204
+            assert owner.execute(
+                "SELECT count(*) FROM app.study_push_subscriptions"
+            ).fetchone()[0] == 0
+
+            reassigned = await client.post(
+                "/api/study-notifications/push/subscriptions",
+                headers=headers("valid-b"),
+                json={
+                    "endpoint": endpoint,
+                    "p256dh": "q" * 32,
+                    "auth": "second-auth",
+                },
+            )
+            assert reassigned.status_code == 201
+
+            row = owner.execute(
+                """SELECT user_id,p256dh
+                   FROM app.study_push_subscriptions"""
+            ).fetchall()
+            assert row == [
+                (USERS[1], "q" * 32)
             ]
 
     asyncio.run(scenario())

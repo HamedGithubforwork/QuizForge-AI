@@ -44,8 +44,8 @@ async def check_application_role(conn):
         raise RuntimeError("History requires a restricted application database role")
     tables = await (await conn.execute("""SELECT tablename, rowsecurity, tableowner=current_user AS owned
         FROM pg_tables WHERE schemaname='app'
-        AND tablename IN ('quiz_history','user_identities','decks','cards','card_review_logs','study_notification_preferences')""")).fetchall()
-    if len(tables) != 6 or any(row["owned"] or not row["rowsecurity"] for row in tables):
+        AND tablename IN ('quiz_history','user_identities','decks','cards','card_review_logs','study_notification_preferences','study_push_subscriptions','study_notification_deliveries')""")).fetchall()
+    if len(tables) != 8 or any(row["owned"] or not row["rowsecurity"] for row in tables):
         raise RuntimeError("Application data requires separate table ownership and enabled RLS")
     privileges = await (await conn.execute("""SELECT
         has_schema_privilege(current_user,'app','CREATE') AS schema_create,
@@ -62,6 +62,8 @@ async def check_application_role(conn):
         has_any_column_privilege(current_user,'app.card_review_logs','UPDATE') AS update_review_log_columns,
         has_table_privilege(current_user,'app.study_notification_preferences','DELETE,TRUNCATE') AS destructive_notification_preferences,
         has_column_privilege(current_user,'app.study_notification_preferences','user_id','UPDATE') AS update_notification_owner,
+        has_table_privilege(current_user,'app.study_notification_deliveries','SELECT,INSERT,UPDATE,DELETE,TRUNCATE') AS access_delivery_ledger,
+        has_column_privilege(current_user,'app.study_push_subscriptions','user_id','UPDATE') AS update_push_owner,
         has_table_privilege(current_user,'app.user_identities','INSERT,UPDATE,DELETE,TRUNCATE') AS write_identities,
         has_table_privilege(current_user,'app.users','INSERT,UPDATE,DELETE,TRUNCATE') AS write_users""")).fetchone()
     if any(privileges.values()):
@@ -81,7 +83,12 @@ async def check_application_role(conn):
         has_column_privilege(current_user,'app.study_notification_preferences','enabled','UPDATE') AS update_notification_enabled,
         has_column_privilege(current_user,'app.study_notification_preferences','reminder_time','UPDATE') AS update_notification_time,
         has_column_privilege(current_user,'app.study_notification_preferences','timezone','UPDATE') AS update_notification_timezone,
-        has_column_privilege(current_user,'app.study_notification_preferences','minimum_due_cards','UPDATE') AS update_notification_threshold""")).fetchone()
+        has_column_privilege(current_user,'app.study_notification_preferences','minimum_due_cards','UPDATE') AS update_notification_threshold,
+        has_table_privilege(current_user,'app.study_push_subscriptions','SELECT,INSERT,DELETE') AS push_subscription_access,
+        has_column_privilege(current_user,'app.study_push_subscriptions','endpoint','UPDATE') AS update_push_endpoint,
+        has_column_privilege(current_user,'app.study_push_subscriptions','p256dh','UPDATE') AS update_push_p256dh,
+        has_column_privilege(current_user,'app.study_push_subscriptions','auth','UPDATE') AS update_push_auth,
+        has_column_privilege(current_user,'app.study_push_subscriptions','user_agent','UPDATE') AS update_push_user_agent""")).fetchone()
     if not all(required.values()):
         raise RuntimeError("Application database role is missing review privileges")
 
