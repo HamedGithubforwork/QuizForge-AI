@@ -498,5 +498,155 @@ test(
     ).toBeVisible({
       timeout: 30_000,
     })
+
+    // Reuse the one generated quiz to validate the persistent study loop.
+    await page
+      .getByRole('button', {
+        name: 'Save as Study Deck',
+      })
+      .click()
+
+    const deckNameInput =
+      page.getByLabel('Deck name')
+
+    await expect(
+      deckNameInput,
+    ).toBeVisible()
+
+    await deckNameInput.fill(
+      'Production Canary Deck',
+    )
+
+    const createDeckResponse =
+      page.waitForResponse(
+        (response) =>
+          response.url().endsWith(
+            '/api/decks',
+          ) &&
+          response.request().method() ===
+            'POST',
+        {
+          timeout: 30_000,
+        },
+      )
+
+    await page
+      .getByRole('button', {
+        name: 'Save 5 as Deck',
+      })
+      .click()
+
+    expect(
+      (
+        await createDeckResponse
+      ).status(),
+    ).toBe(201)
+
+    await expect(
+      page.getByText(
+        'Saved "Production Canary Deck" with 5 cards.',
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible({
+      timeout: 30_000,
+    })
+
+    await page
+      .getByRole('button', {
+        name: 'Decks',
+        exact: true,
+      })
+      .click()
+
+    await expect(
+      page.getByRole('heading', {
+        name: 'My Decks',
+      }),
+    ).toBeVisible({
+      timeout: 30_000,
+    })
+
+    const canaryDeck =
+      page.locator(
+        'button.deck-tile',
+      ).filter({
+        hasText:
+          'Production Canary Deck',
+      })
+
+    await expect(
+      canaryDeck,
+    ).toHaveCount(1)
+    await canaryDeck.click()
+
+    await expect(
+      page.getByRole('heading', {
+        name:
+          'Production Canary Deck',
+      }),
+    ).toBeVisible({
+      timeout: 30_000,
+    })
+
+    await expect(
+      page.getByRole('button', {
+        name: 'Review 5 Due',
+      }),
+    ).toBeVisible()
+
+    await page
+      .getByRole('button', {
+        name: 'Review 5 Due',
+      })
+      .click()
+
+    await expect(
+      page.getByRole('button', {
+        name: 'Show Answer',
+      }),
+    ).toBeVisible({
+      timeout: 30_000,
+    })
+
+    await page
+      .getByRole('button', {
+        name: 'Show Answer',
+      })
+      .click()
+
+    const reviewResponse =
+      page.waitForResponse(
+        (response) =>
+          /\/api\/decks\/[^/]+\/review(?:\?|$)/.test(
+            new URL(
+              response.url(),
+            ).pathname,
+          ) &&
+          response.request().method() ===
+            'POST',
+        {
+          timeout: 30_000,
+        },
+      )
+
+    await page
+      .getByRole('button', {
+        name: /Good/,
+      })
+      .click()
+
+    expect(
+      (
+        await reviewResponse
+      ).status(),
+    ).toBe(200)
+
+    await expect(
+      page.locator(
+        '.review-session-count',
+      ),
+    ).toContainText('4 due')
   },
 )
