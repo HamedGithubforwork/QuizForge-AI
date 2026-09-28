@@ -141,6 +141,7 @@ class ReviewRequest(BaseModel):
 class ReviewQueue(BaseModel):
     deck_id: UUID
     deck_name: str
+    tag: str | None
     due_count: int = Field(ge=0)
     next_due_at: datetime | None
     cards: list[CardRow]
@@ -452,6 +453,7 @@ async def get_deck(
 async def get_review_queue(
     deck_id: UUID,
     limit: int = 20,
+    tag: str | None = None,
     repository=Depends(get_deck_repository),
 ):
     if not 1 <= limit <= 50:
@@ -459,9 +461,28 @@ async def get_review_queue(
             422,
             "Review limit must be between 1 and 50.",
         )
+
+    review_tag = None
+    if tag is not None:
+        try:
+            review_tag = (
+                normalize_card_tags(
+                    [tag]
+                )[0]
+            )
+        except (
+            ValueError,
+            IndexError,
+        ):
+            raise HTTPException(
+                422,
+                "Review tag is invalid.",
+            ) from None
+
     return await repository.review_queue(
         deck_id,
         limit=limit,
+        tag=review_tag,
     )
 
 
