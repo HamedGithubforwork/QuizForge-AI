@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/lightsail-release-candidate-build.yml"
+      - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
@@ -15,6 +16,7 @@ on:
     branches:
       - main
     paths:
+      - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
