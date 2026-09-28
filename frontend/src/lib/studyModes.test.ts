@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   cramStudyCards,
+  recentlyAddedStudyCards,
   isWeakStudyCard,
   weakCardLabel,
   weakCardLapseRate,
@@ -202,6 +203,118 @@ test(
     assert.equal(
       weakCardLabel(target),
       '2 lapses · difficulty 7.3',
+    )
+  },
+)
+
+test(
+  'recentlyAddedStudyCards returns newest active cards first',
+  () => {
+    const cards = [
+      {
+        ...card('older'),
+        created_at:
+          '2026-09-20T12:00:00Z',
+      },
+      {
+        ...card('newest'),
+        created_at:
+          '2026-09-28T12:00:00Z',
+      },
+      {
+        ...card('middle'),
+        created_at:
+          '2026-09-25T12:00:00Z',
+      },
+      {
+        ...card('suspended', true),
+        created_at:
+          '2026-09-29T12:00:00Z',
+      },
+    ]
+
+    assert.deepEqual(
+      recentlyAddedStudyCards(
+        cards,
+      ).map(
+        (item) => item.id,
+      ),
+      [
+        'newest',
+        'middle',
+        'older',
+      ],
+    )
+    assert.equal(
+      cards[0].id,
+      'older',
+    )
+  },
+)
+
+test(
+  'recentlyAddedStudyCards applies the bounded session limit',
+  () => {
+    const cards =
+      Array.from(
+        {
+          length: 25,
+        },
+        (_, index) => ({
+          ...card(
+            String(index),
+          ),
+          created_at:
+            new Date(
+              Date.UTC(
+                2026,
+                8,
+                1,
+                0,
+                index,
+              ),
+            ).toISOString(),
+        }),
+      )
+
+    const result =
+      recentlyAddedStudyCards(
+        cards,
+        5,
+      )
+
+    assert.equal(
+      result.length,
+      5,
+    )
+    assert.deepEqual(
+      result.map(
+        (item) => item.id,
+      ),
+      [
+        '24',
+        '23',
+        '22',
+        '21',
+        '20',
+      ],
+    )
+
+    assert.throws(
+      () =>
+        recentlyAddedStudyCards(
+          cards,
+          0,
+        ),
+      /between 1 and 100/,
+    )
+    assert.throws(
+      () =>
+        recentlyAddedStudyCards(
+          cards,
+          101,
+        ),
+      /between 1 and 100/,
     )
   },
 )
