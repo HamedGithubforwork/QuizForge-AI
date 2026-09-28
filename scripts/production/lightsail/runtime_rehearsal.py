@@ -62,11 +62,19 @@ def main():
     # Rehearsal images only. Production rendering always requires pinned digests.
     stack = json.loads((root/'compose.json').read_text())
     tags = {'db': 'postgres:17', 'redis': 'redis:7', 'web': 'quizforge-ci-caddy', 'api': 'quizforge-ci-api',
-            'identity': 'quizforge-ci-api', 'guard': 'quizforge-ci-operations'}
+            'identity': 'quizforge-ci-api', 'guard': 'quizforge-ci-operations',
+            'notifier': 'quizforge-ci-operations'}
     for name, service in stack['services'].items():
         service['image'] = tags[name]
         service.pop('cgroup_parent')
-    for name in ('api.env', 'identity.env', 'generation.env'):
+    for name in (
+        'api.env',
+        'identity.env',
+        'generation.env',
+        'notifier.env',
+        'web-push-public.env',
+        'web-push-private.env',
+    ):
         private(secrets/name, '')
     (root/'compose.json').write_text(json.dumps(stack))
     command = ['docker', 'compose', '-f', str(root/'compose.json')]
@@ -77,9 +85,26 @@ def main():
         env = dict(PRODUCTION_DATABASE_TARGET='lightsail', PGHOST='db.quizforge.internal', PGDATABASE='quizforge',
                    PGUSER='quizforge_owner', PGPASSWORD='synthetic-ci-owner-password', PGSSLROOTCERT=str(secrets/'db-ca.pem'))
         # Remove only the empty fixture credential files before the fresh-only initializer.
-        (secrets/'api.env').unlink()
-        (secrets/'identity.env').unlink()
+        for name in (
+            'api.env',
+            'identity.env',
+            'notifier.env',
+            'web-push-public.env',
+            'web-push-private.env',
+        ):
+            (secrets/name).unlink()
         initialize(env, secrets)
+        for name in (
+            'notifier.env',
+            'web-push-public.env',
+            'web-push-private.env',
+        ):
+            path=secrets/name
+            assert path.is_file() and path.stat().st_mode & 0o077 == 0
+        private_value=(secrets/'web-push-private.env').read_text().strip().split('=',1)[1]
+        public_value=(secrets/'web-push-public.env').read_text().strip().split('=',1)[1]
+        from study_push_crypto import vapid_private_key_from_string, vapid_public_key
+        assert vapid_public_key(vapid_private_key_from_string(private_value)) == public_value
         private(secrets/'generation.env', (secrets/'generation-db.env').read_text() + 'OPENAI_API_KEY=synthetic-not-a-model-key\n')
         from database import options
         with psycopg.connect(**options(env)) as conn:
@@ -94,6 +119,17 @@ def main():
             else:
                 raise AssertionError('Unverified database transport was accepted')
         compose('up', '-d', '--wait', 'api', 'identity', 'guard')
+        notifier = subprocess.run(
+            command + ['--profile','scheduled','run','--rm','--no-deps','notifier'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        result=json.loads(notifier.stdout.strip().splitlines()[-1])
+        assert result['format']=='quizforge-study-notifier-v1'
+        assert result['candidates']==0 and result['sent']==0
         with urlopen('http://127.0.0.1:8000/api/health', timeout=5) as response:
             assert response.status == 200
         try:

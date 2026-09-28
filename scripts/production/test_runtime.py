@@ -15,6 +15,12 @@ import inventory
 from build import public_config
 from database import options
 from private_files import private_read, private_write
+from study_notification_sender import (
+    _already_sent,
+    _candidate_rows,
+    _delete_expired,
+    _mark_sent,
+)
 
 
 class Boundaries(unittest.TestCase):
@@ -254,6 +260,82 @@ class ProductionSchema(unittest.TestCase):
             self.assertFalse(owner.execute(
                 "SELECT has_table_privilege('quizforge_app','app.user_identities','INSERT') AS allowed"
             ).fetchone()["allowed"])
+
+            user=uuid4()
+            deck=uuid4()
+            card=uuid4()
+            owner.execute(
+                "INSERT INTO app.users(id) VALUES (%s)",
+                (user,),
+            )
+            owner.execute(
+                "INSERT INTO app.decks(id,user_id,name) VALUES (%s,%s,'Notifier test')",
+                (deck,user),
+            )
+            owner.execute(
+                """INSERT INTO app.cards(
+                    id,deck_id,user_id,question_type,question,answer,due_at
+                ) VALUES (%s,%s,%s,'short_answer','Private question','{}',now()-interval '1 minute')""",
+                (card,deck,user),
+            )
+            owner.execute(
+                """INSERT INTO app.study_notification_preferences(
+                    user_id,enabled,reminder_time,timezone,minimum_due_cards
+                ) VALUES (%s,true,'20:00','America/Toronto',1)""",
+                (user,),
+            )
+            endpoint_hash='a'*64
+            owner.execute(
+                """INSERT INTO app.study_push_subscriptions(
+                    endpoint_hash,user_id,endpoint,p256dh,auth
+                ) VALUES (%s,%s,%s,%s,%s)""",
+                (
+                    endpoint_hash,user,
+                    'https://fcm.googleapis.com/fcm/send/synthetic',
+                    'p'*32,'auth-token',
+                ),
+            )
+
+            owner.execute("SET ROLE quizforge_notifier")
+            rows=_candidate_rows(owner)
+            self.assertEqual(len(rows),1)
+            self.assertEqual(rows[0]["user_id"],user)
+            self.assertEqual(rows[0]["due_count"],1)
+            self.assertEqual(rows[0]["endpoint_hash"],endpoint_hash)
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                owner.execute("SELECT question FROM app.cards")
+            self.assertFalse(
+                _already_sent(
+                    owner,
+                    user_id=user,
+                    endpoint_hash=endpoint_hash,
+                    local_date=owner.execute("SELECT current_date").fetchone()["current_date"],
+                )
+            )
+            local_date=owner.execute("SELECT current_date").fetchone()["current_date"]
+            _mark_sent(
+                owner,
+                user_id=user,
+                endpoint_hash=endpoint_hash,
+                local_date=local_date,
+                due_count=1,
+            )
+            self.assertTrue(
+                _already_sent(
+                    owner,
+                    user_id=user,
+                    endpoint_hash=endpoint_hash,
+                    local_date=local_date,
+                )
+            )
+            _delete_expired(owner,endpoint_hash)
+            self.assertEqual(
+                owner.execute(
+                    "SELECT count(endpoint_hash) AS count FROM app.study_push_subscriptions"
+                ).fetchone()["count"],
+                0,
+            )
+            owner.execute("RESET ROLE")
 
 
 if __name__ == "__main__": unittest.main()

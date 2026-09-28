@@ -239,6 +239,8 @@ jobs:
 
           cp release-source/scripts/production/lightsail/quizforge.service "$root/systemd/"
           cp release-source/scripts/production/lightsail/quizforge.slice "$root/systemd/"
+          cp release-source/scripts/production/lightsail/quizforge-study-notifier.service "$root/systemd/"
+          cp release-source/scripts/production/lightsail/quizforge-study-notifier.timer "$root/systemd/"
           cp "$RUNNER_TEMP/stage-manifest.json" "$root/manifest.json"
 
           tar -C "$root" -czf "$RUNNER_TEMP/quizforge-stage-bundle.tar.gz" .

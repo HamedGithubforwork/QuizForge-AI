@@ -222,7 +222,7 @@ else:
     fd,name=tempfile.mkstemp(prefix=".notifier-",dir="/etc/quizforge")
     try:
         os.fchmod(fd,0o600)
-        os.write(fd,("NOTIFIER_DB_PASSWORD="+password+"\n").encode())
+        os.write(fd,("PGPASSWORD="+password+"\n").encode())
         os.fsync(fd)
         os.close(fd)
         fd=-1
@@ -238,6 +238,93 @@ test -s /etc/quizforge/notifier.env
 test "$(stat -c %a /etc/quizforge/notifier.env)" = "600"
 notifier_credential_ready=true
 
+# Generate one private/public VAPID keypair on-host. The private half never
+# enters the API environment or GitHub Actions output.
+/opt/quizforge/backup-venv/bin/python - <<'PY'
+import base64
+import os
+from pathlib import Path
+import stat
+import tempfile
+
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+root=Path("/etc/quizforge")
+private_path=root/"web-push-private.env"
+public_path=root/"web-push-public.env"
+
+def private_regular(path):
+    info=path.lstat()
+    return (
+        not path.is_symlink()
+        and stat.S_ISREG(info.st_mode)
+        and not (stat.S_IMODE(info.st_mode) & 0o077)
+        and info.st_uid == 0
+        and info.st_size <= 512
+    )
+
+def parse(path,key):
+    if not private_regular(path):
+        raise SystemExit("unsafe Web Push credential file")
+    line=path.read_text().strip()
+    prefix=key+"="
+    if not line.startswith(prefix) or "\n" in line:
+        raise SystemExit("invalid Web Push credential file")
+    return line[len(prefix):]
+
+def decode(value):
+    return base64.urlsafe_b64decode(value+"="*((4-len(value)%4)%4))
+
+def encode(value):
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+if private_path.exists() != public_path.exists():
+    raise SystemExit("partial Web Push credential state")
+
+if not private_path.exists():
+    vapid=ec.generate_private_key(ec.SECP256R1())
+    private_value=encode(vapid.private_numbers().private_value.to_bytes(32,"big"))
+    public_value=encode(vapid.public_key().public_bytes(
+        Encoding.X962,PublicFormat.UncompressedPoint
+    ))
+    for path,key,value in (
+        (private_path,"WEB_PUSH_VAPID_PRIVATE_KEY",private_value),
+        (public_path,"WEB_PUSH_VAPID_PUBLIC_KEY",public_value),
+    ):
+        fd,name=tempfile.mkstemp(prefix=".web-push-",dir=root)
+        try:
+            os.fchmod(fd,0o600)
+            os.write(fd,(key+"="+value+"\n").encode())
+            os.fsync(fd)
+            os.close(fd); fd=-1
+            os.replace(name,path)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            if os.path.exists(name):
+                os.unlink(name)
+else:
+    private_value=parse(private_path,"WEB_PUSH_VAPID_PRIVATE_KEY")
+    public_value=parse(public_path,"WEB_PUSH_VAPID_PUBLIC_KEY")
+    raw=decode(private_value)
+    if len(raw)!=32:
+        raise SystemExit("invalid VAPID private key")
+    vapid=ec.derive_private_key(int.from_bytes(raw,"big"),ec.SECP256R1())
+    expected=encode(vapid.public_key().public_bytes(
+        Encoding.X962,PublicFormat.UncompressedPoint
+    ))
+    if expected != public_value:
+        raise SystemExit("VAPID keypair mismatch")
+PY
+
+for path in /etc/quizforge/web-push-private.env /etc/quizforge/web-push-public.env
+do
+  test -s "$path"
+  test "$(stat -c %a "$path")" = "600"
+done
+vapid_credentials_ready=true
+
 # Security postconditions. Runtime roles must remain restricted.
 test "$(dbq "SELECT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)::int FROM pg_roles WHERE rolname='quizforge_app'")" = "0"
 test "$(dbq "SELECT (rolsuper OR rolcreatedb OR rolcreaterole OR rolbypassrls)::int FROM pg_roles WHERE rolname='quizforge_notifier'")" = "0"
@@ -247,7 +334,7 @@ test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_not
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$notifier_credential_ready" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -259,6 +346,7 @@ print("QF_RESULT="+json.dumps({
   "push_subscriptions_migration_applied": values[3],
   "notifier_role_migration_applied": values[4],
   "notifier_credential_ready": values[5],
+  "vapid_credentials_ready": values[6],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -602,6 +690,7 @@ def main() -> int:
             "push_subscriptions_migration_applied",
             "notifier_role_migration_applied",
             "notifier_credential_ready",
+            "vapid_credentials_ready",
             "all_postconditions_verified",
         ):
             report[name] = state.get(

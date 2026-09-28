@@ -202,6 +202,8 @@ sudo cp -a "$work/operations/." /opt/quizforge/operations/
 sudo find /opt/quizforge/operations -type f -exec chmod 0644 {} +
 sudo install -m 0644 "$work/systemd/quizforge.slice" /etc/systemd/system/quizforge.slice
 sudo install -m 0644 "$work/systemd/quizforge.service" /etc/systemd/system/quizforge.service
+sudo install -m 0644 "$work/systemd/quizforge-study-notifier.service" /etc/systemd/system/quizforge-study-notifier.service
+sudo install -m 0644 "$work/systemd/quizforge-study-notifier.timer" /etc/systemd/system/quizforge-study-notifier.timer
 sudo systemctl daemon-reload
 sudo mv "$stage" "$final"
 sudo mv "$frontend_stage" /opt/quizforge/frontend
@@ -209,6 +211,8 @@ sudo ln -s "$final" /opt/quizforge/current
 [ ! -e /etc/quizforge/launch-approved ] || exit 38
 ! systemctl is-active --quiet quizforge.service || exit 39
 ! systemctl is-enabled --quiet quizforge.service || exit 40
+! systemctl is-active --quiet quizforge-study-notifier.timer || exit 44
+! systemctl is-enabled --quiet quizforge-study-notifier.timer || exit 45
 test "$(readlink -f /opt/quizforge/current)" = "$final" || exit 41
 test -s /opt/quizforge/frontend/index.html || exit 42
 test -s "$final/compose.json" || exit 43
