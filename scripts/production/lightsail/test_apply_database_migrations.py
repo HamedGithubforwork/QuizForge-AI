@@ -100,7 +100,7 @@ class MigrationControllerTests(unittest.TestCase):
             remote,
         )
         self.assertIn(
-            "app.move_card(uuid,uuid)",
+            "app.move_card(uuid,uuid,uuid)",
             remote,
         )
         self.assertIn(
