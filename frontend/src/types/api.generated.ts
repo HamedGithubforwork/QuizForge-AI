@@ -184,6 +184,20 @@ export type StudyNotificationPreferencesUpdate = {
   "minimum_due_cards": number
 }
 
+export type PushPublicKey = {
+  "public_key": string
+}
+
+export type PushSubscriptionCreate = {
+  "endpoint": string
+  "p256dh": string
+  "auth": string
+}
+
+export type PushSubscriptionRegistration = {
+  "endpoint_hash": string
+}
+
 export type PdfJobResponse = {
   "job_id": string
   "filename": string
@@ -264,6 +278,7 @@ export const API_ROUTES = [
   "DELETE /api/decks/{deck_id}",
   "DELETE /api/documents/jobs/{job_id}",
   "DELETE /api/quiz-history/{entry_id}",
+  "DELETE /api/study-notifications/push/subscriptions/{endpoint_hash}",
   "GET /",
   "GET /api/admin/metrics",
   "GET /api/decks",
@@ -276,6 +291,7 @@ export const API_ROUTES = [
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
   "GET /api/study-notifications/preferences",
+  "GET /api/study-notifications/push/public-key",
   "PATCH /api/decks/{deck_id}",
   "POST /api/answers/review",
   "POST /api/decks",
@@ -285,6 +301,7 @@ export const API_ROUTES = [
   "POST /api/documents/upload",
   "POST /api/quiz-history",
   "POST /api/quizzes/generate",
+  "POST /api/study-notifications/push/subscriptions",
   "PUT /api/study-notifications/preferences",
 ] as const
 
