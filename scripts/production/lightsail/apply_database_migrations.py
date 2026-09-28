@@ -175,16 +175,16 @@ esac
 test "$(dbq "SELECT (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='quizforge_notifier'))::int")" = "1"
 
 # 006: narrowly scoped card movement function.
-move_state="$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid)') IS NOT NULL)::int")"
+move_state="$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL)::int")"
 case "$move_state" in
   "0") apply_sql "$root/20260928_006_move_card.sql"; applied_006=true ;;
   "1") applied_006=false ;;
   *) exit 46 ;;
 esac
 
-test "$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid)') IS NOT NULL)::int")" = "1"
-test "$(dbq "SELECT has_function_privilege('quizforge_app','app.move_card(uuid,uuid)','EXECUTE')::int")" = "1"
-test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='app.move_card(uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'))::int")" = "1"
+test "$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL)::int")" = "1"
+test "$(dbq "SELECT has_function_privilege('quizforge_app','app.move_card(uuid,uuid,uuid)','EXECUTE')::int")" = "1"
+test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='app.move_card(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'))::int")" = "1"
 
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
