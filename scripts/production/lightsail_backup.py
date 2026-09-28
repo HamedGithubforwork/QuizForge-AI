@@ -32,7 +32,8 @@ MAX_ROWS = 10000
 TABLES = (
     "app.users", "app.user_identities", "app.quiz_history",
     "app.decks", "app.cards", "app.card_review_logs",
-    "app.study_notification_preferences", "app.identity_challenges",
+    "app.study_notification_preferences", "app.study_push_subscriptions",
+    "app.study_notification_deliveries", "app.identity_challenges",
     "billing.generation_policy",
     "billing.generation_usage", "billing.generation_reservations",
 )
