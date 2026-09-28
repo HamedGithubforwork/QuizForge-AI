@@ -110,7 +110,7 @@ test(
     )
     assert.equal(
       payload.cards?.length,
-      1,
+      2,
     )
 
     const card = payload.cards?.[0]
