@@ -32,7 +32,8 @@ MAX_ROWS = 10000
 TABLES = (
     "app.users", "app.user_identities", "app.quiz_history",
     "app.decks", "app.cards", "app.card_review_logs",
-    "app.identity_challenges", "billing.generation_policy",
+    "app.study_notification_preferences", "app.identity_challenges",
+    "billing.generation_policy",
     "billing.generation_usage", "billing.generation_reservations",
 )
 ROLES = ("quizforge_app", "quizforge_identity", "quizforge_generation")
