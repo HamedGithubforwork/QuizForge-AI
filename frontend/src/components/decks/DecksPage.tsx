@@ -9,6 +9,7 @@ import {
 } from '../../lib/api'
 import {
   deleteStudyDeck,
+  duplicateStudyDeck,
   getStudyDeck,
   listStudyDecks,
   updateStudyDeck,
@@ -280,6 +281,33 @@ function DeckDetailView({
     }
   }
 
+  async function handleDuplicate() {
+    setBusy(true)
+    setEditing(false)
+    setConfirmingDelete(false)
+    setManagementError('')
+
+    try {
+      const duplicated =
+        await duplicateStudyDeck(
+          deck.id,
+          {},
+          apiFetch,
+        )
+
+      onNavigate(
+        `/decks/${duplicated.id}`,
+      )
+    } catch (caught) {
+      setManagementError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not duplicate this study deck.',
+      )
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       <button
@@ -319,6 +347,17 @@ function DeckDetailView({
               }}
             >
               Rename
+            </button>
+
+            <button
+              className="deck-management-button"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void handleDuplicate()
+              }
+            >
+              Duplicate
             </button>
 
             <button

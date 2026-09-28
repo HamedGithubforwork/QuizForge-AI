@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   addCardsToStudyDeck,
   deleteStudyDeck,
+  duplicateStudyDeck,
   buildDeckCreatePayload,
   buildSelectedDeckCards,
   createStudyDeck,
@@ -828,6 +829,91 @@ test(
             }),
         ),
       /Could not delete this study deck/,
+    )
+  },
+)
+
+test(
+  'duplicateStudyDeck posts to the duplicate endpoint and returns the new deck',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const result =
+      await duplicateStudyDeck(
+        'deck/id',
+        {},
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init =
+            requestInit ?? {}
+
+          return new Response(
+            JSON.stringify({
+              id:
+                '33333333-3333-4333-8333-333333333333',
+              name:
+                'Copy of Biology Midterm',
+              description:
+                'Cell biology',
+              card_count: 2,
+              due_count: 2,
+              next_due_at: null,
+              created_at:
+                '2026-09-28T12:00:00Z',
+              updated_at:
+                '2026-09-28T12:00:00Z',
+              cards: [],
+            }),
+            {
+              status: 201,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid/duplicate',
+    )
+    assert.equal(
+      init.method,
+      'POST',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {},
+    )
+    assert.equal(
+      result.name,
+      'Copy of Biology Midterm',
+    )
+  },
+)
+
+test(
+  'duplicateStudyDeck surfaces a bounded fallback error',
+  async () => {
+    await assert.rejects(
+      () =>
+        duplicateStudyDeck(
+          'deck',
+          {},
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not duplicate this study deck/,
     )
   },
 )
