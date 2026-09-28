@@ -1062,6 +1062,336 @@
   gap: 8px;
 }
 
+
+.deck-card-topline {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 14px;
+}
+
+.deck-card-actions {
+  display: flex;
+
+  flex: 0 0 auto;
+
+  gap: 7px;
+}
+
+.deck-card-actions button {
+  padding: 6px 9px;
+
+  border: 1px solid #d9dce7;
+  border-radius: 8px;
+
+  background: white;
+
+  color: #61697c;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.deck-card-actions button:hover:not(:disabled) {
+  border-color: #c5c0ed;
+
+  background: #f8f7ff;
+
+  color: #5e52d2;
+}
+
+.deck-card-actions
+  .deck-card-delete {
+  border-color: #ecd1d1;
+
+  color: #a84848;
+}
+
+.deck-card-actions
+  .deck-card-delete:hover:not(:disabled) {
+  border-color: #dfa9a9;
+
+  background: #fff6f6;
+
+  color: #983737;
+}
+
+.deck-card-actions button:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
+.card-editor {
+  display: grid;
+
+  gap: 17px;
+
+  margin: 18px 0 22px;
+  padding: 20px;
+
+  border: 1px solid #dfe0ef;
+  border-radius: 16px;
+
+  background: #fcfcff;
+}
+
+.card-editor-heading {
+  display: flex;
+
+  align-items: end;
+  justify-content: space-between;
+
+  gap: 18px;
+}
+
+.card-editor-heading h2 {
+  margin: 5px 0 0;
+
+  color: #30364c;
+
+  font-size: 18px;
+}
+
+.card-editor-heading label {
+  display: grid;
+
+  gap: 6px;
+
+  min-width: 190px;
+}
+
+.card-editor-heading label > span,
+.card-editor-field > span,
+.card-editor-options legend {
+  color: #596174;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.card-editor select,
+.card-editor textarea,
+.card-editor-choice input[type="text"] {
+  width: 100%;
+
+  border: 1px solid #d8dbe8;
+  border-radius: 10px;
+
+  background: white;
+
+  color: #30364c;
+
+  font: inherit;
+}
+
+.card-editor select {
+  min-height: 42px;
+
+  padding: 0 11px;
+}
+
+.card-editor textarea {
+  resize: vertical;
+
+  padding: 11px 12px;
+
+  line-height: 1.5;
+}
+
+.card-editor select:focus,
+.card-editor textarea:focus,
+.card-editor-choice input[type="text"]:focus {
+  border-color: #7569e8;
+
+  outline: 0;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(103, 90, 226, 0.1);
+}
+
+.card-editor-field {
+  display: grid;
+
+  gap: 7px;
+}
+
+.card-editor-field small {
+  color: #999ead;
+
+  font-weight: 600;
+}
+
+.card-editor-options {
+  display: grid;
+
+  gap: 10px;
+
+  margin: 0;
+  padding: 14px;
+
+  border: 1px solid #e0e2ec;
+  border-radius: 12px;
+}
+
+.card-editor-options legend {
+  padding: 0 6px;
+}
+
+.card-editor-radio {
+  display: flex;
+
+  align-items: center;
+
+  gap: 9px;
+
+  color: #50586c;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.card-editor-choice-list {
+  display: grid;
+
+  gap: 8px;
+}
+
+.card-editor-choice {
+  display: grid;
+
+  grid-template-columns:
+    auto minmax(0, 1fr) auto;
+
+  align-items: center;
+
+  gap: 9px;
+}
+
+.card-editor-choice
+  input[type="text"] {
+  min-height: 40px;
+
+  padding: 0 10px;
+}
+
+.card-editor-remove {
+  display: grid;
+
+  width: 34px;
+  height: 34px;
+
+  place-items: center;
+
+  border: 1px solid #ead2d2;
+  border-radius: 8px;
+
+  background: #fff8f8;
+
+  color: #aa4848;
+
+  cursor: pointer;
+
+  font-size: 18px;
+}
+
+.card-editor-remove:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.4;
+}
+
+.card-editor-add-choice {
+  justify-self: start;
+
+  padding: 7px 10px;
+
+  border: 1px solid #d7d5ef;
+  border-radius: 8px;
+
+  background: white;
+
+  color: #6256d4;
+
+  cursor: pointer;
+
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.card-editor-source {
+  margin: 0;
+
+  color: #858b9b;
+
+  font-size: 12px;
+}
+
+.card-editor-error {
+  margin: 0;
+  padding: 10px 12px;
+
+  border: 1px solid #edcccc;
+  border-radius: 9px;
+
+  background: #fff7f7;
+
+  color: #a23d3d;
+
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.card-editor-actions,
+.deck-empty-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 9px;
+}
+
+.deck-card-delete-confirm {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 14px;
+
+  margin-top: 16px;
+  padding: 13px;
+
+  border: 1px solid #ebcccc;
+  border-radius: 11px;
+
+  background: #fff8f8;
+}
+
+.deck-card-delete-confirm p {
+  margin: 0;
+
+  color: #874747;
+
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.deck-card-delete-confirm > div {
+  display: flex;
+
+  flex: 0 0 auto;
+
+  gap: 7px;
+}
+
 .deck-card-type,
 .deck-card-pages {
   padding: 4px 8px;
@@ -1240,5 +1570,30 @@
 
   .deck-card-row {
     grid-template-columns: 1fr;
+  }
+
+  .deck-card-topline,
+  .card-editor-heading,
+  .deck-card-delete-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .deck-card-actions,
+  .deck-card-delete-confirm > div,
+  .card-editor-actions,
+  .deck-empty-actions {
+    width: 100%;
+  }
+
+  .deck-card-actions > button,
+  .deck-card-delete-confirm > div > button,
+  .card-editor-actions > button,
+  .deck-empty-actions > button {
+    flex: 1;
+  }
+
+  .card-editor-heading label {
+    min-width: 0;
   }
 }
