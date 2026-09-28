@@ -1,6 +1,7 @@
 import type {
   CardBatchCreate,
   CardCreate,
+  CardUpdate,
   DeckCreate,
   DeckDetail,
   DeckDuplicate,
@@ -335,5 +336,64 @@ export async function duplicateStudyDeck(
     },
     'Could not duplicate this study deck.',
   )
+}
+
+export async function updateStudyCard(
+  deckId: string,
+  cardId: string,
+  payload: CardUpdate,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(cardId)}`,
+    fetcher,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(payload),
+    },
+    'Could not update this study card.',
+  )
+}
+
+export async function deleteStudyCard(
+  deckId: string,
+  cardId: string,
+  fetcher: ApiFetch,
+): Promise<void> {
+  const response =
+    await fetcher(
+      `/api/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(cardId)}`,
+      {
+        method: 'DELETE',
+      },
+    )
+
+  if (!response.ok) {
+    let detail =
+      'Could not delete this study card.'
+
+    try {
+      const data =
+        await response.json()
+
+      if (
+        data &&
+        typeof data === 'object' &&
+        'detail' in data &&
+        typeof data.detail ===
+          'string'
+      ) {
+        detail = data.detail
+      }
+    } catch {
+      // Keep bounded fallback.
+    }
+
+    throw new Error(detail)
+  }
 }
 

@@ -8,17 +8,22 @@ import {
   apiFetch,
 } from '../../lib/api'
 import {
+  addCardsToStudyDeck,
+  deleteStudyCard,
   deleteStudyDeck,
   duplicateStudyDeck,
   getStudyDeck,
   listStudyDecks,
+  updateStudyCard,
   updateStudyDeck,
 } from '../../lib/decks'
 import type {
+  CardCreate,
   CardRow,
   DeckDetail,
   DeckSummary,
 } from '../../types/api.generated'
+import CardEditor from './CardEditor'
 import ReviewDeckPage from './ReviewDeckPage'
 import './DecksPage.css'
 
@@ -202,11 +207,39 @@ function DeckDetailView({
     setManagementError,
   ] = useState('')
 
+  const [addingCard, setAddingCard] =
+    useState(false)
+  const [
+    editingCardId,
+    setEditingCardId,
+  ] = useState<string | null>(
+    null,
+  )
+  const [
+    confirmingCardDelete,
+    setConfirmingCardDelete,
+  ] = useState<string | null>(
+    null,
+  )
+  const [
+    cardActionBusy,
+    setCardActionBusy,
+  ] = useState(false)
+  const [
+    cardActionError,
+    setCardActionError,
+  ] = useState('')
+
   useEffect(() => {
     setDeckName(deck.name)
     setEditing(false)
     setConfirmingDelete(false)
     setManagementError('')
+    setAddingCard(false)
+    setEditingCardId(null)
+    setConfirmingCardDelete(null)
+    setCardActionError('')
+    setCardActionBusy(false)
   }, [
     deck.id,
     deck.name,
@@ -308,6 +341,89 @@ function DeckDetailView({
     }
   }
 
+  async function handleAddCard(
+    payload: CardCreate,
+  ) {
+    const updated =
+      await addCardsToStudyDeck(
+        deck.id,
+        [payload],
+        apiFetch,
+      )
+
+    onDeckUpdated(updated)
+    setAddingCard(false)
+    setCardActionError('')
+  }
+
+  async function handleEditCard(
+    cardId: string,
+    payload: CardCreate,
+  ) {
+    const updated =
+      await updateStudyCard(
+        deck.id,
+        cardId,
+        {
+          question_type:
+            payload.question_type,
+          question:
+            payload.question,
+          answer:
+            payload.answer,
+          choices:
+            payload.choices,
+          explanation:
+            payload.explanation,
+          source_filename:
+            payload.source_filename,
+          document_sha256:
+            payload.document_sha256,
+          source_pages:
+            payload.source_pages,
+        },
+        apiFetch,
+      )
+
+    onDeckUpdated(updated)
+    setEditingCardId(null)
+    setCardActionError('')
+  }
+
+  async function handleDeleteCard(
+    cardId: string,
+  ) {
+    setCardActionBusy(true)
+    setCardActionError('')
+
+    try {
+      await deleteStudyCard(
+        deck.id,
+        cardId,
+        apiFetch,
+      )
+
+      const updated =
+        await getStudyDeck(
+          deck.id,
+          apiFetch,
+        )
+
+      onDeckUpdated(updated)
+      setConfirmingCardDelete(
+        null,
+      )
+    } catch (caught) {
+      setCardActionError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not delete this study card.',
+      )
+    } finally {
+      setCardActionBusy(false)
+    }
+  }
+
   return (
     <>
       <button
@@ -403,6 +519,20 @@ function DeckDetailView({
               <span>due now</span>
             </div>
           </div>
+
+          <button
+            className="decks-secondary-button"
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setAddingCard(true)
+              setEditingCardId(null)
+              setConfirmingCardDelete(null)
+              setCardActionError('')
+            }}
+          >
+            + Add Card
+          </button>
 
           {deck.card_count > 0 && (
             <button
@@ -540,6 +670,25 @@ function DeckDetailView({
         </p>
       )}
 
+      {addingCard && (
+        <CardEditor
+          onCancel={() => {
+            setAddingCard(false)
+            setCardActionError('')
+          }}
+          onSave={handleAddCard}
+        />
+      )}
+
+      {cardActionError && (
+        <p
+          className="deck-management-error"
+          role="alert"
+        >
+          {cardActionError}
+        </p>
+      )}
+
       {deck.cards.length === 0 ? (
         <section className="decks-empty deck-detail-empty">
           <h2>
@@ -551,15 +700,28 @@ function DeckDetailView({
             this deck to start studying.
           </p>
 
-          <button
-            className="decks-primary-button"
-            type="button"
-            onClick={() =>
-              onNavigate('/')
-            }
-          >
-            Generate a Quiz
-          </button>
+          <div className="deck-empty-actions">
+            <button
+              className="decks-primary-button"
+              type="button"
+              onClick={() => {
+                setAddingCard(true)
+                setCardActionError('')
+              }}
+            >
+              + Add Card
+            </button>
+
+            <button
+              className="decks-secondary-button"
+              type="button"
+              onClick={() =>
+                onNavigate('/')
+              }
+            >
+              Generate a Quiz
+            </button>
+          </div>
         </section>
       ) : (
         <div className="deck-card-list">
@@ -574,7 +736,8 @@ function DeckDetailView({
                 </div>
 
                 <div className="deck-card-content">
-                  <div className="deck-card-heading">
+                  <div className="deck-card-topline">
+                    <div className="deck-card-heading">
                     <span className="deck-card-type">
                       {
                         card.question_type
@@ -595,6 +758,38 @@ function DeckDetailView({
                           )}
                         </span>
                       )}
+                    </div>
+
+                    <div className="deck-card-actions">
+                      <button
+                        type="button"
+                        disabled={cardActionBusy}
+                        onClick={() => {
+                          setEditingCardId(card.id)
+                          setAddingCard(false)
+                          setConfirmingCardDelete(null)
+                          setCardActionError('')
+                        }}
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        className="deck-card-delete"
+                        type="button"
+                        disabled={cardActionBusy}
+                        onClick={() => {
+                          setConfirmingCardDelete(
+                            card.id,
+                          )
+                          setEditingCardId(null)
+                          setAddingCard(false)
+                          setCardActionError('')
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
 
                   <h2>
@@ -649,6 +844,64 @@ function DeckDetailView({
                         card.source_filename
                       }
                     </span>
+                  )}
+
+                  {editingCardId ===
+                    card.id && (
+                    <CardEditor
+                      card={card}
+                      onCancel={() => {
+                        setEditingCardId(null)
+                        setCardActionError('')
+                      }}
+                      onSave={(payload) =>
+                        handleEditCard(
+                          card.id,
+                          payload,
+                        )
+                      }
+                    />
+                  )}
+
+                  {confirmingCardDelete ===
+                    card.id && (
+                    <div className="deck-card-delete-confirm">
+                      <p>
+                        Delete this card?
+                        Its review history
+                        will also be removed.
+                      </p>
+
+                      <div>
+                        <button
+                          className="deck-delete-confirm"
+                          type="button"
+                          disabled={cardActionBusy}
+                          onClick={() =>
+                            void handleDeleteCard(
+                              card.id,
+                            )
+                          }
+                        >
+                          {cardActionBusy
+                            ? 'Deleting…'
+                            : 'Delete Card'}
+                        </button>
+
+                        <button
+                          className="decks-secondary-button"
+                          type="button"
+                          disabled={cardActionBusy}
+                          onClick={() =>
+                            setConfirmingCardDelete(
+                              null,
+                            )
+                          }
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               </article>
