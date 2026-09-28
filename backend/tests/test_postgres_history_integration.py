@@ -417,6 +417,37 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert queued_tags[first_card_id] == ["finals", "cell biology"]
             assert queued_tags[second_card_id] == ["biochemistry"]
 
+            filtered_queue = await client.get(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                params={
+                    "tag":
+                        "  BIOCHEMISTRY ",
+                },
+            )
+            assert filtered_queue.status_code == 200, filtered_queue.text
+            assert filtered_queue.json()["tag"] == "biochemistry"
+            assert filtered_queue.json()["due_count"] == 1
+            assert [
+                card["id"]
+                for card in filtered_queue.json()["cards"]
+            ] == [second_card_id]
+
+            cell_queue = await client.get(
+                f"/api/decks/{deck_id}/review",
+                headers=headers(),
+                params={
+                    "tag":
+                        "cell biology",
+                },
+            )
+            assert cell_queue.status_code == 200, cell_queue.text
+            assert cell_queue.json()["due_count"] == 1
+            assert [
+                card["id"]
+                for card in cell_queue.json()["cards"]
+            ] == [first_card_id]
+
             reviewed = await client.post(
                 f"/api/decks/{deck_id}/review",
                 headers=headers(),
