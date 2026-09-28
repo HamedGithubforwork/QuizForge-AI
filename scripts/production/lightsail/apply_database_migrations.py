@@ -184,7 +184,7 @@ esac
 
 test "$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid)') IS NOT NULL)::int")" = "1"
 test "$(dbq "SELECT has_function_privilege('quizforge_app','app.move_card(uuid,uuid)','EXECUTE')::int")" = "1"
-test "$(dbq "SELECT has_function_privilege('public','app.move_card(uuid,uuid)','EXECUTE')::int")" = "0"
+test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='app.move_card(uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'))::int")" = "1"
 
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
