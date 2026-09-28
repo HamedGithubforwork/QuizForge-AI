@@ -104,7 +104,7 @@ def schema_state(conn):
             ORDER BY 1,2,3,4,5""",
         "roles": """SELECT rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,
             rolreplication,rolbypassrls,rolconfig FROM pg_roles
-            WHERE rolname IN ('quizforge_app','quizforge_identity','quizforge_generation') ORDER BY 1""",
+            WHERE rolname IN ('quizforge_app','quizforge_identity','quizforge_generation','quizforge_notifier') ORDER BY 1""",
         "memberships": """SELECT pg_get_userbyid(roleid),pg_get_userbyid(member),admin_option
             FROM pg_auth_members WHERE pg_get_userbyid(member) IN
             ('quizforge_app','quizforge_identity','quizforge_generation','quizforge_notifier') ORDER BY 1,2""",
