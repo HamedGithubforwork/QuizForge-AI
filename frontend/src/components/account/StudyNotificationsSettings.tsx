@@ -5,6 +5,9 @@ import {
 } from 'react'
 
 import {
+  apiFetch,
+} from '../../lib/api'
+import {
   browserPushSupported,
   currentBrowserPushSubscription,
   detectedTimezone,
@@ -63,7 +66,9 @@ export default function StudyNotificationsSettings() {
       try {
         const [preferences, subscription] =
           await Promise.all([
-            getStudyNotificationPreferences(),
+            getStudyNotificationPreferences(
+              apiFetch,
+            ),
             currentBrowserPushSubscription(),
           ])
 
@@ -131,7 +136,9 @@ export default function StudyNotificationsSettings() {
         supported &&
         !connected
       ) {
-        await enableBrowserPush()
+        await enableBrowserPush(
+          apiFetch,
+        )
         connected = true
         setBrowserConnected(true)
       }
@@ -156,6 +163,7 @@ export default function StudyNotificationsSettings() {
             minimum_due_cards:
               minimumDueCards,
           },
+          apiFetch,
         )
 
       setEnabled(
@@ -198,7 +206,9 @@ export default function StudyNotificationsSettings() {
     setMessage('')
 
     try {
-      await enableBrowserPush()
+      await enableBrowserPush(
+        apiFetch,
+      )
       setBrowserConnected(true)
       setMessage(
         'This browser is connected for study reminders.',
@@ -220,7 +230,9 @@ export default function StudyNotificationsSettings() {
     setMessage('')
 
     try {
-      await disableBrowserPush()
+      await disableBrowserPush(
+        apiFetch,
+      )
       setBrowserConnected(false)
       setMessage(
         'This browser was removed from study reminders.',
