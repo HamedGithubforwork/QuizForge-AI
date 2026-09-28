@@ -155,17 +155,16 @@ class DeckSchema(unittest.TestCase):
                 (first_user, second_user),
             )
             connection.execute("SET ROLE quizforge_app")
-
+            connection.execute(
+                "SELECT set_config("
+                "'quizforge.user_id', %s, false)",
+                (str(first_user),),
+            )
             connection.execute(
                 "INSERT INTO app.study_notification_preferences "
                 "(user_id,enabled,reminder_time,timezone,minimum_due_cards) "
                 "VALUES (%s,true,'20:30','America/Toronto',3)",
                 (first_user,),
-            )
-            connection.execute(
-                "SELECT set_config("
-                "'quizforge.user_id', %s, false)",
-                (str(first_user),),
             )
 
             deck_id = connection.execute(
