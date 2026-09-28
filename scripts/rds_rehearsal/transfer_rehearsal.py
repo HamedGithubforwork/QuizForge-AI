@@ -143,7 +143,9 @@ def run():
         owner.execute("DROP SCHEMA auth CASCADE")
         owner.execute("DROP SCHEMA app CASCADE")
         owner.execute("REVOKE CONNECT ON DATABASE quizforge_rehearsal FROM quizforge_app")
+        owner.execute("REVOKE CONNECT ON DATABASE quizforge_rehearsal FROM quizforge_notifier")
         owner.execute("DROP ROLE quizforge_app")
+        owner.execute("DROP ROLE quizforge_notifier")
         print("PASS: synthetic export/import/rollback rehearsal complete; temporary SQL fixtures removed")
 
 
