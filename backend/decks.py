@@ -14,6 +14,36 @@ from app_shared import AuthenticatedUser, get_current_user
 router = APIRouter(prefix="/api/decks", tags=["decks"])
 
 
+def normalize_card_tags(
+    value: list[str],
+) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+
+    for tag in value:
+        cleaned = " ".join(
+            tag.split()
+        ).casefold()
+
+        if (
+            not cleaned
+            or len(cleaned) > 50
+        ):
+            raise ValueError(
+                "Tags must contain 1 to 50 characters."
+            )
+
+        if cleaned in seen:
+            continue
+
+        seen.add(cleaned)
+        normalized.append(
+            cleaned
+        )
+
+    return normalized
+
+
 class CardCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -54,29 +84,9 @@ class CardCreate(BaseModel):
         cls,
         value: list[str],
     ):
-        normalized = []
-        seen = set()
-
-        for tag in value:
-            cleaned = " ".join(
-                tag.split()
-            )
-            if (
-                not cleaned
-                or len(cleaned) > 50
-            ):
-                raise ValueError(
-                    "Tags must contain 1 to 50 characters."
-                )
-            key = cleaned.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            normalized.append(
-                cleaned
-            )
-
-        return normalized
+        return normalize_card_tags(
+            value
+        )
 
     @field_validator("source_pages")
     @classmethod
@@ -297,29 +307,9 @@ class CardUpdate(BaseModel):
         if value is None:
             return None
 
-        normalized = []
-        seen = set()
-
-        for tag in value:
-            cleaned = " ".join(
-                tag.split()
-            )
-            if (
-                not cleaned
-                or len(cleaned) > 50
-            ):
-                raise ValueError(
-                    "Tags must contain 1 to 50 characters."
-                )
-            key = cleaned.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            normalized.append(
-                cleaned
-            )
-
-        return normalized
+        return normalize_card_tags(
+            value
+        )
 
     @field_validator("source_pages")
     @classmethod
