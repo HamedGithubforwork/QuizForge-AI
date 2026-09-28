@@ -14,6 +14,7 @@ import {
   duplicateStudyDeck,
   getStudyDeck,
   listStudyDecks,
+  moveStudyCard,
   updateStudyCard,
   updateStudyDeck,
 } from '../../lib/decks'
@@ -183,10 +184,12 @@ function DeckList({
 
 function DeckDetailView({
   deck,
+  availableDecks,
   onNavigate,
   onDeckUpdated,
 }: {
   deck: DeckDetail
+  availableDecks: DeckSummary[]
   onNavigate: (path: string) => void
   onDeckUpdated: (
     deck: DeckDetail,
@@ -222,6 +225,16 @@ function DeckDetailView({
     null,
   )
   const [
+    movingCardId,
+    setMovingCardId,
+  ] = useState<string | null>(
+    null,
+  )
+  const [
+    moveTargetDeckId,
+    setMoveTargetDeckId,
+  ] = useState('')
+  const [
     cardActionBusy,
     setCardActionBusy,
   ] = useState(false)
@@ -238,6 +251,8 @@ function DeckDetailView({
     setAddingCard(false)
     setEditingCardId(null)
     setConfirmingCardDelete(null)
+    setMovingCardId(null)
+    setMoveTargetDeckId('')
     setCardActionError('')
     setCardActionBusy(false)
   }, [
@@ -388,6 +403,48 @@ function DeckDetailView({
     onDeckUpdated(updated)
     setEditingCardId(null)
     setCardActionError('')
+  }
+
+  async function handleMoveCard(
+    cardId: string,
+  ) {
+    if (
+      !moveTargetDeckId ||
+      moveTargetDeckId === deck.id
+    ) {
+      setCardActionError(
+        'Choose a different destination deck.',
+      )
+      return
+    }
+
+    setCardActionBusy(true)
+    setCardActionError('')
+
+    try {
+      const updated =
+        await moveStudyCard(
+          deck.id,
+          cardId,
+          {
+            target_deck_id:
+              moveTargetDeckId,
+          },
+          apiFetch,
+        )
+
+      onDeckUpdated(updated)
+      setMovingCardId(null)
+      setMoveTargetDeckId('')
+    } catch (caught) {
+      setCardActionError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not move this study card.',
+      )
+    } finally {
+      setCardActionBusy(false)
+    }
   }
 
   async function handleDeleteCard(
@@ -774,6 +831,36 @@ function DeckDetailView({
                         Edit
                       </button>
 
+                      {availableDecks.some(
+                        (item) =>
+                          item.id !== deck.id,
+                      ) && (
+                        <button
+                          type="button"
+                          disabled={cardActionBusy}
+                          onClick={() => {
+                            const fallback =
+                              availableDecks.find(
+                                (item) =>
+                                  item.id !== deck.id,
+                              )?.id ?? ''
+
+                            setMovingCardId(
+                              card.id,
+                            )
+                            setMoveTargetDeckId(
+                              fallback,
+                            )
+                            setEditingCardId(null)
+                            setConfirmingCardDelete(null)
+                            setAddingCard(false)
+                            setCardActionError('')
+                          }}
+                        >
+                          Move
+                        </button>
+                      )}
+
                       <button
                         className="deck-card-delete"
                         type="button"
@@ -844,6 +931,88 @@ function DeckDetailView({
                         card.source_filename
                       }
                     </span>
+                  )}
+
+                  {movingCardId ===
+                    card.id && (
+                    <div className="deck-card-move-panel">
+                      <div>
+                        <span className="decks-eyebrow">
+                          MOVE CARD
+                        </span>
+
+                        <p>
+                          Review progress and history
+                          stay with this card.
+                        </p>
+                      </div>
+
+                      <label>
+                        <span>
+                          Destination deck
+                        </span>
+
+                        <select
+                          value={moveTargetDeckId}
+                          disabled={cardActionBusy}
+                          onChange={(event) =>
+                            setMoveTargetDeckId(
+                              event.target.value,
+                            )
+                          }
+                        >
+                          {availableDecks
+                            .filter(
+                              (item) =>
+                                item.id !==
+                                deck.id,
+                            )
+                            .map(
+                              (item) => (
+                                <option
+                                  key={item.id}
+                                  value={item.id}
+                                >
+                                  {item.name}
+                                </option>
+                              ),
+                            )}
+                        </select>
+                      </label>
+
+                      <div className="deck-card-move-actions">
+                        <button
+                          className="decks-primary-button"
+                          type="button"
+                          disabled={
+                            cardActionBusy ||
+                            !moveTargetDeckId
+                          }
+                          onClick={() =>
+                            void handleMoveCard(
+                              card.id,
+                            )
+                          }
+                        >
+                          {cardActionBusy
+                            ? 'Moving…'
+                            : 'Move Card'}
+                        </button>
+
+                        <button
+                          className="decks-secondary-button"
+                          type="button"
+                          disabled={cardActionBusy}
+                          onClick={() => {
+                            setMovingCardId(null)
+                            setMoveTargetDeckId('')
+                            setCardActionError('')
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {editingCardId ===
@@ -959,14 +1128,22 @@ export default function DecksPage({
         }
 
         if (deckId) {
-          const next =
-            await getStudyDeck(
+          const [
+            nextDeck,
+            nextDecks,
+          ] = await Promise.all([
+            getStudyDeck(
               deckId,
               apiFetch,
-            )
+            ),
+            listStudyDecks(
+              apiFetch,
+            ),
+          ])
 
           if (active) {
-            setDeck(next)
+            setDeck(nextDeck)
+            setDecks(nextDecks)
           }
           return
         }
@@ -1081,6 +1258,7 @@ export default function DecksPage({
         ) : deck ? (
           <DeckDetailView
             deck={deck}
+            availableDecks={decks}
             onNavigate={onNavigate}
             onDeckUpdated={
               setDeck
