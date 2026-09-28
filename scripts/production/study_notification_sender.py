@@ -112,7 +112,7 @@ def _candidate_rows(
 ):
     rows = connection.execute(
         """WITH due AS (
-             SELECT user_id,count(*)::int AS due_count
+             SELECT user_id,count(user_id)::int AS due_count
              FROM app.cards
              WHERE due_at <= now()
              GROUP BY user_id
