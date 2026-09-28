@@ -12,6 +12,7 @@ import {
   getReviewQueue,
   getStudyDeck,
   listStudyDecks,
+  moveStudyCard,
   submitReview,
   updateStudyCard,
   updateStudyDeck,
@@ -1063,6 +1064,104 @@ test(
             }),
         ),
       /Could not delete this study card/,
+    )
+  },
+)
+
+test(
+  'moveStudyCard posts the target deck and returns the refreshed source deck',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const result =
+      await moveStudyCard(
+        'source/deck',
+        'card/id',
+        {
+          target_deck_id:
+            '33333333-3333-4333-8333-333333333333',
+        },
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init =
+            requestInit ?? {}
+
+          return new Response(
+            JSON.stringify({
+              id:
+                '11111111-1111-4111-8111-111111111111',
+              name:
+                'Source',
+              description: null,
+              card_count: 0,
+              due_count: 0,
+              next_due_at: null,
+              created_at:
+                '2026-09-28T10:00:00Z',
+              updated_at:
+                '2026-09-28T11:00:00Z',
+              cards: [],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/source%2Fdeck/cards/card%2Fid/move',
+    )
+    assert.equal(
+      init.method,
+      'POST',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {
+        target_deck_id:
+          '33333333-3333-4333-8333-333333333333',
+      },
+    )
+    assert.equal(
+      result.card_count,
+      0,
+    )
+  },
+)
+
+test(
+  'moveStudyCard surfaces a bounded fallback error',
+  async () => {
+    await assert.rejects(
+      () =>
+        moveStudyCard(
+          'source',
+          'card',
+          {
+            target_deck_id:
+              'target',
+          },
+          async () =>
+            new Response(
+              null,
+              {
+                status: 503,
+              },
+            ),
+        ),
+      /Could not move this study card/,
     )
   },
 )
