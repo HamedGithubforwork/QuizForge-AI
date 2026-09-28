@@ -19,7 +19,7 @@ def initialize(env, directory):
         raise ValueError("Requires the explicit Lightsail owner connection")
     if directory.is_symlink() or not directory.is_dir() or directory.stat().st_mode & 0o077:
         raise ValueError("Credential destination must be a private directory")
-    names = {"quizforge_app": "api.env", "quizforge_identity": "identity.env", "quizforge_generation": "generation-db.env"}
+    names = {"quizforge_app": "api.env", "quizforge_identity": "identity.env", "quizforge_generation": "generation-db.env", "quizforge_notifier": "notifier.env"}
     if any((directory / name).exists() or (directory / name).is_symlink() for name in names.values()):
         raise ValueError("Refusing to overwrite runtime credentials")
     passwords = {role: secrets.token_urlsafe(48) for role in names}
@@ -32,7 +32,7 @@ def initialize(env, directory):
             for role, filename in names.items():
                 with psycopg.ClientCursor(conn) as cursor:
                     cursor.execute(sql.SQL("ALTER ROLE {} PASSWORD %s").format(sql.Identifier(role)), (passwords[role],))
-                variable = {"quizforge_app": "HISTORY_DB_PASSWORD", "quizforge_identity": "IDENTITY_DB_PASSWORD", "quizforge_generation": "PGPASSWORD"}[role]
+                variable = {"quizforge_app": "HISTORY_DB_PASSWORD", "quizforge_identity": "IDENTITY_DB_PASSWORD", "quizforge_generation": "PGPASSWORD", "quizforge_notifier": "NOTIFIER_DB_PASSWORD"}[role]
                 private_write(directory / filename, f"{variable}={passwords[role]}\n".encode())
     # Files are deliberately retained on a failure for operator reconciliation;
     # a repeat attempt never replaces a possibly committed credential.
