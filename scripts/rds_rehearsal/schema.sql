@@ -212,7 +212,7 @@ CREATE FUNCTION app.move_card(
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, app
-AS $
+AS $$
 DECLARE
     v_user_id uuid;
 BEGIN
@@ -259,7 +259,7 @@ BEGIN
 
     RETURN true;
 END
-$;
+$$;
 
 REVOKE ALL
 ON FUNCTION app.move_card(uuid, uuid, uuid)
