@@ -269,7 +269,17 @@ def test_register_push_subscription_uses_request_user_agent(api):
     "payload",
     [
         {
-            "endpoint": "http://push.example/subscription",
+            "endpoint": "http://fcm.googleapis.com/fcm/send/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://example.com/push/subscription",
+            "p256dh": "p" * 32,
+            "auth": "auth-token",
+        },
+        {
+            "endpoint": "https://fcm.googleapis.com.evil.invalid/push",
             "p256dh": "p" * 32,
             "auth": "auth-token",
         },
@@ -290,19 +300,19 @@ def test_register_push_subscription_uses_request_user_agent(api):
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "contains padding=",
             "auth": "auth-token",
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "p" * 32,
             "auth": "bad value!",
         },
         {
             "endpoint":
-                "https://push.example/subscription",
+                "https://fcm.googleapis.com/fcm/send/subscription",
             "p256dh": "p" * 32,
             "auth": "auth-token",
             "user_id": "forged",
