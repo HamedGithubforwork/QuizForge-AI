@@ -180,7 +180,8 @@ class PostgreSQLRecovery(unittest.TestCase):
                    last_reviewed_at='2026-09-21 01:05:00+00',
                    review_count=1,lapse_count=0,
                    suspended=true,
-                   progress_reset_at='2026-09-21 01:05:30+00'
+                   progress_reset_at='2026-09-21 01:05:30+00',
+                   tags=ARRAY['Biology','Exam 1']
              WHERE id='40000000-0000-0000-0000-000000000001';
             INSERT INTO app.card_review_logs(
                 id,card_id,user_id,rating,reviewed_at,review_duration_ms
@@ -260,6 +261,12 @@ class PostgreSQLRecovery(unittest.TestCase):
             self.assertEqual(self.target.execute("SELECT name FROM app.decks").fetchall(), [('Biology Midterm',)])
             self.assertEqual(self.target.execute("SELECT question,source_pages FROM app.cards").fetchall(),
                              [('What organelle produces ATP?', [12, 14])])
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT tags FROM app.cards"
+                ).fetchall(),
+                [(['Biology', 'Exam 1'],)],
+            )
             self.assertEqual(
                 self.target.execute(
                     "SELECT fsrs_state,fsrs_step,stability,difficulty,review_count,lapse_count,"
