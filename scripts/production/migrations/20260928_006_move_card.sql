@@ -10,7 +10,7 @@ BEGIN
         RAISE EXCEPTION 'Expected the reviewed deck schema';
     END IF;
 
-    IF to_regprocedure('app.move_card(uuid,uuid)') IS NOT NULL THEN
+    IF to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL THEN
         RAISE EXCEPTION 'Move-card function is already present';
     END IF;
 
@@ -28,6 +28,7 @@ $$;
 
 CREATE FUNCTION app.move_card(
     p_card_id uuid,
+    p_source_deck_id uuid,
     p_target_deck_id uuid
 ) RETURNS boolean
 LANGUAGE plpgsql
@@ -36,7 +37,6 @@ SET search_path = pg_catalog, app
 AS $$
 DECLARE
     v_user_id uuid;
-    v_source_deck_id uuid;
 BEGIN
     v_user_id := nullif(
         current_setting(
@@ -50,16 +50,6 @@ BEGIN
         RETURN false;
     END IF;
 
-    SELECT deck_id
-    INTO v_source_deck_id
-    FROM app.cards
-    WHERE id = p_card_id
-      AND user_id = v_user_id;
-
-    IF v_source_deck_id IS NULL THEN
-        RETURN false;
-    END IF;
-
     IF NOT EXISTS (
         SELECT 1
         FROM app.decks
@@ -69,15 +59,12 @@ BEGIN
         RETURN false;
     END IF;
 
-    IF v_source_deck_id = p_target_deck_id THEN
-        RETURN true;
-    END IF;
-
     UPDATE app.cards
     SET
         deck_id = p_target_deck_id,
         updated_at = now()
     WHERE id = p_card_id
+      AND deck_id = p_source_deck_id
       AND user_id = v_user_id;
 
     IF NOT FOUND THEN
@@ -88,7 +75,7 @@ BEGIN
     SET updated_at = now()
     WHERE user_id = v_user_id
       AND id IN (
-          v_source_deck_id,
+          p_source_deck_id,
           p_target_deck_id
       );
 
@@ -97,10 +84,10 @@ END
 $$;
 
 REVOKE ALL
-ON FUNCTION app.move_card(uuid, uuid)
+ON FUNCTION app.move_card(uuid, uuid, uuid)
 FROM PUBLIC;
 GRANT EXECUTE
-ON FUNCTION app.move_card(uuid, uuid)
+ON FUNCTION app.move_card(uuid, uuid, uuid)
 TO quizforge_app;
 
 COMMIT;
