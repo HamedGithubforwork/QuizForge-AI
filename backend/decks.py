@@ -171,6 +171,12 @@ class DeckUpdate(BaseModel):
         return self
 
 
+class CardMove(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_deck_id: UUID
+
+
 class CardUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -448,6 +454,31 @@ async def delete_deck(
 ):
     await repository.delete(deck_id)
     return Response(status_code=204)
+
+
+@router.post(
+    "/{deck_id}/cards/{card_id}/move",
+    response_model=DeckDetail,
+)
+async def move_card(
+    deck_id: UUID,
+    card_id: UUID,
+    payload: CardMove,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    if payload.target_deck_id == deck_id:
+        raise HTTPException(
+            409,
+            "Card is already in this deck.",
+        )
+
+    return await repository.move_card(
+        deck_id,
+        card_id,
+        payload.target_deck_id,
+    )
 
 
 @router.patch(
