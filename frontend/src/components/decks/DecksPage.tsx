@@ -33,6 +33,7 @@ import type {
 } from '../../types/api.generated'
 import CardEditor from './CardEditor'
 import CramDeckPage from './CramDeckPage'
+import RecentlyAddedDeckPage from './RecentlyAddedDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
 import WeakCardsPage from './WeakCardsPage'
 import './DecksPage.css'
@@ -53,6 +54,9 @@ const CRAM_PATH =
 
 const WEAK_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/weak$/i
+
+const RECENT_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/recent$/i
 
 function formatDeckDate(
   value: string,
@@ -745,6 +749,20 @@ function DeckDetailView({
               }
             >
               Practice Weak Cards
+            </button>
+          )}
+
+          {activeCardCount > 0 && (
+            <button
+              className="decks-secondary-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/recent`,
+                )
+              }
+            >
+              Recently Added
             </button>
           )}
 
@@ -1482,6 +1500,10 @@ export default function DecksPage({
     pathname.match(WEAK_PATH)
   const weakDeckId =
     weakMatch?.[1] ?? null
+  const recentMatch =
+    pathname.match(RECENT_PATH)
+  const recentDeckId =
+    recentMatch?.[1] ?? null
   const detailMatch =
     pathname.match(DECK_PATH)
   const deckId =
@@ -1491,7 +1513,8 @@ export default function DecksPage({
     !deckId &&
     !reviewDeckId &&
     !cramDeckId &&
-    !weakDeckId
+    !weakDeckId &&
+    !recentDeckId
 
   useEffect(() => {
     let active = true
@@ -1505,7 +1528,8 @@ export default function DecksPage({
         if (
           reviewDeckId ||
           cramDeckId ||
-          weakDeckId
+          weakDeckId ||
+          recentDeckId
         ) {
           return
         }
@@ -1570,6 +1594,7 @@ export default function DecksPage({
     deckId,
     invalidPath,
     pathname,
+    recentDeckId,
     reviewDeckId,
     weakDeckId,
   ])
@@ -1608,6 +1633,11 @@ export default function DecksPage({
         ) : weakDeckId ? (
           <WeakCardsPage
             deckId={weakDeckId}
+            onNavigate={onNavigate}
+          />
+        ) : recentDeckId ? (
+          <RecentlyAddedDeckPage
+            deckId={recentDeckId}
             onNavigate={onNavigate}
           />
         ) : loading ? (
