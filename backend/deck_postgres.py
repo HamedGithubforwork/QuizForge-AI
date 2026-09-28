@@ -661,7 +661,13 @@ class PostgresDeckRepository:
             )
             return await self._detail(conn, user_id, deck_id)
 
-    async def review_queue(self, deck_id, *, limit):
+    async def review_queue(
+        self,
+        deck_id,
+        *,
+        limit,
+        tag=None,
+    ):
         async with self.transaction() as (conn, user_id):
             summary_row = await self._summary_row(
                 conn,
@@ -672,32 +678,65 @@ class PostgresDeckRepository:
                 summary_row,
                 user_id,
             )
+
+            tag_clause = (
+                sql.SQL("")
+                if tag is None
+                else sql.SQL(
+                    " AND tags @> ARRAY[%s]::text[]"
+                )
+            )
+            base_params = [
+                deck_id,
+                user_id,
+            ]
+            if tag is not None:
+                base_params.append(tag)
+
+            stats_query = sql.SQL(
+                """SELECT
+                    count(*) FILTER (WHERE due_at <= now())::int AS due_count,
+                    min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
+                   FROM app.cards
+                   WHERE deck_id=%s
+                     AND user_id=%s
+                     AND suspended=false{}"""
+            ).format(tag_clause)
             stats = await (
                 await conn.execute(
-                    """SELECT
-                        count(*) FILTER (WHERE due_at <= now())::int AS due_count,
-                        min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
-                       FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s AND suspended=false""",
-                    (deck_id, user_id),
+                    stats_query,
+                    base_params,
                 )
             ).fetchone()
+
+            rows_query = sql.SQL(
+                """SELECT id,deck_id,user_id,question_type,question,answer,choices,
+                          explanation,source_filename,document_sha256,source_pages,tags,
+                          fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
+                          review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
+                   FROM app.cards
+                   WHERE deck_id=%s
+                     AND user_id=%s
+                     AND suspended=false
+                     AND due_at <= now(){}
+                   ORDER BY due_at,created_at,id
+                   LIMIT %s"""
+            ).format(tag_clause)
+            row_params = [
+                *base_params,
+                limit,
+            ]
             rows = await (
                 await conn.execute(
-                    """SELECT id,deck_id,user_id,question_type,question,answer,choices,
-                              explanation,source_filename,document_sha256,source_pages,tags,
-                              fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                              review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
-                       FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s AND suspended=false AND due_at <= now()
-                       ORDER BY due_at,created_at,id
-                       LIMIT %s""",
-                    (deck_id, user_id, limit),
+                    rows_query,
+                    row_params,
                 )
             ).fetchall()
+
             return {
                 "deck_id": deck_id,
                 "deck_name": summary["name"],
+                "tag": tag,
                 "due_count": stats["due_count"],
                 "next_due_at": stats["next_due_at"],
                 "cards": self._cards(rows, user_id),
