@@ -288,7 +288,12 @@ export default function CognitoAuthGate() {
   }
   if (loading) return <p role="status">Checking account…</p>
   const logout = <button className="sign-out-button" type="button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
-  const settingsSection: SettingsSection = pathname === '/settings/security' ? 'security' : 'account'
+  const settingsSection: SettingsSection =
+    pathname === '/settings/security'
+      ? 'security'
+      : pathname === '/settings/notifications'
+        ? 'notifications'
+        : 'account'
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/')
   const inDecks = pathname === '/decks' || pathname.startsWith('/decks/')
 
