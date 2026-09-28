@@ -131,6 +131,19 @@ export type CardBatchCreate = {
   "cards": CardCreate[]
 }
 
+export type CardUpdate = {
+  "question_type"?: "multiple_choice" | "true_false" | "short_answer" | null
+  "question"?: string | null
+  "answer"?: {
+  [key: string]: unknown
+} | null
+  "choices"?: string[] | null
+  "explanation"?: string | null
+  "source_filename"?: string | null
+  "document_sha256"?: string | null
+  "source_pages"?: number[] | null
+}
+
 export type DeckSummary = {
   "id": string
   "name": string
@@ -280,6 +293,7 @@ export type UploadResponse = {
 
 export const API_ROUTES = [
   "DELETE /api/decks/{deck_id}",
+  "DELETE /api/decks/{deck_id}/cards/{card_id}",
   "DELETE /api/documents/jobs/{job_id}",
   "DELETE /api/quiz-history/{entry_id}",
   "DELETE /api/study-notifications/push/subscriptions/{endpoint_hash}",
@@ -297,6 +311,7 @@ export const API_ROUTES = [
   "GET /api/study-notifications/preferences",
   "GET /api/study-notifications/push/public-key",
   "PATCH /api/decks/{deck_id}",
+  "PATCH /api/decks/{deck_id}/cards/{card_id}",
   "POST /api/answers/review",
   "POST /api/decks",
   "POST /api/decks/{deck_id}/cards",
