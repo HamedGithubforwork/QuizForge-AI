@@ -149,6 +149,51 @@ class FakeRepository:
     async def delete(self, deck_id):
         self.calls.append(("delete", deck_id))
 
+    async def update_card(
+        self,
+        deck_id,
+        card_id,
+        payload,
+    ):
+        self.calls.append(
+            (
+                "update_card",
+                deck_id,
+                card_id,
+                payload,
+            )
+        )
+        return deck_detail(
+            cards=[
+                card_row(
+                    id=card_id,
+                    question=(
+                        payload.question
+                        or "What organelle produces ATP?"
+                    ),
+                    explanation=(
+                        payload.explanation
+                        if "explanation"
+                        in payload.model_fields_set
+                        else "Mitochondria perform cellular respiration."
+                    ),
+                )
+            ]
+        )
+
+    async def delete_card(
+        self,
+        deck_id,
+        card_id,
+    ):
+        self.calls.append(
+            (
+                "delete_card",
+                deck_id,
+                card_id,
+            )
+        )
+
     async def add_cards(self, deck_id, cards):
         self.calls.append(("add_cards", deck_id, cards))
         values = [
@@ -538,4 +583,87 @@ def test_duplicate_deck_rejects_invalid_payloads_before_repository(
 
     assert response.status_code == 422
     assert repository.calls == []
+
+def test_update_card_accepts_partial_changes_and_preserves_null_clearable_fields(api):
+    client, repository = api
+
+    response = client.patch(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}",
+        json={
+            "question":
+                "Which organelle makes ATP?",
+            "explanation": None,
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.json()["cards"][0]["question"]
+        == "Which organelle makes ATP?"
+    )
+    assert (
+        response.json()["cards"][0]["explanation"]
+        is None
+    )
+
+    _, deck_id, card_id, payload = (
+        repository.calls[0]
+    )
+    assert deck_id == DECK_ID
+    assert card_id == CARD_ID
+    assert payload.question == (
+        "Which organelle makes ATP?"
+    )
+    assert "explanation" in (
+        payload.model_fields_set
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"question": "   "},
+        {"question": None},
+        {"question_type": None},
+        {"answer": None},
+        {"source_pages": None},
+        {"source_pages": [2, 2]},
+        {"source_pages": [0]},
+        {"document_sha256": "bad"},
+        {"user_id": "forged"},
+        {"fsrs_state": 2},
+        {"review_count": 0},
+    ],
+)
+def test_update_card_rejects_invalid_or_scheduler_fields_before_repository(
+    api,
+    payload,
+):
+    client, repository = api
+
+    response = client.patch(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+
+def test_delete_card_uses_owned_path_identifiers_only(api):
+    client, repository = api
+
+    response = client.delete(
+        f"/api/decks/{DECK_ID}/cards/{CARD_ID}"
+    )
+
+    assert response.status_code == 204
+    assert repository.calls == [
+        (
+            "delete_card",
+            DECK_ID,
+            CARD_ID,
+        )
+    ]
 
