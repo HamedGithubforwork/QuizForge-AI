@@ -122,6 +122,30 @@ class DeckCreate(BaseModel):
         return cleaned
 
 
+class DeckDuplicate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(
+        cls,
+        value: str | None,
+    ):
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError(
+                "Deck name cannot be blank."
+            )
+        return cleaned
+
+
 class DeckUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -250,6 +274,24 @@ async def review_card(
         review_duration_ms=(
             payload.review_duration_ms
         ),
+    )
+
+
+@router.post(
+    "/{deck_id}/duplicate",
+    status_code=201,
+    response_model=DeckDetail,
+)
+async def duplicate_deck(
+    deck_id: UUID,
+    payload: DeckDuplicate,
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return await repository.duplicate(
+        deck_id,
+        name=payload.name,
     )
 
 
