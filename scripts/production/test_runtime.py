@@ -331,7 +331,7 @@ class ProductionSchema(unittest.TestCase):
             _delete_expired(owner,endpoint_hash)
             self.assertEqual(
                 owner.execute(
-                    "SELECT count(*) AS count FROM app.study_push_subscriptions"
+                    "SELECT count(endpoint_hash) AS count FROM app.study_push_subscriptions"
                 ).fetchone()["count"],
                 0,
             )
