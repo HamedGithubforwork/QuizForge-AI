@@ -64,6 +64,8 @@ CREATE TABLE app.cards (
     last_reviewed_at timestamptz,
     review_count integer NOT NULL DEFAULT 0 CHECK (review_count >= 0),
     lapse_count integer NOT NULL DEFAULT 0 CHECK (lapse_count >= 0),
+    suspended boolean NOT NULL DEFAULT false,
+    progress_reset_at timestamptz,
     UNIQUE (id, user_id),
     CHECK (
         (fsrs_state = 2 AND fsrs_step IS NULL)
@@ -93,6 +95,9 @@ CREATE INDEX cards_user_deck_created_at_id_idx
     ON app.cards (user_id, deck_id, created_at, id);
 CREATE INDEX cards_user_due_at_id_idx
     ON app.cards (user_id, due_at, id);
+CREATE INDEX cards_user_active_due_at_id_idx
+    ON app.cards (user_id, due_at, id)
+    WHERE suspended = false;
 CREATE INDEX card_review_logs_user_card_reviewed_at_id_idx
     ON app.card_review_logs (user_id, card_id, reviewed_at DESC, id DESC);
 CREATE TABLE app.study_notification_preferences (
@@ -163,7 +168,8 @@ GRANT UPDATE (
 ) ON app.study_push_subscriptions TO quizforge_app;
 GRANT SELECT (
     user_id,
-    due_at
+    due_at,
+    suspended
 ) ON app.cards TO quizforge_notifier;
 GRANT SELECT (
     user_id,
@@ -199,6 +205,8 @@ GRANT UPDATE (
     last_reviewed_at,
     review_count,
     lapse_count,
+    suspended,
+    progress_reset_at,
     updated_at
 ) ON app.cards TO quizforge_app;
 ALTER TABLE app.user_identities ENABLE ROW LEVEL SECURITY;

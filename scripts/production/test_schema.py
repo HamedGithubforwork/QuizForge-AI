@@ -227,6 +227,27 @@ class DeckSchema(unittest.TestCase):
                 owner.execute(
                     "SELECT has_column_privilege("
                     "'quizforge_notifier', 'app.cards', "
+                    "'suspended', 'SELECT') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'suspended', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'progress_reset_at', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_notifier', 'app.cards', "
                     "'user_id', 'SELECT') AS allowed"
                 ).fetchone()["allowed"]
             )
@@ -335,7 +356,7 @@ class DeckSchema(unittest.TestCase):
 
             card = connection.execute(
                 "SELECT id,due_at,fsrs_state,fsrs_step,"
-                "review_count,lapse_count "
+                "review_count,lapse_count,suspended,progress_reset_at "
                 "FROM app.cards "
                 "WHERE deck_id=%s",
                 (deck_id,),
@@ -344,6 +365,8 @@ class DeckSchema(unittest.TestCase):
             self.assertEqual(card["fsrs_step"], 0)
             self.assertEqual(card["review_count"], 0)
             self.assertEqual(card["lapse_count"], 0)
+            self.assertFalse(card["suspended"])
+            self.assertIsNone(card["progress_reset_at"])
             self.assertIsNotNone(card["due_at"])
 
             connection.execute(

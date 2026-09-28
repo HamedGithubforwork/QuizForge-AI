@@ -49,6 +49,7 @@ MIGRATION_FILES = (
     "20260928_004_study_push_subscriptions.sql",
     "20260928_005_study_notifier_role.sql",
     "20260928_006_move_card.sql",
+    "20260928_007_card_study_state.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -88,7 +89,7 @@ manifest=Path(sys.argv[2])
 value=json.loads(manifest.read_text())
 assert value.get("schema")==1
 items=value.get("migrations")
-assert isinstance(items,list) and len(items)==6
+assert isinstance(items,list) and len(items)==7
 expected=[
  "20260927_001_decks_cards.sql",
  "20260927_002_fsrs_reviews.sql",
@@ -96,6 +97,7 @@ expected=[
  "20260928_004_study_push_subscriptions.sql",
  "20260928_005_study_notifier_role.sql",
  "20260928_006_move_card.sql",
+ "20260928_007_card_study_state.sql",
 ]
 assert [item.get("name") for item in items]==expected
 assert set(path.name for path in root.iterdir())==set(expected)
@@ -185,6 +187,19 @@ esac
 test "$(dbq "SELECT (to_regprocedure('app.move_card(uuid,uuid,uuid)') IS NOT NULL)::int")" = "1"
 test "$(dbq "SELECT has_function_privilege('quizforge_app','app.move_card(uuid,uuid,uuid)','EXECUTE')::int")" = "1"
 test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid='app.move_card(uuid,uuid,uuid)'::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE'))::int")" = "1"
+
+# 007: card suspension and current-progress reset marker.
+study_state="$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='cards' AND column_name='suspended'))::int || ':' || (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='cards' AND column_name='progress_reset_at'))::int")"
+case "$study_state" in
+  "0:0") apply_sql "$root/20260928_007_card_study_state.sql"; applied_007=true ;;
+  "1:1") applied_007=false ;;
+  *) echo "Partial card study-state schema detected" >&2; exit 47 ;;
+esac
+
+test "$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='cards' AND column_name='suspended') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='cards' AND column_name='progress_reset_at'))::int")" = "1"
+test "$(dbq "SELECT has_column_privilege('quizforge_app','app.cards','suspended','UPDATE')::int")" = "1"
+test "$(dbq "SELECT has_column_privilege('quizforge_app','app.cards','progress_reset_at','UPDATE')::int")" = "1"
+test "$(dbq "SELECT has_column_privilege('quizforge_notifier','app.cards','suspended','SELECT')::int")" = "1"
 
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
@@ -348,7 +363,7 @@ test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_not
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$applied_007" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -360,8 +375,9 @@ print("QF_RESULT="+json.dumps({
   "push_subscriptions_migration_applied": values[3],
   "notifier_role_migration_applied": values[4],
   "move_card_migration_applied": values[5],
-  "notifier_credential_ready": values[6],
-  "vapid_credentials_ready": values[7],
+  "card_study_state_migration_applied": values[6],
+  "notifier_credential_ready": values[7],
+  "vapid_credentials_ready": values[8],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -705,6 +721,7 @@ def main() -> int:
             "push_subscriptions_migration_applied",
             "notifier_role_migration_applied",
             "move_card_migration_applied",
+            "card_study_state_migration_applied",
             "notifier_credential_ready",
             "vapid_credentials_ready",
             "all_postconditions_verified",

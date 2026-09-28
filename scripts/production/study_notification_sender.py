@@ -115,6 +115,7 @@ def _candidate_rows(
              SELECT user_id,count(user_id)::int AS due_count
              FROM app.cards
              WHERE due_at <= now()
+               AND suspended = false
              GROUP BY user_id
            )
            SELECT

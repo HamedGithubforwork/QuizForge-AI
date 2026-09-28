@@ -302,6 +302,23 @@ class ProductionSchema(unittest.TestCase):
             self.assertEqual(rows[0]["user_id"],user)
             self.assertEqual(rows[0]["due_count"],1)
             self.assertEqual(rows[0]["endpoint_hash"],endpoint_hash)
+
+            owner.execute("RESET ROLE")
+            owner.execute(
+                "UPDATE app.cards SET suspended=true WHERE id=%s",
+                (card,),
+            )
+            owner.execute("SET ROLE quizforge_notifier")
+            self.assertEqual(
+                _candidate_rows(owner),
+                [],
+            )
+            owner.execute("RESET ROLE")
+            owner.execute(
+                "UPDATE app.cards SET suspended=false WHERE id=%s",
+                (card,),
+            )
+            owner.execute("SET ROLE quizforge_notifier")
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 owner.execute("SELECT question FROM app.cards")
             self.assertFalse(

@@ -15,7 +15,7 @@ class MigrationControllerTests(unittest.TestCase):
             [item["name"] for item in items],
             list(migrations.MIGRATION_FILES),
         )
-        self.assertEqual(len(items), 6)
+        self.assertEqual(len(items), 7)
 
         for item in items:
             self.assertRegex(
@@ -101,6 +101,18 @@ class MigrationControllerTests(unittest.TestCase):
         )
         self.assertIn(
             "app.move_card(uuid,uuid,uuid)",
+            remote,
+        )
+        self.assertIn(
+            "20260928_007_card_study_state.sql",
+            remote,
+        )
+        self.assertIn(
+            "Partial card study-state schema detected",
+            remote,
+        )
+        self.assertIn(
+            "progress_reset_at",
             remote,
         )
         self.assertIn(
