@@ -348,6 +348,44 @@ class PostgresDeckRepository:
             if row is None:
                 raise HTTPException(404, "Deck does not exist.")
 
+    async def move_card(
+        self,
+        source_deck_id,
+        card_id,
+        target_deck_id,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            row = await (
+                await conn.execute(
+                    """SELECT app.move_card(
+                           %s,%s,%s
+                       ) AS moved""",
+                    (
+                        card_id,
+                        source_deck_id,
+                        target_deck_id,
+                    ),
+                )
+            ).fetchone()
+
+            if (
+                row is None
+                or not row["moved"]
+            ):
+                raise HTTPException(
+                    404,
+                    "Card or target deck does not exist.",
+                )
+
+            return await self._detail(
+                conn,
+                user_id,
+                source_deck_id,
+            )
+
     async def update_card(
         self,
         deck_id,
