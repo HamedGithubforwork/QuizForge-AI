@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   addCardsToStudyDeck,
+  deleteStudyDeck,
   buildDeckCreatePayload,
   buildSelectedDeckCards,
   createStudyDeck,
@@ -10,6 +11,7 @@ import {
   getStudyDeck,
   listStudyDecks,
   submitReview,
+  updateStudyDeck,
 } from './decks.ts'
 import type {
   QuizResult,
@@ -687,6 +689,145 @@ test(
     assert.equal(
       called,
       false,
+    )
+  },
+)
+
+test(
+  'updateStudyDeck sends a PATCH with only the requested fields',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const result =
+      await updateStudyDeck(
+        'deck/id',
+        {
+          name:
+            'Renamed Biology',
+        },
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init =
+            requestInit ?? {}
+
+          return new Response(
+            JSON.stringify({
+              id:
+                '11111111-1111-4111-8111-111111111111',
+              name:
+                'Renamed Biology',
+              description: null,
+              card_count: 2,
+              due_count: 1,
+              next_due_at: null,
+              created_at:
+                '2026-09-27T15:00:00Z',
+              updated_at:
+                '2026-09-28T12:00:00Z',
+              cards: [],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid',
+    )
+    assert.equal(
+      init.method,
+      'PATCH',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {
+        name:
+          'Renamed Biology',
+      },
+    )
+    assert.equal(
+      result.name,
+      'Renamed Biology',
+    )
+  },
+)
+
+test(
+  'deleteStudyDeck sends DELETE and accepts an empty 204 response',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    await deleteStudyDeck(
+      'deck/id',
+      async (
+        requestPath,
+        requestInit,
+      ) => {
+        path = requestPath
+        init =
+          requestInit ?? {}
+        return new Response(
+          null,
+          {
+            status: 204,
+          },
+        )
+      },
+    )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid',
+    )
+    assert.equal(
+      init.method,
+      'DELETE',
+    )
+  },
+)
+
+test(
+  'deck mutation clients surface bounded fallback errors',
+  async () => {
+    await assert.rejects(
+      () =>
+        updateStudyDeck(
+          'deck',
+          {
+            name: 'New name',
+          },
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not update this study deck/,
+    )
+
+    await assert.rejects(
+      () =>
+        deleteStudyDeck(
+          'deck',
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not delete this study deck/,
     )
   },
 )
