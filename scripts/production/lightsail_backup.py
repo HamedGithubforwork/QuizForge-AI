@@ -32,11 +32,12 @@ MAX_ROWS = 10000
 TABLES = (
     "app.users", "app.user_identities", "app.quiz_history",
     "app.decks", "app.cards", "app.card_review_logs",
-    "app.study_notification_preferences", "app.identity_challenges",
+    "app.study_notification_preferences", "app.web_push_subscriptions",
+    "app.study_notification_deliveries", "app.identity_challenges",
     "billing.generation_policy",
     "billing.generation_usage", "billing.generation_reservations",
 )
-ROLES = ("quizforge_app", "quizforge_identity", "quizforge_generation")
+ROLES = ("quizforge_app", "quizforge_identity", "quizforge_generation", "quizforge_notifier")
 
 
 def canonical(value):
@@ -103,10 +104,10 @@ def schema_state(conn):
             ORDER BY 1,2,3,4,5""",
         "roles": """SELECT rolname,rolsuper,rolinherit,rolcreaterole,rolcreatedb,rolcanlogin,
             rolreplication,rolbypassrls,rolconfig FROM pg_roles
-            WHERE rolname IN ('quizforge_app','quizforge_identity','quizforge_generation') ORDER BY 1""",
+            WHERE rolname IN ('quizforge_app','quizforge_identity','quizforge_generation','quizforge_notifier') ORDER BY 1""",
         "memberships": """SELECT pg_get_userbyid(roleid),pg_get_userbyid(member),admin_option
             FROM pg_auth_members WHERE pg_get_userbyid(member) IN
-            ('quizforge_app','quizforge_identity','quizforge_generation') ORDER BY 1,2""",
+            ('quizforge_app','quizforge_identity','quizforge_generation','quizforge_notifier') ORDER BY 1,2""",
         "triggers": """SELECT tgrelid::regclass::text,tgname,pg_get_triggerdef(oid),tgenabled
             FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN
             (SELECT c.oid FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -114,7 +115,7 @@ def schema_state(conn):
     }
     result = {name: conn.execute(query).fetchall() for name, query in queries.items()}
     result["relations"] = relations
-    if (len(result["roles"]) != 3 or result["memberships"]
+    if (len(result["roles"]) != 4 or result["memberships"]
             or any(any(row[i] for i in (1, 2, 3, 4, 6, 7)) for row in result["roles"])):
         raise ValueError("Runtime role privilege boundary differs from the reviewed schema")
     return digest(result)
