@@ -247,6 +247,13 @@ class DeckSchema(unittest.TestCase):
             self.assertTrue(
                 owner.execute(
                     "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.cards', "
+                    "'tags', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
                     "'quizforge_notifier', 'app.cards', "
                     "'user_id', 'SELECT') AS allowed"
                 ).fetchone()["allowed"]
@@ -356,7 +363,7 @@ class DeckSchema(unittest.TestCase):
 
             card = connection.execute(
                 "SELECT id,due_at,fsrs_state,fsrs_step,"
-                "review_count,lapse_count,suspended,progress_reset_at "
+                "review_count,lapse_count,suspended,progress_reset_at,tags "
                 "FROM app.cards "
                 "WHERE deck_id=%s",
                 (deck_id,),
@@ -368,6 +375,31 @@ class DeckSchema(unittest.TestCase):
             self.assertFalse(card["suspended"])
             self.assertIsNone(card["progress_reset_at"])
             self.assertIsNotNone(card["due_at"])
+            self.assertEqual(card["tags"], [])
+            connection.execute(
+                "UPDATE app.cards SET tags=%s WHERE id=%s",
+                (["Biology", "Exam 1"], card["id"]),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT tags FROM app.cards WHERE id=%s",
+                    (card["id"],),
+                ).fetchone()["tags"],
+                ["Biology", "Exam 1"],
+            )
+
+            for invalid_tags in (
+                [""],
+                [f"tag-{index}" for index in range(21)],
+            ):
+                with self.assertRaises(
+                    psycopg.errors.CheckViolation
+                ):
+                    with connection.transaction():
+                        connection.execute(
+                            "UPDATE app.cards SET tags=%s WHERE id=%s",
+                            (invalid_tags, card["id"]),
+                        )
 
             connection.execute(
                 "INSERT INTO app.card_review_logs "
