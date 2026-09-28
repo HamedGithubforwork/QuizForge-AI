@@ -747,3 +747,191 @@
     padding: 17px;
   }
 }
+
+.settings-success {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+
+  border: 1px solid #bfe1cb;
+  border-radius: 12px;
+
+  background: #f1faf4;
+
+  color: #2f6f48;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-reminder-form {
+  display: grid;
+
+  gap: 22px;
+}
+
+.settings-reminder-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 18px;
+}
+
+.settings-reminder-grid label {
+  position: relative;
+
+  display: grid;
+
+  gap: 8px;
+}
+
+.settings-reminder-grid label > span {
+  color: #555d70;
+
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settings-reminder-grid label > small {
+  color: #8990a0;
+
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-reminder-grid input {
+  min-height: 44px;
+
+  padding: 0 12px;
+
+  border: 1px solid #d9dce8;
+  border-radius: 10px;
+
+  background: white;
+
+  color: #2b3145;
+
+  font: inherit;
+}
+
+.settings-reminder-grid input:focus {
+  border-color: #8277ed;
+
+  outline: 0;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(105, 92, 255, 0.11);
+}
+
+.settings-inline-action {
+  justify-self: start;
+
+  padding: 0;
+
+  border: 0;
+
+  background: transparent;
+
+  color: #6659db;
+
+  cursor: pointer;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.settings-inline-action:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
+.settings-toggle {
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 9px;
+
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  position: absolute;
+
+  width: 1px;
+  height: 1px;
+
+  opacity: 0;
+}
+
+.settings-toggle > span {
+  position: relative;
+
+  width: 44px;
+  height: 24px;
+
+  border-radius: 999px;
+
+  background: #d9dce7;
+
+  transition:
+    background 150ms ease;
+}
+
+.settings-toggle > span::after {
+  position: absolute;
+
+  top: 3px;
+  left: 3px;
+
+  width: 18px;
+  height: 18px;
+
+  border-radius: 50%;
+
+  background: white;
+
+  box-shadow:
+    0 2px 6px
+    rgba(35, 43, 74, 0.16);
+
+  content: "";
+
+  transition:
+    transform 150ms ease;
+}
+
+.settings-toggle input:checked + span {
+  background: #695cff;
+}
+
+.settings-toggle input:checked + span::after {
+  transform: translateX(20px);
+}
+
+.settings-toggle input:focus-visible + span {
+  outline: 3px solid
+    rgba(105, 92, 255, 0.2);
+
+  outline-offset: 2px;
+}
+
+.settings-toggle strong {
+  color: #596174;
+
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .settings-reminder-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-toggle {
+    margin-top: 8px;
+  }
+}
+
