@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   addCardsToStudyDeck,
+  deleteStudyCard,
   deleteStudyDeck,
   duplicateStudyDeck,
   buildDeckCreatePayload,
@@ -12,6 +13,7 @@ import {
   getStudyDeck,
   listStudyDecks,
   submitReview,
+  updateStudyCard,
   updateStudyDeck,
 } from './decks.ts'
 import type {
@@ -914,6 +916,153 @@ test(
             }),
         ),
       /Could not duplicate this study deck/,
+    )
+  },
+)
+
+test(
+  'updateStudyCard patches an owned card',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    const result =
+      await updateStudyCard(
+        'deck/id',
+        'card/id',
+        {
+          question:
+            'Updated question?',
+          explanation: null,
+        },
+        async (
+          requestPath,
+          requestInit,
+        ) => {
+          path = requestPath
+          init =
+            requestInit ?? {}
+
+          return new Response(
+            JSON.stringify({
+              id:
+                '11111111-1111-4111-8111-111111111111',
+              name:
+                'Biology Midterm',
+              description: null,
+              card_count: 1,
+              due_count: 1,
+              next_due_at: null,
+              created_at:
+                '2026-09-27T15:00:00Z',
+              updated_at:
+                '2026-09-28T12:00:00Z',
+              cards: [],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid/cards/card%2Fid',
+    )
+    assert.equal(
+      init.method,
+      'PATCH',
+    )
+    assert.deepEqual(
+      JSON.parse(
+        String(init.body),
+      ),
+      {
+        question:
+          'Updated question?',
+        explanation: null,
+      },
+    )
+    assert.equal(
+      result.card_count,
+      1,
+    )
+  },
+)
+
+test(
+  'deleteStudyCard sends DELETE and accepts an empty response',
+  async () => {
+    let path = ''
+    let init: RequestInit = {}
+
+    await deleteStudyCard(
+      'deck/id',
+      'card/id',
+      async (
+        requestPath,
+        requestInit,
+      ) => {
+        path = requestPath
+        init =
+          requestInit ?? {}
+
+        return new Response(
+          null,
+          {
+            status: 204,
+          },
+        )
+      },
+    )
+
+    assert.equal(
+      path,
+      '/api/decks/deck%2Fid/cards/card%2Fid',
+    )
+    assert.equal(
+      init.method,
+      'DELETE',
+    )
+  },
+)
+
+test(
+  'card mutation clients use bounded fallback errors',
+  async () => {
+    await assert.rejects(
+      () =>
+        updateStudyCard(
+          'deck',
+          'card',
+          {
+            question:
+              'Updated',
+          },
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not update this study card/,
+    )
+
+    await assert.rejects(
+      () =>
+        deleteStudyCard(
+          'deck',
+          'card',
+          async () =>
+            new Response(null, {
+              status: 503,
+            }),
+        ),
+      /Could not delete this study card/,
     )
   },
 )
