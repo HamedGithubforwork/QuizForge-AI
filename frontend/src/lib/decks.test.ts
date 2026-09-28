@@ -13,6 +13,9 @@ import {
   getStudyDeck,
   listStudyDecks,
   moveStudyCard,
+  resetStudyCardProgress,
+  resumeStudyCard,
+  suspendStudyCard,
   submitReview,
   updateStudyCard,
   updateStudyDeck,
@@ -1162,6 +1165,108 @@ test(
             ),
         ),
       /Could not move this study card/,
+    )
+  },
+)
+
+test(
+  'card study-state actions POST to owned card routes',
+  async () => {
+    const calls: string[] = []
+
+    const fetcher = async (
+      path: string,
+      init?: RequestInit,
+    ) => {
+      calls.push(
+        `${init?.method ?? 'GET'} ${path}`,
+      )
+      return new Response(
+        JSON.stringify({
+          id:
+            '11111111-1111-4111-8111-111111111111',
+          name: 'Deck',
+          description: null,
+          card_count: 1,
+          due_count: 0,
+          next_due_at: null,
+          created_at:
+            '2026-09-28T10:00:00Z',
+          updated_at:
+            '2026-09-28T12:00:00Z',
+          cards: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+        },
+      )
+    }
+
+    await suspendStudyCard(
+      'deck/id',
+      'card/id',
+      fetcher,
+    )
+    await resumeStudyCard(
+      'deck/id',
+      'card/id',
+      fetcher,
+    )
+    await resetStudyCardProgress(
+      'deck/id',
+      'card/id',
+      fetcher,
+    )
+
+    assert.deepEqual(
+      calls,
+      [
+        'POST /api/decks/deck%2Fid/cards/card%2Fid/suspend',
+        'POST /api/decks/deck%2Fid/cards/card%2Fid/resume',
+        'POST /api/decks/deck%2Fid/cards/card%2Fid/reset-progress',
+      ],
+    )
+  },
+)
+
+test(
+  'card study-state actions use bounded fallback errors',
+  async () => {
+    const fail = async () =>
+      new Response(null, {
+        status: 503,
+      })
+
+    await assert.rejects(
+      () =>
+        suspendStudyCard(
+          'deck',
+          'card',
+          fail,
+        ),
+      /Could not suspend this study card/,
+    )
+    await assert.rejects(
+      () =>
+        resumeStudyCard(
+          'deck',
+          'card',
+          fail,
+        ),
+      /Could not resume this study card/,
+    )
+    await assert.rejects(
+      () =>
+        resetStudyCardProgress(
+          'deck',
+          'card',
+          fail,
+        ),
+      /Could not reset this study card progress/,
     )
   },
 )

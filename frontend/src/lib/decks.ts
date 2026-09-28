@@ -419,3 +419,65 @@ export async function deleteStudyCard(
   }
 }
 
+async function runCardStudyAction(
+  deckId: string,
+  cardId: string,
+  action:
+    | 'suspend'
+    | 'resume'
+    | 'reset-progress',
+  fetcher: ApiFetch,
+  fallbackError: string,
+): Promise<DeckDetail> {
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}/cards/${encodeURIComponent(cardId)}/${action}`,
+    fetcher,
+    {
+      method: 'POST',
+    },
+    fallbackError,
+  )
+}
+
+export async function suspendStudyCard(
+  deckId: string,
+  cardId: string,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return runCardStudyAction(
+    deckId,
+    cardId,
+    'suspend',
+    fetcher,
+    'Could not suspend this study card.',
+  )
+}
+
+export async function resumeStudyCard(
+  deckId: string,
+  cardId: string,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return runCardStudyAction(
+    deckId,
+    cardId,
+    'resume',
+    fetcher,
+    'Could not resume this study card.',
+  )
+}
+
+export async function resetStudyCardProgress(
+  deckId: string,
+  cardId: string,
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  return runCardStudyAction(
+    deckId,
+    cardId,
+    'reset-progress',
+    fetcher,
+    'Could not reset this study card progress.',
+  )
+}
+
