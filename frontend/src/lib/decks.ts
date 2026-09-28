@@ -1,4 +1,5 @@
 import type {
+  CardBatchCreate,
   CardCreate,
   DeckCreate,
   DeckDetail,
@@ -17,34 +18,83 @@ type ApiFetch = (
   init?: RequestInit,
 ) => Promise<Response>
 
+function cardFromQuestion(
+  question: QuizResult['questions'][number],
+  documentResult: UploadResult,
+): CardCreate {
+  return {
+    question_type:
+      question.question_type,
+    question: question.question,
+    answer: {
+      correct_index:
+        question.correct_index,
+      correct_answer:
+        question.correct_answer,
+      accepted_answers:
+        question.accepted_answers,
+      grading: question.grading,
+    },
+    choices: question.choices,
+    explanation:
+      question.explanation,
+    source_filename:
+      documentResult.filename,
+    document_sha256:
+      documentResult.pdf_sha256,
+    source_pages:
+      question.source_pages,
+  }
+}
+
 export function buildDeckCards(
   quiz: QuizResult,
   documentResult: UploadResult,
 ): CardCreate[] {
   return quiz.questions.map(
-    (question) => ({
-      question_type:
-        question.question_type,
-      question: question.question,
-      answer: {
-        correct_index:
-          question.correct_index,
-        correct_answer:
-          question.correct_answer,
-        accepted_answers:
-          question.accepted_answers,
-        grading: question.grading,
-      },
-      choices: question.choices,
-      explanation:
-        question.explanation,
-      source_filename:
-        documentResult.filename,
-      document_sha256:
-        documentResult.pdf_sha256,
-      source_pages:
-        question.source_pages,
-    }),
+    (question) =>
+      cardFromQuestion(
+        question,
+        documentResult,
+      ),
+  )
+}
+
+export function buildSelectedDeckCards(
+  quiz: QuizResult,
+  documentResult: UploadResult,
+  selectedIndexes: number[],
+): CardCreate[] {
+  const unique = [
+    ...new Set(
+      selectedIndexes,
+    ),
+  ].sort(
+    (left, right) =>
+      left - right,
+  )
+
+  if (
+    unique.length === 0 ||
+    unique.some(
+      (index) =>
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >=
+          quiz.questions.length,
+    )
+  ) {
+    throw new Error(
+      'Choose at least one valid quiz question.',
+    )
+  }
+
+  return unique.map(
+    (index) =>
+      cardFromQuestion(
+        quiz.questions[index],
+        documentResult,
+      ),
   )
 }
 
@@ -173,6 +223,38 @@ export async function submitReview(
       ),
     },
     'Could not save this review.',
+  )
+}
+
+export async function addCardsToStudyDeck(
+  deckId: string,
+  cards: CardCreate[],
+  fetcher: ApiFetch,
+): Promise<DeckDetail> {
+  if (cards.length === 0) {
+    throw new Error(
+      'Choose at least one question to save.',
+    )
+  }
+
+  const payload: CardBatchCreate = {
+    cards,
+  }
+
+  return requestDeckJson<DeckDetail>(
+    `/api/decks/${encodeURIComponent(deckId)}/cards`,
+    fetcher,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type':
+          'application/json',
+      },
+      body: JSON.stringify(
+        payload,
+      ),
+    },
+    'Could not add these questions to the study deck.',
   )
 }
 
