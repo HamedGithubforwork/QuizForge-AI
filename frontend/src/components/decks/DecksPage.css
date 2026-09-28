@@ -1127,6 +1127,77 @@
   opacity: 0.55;
 }
 
+
+.deck-card-move-panel {
+  display: grid;
+
+  gap: 14px;
+
+  margin: 18px 0 22px;
+  padding: 18px;
+
+  border: 1px solid #dddaf7;
+  border-radius: 14px;
+
+  background: #f9f8ff;
+}
+
+.deck-card-move-panel p {
+  margin: 5px 0 0;
+
+  color: #747b8d;
+
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.deck-card-move-panel label {
+  display: grid;
+
+  gap: 7px;
+}
+
+.deck-card-move-panel label > span {
+  color: #596174;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.deck-card-move-panel select {
+  width: 100%;
+  min-height: 42px;
+
+  padding: 0 11px;
+
+  border: 1px solid #d8dbe8;
+  border-radius: 10px;
+
+  background: white;
+
+  color: #30364c;
+
+  font: inherit;
+}
+
+.deck-card-move-panel select:focus {
+  border-color: #7569e8;
+
+  outline: 0;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(103, 90, 226, 0.1);
+}
+
+.deck-card-move-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 9px;
+}
+
 .card-editor {
   display: grid;
 
@@ -1566,6 +1637,15 @@
 
   .review-session-count {
     text-align: center;
+  }
+
+  .deck-card-move-actions {
+    flex-direction: column;
+  }
+
+  .deck-card-move-actions .decks-primary-button,
+  .deck-card-move-actions .decks-secondary-button {
+    width: 100%;
   }
 
   .deck-card-row {
