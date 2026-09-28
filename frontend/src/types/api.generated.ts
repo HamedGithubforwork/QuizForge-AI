@@ -184,6 +184,29 @@ export type StudyNotificationPreferencesUpdate = {
   "minimum_due_cards": number
 }
 
+export type WebPushKeys = {
+  "p256dh": string
+  "auth": string
+}
+
+export type WebPushSubscriptionCreate = {
+  "endpoint": string
+  "keys": WebPushKeys
+}
+
+export type WebPushSubscriptionSummary = {
+  "id": string
+  "endpoint_sha256": string
+  "failure_count": number
+  "last_success_at": string | null
+  "created_at": string
+  "updated_at": string
+}
+
+export type VapidPublicKeyResponse = {
+  "public_key": string
+}
+
 export type PdfJobResponse = {
   "job_id": string
   "filename": string
@@ -264,6 +287,7 @@ export const API_ROUTES = [
   "DELETE /api/decks/{deck_id}",
   "DELETE /api/documents/jobs/{job_id}",
   "DELETE /api/quiz-history/{entry_id}",
+  "DELETE /api/study-notifications/subscriptions/{subscription_id}",
   "GET /",
   "GET /api/admin/metrics",
   "GET /api/decks",
@@ -276,6 +300,8 @@ export const API_ROUTES = [
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
   "GET /api/study-notifications/preferences",
+  "GET /api/study-notifications/subscriptions",
+  "GET /api/study-notifications/vapid-public-key",
   "PATCH /api/decks/{deck_id}",
   "POST /api/answers/review",
   "POST /api/decks",
@@ -285,6 +311,7 @@ export const API_ROUTES = [
   "POST /api/documents/upload",
   "POST /api/quiz-history",
   "POST /api/quizzes/generate",
+  "POST /api/study-notifications/subscriptions",
   "PUT /api/study-notifications/preferences",
 ] as const
 
