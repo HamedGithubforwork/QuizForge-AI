@@ -63,6 +63,20 @@ function formatDeckDate(
   ).format(date)
 }
 
+function hasStudyProgress(
+  card: CardRow,
+) {
+  return (
+    card.review_count > 0 ||
+    card.lapse_count > 0 ||
+    card.last_reviewed_at !== null ||
+    card.stability !== null ||
+    card.difficulty !== null ||
+    card.fsrs_state !== 1 ||
+    card.fsrs_step !== 0
+  )
+}
+
 function answerText(
   card: CardRow,
 ) {
@@ -909,6 +923,8 @@ function DeckDetailView({
                         disabled={cardActionBusy}
                         onClick={() => {
                           setEditingCardId(card.id)
+                          setMovingCardId(null)
+                          setMoveTargetDeckId('')
                           setAddingCard(false)
                           setConfirmingCardDelete(null)
                           setConfirmingProgressReset(null)
@@ -969,24 +985,28 @@ function DeckDetailView({
                           : 'Suspend'}
                       </button>
 
-                      <button
-                        className="deck-card-reset"
-                        type="button"
-                        disabled={cardActionBusy}
-                        onClick={() => {
-                          setConfirmingProgressReset(
-                            card.id,
-                          )
-                          setEditingCardId(null)
-                          setMovingCardId(null)
-                          setMoveTargetDeckId('')
-                          setConfirmingCardDelete(null)
-                          setAddingCard(false)
-                          setCardActionError('')
-                        }}
-                      >
-                        Reset Progress
-                      </button>
+                      {hasStudyProgress(
+                        card,
+                      ) && (
+                        <button
+                          className="deck-card-reset"
+                          type="button"
+                          disabled={cardActionBusy}
+                          onClick={() => {
+                            setConfirmingProgressReset(
+                              card.id,
+                            )
+                            setEditingCardId(null)
+                            setMovingCardId(null)
+                            setMoveTargetDeckId('')
+                            setConfirmingCardDelete(null)
+                            setAddingCard(false)
+                            setCardActionError('')
+                          }}
+                        >
+                          Reset Progress
+                        </button>
+                      )}
 
                       <button
                         className="deck-card-delete"
@@ -997,6 +1017,8 @@ function DeckDetailView({
                             card.id,
                           )
                           setEditingCardId(null)
+                          setMovingCardId(null)
+                          setMoveTargetDeckId('')
                           setConfirmingProgressReset(null)
                           setAddingCard(false)
                           setCardActionError('')
