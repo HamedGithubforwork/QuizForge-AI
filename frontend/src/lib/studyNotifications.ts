@@ -1,6 +1,3 @@
-import {
-  apiFetch,
-} from './api'
 import type {
   PushPublicKey,
   PushSubscriptionCreate,
@@ -47,7 +44,7 @@ async function requestJson<T>(
 }
 
 export async function getStudyNotificationPreferences(
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<StudyNotificationPreferences> {
   return requestJson(
     '/api/study-notifications/preferences',
@@ -59,7 +56,7 @@ export async function getStudyNotificationPreferences(
 
 export async function saveStudyNotificationPreferences(
   payload: StudyNotificationPreferencesUpdate,
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<StudyNotificationPreferences> {
   return requestJson(
     '/api/study-notifications/preferences',
@@ -77,7 +74,7 @@ export async function saveStudyNotificationPreferences(
 }
 
 export async function getPushPublicKey(
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<string> {
   const result =
     await requestJson<PushPublicKey>(
@@ -92,7 +89,7 @@ export async function getPushPublicKey(
 
 export async function savePushSubscription(
   payload: PushSubscriptionCreate,
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<PushSubscriptionRegistration> {
   return requestJson(
     '/api/study-notifications/push/subscriptions',
@@ -111,7 +108,7 @@ export async function savePushSubscription(
 
 export async function deletePushSubscription(
   endpointHash: string,
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ): Promise<void> {
   const response =
     await fetcher(
@@ -276,7 +273,7 @@ export async function currentBrowserPushSubscription() {
 }
 
 export async function enableBrowserPush(
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ) {
   if (!browserPushSupported()) {
     throw new Error(
@@ -338,7 +335,7 @@ export async function enableBrowserPush(
 }
 
 export async function disableBrowserPush(
-  fetcher: ApiFetch = apiFetch,
+  fetcher: ApiFetch,
 ) {
   const subscription =
     await currentBrowserPushSubscription()
