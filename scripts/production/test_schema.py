@@ -123,7 +123,7 @@ class DeckSchema(unittest.TestCase):
                 owner.execute(
                     "SELECT has_function_privilege("
                     "'quizforge_app', "
-                    "'app.move_card(uuid,uuid)', "
+                    "'app.move_card(uuid,uuid,uuid)', "
                     "'EXECUTE') AS allowed"
                 ).fetchone()["allowed"]
             )
@@ -138,7 +138,7 @@ class DeckSchema(unittest.TestCase):
                                       acldefault('f',p.proowner)
                                   )
                               ) a
-                         WHERE p.oid='app.move_card(uuid,uuid)'::regprocedure
+                         WHERE p.oid='app.move_card(uuid,uuid,uuid)'::regprocedure
                            AND a.grantee=0
                            AND a.privilege_type='EXECUTE'
                        ) AS public_execute_revoked"""
@@ -485,8 +485,8 @@ class DeckSchema(unittest.TestCase):
 
             self.assertTrue(
                 connection.execute(
-                    "SELECT app.move_card(%s,%s) AS moved",
-                    (card_id, target_deck),
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, source_deck, target_deck),
                 ).fetchone()["moved"]
             )
 
@@ -539,8 +539,14 @@ class DeckSchema(unittest.TestCase):
 
             self.assertFalse(
                 connection.execute(
-                    "SELECT app.move_card(%s,%s) AS moved",
-                    (card_id, foreign_deck),
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, source_deck, target_deck),
+                ).fetchone()["moved"]
+            )
+            self.assertFalse(
+                connection.execute(
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, target_deck, foreign_deck),
                 ).fetchone()["moved"]
             )
             self.assertEqual(
@@ -558,8 +564,8 @@ class DeckSchema(unittest.TestCase):
             )
             self.assertFalse(
                 connection.execute(
-                    "SELECT app.move_card(%s,%s) AS moved",
-                    (card_id, foreign_deck),
+                    "SELECT app.move_card(%s,%s,%s) AS moved",
+                    (card_id, target_deck, foreign_deck),
                 ).fetchone()["moved"]
             )
 
