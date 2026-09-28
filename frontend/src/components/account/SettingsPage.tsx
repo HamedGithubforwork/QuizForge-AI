@@ -1,8 +1,9 @@
 import type { FormEvent } from 'react'
 
 import type { MfaSecurityStatus } from '../../lib/cognitoMfa'
+import StudyNotificationsSettings from './StudyNotificationsSettings'
 
-export type SettingsSection = 'account' | 'security'
+export type SettingsSection = 'account' | 'security' | 'notifications'
 
 type SettingsPageProps = {
   email: string
@@ -122,6 +123,15 @@ export default function SettingsPage({
               <span aria-hidden="true">◆</span>
               Security
             </button>
+            <button
+              type="button"
+              className={section === 'notifications' ? 'active' : ''}
+              aria-current={section === 'notifications' ? 'page' : undefined}
+              onClick={() => onSectionChange('notifications')}
+            >
+              <span aria-hidden="true">◌</span>
+              Notifications
+            </button>
           </nav>
         </aside>
 
@@ -173,6 +183,8 @@ export default function SettingsPage({
                 </div>
               </section>
             </>
+          ) : section === 'notifications' ? (
+            <StudyNotificationsSettings />
           ) : (
             <>
               <div className="settings-heading">
