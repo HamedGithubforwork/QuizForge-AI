@@ -1861,6 +1861,21 @@
   font-weight: 800;
 }
 
+
+.weak-card-badge {
+  padding: 4px 8px;
+
+  border: 1px solid #efc6a8;
+  border-radius: 999px;
+
+  background: #fff7ef;
+
+  color: #a65d25;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .cram-next-button {
   width: 100%;
 
