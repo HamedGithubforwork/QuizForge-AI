@@ -329,6 +329,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                     "name": " Biology Midterm ",
                     "description": "Cell biology",
                     "exam_date": "2026-12-15",
+                    "study_intensity": "intensive",
                     "cards": [{
                         "question_type": "multiple_choice",
                         "question": "What organelle produces ATP?",
@@ -354,6 +355,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             body = created.json()
             assert body["name"] == "Biology Midterm"
             assert body["exam_date"] == "2026-12-15"
+            assert body["study_intensity"] == "intensive"
             assert body["card_count"] == 1
             assert body["due_count"] == 1
             assert body["next_due_at"] is None
@@ -368,6 +370,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert listed.status_code == 200
             assert [item["id"] for item in listed.json()] == [deck_id]
             assert listed.json()[0]["exam_date"] == "2026-12-15"
+            assert listed.json()[0]["study_intensity"] == "intensive"
 
             other_list = await client.get("/api/decks", headers=headers("valid-b"))
             assert other_list.status_code == 200
