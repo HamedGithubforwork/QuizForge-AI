@@ -257,7 +257,7 @@ jobs:
 
       - name: Promote existing production release with automatic rollback
         run: |
-          python scripts/production/lightsail/promote_release.py             "$RUNNER_TEMP/quizforge-promotion-bundle.tar.gz"             "$RUNNER_TEMP/promotion-manifest.json"             scripts/production/lightsail/ssh-host-pins.json
+          python -m scripts.production.lightsail.promote_release             "$RUNNER_TEMP/quizforge-promotion-bundle.tar.gz"             "$RUNNER_TEMP/promotion-manifest.json"             scripts/production/lightsail/ssh-host-pins.json
 
       - name: Remove private promotion material
         if: always()
