@@ -25,6 +25,143 @@ from spaced_repetition import (
 
 MATURE_STABILITY_DAYS = 21.0
 DIFFICULT_CARD_LIMIT = 5
+RECENT_ACTIVITY_DAYS = 28
+WEEKLY_GOAL_DAYS = 5
+
+
+def build_streak_metrics(
+    daily_rows,
+    *,
+    today,
+):
+    by_date = {
+        row["local_date"]: {
+            "review_count":
+                int(
+                    row["review_count"]
+                ),
+            "study_time_ms":
+                int(
+                    row[
+                        "study_time_ms"
+                    ]
+                ),
+        }
+        for row in daily_rows
+    }
+    active_dates = set(
+        by_date
+    )
+
+    if today in active_dates:
+        cursor = today
+    elif (
+        today - timedelta(days=1)
+        in active_dates
+    ):
+        cursor = (
+            today
+            - timedelta(days=1)
+        )
+    else:
+        cursor = None
+
+    current = 0
+    while (
+        cursor is not None
+        and cursor in active_dates
+    ):
+        current += 1
+        cursor -= timedelta(
+            days=1
+        )
+
+    longest = 0
+    running = 0
+    previous = None
+
+    for value in sorted(
+        active_dates
+    ):
+        if (
+            previous is not None
+            and value
+            == previous
+            + timedelta(days=1)
+        ):
+            running += 1
+        else:
+            running = 1
+
+        longest = max(
+            longest,
+            running,
+        )
+        previous = value
+
+    week_start = (
+        today
+        - timedelta(
+            days=today.weekday()
+        )
+    )
+    active_this_week = sum(
+        1
+        for value in active_dates
+        if week_start
+        <= value
+        <= today
+    )
+
+    recent_start = (
+        today
+        - timedelta(
+            days=
+                RECENT_ACTIVITY_DAYS
+                - 1
+        )
+    )
+    recent = []
+
+    for offset in range(
+        RECENT_ACTIVITY_DAYS
+    ):
+        local_date = (
+            recent_start
+            + timedelta(
+                days=offset
+            )
+        )
+        values = by_date.get(
+            local_date,
+            {
+                "review_count": 0,
+                "study_time_ms": 0,
+            },
+        )
+        recent.append(
+            {
+                "local_date":
+                    local_date,
+                **values,
+            }
+        )
+
+    return {
+        "current_streak_days":
+            current,
+        "longest_streak_days":
+            longest,
+        "active_days_this_week":
+            active_this_week,
+        "weekly_goal_days":
+            WEEKLY_GOAL_DAYS,
+        "weekly_goal_met":
+            active_this_week
+            >= WEEKLY_GOAL_DAYS,
+        "recent_activity":
+            recent,
+    }
 
 
 class PostgresStudyAnalyticsRepository:
@@ -222,6 +359,31 @@ class PostgresStudyAnalyticsRepository:
                 )
             ).fetchone()
 
+            daily_activity = await (
+                await conn.execute(
+                    """SELECT
+                        (
+                            reviewed_at
+                            AT TIME ZONE %s
+                        )::date AS local_date,
+                        count(*)::int AS review_count,
+                        coalesce(
+                            sum(
+                                review_duration_ms
+                            ),
+                            0
+                        )::bigint AS study_time_ms
+                       FROM app.card_review_logs
+                       WHERE user_id=%s
+                       GROUP BY local_date
+                       ORDER BY local_date""",
+                    (
+                        timezone_name,
+                        user_id,
+                    ),
+                )
+            ).fetchall()
+
             memory = await (
                 await conn.execute(
                     """SELECT
@@ -359,6 +521,20 @@ class PostgresStudyAnalyticsRepository:
                 now,
             )
         )
+        local_today = (
+            now.astimezone(
+                ZoneInfo(
+                    timezone_name
+                )
+            )
+            .date()
+        )
+        streaks = (
+            build_streak_metrics(
+                daily_activity,
+                today=local_today,
+            )
+        )
 
         return {
             "timezone": timezone_name,
@@ -379,6 +555,8 @@ class PostgresStudyAnalyticsRepository:
                         ]
                     ),
             },
+            "streaks":
+                streaks,
             "memory": {
                 **memory,
                 "estimated_retention":
