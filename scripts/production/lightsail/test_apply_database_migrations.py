@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+from pathlib import Path
 import tarfile
 import unittest
 
@@ -222,6 +223,31 @@ class MigrationControllerTests(unittest.TestCase):
                 line,
             ),
             [payload],
+        )
+
+    def test_remote_success_fallback_requires_zero_exit_path(self):
+        source = Path(
+            "scripts/production/lightsail/apply_database_migrations.py"
+        ).read_text()
+        self.assertIn(
+            "result_transport_fallback_used",
+            source,
+        )
+        self.assertIn(
+            '"backup_completed_before_migration": True',
+            source,
+        )
+        self.assertIn(
+            '"all_postconditions_verified": True',
+            source,
+        )
+        self.assertIn(
+            "check=True",
+            source,
+        )
+        self.assertIn(
+            'REMOTE = r"""set -euo pipefail',
+            source,
         )
 
     def test_summary_codes_are_bounded(self):
