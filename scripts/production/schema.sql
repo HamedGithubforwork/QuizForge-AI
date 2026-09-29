@@ -40,6 +40,7 @@ CREATE TABLE app.decks (
     description text,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
+    exam_date date,
     UNIQUE (id, user_id)
 );
 CREATE TABLE app.cards (
@@ -196,6 +197,7 @@ GRANT SELECT (
 GRANT DELETE ON app.study_push_subscriptions TO quizforge_notifier;
 GRANT SELECT, INSERT ON app.study_notification_deliveries TO quizforge_notifier;
 GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
+GRANT UPDATE (exam_date) ON app.decks TO quizforge_app;
 GRANT UPDATE (
     question_type,
     question,
