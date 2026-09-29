@@ -228,6 +228,57 @@ export type PushSubscriptionRegistration = {
   "endpoint_hash": string
 }
 
+export type ActivityMetrics = {
+  "reviews_today": number
+  "reviews_last_7_days": number
+  "study_time_today_ms": number
+  "study_time_last_7_days_ms": number
+  "active_days_last_7_days": number
+}
+
+export type MemoryMetrics = {
+  "total_cards": number
+  "active_cards": number
+  "suspended_cards": number
+  "due_cards": number
+  "new_cards": number
+  "learning_cards": number
+  "review_cards": number
+  "mature_cards": number
+  "retention_card_count": number
+  "estimated_retention": number | null
+}
+
+export type RatingDistribution = {
+  "again": number
+  "hard": number
+  "good": number
+  "easy": number
+  "total": number
+}
+
+export type DifficultCard = {
+  "card_id": string
+  "deck_id": string
+  "deck_name": string
+  "question": string
+  "lapse_count": number
+  "review_count": number
+  "difficulty": number | null
+  "tags"?: string[]
+}
+
+export type StudyAnalyticsSummary = {
+  "timezone": string
+  "generated_at": string
+  "total_decks": number
+  "activity": ActivityMetrics
+  "memory": MemoryMetrics
+  "ratings_last_30_days": RatingDistribution
+  "difficult_cards": DifficultCard[]
+}
+
+
 export type PdfJobResponse = {
   "job_id": string
   "filename": string
@@ -321,6 +372,7 @@ export const API_ROUTES = [
   "GET /api/health",
   "GET /api/quiz-history",
   "GET /api/quiz-history/document",
+  "GET /api/study-analytics/summary",
   "GET /api/study-notifications/preferences",
   "GET /api/study-notifications/push/public-key",
   "PATCH /api/decks/{deck_id}",
