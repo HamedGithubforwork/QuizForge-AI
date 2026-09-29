@@ -12,6 +12,9 @@ import {
   filterStudyCards,
 } from '../../lib/cardTags'
 import {
+  buildWeakDeckAiFocus,
+} from '../../lib/deckAiPractice'
+import {
   addCardsToStudyDeck,
   deleteStudyCard,
   deleteStudyDeck,
@@ -33,6 +36,7 @@ import type {
 } from '../../types/api.generated'
 import CardEditor from './CardEditor'
 import CramDeckPage from './CramDeckPage'
+import DeckAiPracticePage from './DeckAiPracticePage'
 import MissedQuestionsPage from './MissedQuestionsPage'
 import RecentlyAddedDeckPage from './RecentlyAddedDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
@@ -58,6 +62,9 @@ const WEAK_PATH =
 
 const RECENT_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/recent$/i
+
+const AI_PRACTICE_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/ai-practice$/i
 
 function formatDeckDate(
   value: string,
@@ -615,6 +622,11 @@ function DeckDetailView({
         !card.suspended,
     ).length
 
+  const aiPracticeFocus =
+    buildWeakDeckAiFocus(
+      deck,
+    )
+
   return (
     <>
       <button
@@ -764,6 +776,20 @@ function DeckDetailView({
               }
             >
               Recently Added
+            </button>
+          )}
+
+          {aiPracticeFocus && (
+            <button
+              className="decks-secondary-button deck-ai-practice-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/ai-practice`,
+                )
+              }
+            >
+              Generate AI Practice
             </button>
           )}
 
@@ -1505,6 +1531,12 @@ export default function DecksPage({
     pathname.match(RECENT_PATH)
   const recentDeckId =
     recentMatch?.[1] ?? null
+  const aiPracticeMatch =
+    pathname.match(
+      AI_PRACTICE_PATH,
+    )
+  const aiPracticeDeckId =
+    aiPracticeMatch?.[1] ?? null
   const missedQuestions =
     pathname === '/decks/missed'
   const detailMatch =
@@ -1518,7 +1550,8 @@ export default function DecksPage({
     !reviewDeckId &&
     !cramDeckId &&
     !weakDeckId &&
-    !recentDeckId
+    !recentDeckId &&
+    !aiPracticeDeckId
 
   useEffect(() => {
     let active = true
@@ -1534,7 +1567,8 @@ export default function DecksPage({
           reviewDeckId ||
           cramDeckId ||
           weakDeckId ||
-          recentDeckId
+          recentDeckId ||
+          aiPracticeDeckId
         ) {
           return
         }
@@ -1595,6 +1629,7 @@ export default function DecksPage({
       active = false
     }
   }, [
+    aiPracticeDeckId,
     cramDeckId,
     deckId,
     invalidPath,
@@ -1648,6 +1683,13 @@ export default function DecksPage({
         ) : recentDeckId ? (
           <RecentlyAddedDeckPage
             deckId={recentDeckId}
+            onNavigate={onNavigate}
+          />
+        ) : aiPracticeDeckId ? (
+          <DeckAiPracticePage
+            deckId={
+              aiPracticeDeckId
+            }
             onNavigate={onNavigate}
           />
         ) : loading ? (

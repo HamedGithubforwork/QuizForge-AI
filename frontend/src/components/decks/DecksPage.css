@@ -1954,6 +1954,253 @@
   font-size: 17px;
 }
 
+
+.deck-ai-practice {
+  display: grid;
+
+  gap: 22px;
+
+  padding: clamp(
+    22px,
+    5vw,
+    34px
+  );
+
+  border: 1px solid #dddaf7;
+  border-radius: 22px;
+
+  background:
+    linear-gradient(
+      180deg,
+      #fdfcff 0%,
+      #f8f7ff 100%
+    );
+
+  box-shadow:
+    0 16px 42px
+    rgba(67, 58, 130, 0.08);
+}
+
+.deck-ai-practice-heading {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 20px;
+}
+
+.deck-ai-practice-heading h1 {
+  margin: 7px 0 8px;
+
+  color: #30364c;
+
+  font-size: clamp(
+    27px,
+    5vw,
+    38px
+  );
+}
+
+.deck-ai-practice-heading p {
+  max-width: 650px;
+
+  margin: 0;
+
+  color: #6d7486;
+
+  line-height: 1.6;
+}
+
+.deck-ai-practice-count {
+  flex: 0 0 auto;
+
+  padding: 7px 11px;
+
+  border: 1px solid #d7d2f8;
+  border-radius: 999px;
+
+  background: #f0edff;
+
+  color: #5e51c8;
+
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.deck-ai-focus-grid {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      4,
+      minmax(0, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.deck-ai-focus-grid article {
+  display: grid;
+
+  gap: 6px;
+
+  min-width: 0;
+
+  padding: 15px;
+
+  border: 1px solid #e1e2ed;
+  border-radius: 12px;
+
+  background: white;
+}
+
+.deck-ai-focus-grid span {
+  color: #818799;
+
+  font-size: 11px;
+  font-weight: 800;
+
+  text-transform: uppercase;
+}
+
+.deck-ai-focus-grid strong {
+  overflow-wrap: anywhere;
+
+  color: #42495f;
+
+  font-size: 13px;
+}
+
+.deck-ai-evidence {
+  display: grid;
+
+  gap: 12px;
+}
+
+.deck-ai-evidence h2 {
+  margin: 0;
+
+  color: #3f465c;
+
+  font-size: 16px;
+}
+
+.deck-ai-evidence-list {
+  display: grid;
+
+  gap: 8px;
+}
+
+.deck-ai-evidence-list > div {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 15px;
+
+  padding: 12px 14px;
+
+  border: 1px solid #e2e3ec;
+  border-radius: 10px;
+
+  background: white;
+}
+
+.deck-ai-evidence-list span {
+  min-width: 0;
+
+  overflow: hidden;
+
+  color: #5d6477;
+
+  font-size: 13px;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deck-ai-evidence-list strong {
+  flex: 0 0 auto;
+
+  color: #a65d25;
+
+  font-size: 11px;
+}
+
+.deck-ai-action {
+  display: flex;
+
+  align-items: center;
+
+  gap: 14px;
+}
+
+.deck-ai-action > span {
+  color: #808697;
+
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.deck-ai-practice-button {
+  border-color: #cbc5f4;
+
+  background: #f8f6ff;
+
+  color: #5d50cc;
+}
+
+.deck-ai-result {
+  display: grid;
+
+  gap: 16px;
+
+  padding: 20px;
+
+  border: 1px solid #cfe1d5;
+  border-radius: 16px;
+
+  background: #f7fcf8;
+}
+
+.deck-ai-result h2 {
+  margin: 5px 0 6px;
+
+  color: #315a41;
+
+  font-size: 20px;
+}
+
+.deck-ai-result p {
+  margin: 0;
+
+  color: #5d7968;
+}
+
+.deck-ai-result ol {
+  display: grid;
+
+  gap: 7px;
+
+  margin: 0;
+  padding-left: 22px;
+
+  color: #596a60;
+
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.deck-ai-result-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 9px;
+}
+
 .cram-next-button {
   width: 100%;
 
@@ -2055,6 +2302,29 @@
 
   .missed-answer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .deck-ai-practice-heading,
+  .deck-ai-action,
+  .deck-ai-evidence-list > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .deck-ai-focus-grid {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .deck-ai-practice-count {
+    align-self: flex-start;
+  }
+
+  .deck-ai-evidence-list span {
+    overflow: visible;
+
+    text-overflow: clip;
+    white-space: normal;
   }
 
   .review-ratings {
