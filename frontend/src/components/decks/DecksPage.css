@@ -440,6 +440,48 @@
 }
 
 
+
+
+.deck-study-intensity-summary {
+  display: inline-flex;
+
+  flex-wrap: wrap;
+
+  align-items: baseline;
+
+  gap: 6px 9px;
+
+  margin-top: 13px;
+  padding: 8px 11px;
+
+  border: 1px solid #dedcf5;
+  border-radius: 10px;
+
+  background: #f8f7ff;
+}
+
+.deck-study-intensity-summary > span {
+  color: #777e90;
+
+  font-size: 11px;
+  font-weight: 800;
+
+  text-transform: uppercase;
+}
+
+.deck-study-intensity-summary > strong {
+  color: #584dcc;
+
+  font-size: 13px;
+}
+
+.deck-study-intensity-summary > small {
+  color: #777e90;
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .deck-management-buttons {
   display: flex;
 
@@ -564,6 +606,101 @@
   flex-wrap: wrap;
 
   gap: 8px;
+}
+
+
+.deck-study-settings-panel {
+  grid-template-columns:
+    minmax(0, 1fr);
+
+  align-items: stretch;
+}
+
+.study-intensity-options {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.study-intensity-option {
+  display: grid;
+
+  gap: 8px;
+
+  padding: 14px;
+
+  border: 1px solid #dfe1eb;
+  border-radius: 12px;
+
+  background: #fafbfc;
+
+  cursor: pointer;
+
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.study-intensity-option:hover {
+  border-color: #c4bfef;
+
+  background: #f8f7ff;
+}
+
+.study-intensity-option.selected {
+  border-color: #786ce8;
+
+  background: #f2f0ff;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(103, 90, 226, 0.08);
+}
+
+.study-intensity-option > input {
+  position: absolute;
+
+  width: 1px;
+  height: 1px;
+
+  opacity: 0;
+}
+
+.study-intensity-option > span {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  align-items: baseline;
+  justify-content: space-between;
+
+  gap: 6px;
+}
+
+.study-intensity-option strong {
+  color: #30364c;
+
+  font-size: 14px;
+}
+
+.study-intensity-option small {
+  color: #6559d5;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.study-intensity-option p {
+  margin: 0;
+
+  color: #747b8d;
+
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .deck-delete-panel {
@@ -902,6 +1039,15 @@
 .review-rating span {
   font-size: 10px;
   font-weight: 700;
+}
+
+
+.review-rating small {
+  margin-top: 2px;
+
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.1;
 }
 
 .review-rating-again {
@@ -2280,6 +2426,10 @@
 
   .deck-management-panel-actions > button {
     width: 100%;
+  }
+
+  .study-intensity-options {
+    grid-template-columns: 1fr;
   }
 
   .decks-overview {

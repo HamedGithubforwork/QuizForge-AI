@@ -120,6 +120,7 @@ export type DeckCreate = {
   "name": string
   "description"?: string | null
   "exam_date"?: string | null
+  "study_intensity"?: "relaxed" | "balanced" | "intensive"
   "cards"?: CardCreate[]
 }
 
@@ -127,6 +128,7 @@ export type DeckUpdate = {
   "name"?: string | null
   "description"?: string | null
   "exam_date"?: string | null
+  "study_intensity"?: "relaxed" | "balanced" | "intensive" | null
 }
 
 export type DeckDuplicate = {
@@ -160,6 +162,7 @@ export type DeckSummary = {
   "name": string
   "description": string | null
   "exam_date"?: string | null
+  "study_intensity": "relaxed" | "balanced" | "intensive"
   "card_count": number
   "due_count": number
   "next_due_at": string | null
@@ -172,6 +175,7 @@ export type DeckDetail = {
   "name": string
   "description": string | null
   "exam_date"?: string | null
+  "study_intensity": "relaxed" | "balanced" | "intensive"
   "card_count": number
   "due_count": number
   "next_due_at": string | null
@@ -186,12 +190,49 @@ export type ReviewRequest = {
   "review_duration_ms"?: number | null
 }
 
+export type ReviewPreview = {
+  "again": string
+  "hard": string
+  "good": string
+  "easy": string
+}
+
+export type ReviewQueueCard = {
+  "question_type": "multiple_choice" | "true_false" | "short_answer"
+  "question": string
+  "answer": {
+  [key: string]: unknown
+}
+  "choices"?: string[] | null
+  "explanation"?: string | null
+  "source_filename"?: string | null
+  "document_sha256"?: string | null
+  "source_pages"?: number[]
+  "tags"?: string[]
+  "id": string
+  "deck_id": string
+  "fsrs_state": 1 | 2 | 3
+  "fsrs_step": number | null
+  "stability": number | null
+  "difficulty": number | null
+  "due_at": string
+  "last_reviewed_at": string | null
+  "review_count": number
+  "lapse_count": number
+  "suspended": boolean
+  "progress_reset_at": string | null
+  "created_at": string
+  "updated_at": string
+  "review_preview": ReviewPreview
+}
+
 export type ReviewQueue = {
   "deck_id": string
   "deck_name": string
+  "study_intensity": "relaxed" | "balanced" | "intensive"
   "due_count": number
   "next_due_at": string | null
-  "cards": CardRow[]
+  "cards": ReviewQueueCard[]
 }
 
 export type ReviewResult = {

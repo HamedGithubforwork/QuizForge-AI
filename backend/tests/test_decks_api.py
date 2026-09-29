@@ -40,6 +40,7 @@ def deck_detail(
     name="Biology Midterm",
     description="Cell biology",
     exam_date=None,
+    study_intensity="balanced",
     due_count=None,
     next_due_at=None,
 ):
@@ -50,6 +51,7 @@ def deck_detail(
         "name": name,
         "description": description,
         "exam_date": exam_date,
+        "study_intensity": study_intensity,
         "card_count": len(values),
         "due_count": (
             len(values)
@@ -117,6 +119,8 @@ class FakeRepository:
             name=payload.name,
             description=payload.description,
             exam_date=payload.exam_date,
+            study_intensity=
+                payload.study_intensity,
         )
 
     async def get(self, deck_id):
@@ -151,6 +155,14 @@ class FakeRepository:
             name=payload.name or "Biology Midterm",
             description=payload.description,
             exam_date=payload.exam_date,
+            study_intensity=(
+                payload.study_intensity
+                if (
+                    "study_intensity"
+                    in payload.model_fields_set
+                )
+                else "balanced"
+            ),
         )
 
     async def delete(self, deck_id):
@@ -301,12 +313,39 @@ class FakeRepository:
 
     async def review_queue(self, deck_id, *, limit):
         self.calls.append(("review_queue", deck_id, limit))
+        now = datetime(
+            2026,
+            9,
+            27,
+            14,
+            0,
+            tzinfo=timezone.utc,
+        )
         return {
             "deck_id": deck_id,
             "deck_name": "Biology Midterm",
+            "study_intensity":
+                "balanced",
             "due_count": 1,
             "next_due_at": None,
-            "cards": [card_row()],
+            "cards": [
+                card_row(
+                    review_preview={
+                        "again": now.replace(
+                            minute=1
+                        ),
+                        "hard": now.replace(
+                            minute=5
+                        ),
+                        "good": now.replace(
+                            hour=15
+                        ),
+                        "easy": now.replace(
+                            day=28
+                        ),
+                    },
+                )
+            ],
         }
 
     async def review_card(
@@ -392,6 +431,7 @@ def test_create_deck_sorts_and_preserves_all_source_pages(api):
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == "Biology Midterm"
+    assert body["study_intensity"] == "balanced"
     assert body["card_count"] == 1
     assert body["cards"][0]["source_pages"] == [12, 14]
 
@@ -594,7 +634,18 @@ def test_review_queue_returns_due_cards(api):
     assert response.status_code == 200
     body = response.json()
     assert body["due_count"] == 1
+    assert body["study_intensity"] == "balanced"
     assert body["cards"][0]["id"] == str(CARD_ID)
+    assert set(
+        body["cards"][0][
+            "review_preview"
+        ]
+    ) == {
+        "again",
+        "hard",
+        "good",
+        "easy",
+    }
     assert body["cards"][0]["fsrs_state"] == 1
     assert repository.calls == [
         ("review_queue", DECK_ID, 10)
@@ -966,4 +1017,58 @@ def test_reset_progress_returns_fresh_scheduler_state(api):
             CARD_ID,
         )
     ]
+
+def test_deck_study_intensity_can_be_updated(api):
+    client, repository = api
+
+    response = client.patch(
+        f"/api/decks/{DECK_ID}",
+        json={
+            "study_intensity":
+                "intensive",
+        },
+    )
+
+    assert response.status_code == 200
+    assert (
+        response.json()[
+            "study_intensity"
+        ]
+        == "intensive"
+    )
+    _, deck_id, payload = (
+        repository.calls[0]
+    )
+    assert deck_id == DECK_ID
+    assert (
+        payload.study_intensity
+        == "intensive"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "maximum",
+        "",
+        None,
+        90,
+    ],
+)
+def test_invalid_study_intensity_is_rejected_before_repository(
+    api,
+    value,
+):
+    client, repository = api
+
+    response = client.patch(
+        f"/api/decks/{DECK_ID}",
+        json={
+            "study_intensity":
+                value,
+        },
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
 

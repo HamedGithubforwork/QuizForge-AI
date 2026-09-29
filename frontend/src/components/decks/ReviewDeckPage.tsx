@@ -12,7 +12,8 @@ import {
   submitReview,
 } from '../../lib/decks'
 import type {
-  CardRow,
+  ReviewPreview,
+  ReviewQueueCard,
 } from '../../types/api.generated'
 
 type ReviewDeckPageProps = {
@@ -26,36 +27,41 @@ const RATINGS: Array<{
   value: RatingValue
   label: string
   hint: string
+  previewKey: keyof ReviewPreview
   className: string
 }> = [
   {
     value: 1,
     label: 'Again',
     hint: 'Forgot',
+    previewKey: 'again',
     className: 'review-rating-again',
   },
   {
     value: 2,
     label: 'Hard',
     hint: 'Difficult',
+    previewKey: 'hard',
     className: 'review-rating-hard',
   },
   {
     value: 3,
     label: 'Good',
     hint: 'Got it',
+    previewKey: 'good',
     className: 'review-rating-good',
   },
   {
     value: 4,
     label: 'Easy',
     hint: 'Easy recall',
+    previewKey: 'easy',
     className: 'review-rating-easy',
   },
 ]
 
 function correctAnswer(
-  card: CardRow,
+  card: ReviewQueueCard,
 ) {
   const answer = card.answer
 
@@ -73,7 +79,7 @@ function correctAnswer(
 }
 
 function correctChoiceIndex(
-  card: CardRow,
+  card: ReviewQueueCard,
 ) {
   const answer = card.answer
 
@@ -89,6 +95,64 @@ function correctChoiceIndex(
 
   return -1
 }
+
+function formatReviewInterval(
+  value: string,
+) {
+  const due = new Date(value)
+  const milliseconds =
+    due.getTime() - Date.now()
+
+  if (
+    Number.isNaN(due.getTime())
+  ) {
+    return 'later'
+  }
+
+  if (milliseconds <= 60_000) {
+    return '<1m'
+  }
+
+  const minutes = Math.round(
+    milliseconds / 60_000,
+  )
+
+  if (minutes < 60) {
+    return `${minutes}m`
+  }
+
+  const hours = Math.round(
+    minutes / 60,
+  )
+
+  if (hours < 48) {
+    return `${hours}h`
+  }
+
+  const days = Math.round(
+    hours / 24,
+  )
+
+  if (days < 60) {
+    return `${days}d`
+  }
+
+  const months = Math.round(
+    days / 30,
+  )
+
+  if (months < 24) {
+    return `${months}mo`
+  }
+
+  const years = Math.max(
+    1,
+    Math.round(days / 365),
+  )
+
+  return `${years}y`
+}
+
 
 function formatNextDue(
   value: string | null,
@@ -121,7 +185,7 @@ export default function ReviewDeckPage({
   const [deckName, setDeckName] =
     useState('Study Deck')
   const [cards, setCards] =
-    useState<CardRow[]>([])
+    useState<ReviewQueueCard[]>([])
   const [dueCount, setDueCount] =
     useState(0)
   const [nextDueAt, setNextDueAt] =
@@ -556,6 +620,16 @@ export default function ReviewDeckPage({
                     <span>
                       {rating.hint}
                     </span>
+
+                    <small>
+                      ~{formatReviewInterval(
+                        current
+                          .review_preview[
+                            rating
+                              .previewKey
+                          ],
+                      )}
+                    </small>
                   </button>
                 ),
               )}

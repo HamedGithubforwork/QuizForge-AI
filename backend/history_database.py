@@ -80,6 +80,7 @@ async def check_application_role(conn):
         has_column_privilege(current_user,'app.cards','review_count','UPDATE') AS update_review_count,
         has_column_privilege(current_user,'app.cards','lapse_count','UPDATE') AS update_lapse_count,
         has_column_privilege(current_user,'app.decks','exam_date','UPDATE') AS update_deck_exam_date,
+        has_column_privilege(current_user,'app.decks','study_intensity','UPDATE') AS update_deck_study_intensity,
         has_table_privilege(current_user,'app.study_notification_preferences','SELECT,INSERT') AS notification_preferences_access,
         has_column_privilege(current_user,'app.study_notification_preferences','enabled','UPDATE') AS update_notification_enabled,
         has_column_privilege(current_user,'app.study_notification_preferences','reminder_time','UPDATE') AS update_notification_time,

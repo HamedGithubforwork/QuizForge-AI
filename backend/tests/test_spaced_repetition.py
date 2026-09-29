@@ -6,6 +6,8 @@ from fsrs import Scheduler
 
 from spaced_repetition import (
     card_from_row,
+    desired_retention,
+    preview_review_due_times,
     schedule_review,
 )
 
@@ -128,3 +130,91 @@ def test_invalid_duration_is_rejected(duration):
             review_duration_ms=duration,
             scheduler=Scheduler(enable_fuzzing=False),
         )
+
+@pytest.mark.parametrize(
+    ("intensity", "expected"),
+    [
+        ("relaxed", 0.85),
+        ("balanced", 0.90),
+        ("intensive", 0.95),
+    ],
+)
+def test_study_intensity_maps_to_expected_retention(
+    intensity,
+    expected,
+):
+    assert desired_retention(
+        intensity
+    ) == expected
+
+
+def test_invalid_study_intensity_is_rejected():
+    with pytest.raises(
+        ValueError,
+        match="Study intensity is invalid",
+    ):
+        desired_retention(
+            "maximum",
+        )
+
+
+def test_interval_previews_are_deterministic_and_ordered_for_new_card():
+    previews = preview_review_due_times(
+        row(),
+        study_intensity="balanced",
+        review_datetime=NOW,
+    )
+
+    assert set(previews) == {
+        "again",
+        "hard",
+        "good",
+        "easy",
+    }
+    assert previews["again"] > NOW
+    assert previews["hard"] >= previews["again"]
+    assert previews["good"] >= previews["hard"]
+    assert previews["easy"] >= previews["good"]
+
+    assert previews == preview_review_due_times(
+        row(),
+        study_intensity="balanced",
+        review_datetime=NOW,
+    )
+
+
+def test_intensive_study_does_not_schedule_good_later_than_relaxed():
+    relaxed = preview_review_due_times(
+        row(
+            fsrs_state=2,
+            fsrs_step=None,
+            stability=10.0,
+            difficulty=5.0,
+            due_at=NOW,
+            last_reviewed_at=(
+                NOW - timedelta(days=10)
+            ),
+        ),
+        study_intensity="relaxed",
+        review_datetime=NOW,
+    )
+    intensive = preview_review_due_times(
+        row(
+            fsrs_state=2,
+            fsrs_step=None,
+            stability=10.0,
+            difficulty=5.0,
+            due_at=NOW,
+            last_reviewed_at=(
+                NOW - timedelta(days=10)
+            ),
+        ),
+        study_intensity="intensive",
+        review_datetime=NOW,
+    )
+
+    assert (
+        intensive["good"]
+        <= relaxed["good"]
+    )
+
