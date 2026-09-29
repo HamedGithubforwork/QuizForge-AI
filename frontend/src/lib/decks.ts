@@ -8,6 +8,7 @@ import type {
   DeckDuplicate,
   DeckSummary,
   DeckUpdate,
+  NewCardQueue,
   ReviewQueue,
   ReviewRequest,
   ReviewResult,
@@ -187,6 +188,24 @@ export async function getStudyDeck(
     fetcher,
     {},
     'Could not load this study deck.',
+  )
+}
+
+export async function getNewCardQueue(
+  deckId: string,
+  fetcher: ApiFetch,
+  limit = 20,
+): Promise<NewCardQueue> {
+  const params =
+    new URLSearchParams({
+      limit: String(limit),
+    })
+
+  return requestDeckJson<NewCardQueue>(
+    `/api/decks/${encodeURIComponent(deckId)}/learn?${params.toString()}`,
+    fetcher,
+    {},
+    'Could not load new study cards.',
   )
 }
 
