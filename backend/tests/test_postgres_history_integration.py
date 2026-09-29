@@ -1057,10 +1057,26 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
             assert created.status_code == 201, created.text
             body = created.json()
             deck_id = body["id"]
-            card_ids = [
-                item["id"]
+            card_ids = {
+                item["question"]:
+                    item["id"]
                 for item in body["cards"]
-            ]
+            }
+            learning_card_id = (
+                card_ids[
+                    "Learning card"
+                ]
+            )
+            difficult_card_id = (
+                card_ids[
+                    "Difficult mature card"
+                ]
+            )
+            suspended_card_id = (
+                card_ids[
+                    "Suspended card"
+                ]
+            )
 
             owner.execute(
                 """UPDATE app.cards
@@ -1069,7 +1085,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                        last_reviewed_at=now()-interval '1 day',
                        review_count=2,lapse_count=0
                    WHERE id=%s""",
-                (card_ids[1],),
+                (learning_card_id,),
             )
             owner.execute(
                 """UPDATE app.cards
@@ -1078,18 +1094,18 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                        last_reviewed_at=now()-interval '3 days',
                        review_count=5,lapse_count=2
                    WHERE id=%s""",
-                (card_ids[2],),
+                (difficult_card_id,),
             )
             owner.execute(
                 """UPDATE app.cards
                    SET suspended=true
                    WHERE id=%s""",
-                (card_ids[3],),
+                (suspended_card_id,),
             )
 
             review_rows = [
                 (
-                    card_ids[1],
+                    learning_card_id,
                     USERS[0],
                     2,
                     owner.execute(
@@ -1098,7 +1114,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     30000,
                 ),
                 (
-                    card_ids[1],
+                    learning_card_id,
                     USERS[0],
                     3,
                     owner.execute(
@@ -1107,7 +1123,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     40000,
                 ),
                 (
-                    card_ids[2],
+                    difficult_card_id,
                     USERS[0],
                     1,
                     owner.execute(
@@ -1116,7 +1132,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     50000,
                 ),
                 (
-                    card_ids[2],
+                    difficult_card_id,
                     USERS[0],
                     4,
                     owner.execute(
@@ -1185,7 +1201,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                 "total": 4,
             }
 
-            assert data["difficult_cards"][0]["card_id"] == card_ids[2]
+            assert data["difficult_cards"][0]["card_id"] == difficult_card_id
             assert data["difficult_cards"][0]["deck_id"] == deck_id
             assert data["difficult_cards"][0]["lapse_count"] == 2
             assert data["difficult_cards"][0]["tags"] == ["exam"]
