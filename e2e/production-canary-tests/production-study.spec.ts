@@ -58,7 +58,11 @@ test('production Cognito, persistent deck, and FSRS review without model calls',
     expect(deck.card_count).toBe(1)
     expect(deck.study_intensity).toBe('balanced')
 
-    await page.goto(`${new URL(frontendUrl).origin}/decks/${deckId}`)
+    // Tokens intentionally live only in memory. Use the application's router
+    // so this test does not log itself out with a full document navigation.
+    await page.getByRole('button', { name: 'Quiz', exact: true }).click()
+    await page.getByRole('button', { name: 'Decks', exact: true }).click()
+    await page.getByRole('button', { name: /Production Study Canary/ }).click()
     await expect(page.getByRole('heading', { name: 'Production Study Canary' })).toBeVisible()
     await page.getByRole('button', { name: 'Review 1 Due', exact: true }).click()
     await page.getByRole('button', { name: 'Show Answer', exact: true }).click()
@@ -69,7 +73,17 @@ test('production Cognito, persistent deck, and FSRS review without model calls',
     const review = await reviewPromise
     expect(review.status()).toBe(200)
     expect((await review.json()).remaining_due_count).toBe(0)
-    await page.reload()
+    await expect(page.getByRole('heading', { name: 'You’re caught up' })).toBeVisible()
+    const refreshedListPromise = page.waitForResponse((response) =>
+      response.url() === `${apiOrigin}/api/decks` && response.request().method() === 'GET')
+    await page.getByRole('button', { name: 'Decks', exact: true }).click()
+    const refreshedList = await refreshedListPromise
+    expect(refreshedList.status()).toBe(200)
+    const refreshedDecks = await refreshedList.json()
+    expect(refreshedDecks.find((item: { id: string }) => item.id === deckId)?.due_count).toBe(0)
+    await expect(page.getByRole('button', { name: /Production Study Canary/ })).toContainText('Caught up')
+    await page.getByRole('button', { name: /Production Study Canary/ }).click()
+    await page.getByRole('button', { name: 'Review Status', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'You’re caught up' })).toBeVisible()
 
     for (const path of ['/api/study-notifications/preferences', '/api/study-analytics/summary']) {
