@@ -6,6 +6,7 @@ on:
       - ".github/workflows/lightsail-release-promote.yml"
       - "scripts/production/lightsail/promote_release.py"
       - "scripts/production/lightsail/test_promote_release.py"
+      - "scripts/production/lightsail/test_remote_stdin.py"
       - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/stage_release.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
@@ -37,7 +38,7 @@ jobs:
       - name: Validate promotion controller
         run: |
           python -m py_compile             scripts/production/lightsail/promote_release.py             scripts/production/lightsail/stage_release.py
-          python -m unittest             scripts.production.lightsail.test_promote_release             -v
+          python -m unittest scripts.production.lightsail.test_promote_release scripts.production.lightsail.test_remote_stdin -v
 
       - name: Validate immutable promoted release lock
         run: |

@@ -7,6 +7,7 @@ on:
       - "scripts/production/migrations/**"
       - "scripts/production/lightsail/apply_database_migrations.py"
       - "scripts/production/lightsail/test_apply_database_migrations.py"
+      - "scripts/production/lightsail/test_remote_stdin.py"
       - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
   workflow_dispatch:
@@ -33,7 +34,7 @@ jobs:
       - name: Validate reviewed migration controller
         run: |
           python -m py_compile scripts/production/lightsail/apply_database_migrations.py
-          python -m unittest scripts.production.lightsail.test_apply_database_migrations -v
+          python -m unittest scripts.production.lightsail.test_apply_database_migrations scripts.production.lightsail.test_remote_stdin -v
 
   migrate:
     needs: validate

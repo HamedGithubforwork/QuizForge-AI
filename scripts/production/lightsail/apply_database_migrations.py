@@ -118,10 +118,12 @@ compose="/opt/quizforge/current/compose.json"
 test -s "$compose"
 
 dbq() {
+  # bash -s is reading this script from stdin; -T only disables Docker's TTY.
+  # Queries have no input, so never let Compose consume the remaining script.
   sudo docker compose -f "$compose" exec -T db sh -ceu '
     export PGPASSWORD="$(cat /run/quizforge/owner-password)"
     psql -X -qAt -v ON_ERROR_STOP=1 -U quizforge_owner -d quizforge -c "$1"
-  ' sh "$1"
+  ' sh "$1" </dev/null
 }
 
 apply_sql() {
