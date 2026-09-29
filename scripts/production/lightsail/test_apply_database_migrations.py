@@ -15,7 +15,7 @@ class MigrationControllerTests(unittest.TestCase):
             [item["name"] for item in items],
             list(migrations.MIGRATION_FILES),
         )
-        self.assertEqual(len(items), 8)
+        self.assertEqual(len(items), 9)
 
         for item in items:
             self.assertRegex(
@@ -109,6 +109,14 @@ class MigrationControllerTests(unittest.TestCase):
         )
         self.assertIn(
             "20260928_008_card_tags.sql",
+            remote,
+        )
+        self.assertIn(
+            "20260928_009_deck_exam_date.sql",
+            remote,
+        )
+        self.assertIn(
+            "exam_date",
             remote,
         )
         self.assertIn(
