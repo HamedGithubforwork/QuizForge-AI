@@ -39,7 +39,7 @@ export function isWeakStudyCard(
   return (
     card.lapse_count > 0 ||
     (
-      card.difficulty !== null &&
+      card.difficulty != null &&
       card.difficulty >= 6
     )
   )
@@ -103,7 +103,7 @@ export function weakCardLabel(
   }
 
   if (
-    card.difficulty !== null
+    card.difficulty != null
   ) {
     parts.push(
       `difficulty ${card.difficulty.toFixed(1)}`,
