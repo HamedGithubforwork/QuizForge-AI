@@ -191,7 +191,7 @@ class PostgresDeckRepository:
                        LEFT JOIN app.cards c
                          ON c.deck_id=d.id AND c.user_id=d.user_id
                        WHERE d.user_id=%s
-                       GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date
+                       GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity
                        ORDER BY
                          count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now()) DESC,
                          d.updated_at DESC,
