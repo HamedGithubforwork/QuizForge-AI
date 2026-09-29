@@ -333,6 +333,71 @@ test(
 )
 
 test(
+  'flags the review cap when extra weak-card practice pushes the target over the limit',
+  () => {
+    const due =
+      Array.from(
+        {
+          length: 140,
+        },
+        (_, index) =>
+          card(
+            `due-${index}`,
+            {
+              review_count: 2,
+              due_at:
+                '2026-09-28T08:00:00Z',
+            },
+          ),
+      )
+
+    const weakFuture =
+      Array.from(
+        {
+          length: 15,
+        },
+        (_, index) =>
+          card(
+            `weak-${index}`,
+            {
+              review_count: 3,
+              lapse_count: 1,
+              difficulty: 7,
+              due_at:
+                '2026-10-03T08:00:00Z',
+            },
+          ),
+      )
+
+    const plan =
+      buildExamPlan(
+        deck(
+          [
+            ...due,
+            ...weakFuture,
+          ],
+          '2026-10-05',
+        ),
+        NOW,
+      )
+
+    assert.ok(plan)
+    assert.equal(
+      plan.intensity,
+      'intensive',
+    )
+    assert.equal(
+      plan.recommendedReviewCardsToday,
+      150,
+    )
+    assert.equal(
+      plan.workloadCapped,
+      true,
+    )
+  },
+)
+
+test(
   'past exams produce no new workload recommendation',
   () => {
     const plan =
