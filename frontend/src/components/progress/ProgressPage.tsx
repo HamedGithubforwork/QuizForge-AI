@@ -160,7 +160,7 @@ function DifficultCardRow({
               : 'reviews'}
           </span>
 
-          {card.difficulty !==
+          {card.difficulty !=
             null && (
             <span>
               Difficulty{' '}
@@ -405,7 +405,8 @@ export default function ProgressPage({
                 value={
                   formatRetention(
                     memory
-                      .estimated_retention,
+                      .estimated_retention
+                      ?? null,
                   )
                 }
                 detail={
@@ -416,8 +417,8 @@ export default function ProgressPage({
                 }
                 emphasis={
                   memory
-                    .estimated_retention !==
-                  null
+                    .estimated_retention
+                    != null
                 }
               />
             </section>
