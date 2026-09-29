@@ -105,7 +105,7 @@ export type CardRow = {
   "fsrs_state": 1 | 2 | 3
   "fsrs_step": number | null
   "stability": number | null
-  "difficulty"?: number | null
+  "difficulty": number | null
   "due_at": string
   "last_reviewed_at": string | null
   "review_count": number
@@ -264,7 +264,7 @@ export type DifficultCard = {
   "question": string
   "lapse_count": number
   "review_count": number
-  "difficulty": number | null
+  "difficulty"?: number | null
   "tags"?: string[]
 }
 
