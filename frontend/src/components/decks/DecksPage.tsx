@@ -33,6 +33,7 @@ import type {
 } from '../../types/api.generated'
 import CardEditor from './CardEditor'
 import CramDeckPage from './CramDeckPage'
+import MissedQuestionsPage from './MissedQuestionsPage'
 import RecentlyAddedDeckPage from './RecentlyAddedDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
 import WeakCardsPage from './WeakCardsPage'
@@ -1504,12 +1505,15 @@ export default function DecksPage({
     pathname.match(RECENT_PATH)
   const recentDeckId =
     recentMatch?.[1] ?? null
+  const missedQuestions =
+    pathname === '/decks/missed'
   const detailMatch =
     pathname.match(DECK_PATH)
   const deckId =
     detailMatch?.[1] ?? null
   const invalidPath =
     pathname !== '/decks' &&
+    !missedQuestions &&
     !deckId &&
     !reviewDeckId &&
     !cramDeckId &&
@@ -1526,6 +1530,7 @@ export default function DecksPage({
 
       try {
         if (
+          missedQuestions ||
           reviewDeckId ||
           cramDeckId ||
           weakDeckId ||
@@ -1593,6 +1598,7 @@ export default function DecksPage({
     cramDeckId,
     deckId,
     invalidPath,
+    missedQuestions,
     pathname,
     recentDeckId,
     reviewDeckId,
@@ -1620,7 +1626,11 @@ export default function DecksPage({
   return (
     <main className="decks-page">
       <div className="decks-shell">
-        {reviewDeckId ? (
+        {missedQuestions ? (
+          <MissedQuestionsPage
+            onNavigate={onNavigate}
+          />
+        ) : reviewDeckId ? (
           <ReviewDeckPage
             deckId={reviewDeckId}
             onNavigate={onNavigate}
@@ -1714,15 +1724,29 @@ export default function DecksPage({
                 </p>
               </div>
 
-              <button
-                className="decks-primary-button"
-                type="button"
-                onClick={() =>
-                  onNavigate('/')
-                }
-              >
-                + Generate Quiz
-              </button>
+              <div className="decks-header-actions">
+                <button
+                  className="decks-secondary-button"
+                  type="button"
+                  onClick={() =>
+                    onNavigate(
+                      '/decks/missed',
+                    )
+                  }
+                >
+                  Missed Questions
+                </button>
+
+                <button
+                  className="decks-primary-button"
+                  type="button"
+                  onClick={() =>
+                    onNavigate('/')
+                  }
+                >
+                  + Generate Quiz
+                </button>
+              </div>
             </header>
 
             {decks.length > 0 && (
