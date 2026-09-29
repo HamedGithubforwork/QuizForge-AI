@@ -414,6 +414,16 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             )
             assert queue.status_code == 200, queue.text
             assert queue.json()["due_count"] == 2
+            assert queue.json()["study_intensity"] == "intensive"
+            for queued_card in queue.json()["cards"]:
+                preview = queued_card["review_preview"]
+                assert set(preview) == {"again", "hard", "good", "easy"}
+                assert (
+                    preview["again"]
+                    <= preview["hard"]
+                    <= preview["good"]
+                    <= preview["easy"]
+                )
             assert {
                 card["id"]
                 for card in queue.json()["cards"]
@@ -509,11 +519,13 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                 json={
                     "name": "Exam Review",
                     "exam_date": "2026-12-20",
+                    "study_intensity": "relaxed",
                 },
             )
             assert renamed.status_code == 200
             assert renamed.json()["name"] == "Exam Review"
             assert renamed.json()["exam_date"] == "2026-12-20"
+            assert renamed.json()["study_intensity"] == "relaxed"
 
             duplicated = await client.post(
                 f"/api/decks/{deck_id}/duplicate",
@@ -527,6 +539,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert duplicate_body["name"] == "Copy of Exam Review"
             assert duplicate_body["description"] == "Cell biology"
             assert duplicate_body["exam_date"] == "2026-12-20"
+            assert duplicate_body["study_intensity"] == "relaxed"
             assert duplicate_body["card_count"] == 2
             assert duplicate_body["due_count"] == 2
             assert {
