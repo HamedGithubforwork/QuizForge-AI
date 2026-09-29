@@ -162,6 +162,7 @@ test(
       id: '11111111-1111-4111-8111-111111111111',
       name: 'Biology Midterm',
       description: null,
+      study_intensity: 'balanced',
       card_count: 1,
       due_count: 1,
       next_due_at: null,
@@ -274,6 +275,7 @@ test(
                 id: '11111111-1111-4111-8111-111111111111',
                 name: 'Biology Midterm',
                 description: null,
+                study_intensity: 'balanced',
                 card_count: 12,
                 due_count: 4,
                 next_due_at: null,
@@ -421,6 +423,8 @@ test(
                 '11111111-1111-4111-8111-111111111111',
               deck_name:
                 'Biology Midterm',
+              study_intensity:
+                'intensive',
               due_count: 1,
               next_due_at: null,
               cards: [],
@@ -444,6 +448,10 @@ test(
     assert.equal(
       queue.due_count,
       1,
+    )
+    assert.equal(
+      queue.study_intensity,
+      'intensive',
     )
   },
 )
@@ -608,6 +616,7 @@ test(
       id: '11111111-1111-4111-8111-111111111111',
       name: 'Biology Midterm',
       description: null,
+      study_intensity: 'balanced',
       card_count: 2,
       due_count: 2,
       next_due_at: null,
@@ -802,6 +811,8 @@ test(
           description: null,
           exam_date:
             payload.exam_date,
+          study_intensity:
+            'balanced',
           card_count: 0,
           due_count: 0,
           next_due_at: null,
@@ -893,6 +904,70 @@ test(
     assert.equal(
       init.method,
       'DELETE',
+    )
+  },
+)
+
+test(
+  'updateStudyDeck sends only the requested study intensity',
+  async () => {
+    let body: unknown = null
+
+    const updated =
+      await updateStudyDeck(
+        'deck',
+        {
+          study_intensity:
+            'intensive',
+        },
+        async (
+          _path,
+          init,
+        ) => {
+          body = JSON.parse(
+            String(init?.body),
+          )
+
+          return new Response(
+            JSON.stringify({
+              id:
+                '11111111-1111-4111-8111-111111111111',
+              name:
+                'Biology Midterm',
+              description: null,
+              exam_date: null,
+              study_intensity:
+                'intensive',
+              card_count: 0,
+              due_count: 0,
+              next_due_at: null,
+              created_at:
+                '2026-09-27T15:00:00Z',
+              updated_at:
+                '2026-09-29T03:00:00Z',
+              cards: [],
+            }),
+            {
+              status: 200,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+            },
+          )
+        },
+      )
+
+    assert.deepEqual(
+      body,
+      {
+        study_intensity:
+          'intensive',
+      },
+    )
+    assert.equal(
+      updated.study_intensity,
+      'intensive',
     )
   },
 )
