@@ -52,6 +52,8 @@ PUBLIC_SCHEMA_NAMES = (
     "DeckSummary",
     "DeckDetail",
     "ReviewRequest",
+    "ReviewPreview",
+    "ReviewQueueCard",
     "ReviewQueue",
     "ReviewResult",
     "StudyNotificationPreferences",
