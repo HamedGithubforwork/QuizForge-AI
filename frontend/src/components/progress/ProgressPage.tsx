@@ -116,6 +116,62 @@ function RatingRow({
   )
 }
 
+function activityLevel(
+  reviews: number,
+) {
+  if (reviews <= 0) {
+    return 0
+  }
+  if (reviews === 1) {
+    return 1
+  }
+  if (reviews <= 4) {
+    return 2
+  }
+  return 3
+}
+
+function activityDateLabel(
+  value: string,
+) {
+  const parts =
+    value.split('-').map(
+      Number,
+    )
+
+  if (
+    parts.length !== 3 ||
+    parts.some(
+      (part) =>
+        !Number.isFinite(
+          part,
+        ),
+    )
+  ) {
+    return value
+  }
+
+  const [
+    year,
+    month,
+    day,
+  ] = parts
+
+  const date = new Date(
+    year,
+    month - 1,
+    day,
+  )
+
+  return new Intl.DateTimeFormat(
+    undefined,
+    {
+      month: 'short',
+      day: 'numeric',
+    },
+  ).format(date)
+}
+
 function DifficultCardRow({
   card,
   onNavigate,
@@ -290,6 +346,7 @@ export default function ProgressPage({
 
   const {
     activity,
+    streaks,
     memory,
     ratings_last_30_days:
       ratings,
@@ -421,6 +478,161 @@ export default function ProgressPage({
                     != null
                 }
               />
+            </section>
+
+            <section className="progress-panel progress-streak-panel">
+              <div className="progress-panel-heading">
+                <div>
+                  <span className="progress-eyebrow">
+                    CONSISTENCY
+                  </span>
+
+                  <h2>
+                    Study rhythm
+                  </h2>
+
+                  <p>
+                    A light consistency
+                    signal—your FSRS due
+                    cards still decide what
+                    to study next.
+                  </p>
+                </div>
+
+                <span
+                  className={
+                    streaks.current_streak_days > 0
+                      ? 'progress-streak-badge progress-streak-badge-active'
+                      : 'progress-streak-badge'
+                  }
+                >
+                  {streaks.current_streak_days > 0
+                    ? `${streaks.current_streak_days} day ${streaks.current_streak_days === 1 ? 'streak' : 'streak'}`
+                    : 'No active streak'}
+                </span>
+              </div>
+
+              <div className="progress-streak-layout">
+                <div className="progress-streak-stats">
+                  <div>
+                    <span>
+                      Current streak
+                    </span>
+
+                    <strong>
+                      {streaks.current_streak_days}
+                    </strong>
+
+                    <small>
+                      consecutive{' '}
+                      {streaks.current_streak_days === 1
+                        ? 'day'
+                        : 'days'}
+                    </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      Best streak
+                    </span>
+
+                    <strong>
+                      {streaks.longest_streak_days}
+                    </strong>
+
+                    <small>
+                      longest run
+                    </small>
+                  </div>
+
+                  <div>
+                    <span>
+                      This week
+                    </span>
+
+                    <strong>
+                      {streaks.active_days_this_week}
+                      /{streaks.weekly_goal_days}
+                    </strong>
+
+                    <small>
+                      active study days
+                    </small>
+                  </div>
+                </div>
+
+                <div className="progress-weekly-goal">
+                  <div className="progress-weekly-goal-copy">
+                    <span>
+                      Weekly target
+                    </span>
+
+                    <strong>
+                      {streaks.weekly_goal_met
+                        ? 'Goal reached'
+                        : `${Math.max(0, streaks.weekly_goal_days - streaks.active_days_this_week)} ${Math.max(0, streaks.weekly_goal_days - streaks.active_days_this_week) === 1 ? 'day' : 'days'} to go`}
+                    </strong>
+                  </div>
+
+                  <div
+                    className="progress-weekly-track"
+                    aria-label={
+                      `${streaks.active_days_this_week} of ${streaks.weekly_goal_days} weekly study days completed`
+                    }
+                  >
+                    <span
+                      style={{
+                        width:
+                          `${Math.min(100, Math.round(streaks.active_days_this_week / Math.max(1, streaks.weekly_goal_days) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="progress-calendar-block">
+                  <div className="progress-calendar-heading">
+                    <span>
+                      Last 28 days
+                    </span>
+
+                    <small>
+                      Darker squares =
+                      more card reviews
+                    </small>
+                  </div>
+
+                  <div
+                    className="progress-calendar"
+                    aria-label="Recent study activity"
+                  >
+                    {streaks.recent_activity.map(
+                      (day) => {
+                        const level =
+                          activityLevel(
+                            day.review_count,
+                          )
+
+                        return (
+                          <div
+                            key={
+                              day.local_date
+                            }
+                            className={
+                              `progress-calendar-day progress-calendar-level-${level}`
+                            }
+                            title={
+                              `${activityDateLabel(day.local_date)}: ${day.review_count} ${day.review_count === 1 ? 'review' : 'reviews'}`
+                            }
+                            aria-label={
+                              `${activityDateLabel(day.local_date)}, ${day.review_count} ${day.review_count === 1 ? 'review' : 'reviews'}`
+                            }
+                          />
+                        )
+                      },
+                    )}
+                  </div>
+                </div>
+              </div>
             </section>
 
             <div className="progress-two-column">

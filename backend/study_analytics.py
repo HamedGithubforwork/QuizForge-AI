@@ -1,6 +1,6 @@
 """Owner-scoped study analytics for the signed-in learner."""
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,6 +21,21 @@ class ActivityMetrics(BaseModel):
     study_time_today_ms: int = Field(ge=0)
     study_time_last_7_days_ms: int = Field(ge=0)
     active_days_last_7_days: int = Field(ge=0, le=7)
+
+
+class DailyStudyActivity(BaseModel):
+    local_date: date
+    review_count: int = Field(ge=0)
+    study_time_ms: int = Field(ge=0)
+
+
+class StreakMetrics(BaseModel):
+    current_streak_days: int = Field(ge=0)
+    longest_streak_days: int = Field(ge=0)
+    active_days_this_week: int = Field(ge=0, le=7)
+    weekly_goal_days: int = Field(ge=1, le=7)
+    weekly_goal_met: bool
+    recent_activity: list[DailyStudyActivity]
 
 
 class MemoryMetrics(BaseModel):
@@ -70,6 +85,7 @@ class StudyAnalyticsSummary(BaseModel):
     generated_at: datetime
     total_decks: int = Field(ge=0)
     activity: ActivityMetrics
+    streaks: StreakMetrics
     memory: MemoryMetrics
     ratings_last_30_days: RatingDistribution
     difficult_cards: list[DifficultCard]

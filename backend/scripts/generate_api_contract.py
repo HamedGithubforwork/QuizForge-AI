@@ -60,6 +60,8 @@ PUBLIC_SCHEMA_NAMES = (
     "PushSubscriptionCreate",
     "PushSubscriptionRegistration",
     "ActivityMetrics",
+    "DailyStudyActivity",
+    "StreakMetrics",
     "MemoryMetrics",
     "RatingDistribution",
     "DifficultCard",

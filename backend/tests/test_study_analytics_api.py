@@ -42,6 +42,20 @@ class FakeRepository:
                 "study_time_last_7_days_ms": 300000,
                 "active_days_last_7_days": 4,
             },
+            "streaks": {
+                "current_streak_days": 3,
+                "longest_streak_days": 8,
+                "active_days_this_week": 4,
+                "weekly_goal_days": 5,
+                "weekly_goal_met": False,
+                "recent_activity": [
+                    {
+                        "local_date": "2026-09-29",
+                        "review_count": 3,
+                        "study_time_ms": 60000,
+                    },
+                ],
+            },
             "memory": {
                 "total_cards": 20,
                 "active_cards": 18,
@@ -130,6 +144,18 @@ def test_summary_forwards_valid_iana_timezone(api):
             "estimated_retention"
         ]
         == 0.91
+    )
+    assert (
+        body["streaks"][
+            "current_streak_days"
+        ]
+        == 3
+    )
+    assert (
+        body["streaks"][
+            "weekly_goal_days"
+        ]
+        == 5
     )
     assert (
         body["difficult_cards"][0][

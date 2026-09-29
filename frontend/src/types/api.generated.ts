@@ -236,6 +236,21 @@ export type ActivityMetrics = {
   "active_days_last_7_days": number
 }
 
+export type DailyStudyActivity = {
+  "local_date": string
+  "review_count": number
+  "study_time_ms": number
+}
+
+export type StreakMetrics = {
+  "current_streak_days": number
+  "longest_streak_days": number
+  "active_days_this_week": number
+  "weekly_goal_days": number
+  "weekly_goal_met": boolean
+  "recent_activity": DailyStudyActivity[]
+}
+
 export type MemoryMetrics = {
   "total_cards": number
   "active_cards": number
@@ -273,6 +288,7 @@ export type StudyAnalyticsSummary = {
   "generated_at": string
   "total_decks": number
   "activity": ActivityMetrics
+  "streaks": StreakMetrics
   "memory": MemoryMetrics
   "ratings_last_30_days": RatingDistribution
   "difficult_cards": DifficultCard[]
