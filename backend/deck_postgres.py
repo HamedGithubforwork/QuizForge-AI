@@ -72,6 +72,7 @@ class PostgresDeckRepository:
             "id": row["id"],
             "name": row["name"],
             "description": row["description"],
+            "exam_date": row["exam_date"],
             "card_count": row["card_count"],
             "due_count": row["due_count"],
             "next_due_at": row["next_due_at"],
@@ -120,7 +121,7 @@ class PostgresDeckRepository:
     async def _summary_row(self, conn, user_id, deck_id):
         return await (
             await conn.execute(
-                """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
+                """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,
                           count(c.id)::int AS card_count,
                           count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
                           min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
@@ -128,7 +129,7 @@ class PostgresDeckRepository:
                    LEFT JOIN app.cards c
                      ON c.deck_id=d.id AND c.user_id=d.user_id
                    WHERE d.id=%s AND d.user_id=%s
-                   GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at""",
+                   GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date""",
                 (deck_id, user_id),
             )
         ).fetchone()
@@ -178,7 +179,7 @@ class PostgresDeckRepository:
         async with self.transaction() as (conn, user_id):
             rows = await (
                 await conn.execute(
-                    """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,
+                    """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,
                               count(c.id)::int AS card_count,
                               count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
                               min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
@@ -186,7 +187,7 @@ class PostgresDeckRepository:
                        LEFT JOIN app.cards c
                          ON c.deck_id=d.id AND c.user_id=d.user_id
                        WHERE d.user_id=%s
-                       GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at
+                       GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date
                        ORDER BY
                          count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now()) DESC,
                          d.updated_at DESC,
@@ -204,10 +205,10 @@ class PostgresDeckRepository:
         async with self.transaction() as (conn, user_id):
             row = await (
                 await conn.execute(
-                    """INSERT INTO app.decks(user_id,name,description)
-                       VALUES (%s,%s,%s)
+                    """INSERT INTO app.decks(user_id,name,description,exam_date)
+                       VALUES (%s,%s,%s,%s)
                        RETURNING id""",
-                    (user_id, payload.name, payload.description),
+                    (user_id, payload.name, payload.description, payload.exam_date),
                 )
             ).fetchone()
             deck_id = row["id"]
@@ -231,7 +232,7 @@ class PostgresDeckRepository:
         ):
             source = await (
                 await conn.execute(
-                    """SELECT name,description
+                    """SELECT name,description,exam_date
                        FROM app.decks
                        WHERE id=%s AND user_id=%s""",
                     (
@@ -261,14 +262,17 @@ class PostgresDeckRepository:
             created = await (
                 await conn.execute(
                     """INSERT INTO app.decks(
-                        user_id,name,description
-                    ) VALUES (%s,%s,%s)
+                        user_id,name,description,exam_date
+                    ) VALUES (%s,%s,%s,%s)
                     RETURNING id""",
                     (
                         user_id,
                         copy_name,
                         source[
                             "description"
+                        ],
+                        source[
+                            "exam_date"
                         ],
                     ),
                 )
@@ -332,6 +336,9 @@ class PostgresDeckRepository:
             if "description" in payload.model_fields_set:
                 assignments.append(sql.SQL("description=%s"))
                 values.append(payload.description)
+            if "exam_date" in payload.model_fields_set:
+                assignments.append(sql.SQL("exam_date=%s"))
+                values.append(payload.exam_date)
 
             assignments.append(sql.SQL("updated_at=now()"))
             values.extend((deck_id, user_id))
