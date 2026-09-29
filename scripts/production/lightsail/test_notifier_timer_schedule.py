@@ -44,7 +44,7 @@ if sys.argv[1] == 'show':
         # Exercise the real enable/acceptance/rollback path without Docker,
         # network access, host files, or an actual systemd instance.
         start = controller.REMOTE.index('rollback() {')
-        return 'set -euo pipefail\nsudo() { "$@"; }\nsleep() { :; }\n' + controller.REMOTE[start:]
+        return 'set -euo pipefail\nsudo() { "$@"; }\nsleep() { echo "sleep $*" >>"$CALLS"; }\n' + controller.REMOTE[start:]
 
     def test_monotonic_timer_is_accepted_without_calendar_deadline(self):
         result, calls = self.run_shell(self.activation_tail())
@@ -61,11 +61,15 @@ if sys.argv[1] == 'show':
                 self.assertIn('disable --now quizforge-study-notifier.timer', calls)
                 self.assertNotIn('QF_RESULT=', result.stdout)
                 self.assertEqual(calls.count('NextElapseUSecMonotonic'), 15)
+                self.assertEqual([c for c in calls.splitlines() if c.startswith('sleep ')],
+                                 ['sleep 2'] * 14)
 
     def test_activation_waits_for_service_to_settle(self):
         result, calls = self.run_shell(self.activation_tail(), monotonic='n/a|0|1h 15min')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls.count('NextElapseUSecMonotonic'), 3)
+        self.assertEqual([c for c in calls.splitlines() if c.startswith('sleep ')],
+                         ['sleep 2'] * 2)
         self.assertNotIn('disable --now', calls)
 
     def test_inspection_reports_monotonic_schedule_and_actual_run(self):
