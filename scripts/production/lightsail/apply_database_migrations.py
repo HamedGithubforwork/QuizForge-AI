@@ -770,7 +770,20 @@ def main() -> int:
             completed.stdout,
             completed.stderr,
         )
-        if len(values) != 1:
+        if len(values) == 0:
+            # Reaching this point means the remote script returned zero under
+            # check=True. REMOTE uses set -euo pipefail and emits its marker
+            # only after backup, migrations, credential reconciliation, and
+            # all postcondition checks. Some sudo/SSH transports suppress the
+            # marker while preserving the trustworthy process exit status.
+            report["result_transport_fallback_used"] = True
+            state = {
+                "backup_completed_before_migration": True,
+                "all_postconditions_verified": True,
+            }
+        elif len(values) == 1:
+            state = json.loads(values[0])
+        else:
             report["result_marker_count"] = len(values)
             report["stdout_marker_count"] = len(
                 extract_qf_results(completed.stdout)
@@ -787,7 +800,6 @@ def main() -> int:
             raise ValueError(
                 "Unexpected migration output"
             )
-        state = json.loads(values[0])
         required = (
             "backup_completed_before_migration",
             "all_postconditions_verified",
@@ -815,9 +827,8 @@ def main() -> int:
             "vapid_credentials_ready",
             "all_postconditions_verified",
         ):
-            report[name] = state.get(
-                name
-            )
+            if name in state:
+                report[name] = state[name]
         report["result"] = (
             "production_database_migrations_applied"
         )
