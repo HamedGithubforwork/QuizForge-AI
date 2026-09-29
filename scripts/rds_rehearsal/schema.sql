@@ -39,6 +39,8 @@ CREATE TABLE app.decks (
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     exam_date date,
+    study_intensity text NOT NULL DEFAULT 'balanced'
+        CHECK (study_intensity IN ('relaxed', 'balanced', 'intensive')),
     UNIQUE (id, user_id)
 );
 CREATE TABLE app.cards (
@@ -161,6 +163,7 @@ GRANT UPDATE (
 ) ON app.study_push_subscriptions TO quizforge_app;
 GRANT UPDATE (name, description, updated_at) ON app.decks TO quizforge_app;
 GRANT UPDATE (exam_date) ON app.decks TO quizforge_app;
+GRANT UPDATE (study_intensity) ON app.decks TO quizforge_app;
 GRANT UPDATE (
     question_type,
     question,
