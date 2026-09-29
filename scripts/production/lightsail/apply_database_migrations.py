@@ -531,6 +531,7 @@ def main() -> int:
         "all_postconditions_verified": False,
         "dns_changes_performed": False,
         "ai_configuration_changed": False,
+        "phase": "initializing",
     }
     forbidden: list[str] = []
     lightsail = None
@@ -552,6 +553,7 @@ def main() -> int:
                 "Reviewed migration set invalid"
             )
 
+        report["phase"] = "local_migration_set_validated"
         admin = os.environ[
             "LIGHTSAIL_ADMIN_IPV4_CIDR"
         ]
@@ -599,6 +601,7 @@ def main() -> int:
                 "Baseline firewall mismatch"
             )
 
+        report["phase"] = "live_host_contract_verified"
         runner = runner_ipv4()
         forbidden.append(runner)
         lightsail.open_instance_public_ports(
@@ -616,7 +619,9 @@ def main() -> int:
             "temporary_ssh_rule_opened"
         ] = True
 
+        report["phase"] = "temporary_ssh_rule_opened"
         known = scan_host(ip, pins)
+        report["phase"] = "ssh_host_key_verified"
         access = (
             lightsail.get_instance_access_details(
                 instanceName=INSTANCE_NAME,
@@ -644,6 +649,7 @@ def main() -> int:
             [private_key, cert_key]
         )
 
+        report["phase"] = "temporary_ssh_access_ready"
         temp = Path(
             tempfile.mkdtemp(
                 prefix="quizforge-migrations-"
@@ -710,6 +716,7 @@ def main() -> int:
             check=True,
         )
 
+        report["phase"] = "migration_bundle_uploaded"
         completed = subprocess.run(
             ssh_command(
                 key,
@@ -731,6 +738,7 @@ def main() -> int:
             timeout=600,
             check=True,
         )
+        report["phase"] = "remote_migration_completed"
         values = [
             line.removeprefix(
                 "QF_RESULT="
@@ -779,6 +787,7 @@ def main() -> int:
         report["result"] = (
             "production_database_migrations_applied"
         )
+        report["phase"] = "completed"
 
     except ClientError as error:
         report["error_code"] = safe_code(
@@ -799,11 +808,27 @@ def main() -> int:
         report["error_code"] = (
             "MIGRATION_TIMEOUT"
         )
+    except ValueError as error:
+        known_value_errors = {
+            "Reviewed migration set invalid": "REVIEWED_MIGRATION_SET_INVALID",
+            "Live instance contract mismatch": "LIVE_INSTANCE_CONTRACT_MISMATCH",
+            "Baseline firewall mismatch": "BASELINE_FIREWALL_MISMATCH",
+            "Observed SSH host key does not match pinned set": "SSH_HOST_PIN_MISMATCH",
+            "Temporary SSH access incomplete": "TEMPORARY_SSH_ACCESS_INCOMPLETE",
+            "Unexpected migration output": "UNEXPECTED_MIGRATION_OUTPUT",
+            "Migration acceptance incomplete": "MIGRATION_ACCEPTANCE_INCOMPLETE",
+        }
+        report["error_code"] = known_value_errors.get(
+            str(error),
+            "MIGRATION_VALUE_ERROR",
+        )
+        report["failure_phase"] = report.get("phase")
     except Exception as error:
         report["error_code"] = safe_code(
             type(error).__name__,
             "PRIVATE_MIGRATION_FAILED",
         )
+        report["failure_phase"] = report.get("phase")
     finally:
         if (
             lightsail is not None
