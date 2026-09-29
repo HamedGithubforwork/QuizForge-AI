@@ -5,7 +5,9 @@ import tempfile
 from pathlib import Path
 import unittest
 
-from scripts.production.lightsail import apply_database_migrations, promote_release
+from scripts.production.lightsail import (
+    apply_database_migrations, enable_study_notifier, promote_release,
+)
 
 
 def shell_function(script: str, name: str) -> str:
@@ -16,6 +18,34 @@ def shell_function(script: str, name: str) -> str:
 
 
 class RemoteStdinTests(unittest.TestCase):
+    def test_notifier_probe_preserves_validation_and_failure_status(self):
+        remote = enable_study_notifier.REMOTE
+        # Execute the real probe and JSON acceptance check, stopping before
+        # systemd mutation. A failed probe must never reach timer activation.
+        probe = remote[remote.index('probe="$('):remote.index('\nsudo install')]
+        valid = '{"format":"quizforge-study-notifier-v1","candidates":0,' \
+            '"sent":0,"skipped_time":0,"skipped_duplicate":0,' \
+            '"expired_removed":0,"failed":0}'
+        for status, output, expected in ((0, valid, 0), (47, valid, 47), (0, '{}', 1)):
+            with self.subTest(status=status, output=output):
+                script = "\n".join((
+                    "set -euo pipefail",
+                    "compose=unused",
+                    "sudo() { cat >/dev/null; printf '%s\\n' '" + output + "'; "
+                    f"return {status}; }}",
+                    probe,
+                    "printf 'PROBE_ACCEPTED\\n'",
+                    "",
+                ))
+                completed = subprocess.run(
+                    ["bash", "-s"], input=script, text=True,
+                    capture_output=True, timeout=5, check=False,
+                )
+                self.assertEqual(completed.returncode, expected, completed.stderr)
+                self.assertEqual(
+                    completed.stdout, 'PROBE_ACCEPTED\n' if expected == 0 else '',
+                )
+
     def test_queries_preserve_following_checks_and_propagate_failures(self):
         for remote in (
             apply_database_migrations.REMOTE,

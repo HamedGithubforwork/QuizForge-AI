@@ -6,6 +6,7 @@ on:
       - ".github/workflows/lightsail-study-notifier-activation.yml"
       - "scripts/production/lightsail/enable_study_notifier.py"
       - "scripts/production/lightsail/test_enable_study_notifier.py"
+      - "scripts/production/lightsail/test_remote_stdin.py"
       - "scripts/production/lightsail/quizforge-study-notifier.service"
       - "scripts/production/lightsail/quizforge-study-notifier.timer"
       - "scripts/production/lightsail/host_control.py"
@@ -34,7 +35,7 @@ jobs:
       - name: Validate study notifier activation
         run: |
           python -m py_compile scripts/production/lightsail/enable_study_notifier.py
-          python -m unittest scripts.production.lightsail.test_enable_study_notifier -v
+          python -m unittest scripts.production.lightsail.test_enable_study_notifier scripts.production.lightsail.test_remote_stdin -v
           mkdir -p /tmp/quizforge-study-notifier-unit-check
           cp scripts/production/lightsail/quizforge-study-notifier.service /tmp/quizforge-study-notifier-unit-check/
           cp scripts/production/lightsail/quizforge-study-notifier.timer /tmp/quizforge-study-notifier-unit-check/
