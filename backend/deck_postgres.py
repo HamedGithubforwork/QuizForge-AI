@@ -738,8 +738,14 @@ class PostgresDeckRepository:
             stats = await (
                 await conn.execute(
                     """SELECT
-                        count(*) FILTER (WHERE due_at <= now())::int AS due_count,
-                        min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
+                        count(*) FILTER (
+                            WHERE review_count > 0
+                              AND due_at <= now()
+                        )::int AS due_count,
+                        min(due_at) FILTER (
+                            WHERE review_count > 0
+                              AND due_at > now()
+                        ) AS next_due_at
                        FROM app.cards
                        WHERE deck_id=%s AND user_id=%s AND suspended=false""",
                     (deck_id, user_id),
@@ -752,7 +758,11 @@ class PostgresDeckRepository:
                               fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
                               review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
                        FROM app.cards
-                       WHERE deck_id=%s AND user_id=%s AND suspended=false AND due_at <= now()
+                       WHERE deck_id=%s
+                         AND user_id=%s
+                         AND suspended=false
+                         AND review_count > 0
+                         AND due_at <= now()
                        ORDER BY due_at,created_at,id
                        LIMIT %s""",
                     (deck_id, user_id, limit),
@@ -793,6 +803,83 @@ class PostgresDeckRepository:
                     ],
                 "due_count": stats["due_count"],
                 "next_due_at": stats["next_due_at"],
+                "cards": cards,
+            }
+
+    async def new_card_queue(
+        self,
+        deck_id,
+        *,
+        limit,
+    ):
+        async with self.transaction() as (
+            conn,
+            user_id,
+        ):
+            summary = self._summary(
+                await self._summary_row(
+                    conn,
+                    user_id,
+                    deck_id,
+                ),
+                user_id,
+            )
+            rows = await (
+                await conn.execute(
+                    """SELECT id,deck_id,user_id,question_type,question,answer,choices,
+                              explanation,source_filename,document_sha256,source_pages,tags,
+                              fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
+                              review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
+                       FROM app.cards
+                       WHERE deck_id=%s
+                         AND user_id=%s
+                         AND suspended=false
+                         AND review_count=0
+                       ORDER BY created_at,id
+                       LIMIT %s""",
+                    (
+                        deck_id,
+                        user_id,
+                        limit,
+                    ),
+                )
+            ).fetchall()
+            review_now = datetime.now(
+                timezone.utc
+            )
+            cards = self._cards(
+                rows,
+                user_id,
+            )
+            for card, row in zip(
+                cards,
+                rows,
+                strict=True,
+            ):
+                card[
+                    "review_preview"
+                ] = (
+                    preview_review_due_times(
+                        row,
+                        study_intensity=
+                            summary[
+                                "study_intensity"
+                            ],
+                        review_datetime=
+                            review_now,
+                    )
+                )
+
+            return {
+                "deck_id": deck_id,
+                "deck_name":
+                    summary["name"],
+                "study_intensity":
+                    summary[
+                        "study_intensity"
+                    ],
+                "new_count":
+                    summary["new_count"],
                 "cards": cards,
             }
 
@@ -918,8 +1005,14 @@ class PostgresDeckRepository:
             stats = await (
                 await conn.execute(
                     """SELECT
-                        count(*) FILTER (WHERE due_at <= now())::int AS due_count,
-                        min(due_at) FILTER (WHERE due_at > now()) AS next_due_at
+                        count(*) FILTER (
+                            WHERE review_count > 0
+                              AND due_at <= now()
+                        )::int AS due_count,
+                        min(due_at) FILTER (
+                            WHERE review_count > 0
+                              AND due_at > now()
+                        ) AS next_due_at
                        FROM app.cards
                        WHERE deck_id=%s AND user_id=%s AND suspended=false""",
                     (deck_id, user_id),
