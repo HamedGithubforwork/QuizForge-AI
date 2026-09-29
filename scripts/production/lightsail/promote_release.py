@@ -47,6 +47,12 @@ REMOTE_PROMOTE = r"""set -euo pipefail
 release_sha="$1"
 archive="$2"
 
+# Report only numeric source location/status, never commands or their output.
+report_failure() {
+  printf 'QF_FAILURE=%s:%s\n' "$1" "$2" >&2
+}
+trap 'report_failure "$?" "$LINENO"' ERR
+
 case "$release_sha" in
   *[!0-9a-f]*|'') exit 31 ;;
 esac
@@ -165,7 +171,7 @@ rollback() {
   fi
   sudo rm -rf "$final" "$new_frontend"
 }
-trap rollback ERR
+trap 'report_failure "$?" "$LINENO"; rollback' ERR
 
 sudo systemctl stop quizforge.service
 
@@ -262,6 +268,21 @@ def safe_code(
         )
         else fallback
     )
+
+
+def remote_failure_details(stdout: str, stderr: str) -> dict[str, int]:
+    """Accept one bounded numeric marker without publishing remote output."""
+    values = re.findall(
+        r"^QF_FAILURE=([0-9]{1,3}):([0-9]{1,5})$",
+        stdout + "\n" + stderr,
+        re.MULTILINE,
+    )
+    if len(values) != 1:
+        return {}
+    status, line = map(int, values[0])
+    if not 1 <= status <= 255 or not 1 <= line <= len(REMOTE_PROMOTE.splitlines()):
+        return {}
+    return {"remote_failure_status": status, "remote_failure_line": line}
 
 
 def write_report(
@@ -754,6 +775,7 @@ def main() -> int:
         report[
             "remote_return_code"
         ] = error.returncode
+        report.update(remote_failure_details(error.stdout or "", error.stderr or ""))
     except subprocess.TimeoutExpired:
         report[
             "error_code"
