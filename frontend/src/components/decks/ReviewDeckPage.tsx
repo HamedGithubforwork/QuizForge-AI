@@ -8,6 +8,7 @@ import {
   apiFetch,
 } from '../../lib/api'
 import {
+  getNewCardQueue,
   getReviewQueue,
   submitReview,
 } from '../../lib/decks'
@@ -19,6 +20,7 @@ import type {
 type ReviewDeckPageProps = {
   deckId: string
   onNavigate: (path: string) => void
+  mode?: 'review' | 'learn'
 }
 
 type RatingValue = 1 | 2 | 3 | 4
@@ -181,12 +183,13 @@ function formatNextDue(
 export default function ReviewDeckPage({
   deckId,
   onNavigate,
+  mode = 'review',
 }: ReviewDeckPageProps) {
   const [deckName, setDeckName] =
     useState('Study Deck')
   const [cards, setCards] =
     useState<ReviewQueueCard[]>([])
-  const [dueCount, setDueCount] =
+  const [queueCount, setQueueCount] =
     useState(0)
   const [nextDueAt, setNextDueAt] =
     useState<string | null>(null)
@@ -212,21 +215,31 @@ export default function ReviewDeckPage({
 
       try {
         const queue =
-          await getReviewQueue(
-            deckId,
-            apiFetch,
-            50,
-          )
+          mode === 'learn'
+            ? await getNewCardQueue(
+                deckId,
+                apiFetch,
+                50,
+              )
+            : await getReviewQueue(
+                deckId,
+                apiFetch,
+                50,
+              )
 
         setDeckName(
           queue.deck_name,
         )
         setCards(queue.cards)
-        setDueCount(
-          queue.due_count,
+        setQueueCount(
+          mode === 'learn'
+            ? queue.new_count
+            : queue.due_count,
         )
         setNextDueAt(
-          queue.next_due_at,
+          'next_due_at' in queue
+            ? queue.next_due_at
+            : null,
         )
         setRevealed(false)
         setStartedAt(Date.now())
@@ -234,7 +247,9 @@ export default function ReviewDeckPage({
         setError(
           caught instanceof Error
             ? caught.message
-            : 'Could not load this review session.',
+            : mode === 'learn'
+              ? 'Could not load new study cards.'
+              : 'Could not load this review session.',
         )
       } finally {
         if (showLoading) {
@@ -242,7 +257,10 @@ export default function ReviewDeckPage({
         }
       }
     },
-    [deckId],
+    [
+      deckId,
+      mode,
+    ],
   )
 
   useEffect(() => {
@@ -294,11 +312,21 @@ export default function ReviewDeckPage({
       const remainingLocal =
         cards.slice(1)
 
-      setDueCount(
-        result.remaining_due_count,
+      const remainingCount =
+        mode === 'learn'
+          ? Math.max(
+              0,
+              queueCount - 1,
+            )
+          : result.remaining_due_count
+
+      setQueueCount(
+        remainingCount,
       )
       setNextDueAt(
-        result.next_due_at,
+        mode === 'review'
+          ? result.next_due_at
+          : null,
       )
 
       if (
@@ -310,7 +338,7 @@ export default function ReviewDeckPage({
         setRevealed(false)
         setStartedAt(Date.now())
       } else if (
-        result.remaining_due_count > 0
+        remainingCount > 0
       ) {
         await loadQueue(false)
       } else {
@@ -340,7 +368,9 @@ export default function ReviewDeckPage({
         />
 
         <span>
-          Preparing review…
+          {mode === 'learn'
+            ? 'Preparing new cards…'
+            : 'Preparing review…'}
         </span>
       </section>
     )
@@ -350,7 +380,9 @@ export default function ReviewDeckPage({
     return (
       <section className="review-session-status">
         <h1>
-          Could not start review
+          {mode === 'learn'
+            ? 'Could not start learning'
+            : 'Could not start review'}
         </h1>
 
         <p role="alert">
@@ -401,19 +433,25 @@ export default function ReviewDeckPage({
           </div>
 
           <span className="decks-eyebrow">
-            REVIEW COMPLETE
+            {mode === 'learn'
+              ? 'NEW CARDS COMPLETE'
+              : 'REVIEW COMPLETE'}
           </span>
 
           <h1>
-            You’re caught up
+            {mode === 'learn'
+              ? 'New cards complete'
+              : 'You’re caught up'}
           </h1>
 
           <p>
-            No cards in this deck
-            are due right now.
+            {mode === 'learn'
+              ? 'There are no unlearned cards left in this deck.'
+              : 'No reviewed cards in this deck are due right now.'}
           </p>
 
-          {nextDue && (
+          {mode === 'review' &&
+            nextDue && (
             <p className="review-next-due">
               Next review:{' '}
               <strong>
@@ -468,14 +506,18 @@ export default function ReviewDeckPage({
             )
           }
         >
-          ← Exit Review
+          {mode === 'learn'
+            ? '← Exit Learning'
+            : '← Exit Review'}
         </button>
 
         <div className="review-session-count">
           <strong>
-            {dueCount}
+            {queueCount}
           </strong>
-          {' '}due
+          {mode === 'learn'
+            ? ' new'
+            : ' due'}
         </div>
       </div>
 
@@ -591,8 +633,9 @@ export default function ReviewDeckPage({
             </div>
 
             <div className="review-rating-copy">
-              How well did you
-              remember it?
+              {mode === 'learn'
+                ? 'How well did the new card stick?'
+                : 'How well did you remember it?'}
             </div>
 
             <div className="review-ratings">
