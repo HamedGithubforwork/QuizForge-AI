@@ -203,6 +203,27 @@ class MigrationControllerTests(unittest.TestCase):
             ["{}", "{}"],
         )
 
+    def test_combined_result_parser_accepts_stderr_transport(self):
+        payload = '{"ok":true}'
+        self.assertEqual(
+            migrations.combined_qf_results(
+                "",
+                "sudo-note\nQF_RESULT=" + payload + "\n",
+            ),
+            [payload],
+        )
+
+    def test_combined_result_parser_deduplicates_mirrored_marker(self):
+        payload = '{"ok":true}'
+        line = "QF_RESULT=" + payload + "\n"
+        self.assertEqual(
+            migrations.combined_qf_results(
+                line,
+                line,
+            ),
+            [payload],
+        )
+
     def test_summary_codes_are_bounded(self):
         self.assertEqual(
             migrations.safe_code(
