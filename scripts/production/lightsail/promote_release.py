@@ -80,10 +80,11 @@ frontend_stage="$frontends/.promoting-$release_sha"
 # New application code is not allowed to start against an old database.
 compose_current="/opt/quizforge/current/compose.json"
 dbq() {
+  # Keep Compose from consuming the script streamed to bash -s over SSH.
   sudo docker compose -f "$compose_current" exec -T db sh -ceu '
     export PGPASSWORD="$(cat /run/quizforge/owner-password)"
     psql -X -qAt -v ON_ERROR_STOP=1 -U quizforge_owner -d quizforge -c "$1"
-  ' sh "$1"
+  ' sh "$1" </dev/null
 }
 test "$(dbq "SELECT (to_regclass('app.decks') IS NOT NULL AND to_regclass('app.cards') IS NOT NULL AND to_regclass('app.card_review_logs') IS NOT NULL AND to_regclass('app.study_notification_preferences') IS NOT NULL AND to_regclass('app.study_push_subscriptions') IS NOT NULL AND to_regclass('app.study_notification_deliveries') IS NOT NULL)::int")" = "1"
 test "$(dbq "SELECT (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='quizforge_notifier'))::int")" = "1"
