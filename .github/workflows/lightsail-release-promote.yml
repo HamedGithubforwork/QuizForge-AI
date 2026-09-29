@@ -156,7 +156,11 @@ jobs:
                 "lightsail:OpenInstancePublicPorts",
                 "lightsail:CloseInstancePublicPorts",
                 "lightsail:GetInstanceAccessDetails",
-                "ecr:GetAuthorizationToken"
+                "ecr:GetAuthorizationToken",
+                "ecr:DescribeImages",
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchGetImage"
               ],"Resource":"*"}
             ]}
 
