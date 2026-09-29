@@ -115,6 +115,17 @@ sudo() {
             remote,
         )
 
+    def test_backup_runtime_refresh_precedes_backup_and_release_mutation(self):
+        remote = promote_release.REMOTE_PROMOTE
+        refresh = remote.index('python3 "$work/refresh_backup_runtime.py"')
+        backup = remote.index("systemctl start quizforge-backup.service")
+        stage = remote.index('sudo rm -rf "$stage"')
+        switch = remote.index('ln -sfn "$final" /opt/quizforge/current.next')
+        self.assertLess(refresh, backup)
+        self.assertLess(backup, stage)
+        self.assertLess(stage, switch)
+        self.assertNotIn("refresh_backup_runtime.py", promote_release.REMOTE_INSPECT)
+
     def test_result_parser_accepts_stderr_transport_and_mirrored_marker(self):
         payload = '{"ok":true}'
         self.assertEqual(
