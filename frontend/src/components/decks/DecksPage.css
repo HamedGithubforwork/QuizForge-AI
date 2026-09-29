@@ -2404,4 +2404,424 @@
   .card-editor-heading label {
     min-width: 0;
   }
+
+  .exam-plan-heading,
+  .exam-date-card,
+  .exam-today-card,
+  .exam-weak-concepts {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .exam-countdown,
+  .exam-date-controls,
+  .exam-workload-grid {
+    width: 100%;
+  }
+
+  .exam-date-controls {
+    justify-content: stretch;
+  }
+
+  .exam-date-controls > * {
+    flex: 1;
+  }
+
+  .exam-plan-summary {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .exam-weak-tags {
+    justify-content: flex-start;
+  }
+
+  .exam-plan-actions {
+    flex-direction: column;
+  }
+
+  .exam-plan-actions > button {
+    width: 100%;
+  }
 }
+
+.deck-exam-plan-button {
+  border-color: #d7d1ed;
+
+  background: #faf8ff;
+
+  color: #6652a3;
+}
+
+.exam-plan {
+  display: grid;
+
+  gap: 18px;
+}
+
+.exam-plan-heading,
+.exam-date-card,
+.exam-today-card,
+.exam-weak-concepts {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 22px;
+
+  padding: 24px;
+
+  border: 1px solid #e0e2ed;
+  border-radius: 18px;
+
+  background: white;
+}
+
+.exam-plan-heading {
+  background:
+    linear-gradient(
+      135deg,
+      #fbfaff 0%,
+      #f3f0ff 100%
+    );
+
+  border-color: #d9d4f2;
+}
+
+.exam-plan-heading h1 {
+  margin: 7px 0 8px;
+
+  color: #30364c;
+
+  font-size: clamp(
+    28px,
+    5vw,
+    40px
+  );
+}
+
+.exam-plan-heading p,
+.exam-date-card p,
+.exam-today-card p {
+  max-width: 650px;
+
+  margin: 0;
+
+  color: #6e7587;
+
+  line-height: 1.55;
+}
+
+.exam-countdown {
+  display: grid;
+
+  min-width: 115px;
+
+  place-items: center;
+
+  padding: 16px;
+
+  border-radius: 16px;
+
+  background: #675ae2;
+
+  color: white;
+}
+
+.exam-countdown strong {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.exam-countdown span {
+  margin-top: 5px;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.exam-date-card h2,
+.exam-today-card h2,
+.exam-weak-concepts h2 {
+  margin: 5px 0 7px;
+
+  color: #343a50;
+}
+
+.exam-date-controls {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  align-items: center;
+  justify-content: flex-end;
+
+  gap: 8px;
+}
+
+.exam-date-controls input {
+  min-height: 42px;
+
+  padding: 0 11px;
+
+  border: 1px solid #d8dbe7;
+  border-radius: 9px;
+
+  background: white;
+
+  color: #30364c;
+
+  font: inherit;
+}
+
+.exam-date-controls input:focus {
+  border-color: #7569e8;
+
+  outline: 0;
+
+  box-shadow:
+    0 0 0 3px
+    rgba(103, 90, 226, 0.1);
+}
+
+.exam-plan-message {
+  padding: 11px 13px;
+
+  border: 1px solid #bee0ca;
+  border-radius: 10px;
+
+  background: #f1faf4;
+
+  color: #2f7049;
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.exam-plan-empty {
+  display: grid;
+
+  min-height: 220px;
+
+  place-items: center;
+
+  gap: 8px;
+
+  padding: 34px 24px;
+
+  border: 1px dashed #d9dbea;
+  border-radius: 18px;
+
+  background: white;
+
+  text-align: center;
+}
+
+.exam-plan-empty h2 {
+  margin: 0;
+
+  color: #373e54;
+}
+
+.exam-plan-empty p {
+  max-width: 540px;
+
+  margin: 0;
+
+  color: #777e90;
+
+  line-height: 1.55;
+}
+
+.exam-plan-summary {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      4,
+      minmax(0, 1fr)
+    );
+
+  gap: 10px;
+}
+
+.exam-plan-summary article {
+  display: grid;
+
+  align-content: start;
+
+  gap: 6px;
+
+  min-height: 145px;
+
+  padding: 17px;
+
+  border: 1px solid #e1e3ed;
+  border-radius: 14px;
+
+  background: white;
+}
+
+.exam-plan-summary article > span {
+  color: #777e90;
+
+  font-size: 11px;
+  font-weight: 900;
+
+  text-transform: uppercase;
+}
+
+.exam-plan-summary article > strong {
+  color: #30364c;
+
+  font-size: 29px;
+  line-height: 1.15;
+}
+
+.exam-plan-summary article > small {
+  color: #8b91a0;
+
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.exam-intensity-relaxed {
+  border-color: #c8e0d2 !important;
+
+  background: #f5fbf7 !important;
+}
+
+.exam-intensity-balanced {
+  border-color: #d9d4f4 !important;
+
+  background: #f8f7ff !important;
+}
+
+.exam-intensity-intensive {
+  border-color: #efccb7 !important;
+
+  background: #fff8f3 !important;
+}
+
+.exam-today-card {
+  align-items: center;
+
+  border-color: #d7d2f4;
+
+  background:
+    linear-gradient(
+      135deg,
+      #fdfcff 0%,
+      #f6f4ff 100%
+    );
+}
+
+.exam-workload-grid {
+  display: grid;
+
+  min-width: 240px;
+
+  grid-template-columns:
+    repeat(2, minmax(0, 1fr));
+
+  gap: 8px;
+}
+
+.exam-workload-grid > div {
+  display: grid;
+
+  place-items: center;
+
+  padding: 14px;
+
+  border: 1px solid #ddd9f4;
+  border-radius: 12px;
+
+  background: white;
+
+  color: #5f54ba;
+}
+
+.exam-workload-grid strong {
+  font-size: 26px;
+}
+
+.exam-workload-grid span {
+  font-size: 10px;
+  font-weight: 800;
+
+  text-transform: uppercase;
+}
+
+.exam-workload-warning {
+  padding: 14px 16px;
+
+  border: 1px solid #ecd4ad;
+  border-radius: 12px;
+
+  background: #fffaf0;
+
+  color: #7b622d;
+
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.exam-weak-concepts {
+  align-items: center;
+}
+
+.exam-weak-tags {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  justify-content: flex-end;
+
+  gap: 7px;
+}
+
+.exam-weak-tags > span {
+  display: inline-flex;
+
+  align-items: center;
+
+  gap: 6px;
+
+  padding: 7px 10px;
+
+  border: 1px solid #e4c7af;
+  border-radius: 999px;
+
+  background: #fff8f1;
+
+  color: #965b2d;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.exam-weak-tags strong {
+  display: grid;
+
+  min-width: 20px;
+  height: 20px;
+
+  place-items: center;
+
+  border-radius: 999px;
+
+  background: #f0dbc9;
+
+  font-size: 10px;
+}
+
+.exam-plan-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 9px;
+}
+

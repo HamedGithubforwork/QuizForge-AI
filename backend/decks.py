@@ -3,7 +3,7 @@
 import json
 from typing import Any, Literal
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -157,6 +157,7 @@ class DeckCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    exam_date: date | None = None
     cards: list[CardCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
@@ -197,6 +198,7 @@ class DeckUpdate(BaseModel):
 
     name: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
+    exam_date: date | None = None
 
     @field_validator("name")
     @classmethod
@@ -388,6 +390,7 @@ class DeckSummary(BaseModel):
     id: UUID
     name: str
     description: str | None
+    exam_date: date | None = None
     card_count: int = Field(ge=0)
     due_count: int = Field(ge=0)
     next_due_at: datetime | None

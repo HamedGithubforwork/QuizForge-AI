@@ -119,12 +119,14 @@ export type CardRow = {
 export type DeckCreate = {
   "name": string
   "description"?: string | null
+  "exam_date"?: string | null
   "cards"?: CardCreate[]
 }
 
 export type DeckUpdate = {
   "name"?: string | null
   "description"?: string | null
+  "exam_date"?: string | null
 }
 
 export type DeckDuplicate = {
@@ -157,6 +159,7 @@ export type DeckSummary = {
   "id": string
   "name": string
   "description": string | null
+  "exam_date"?: string | null
   "card_count": number
   "due_count": number
   "next_due_at": string | null
@@ -168,6 +171,7 @@ export type DeckDetail = {
   "id": string
   "name": string
   "description": string | null
+  "exam_date"?: string | null
   "card_count": number
   "due_count": number
   "next_due_at": string | null

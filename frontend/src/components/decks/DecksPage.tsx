@@ -37,6 +37,7 @@ import type {
 import CardEditor from './CardEditor'
 import CramDeckPage from './CramDeckPage'
 import DeckAiPracticePage from './DeckAiPracticePage'
+import ExamPlanPage from './ExamPlanPage'
 import MissedQuestionsPage from './MissedQuestionsPage'
 import RecentlyAddedDeckPage from './RecentlyAddedDeckPage'
 import ReviewDeckPage from './ReviewDeckPage'
@@ -65,6 +66,9 @@ const RECENT_PATH =
 
 const AI_PRACTICE_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/ai-practice$/i
+
+const EXAM_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/exam$/i
 
 function formatDeckDate(
   value: string,
@@ -792,6 +796,20 @@ function DeckDetailView({
               Generate AI Practice
             </button>
           )}
+
+          <button
+            className="decks-secondary-button deck-exam-plan-button"
+            type="button"
+            onClick={() =>
+              onNavigate(
+                `/decks/${deck.id}/exam`,
+              )
+            }
+          >
+            {deck.exam_date
+              ? 'Exam Plan'
+              : 'Set Exam Date'}
+          </button>
 
           {deck.card_count > 0 && (
             <button
@@ -1537,6 +1555,10 @@ export default function DecksPage({
     )
   const aiPracticeDeckId =
     aiPracticeMatch?.[1] ?? null
+  const examMatch =
+    pathname.match(EXAM_PATH)
+  const examDeckId =
+    examMatch?.[1] ?? null
   const missedQuestions =
     pathname === '/decks/missed'
   const detailMatch =
@@ -1551,7 +1573,8 @@ export default function DecksPage({
     !cramDeckId &&
     !weakDeckId &&
     !recentDeckId &&
-    !aiPracticeDeckId
+    !aiPracticeDeckId &&
+    !examDeckId
 
   useEffect(() => {
     let active = true
@@ -1568,7 +1591,8 @@ export default function DecksPage({
           cramDeckId ||
           weakDeckId ||
           recentDeckId ||
-          aiPracticeDeckId
+          aiPracticeDeckId ||
+          examDeckId
         ) {
           return
         }
@@ -1631,6 +1655,7 @@ export default function DecksPage({
   }, [
     aiPracticeDeckId,
     cramDeckId,
+    examDeckId,
     deckId,
     invalidPath,
     missedQuestions,
@@ -1690,6 +1715,11 @@ export default function DecksPage({
             deckId={
               aiPracticeDeckId
             }
+            onNavigate={onNavigate}
+          />
+        ) : examDeckId ? (
+          <ExamPlanPage
+            deckId={examDeckId}
             onNavigate={onNavigate}
           />
         ) : loading ? (

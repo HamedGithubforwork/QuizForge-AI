@@ -39,6 +39,7 @@ def deck_detail(
     cards=None,
     name="Biology Midterm",
     description="Cell biology",
+    exam_date=None,
     due_count=None,
     next_due_at=None,
 ):
@@ -48,6 +49,7 @@ def deck_detail(
         "id": DECK_ID,
         "name": name,
         "description": description,
+        "exam_date": exam_date,
         "card_count": len(values),
         "due_count": (
             len(values)
@@ -114,6 +116,7 @@ class FakeRepository:
             cards=cards,
             name=payload.name,
             description=payload.description,
+            exam_date=payload.exam_date,
         )
 
     async def get(self, deck_id):
@@ -147,6 +150,7 @@ class FakeRepository:
             cards=[card_row()],
             name=payload.name or "Biology Midterm",
             description=payload.description,
+            exam_date=payload.exam_date,
         )
 
     async def delete(self, deck_id):
@@ -513,11 +517,19 @@ def test_update_requires_a_real_change_and_never_accepts_owner_fields(api):
         f"/api/decks/{DECK_ID}",
         json={"user_id": str(UUID(int=9))},
     ).status_code == 422
+    assert client.patch(
+        f"/api/decks/{DECK_ID}",
+        json={"exam_date": "not-a-date"},
+    ).status_code == 422
     assert repository.calls == []
 
     response = client.patch(
         f"/api/decks/{DECK_ID}",
-        json={"name": "  Exam Review  ", "description": None},
+        json={
+            "name": "  Exam Review  ",
+            "description": None,
+            "exam_date": "2026-12-15",
+        },
     )
     assert response.status_code == 200
     assert response.json()["name"] == "Exam Review"
@@ -525,6 +537,8 @@ def test_update_requires_a_real_change_and_never_accepts_owner_fields(api):
     assert deck_id == DECK_ID
     assert payload.name == "Exam Review"
     assert "description" in payload.model_fields_set
+    assert payload.exam_date.isoformat() == "2026-12-15"
+    assert "exam_date" in payload.model_fields_set
 
 
 def test_batch_add_cards_is_bounded_and_preserves_provenance(api):

@@ -326,6 +326,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
                 json={
                     "name": " Biology Midterm ",
                     "description": "Cell biology",
+                    "exam_date": "2026-12-15",
                     "cards": [{
                         "question_type": "multiple_choice",
                         "question": "What organelle produces ATP?",
@@ -350,6 +351,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert created.status_code == 201, created.text
             body = created.json()
             assert body["name"] == "Biology Midterm"
+            assert body["exam_date"] == "2026-12-15"
             assert body["card_count"] == 1
             assert body["due_count"] == 1
             assert body["next_due_at"] is None
@@ -363,6 +365,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             listed = await client.get("/api/decks", headers=headers())
             assert listed.status_code == 200
             assert [item["id"] for item in listed.json()] == [deck_id]
+            assert listed.json()[0]["exam_date"] == "2026-12-15"
 
             other_list = await client.get("/api/decks", headers=headers("valid-b"))
             assert other_list.status_code == 200
@@ -498,10 +501,14 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             renamed = await client.patch(
                 f"/api/decks/{deck_id}",
                 headers=headers(),
-                json={"name": "Exam Review"},
+                json={
+                    "name": "Exam Review",
+                    "exam_date": "2026-12-20",
+                },
             )
             assert renamed.status_code == 200
             assert renamed.json()["name"] == "Exam Review"
+            assert renamed.json()["exam_date"] == "2026-12-20"
 
             duplicated = await client.post(
                 f"/api/decks/{deck_id}/duplicate",
@@ -514,6 +521,7 @@ def test_deck_crud_uses_same_verified_owner_mapping(api, owner):
             assert duplicate_id != deck_id
             assert duplicate_body["name"] == "Copy of Exam Review"
             assert duplicate_body["description"] == "Cell biology"
+            assert duplicate_body["exam_date"] == "2026-12-20"
             assert duplicate_body["card_count"] == 2
             assert duplicate_body["due_count"] == 2
             assert {
