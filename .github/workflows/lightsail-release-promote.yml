@@ -12,6 +12,12 @@ on:
       - "scripts/production/lightsail/ssh-host-pins.json"
       - "scripts/production/lightsail/release-lock.json"
   workflow_dispatch:
+    inputs:
+      inspect_only:
+        description: "Inspect live promotion prerequisites without backup, image pulls, or release changes"
+        type: boolean
+        default: true
+        required: true
 
 permissions:
   contents: read
@@ -79,6 +85,7 @@ jobs:
       group: quizforge-permanent-existing-release-promotion
       cancel-in-progress: false
     env:
+      QF_PROMOTION_INSPECT_ONLY: ${{ inputs.inspect_only }}
       AWS_REGION: ca-central-1
       AWS_EC2_METADATA_DISABLED: "true"
       LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}

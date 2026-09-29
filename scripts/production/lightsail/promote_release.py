@@ -71,6 +71,7 @@ case "$old_sha" in
   *[!0-9a-f]*|'') exit 33 ;;
 esac
 [ "$(printf %s "$old_sha" | wc -c)" -eq 40 ] || exit 34
+printf 'QF_CURRENT=%s\n' "$old_sha"
 [ "$old_sha" != "$release_sha" ] || exit 35
 
 final="/opt/quizforge/releases/$release_sha"
@@ -228,6 +229,13 @@ PY
 """
 
 
+# Reuse every live preflight gate, stopping before backup or filesystem changes.
+REMOTE_INSPECT = REMOTE_PROMOTE.split(
+    "# A successful fresh recovery point is mandatory immediately before switching.",
+    1,
+)[0] + "printf 'QF_RESULT={\"preflight_verified\":true}\\n'\n"
+
+
 def extract_qf_results(raw: str) -> list[str]:
     marker = "QF_RESULT="
     values: list[str] = []
@@ -283,6 +291,11 @@ def remote_failure_details(stdout: str, stderr: str) -> dict[str, int]:
     if not 1 <= status <= 255 or not 1 <= line <= len(REMOTE_PROMOTE.splitlines()):
         return {}
     return {"remote_failure_status": status, "remote_failure_line": line}
+
+
+def current_release_details(stdout: str, stderr: str) -> dict[str, str]:
+    values = re.findall(r"^QF_CURRENT=([a-f0-9]{40})$", stdout + "\n" + stderr, re.MULTILINE)
+    return {"observed_current_release_sha": values[0]} if len(values) == 1 else {}
 
 
 def write_report(
@@ -363,6 +376,10 @@ def main() -> int:
     tempdir: Path | None = None
 
     try:
+        inspection = os.environ.get("QF_PROMOTION_INSPECT_ONLY", "false")
+        if inspection not in ("true", "false"):
+            raise ValueError("Invalid inspection mode")
+        report["inspection_only"] = inspection == "true"
         if (
             not bundle.is_file()
             or bundle.stat().st_size <= 0
@@ -567,87 +584,54 @@ def main() -> int:
         )
         known.chmod(0o600)
 
-        ecr = boto3.client(
-            "ecr",
-            region_name=REGION,
-        )
-        auth = (
-            ecr
-            .get_authorization_token()[
-                "authorizationData"
-            ][0]
-        )
-        token = base64.b64decode(
-            auth[
-                "authorizationToken"
-            ]
-        ).decode()
-        (
-            ecr_user,
-            ecr_password,
-        ) = token.split(
-            ":",
-            1,
-        )
-        registry = auth[
-            "proxyEndpoint"
-        ].removeprefix(
-            "https://"
-        )
-        forbidden.extend(
-            [
-                ecr_password,
-                registry,
-            ]
-        )
-
-        subprocess.run(
-            ssh_command(
-                key,
-                cert,
-                known,
-                username,
-                ip,
-                "sudo",
-                "docker",
-                "login",
-                "--username",
+        if inspection == "true":
+            completed = subprocess.run(
+                ssh_command(key, cert, known, username, ip,
+                            "sudo", "-n", "bash", "-s", "--", release_sha, "unused"),
+                input=REMOTE_INSPECT, text=True, capture_output=True,
+                timeout=120, check=True,
+            )
+            values = combined_qf_results(completed.stdout, completed.stderr)
+            if len(values) != 1 or json.loads(values[0]) != {"preflight_verified": True}:
+                raise ValueError("Inspection acceptance incomplete")
+            report["preflight_verified"] = True
+            report["result"] = "production_promotion_preflight_verified"
+            report.update(current_release_details(completed.stdout, completed.stderr))
+        else:
+            ecr = boto3.client(
+                "ecr",
+                region_name=REGION,
+            )
+            auth = (
+                ecr
+                .get_authorization_token()[
+                    "authorizationData"
+                ][0]
+            )
+            token = base64.b64decode(
+                auth[
+                    "authorizationToken"
+                ]
+            ).decode()
+            (
                 ecr_user,
-                "--password-stdin",
-                registry,
-            ),
-            input=ecr_password,
-            text=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            timeout=30,
-            check=True,
-        )
-        try:
-            for image in manifest[
-                "images"
-            ]:
-                subprocess.run(
-                    ssh_command(
-                        key,
-                        cert,
-                        known,
-                        username,
-                        ip,
-                        "sudo",
-                        "docker",
-                        "pull",
-                        image,
-                    ),
-                    stdout=
-                        subprocess.DEVNULL,
-                    stderr=
-                        subprocess.PIPE,
-                    text=True,
-                    timeout=600,
-                    check=True,
-                )
-        finally:
+                ecr_password,
+            ) = token.split(
+                ":",
+                1,
+            )
+            registry = auth[
+                "proxyEndpoint"
+            ].removeprefix(
+                "https://"
+            )
+            forbidden.extend(
+                [
+                    ecr_password,
+                    registry,
+                ]
+            )
+
             subprocess.run(
                 ssh_command(
                     key,
@@ -657,104 +641,151 @@ def main() -> int:
                     ip,
                     "sudo",
                     "docker",
-                    "logout",
+                    "login",
+                    "--username",
+                    ecr_user,
+                    "--password-stdin",
                     registry,
                 ),
-                stdout=
-                    subprocess.DEVNULL,
-                stderr=
-                    subprocess.DEVNULL,
+                input=ecr_password,
                 text=True,
-                timeout=20,
-                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=30,
+                check=True,
             )
-        report[
-            "reviewed_images_loaded"
-        ] = 5
+            try:
+                for image in manifest[
+                    "images"
+                ]:
+                    subprocess.run(
+                        ssh_command(
+                            key,
+                            cert,
+                            known,
+                            username,
+                            ip,
+                            "sudo",
+                            "docker",
+                            "pull",
+                            image,
+                        ),
+                        stdout=
+                            subprocess.DEVNULL,
+                        stderr=
+                            subprocess.PIPE,
+                        text=True,
+                        timeout=600,
+                        check=True,
+                    )
+            finally:
+                subprocess.run(
+                    ssh_command(
+                        key,
+                        cert,
+                        known,
+                        username,
+                        ip,
+                        "sudo",
+                        "docker",
+                        "logout",
+                        registry,
+                    ),
+                    stdout=
+                        subprocess.DEVNULL,
+                    stderr=
+                        subprocess.DEVNULL,
+                    text=True,
+                    timeout=20,
+                    check=False,
+                )
+            report[
+                "reviewed_images_loaded"
+            ] = 5
 
-        remote_archive = (
-            "/tmp/quizforge-promote-"
-            + release_sha
-            + ".tar.gz"
-        )
-        subprocess.run(
-            scp_command(
-                key,
-                cert,
-                known,
-                username,
-                ip,
-                bundle,
-                remote_archive,
-            ),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=300,
-            check=True,
-        )
+            remote_archive = (
+                "/tmp/quizforge-promote-"
+                + release_sha
+                + ".tar.gz"
+            )
+            subprocess.run(
+                scp_command(
+                    key,
+                    cert,
+                    known,
+                    username,
+                    ip,
+                    bundle,
+                    remote_archive,
+                ),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=300,
+                check=True,
+            )
 
-        completed = subprocess.run(
-            ssh_command(
-                key,
-                cert,
-                known,
-                username,
-                ip,
-                "sudo",
-                "-n",
-                "bash",
-                "-s",
-                "--",
-                release_sha,
-                remote_archive,
-            ),
-            input=REMOTE_PROMOTE,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=600,
-            check=True,
-        )
-        values = combined_qf_results(
-            completed.stdout,
-            completed.stderr,
-        )
-        if len(values) != 1:
-            report["result_marker_count"] = len(values)
-            report["stdout_marker_count"] = len(
-                extract_qf_results(completed.stdout)
+            completed = subprocess.run(
+                ssh_command(
+                    key,
+                    cert,
+                    known,
+                    username,
+                    ip,
+                    "sudo",
+                    "-n",
+                    "bash",
+                    "-s",
+                    "--",
+                    release_sha,
+                    remote_archive,
+                ),
+                input=REMOTE_PROMOTE,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=600,
+                check=True,
             )
-            report["stderr_marker_count"] = len(
-                extract_qf_results(completed.stderr)
+            values = combined_qf_results(
+                completed.stdout,
+                completed.stderr,
             )
-            raise ValueError(
-                "Unexpected promotion output"
+            if len(values) != 1:
+                report["result_marker_count"] = len(values)
+                report["stdout_marker_count"] = len(
+                    extract_qf_results(completed.stdout)
+                )
+                report["stderr_marker_count"] = len(
+                    extract_qf_results(completed.stderr)
+                )
+                raise ValueError(
+                    "Unexpected promotion output"
+                )
+            state = json.loads(
+                values[0]
             )
-        state = json.loads(
-            values[0]
-        )
-        required = (
-            "backup_completed_before_switch",
-            "release_switched",
-            "frontend_switched",
-            "local_https_verified",
-            "rollback_retained",
-        )
-        if not all(
-            state.get(name)
-            is True
-            for name in required
-        ):
-            raise ValueError(
-                "Promotion acceptance incomplete"
+            required = (
+                "backup_completed_before_switch",
+                "release_switched",
+                "frontend_switched",
+                "local_https_verified",
+                "rollback_retained",
             )
-        report.update(state)
-        report[
-            "result"
-        ] = (
-            "production_release_promoted"
-        )
+            if not all(
+                state.get(name)
+                is True
+                for name in required
+            ):
+                raise ValueError(
+                    "Promotion acceptance incomplete"
+                )
+            report.update(state)
+            report[
+                "result"
+            ] = (
+                "production_release_promoted"
+            )
 
     except ClientError as error:
         report[
@@ -776,6 +807,7 @@ def main() -> int:
             "remote_return_code"
         ] = error.returncode
         report.update(remote_failure_details(error.stdout or "", error.stderr or ""))
+        report.update(current_release_details(error.stdout or "", error.stderr or ""))
     except subprocess.TimeoutExpired:
         report[
             "error_code"
@@ -861,7 +893,7 @@ def main() -> int:
 
         if (
             report.get("result")
-            == "production_release_promoted"
+            in ("production_release_promoted", "production_promotion_preflight_verified")
             and not report.get(
                 "baseline_firewall_restored"
             )
@@ -885,7 +917,7 @@ def main() -> int:
     return (
         0
         if report.get("result")
-        == "production_release_promoted"
+        in ("production_release_promoted", "production_promotion_preflight_verified")
         else 1
     )
 

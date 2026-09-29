@@ -8,6 +8,34 @@ from scripts.production.lightsail import promote_release
 
 
 class PromoteReleaseTests(unittest.TestCase):
+    def test_inspection_runs_real_read_only_gates_without_rollout_commands(self):
+        # Only the read-only host commands below are permitted by this fixture.
+        # In particular, an image pull, backup, or service restart fails it.
+        helpers = """test() { return 0; }
+systemctl() { [ "$1" = is-active ] || [ "$1" = is-enabled ]; }
+readlink() { printf '/opt/quizforge/releases/%040d\\n' 0; }
+stat() { printf '600\\n'; }
+sudo() {
+  [ "$1 $2" = 'docker compose' ] && [ "$5 $6 $7" = 'exec -T db' ] || return 99
+  cat >/dev/null
+  printf '1\\n'
+}
+"""
+        result = subprocess.run(
+            ["bash", "-s", "--", "a" * 40, "/unused"],
+            input=helpers + promote_release.REMOTE_INSPECT,
+            text=True, capture_output=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            promote_release.combined_qf_results(result.stdout, result.stderr),
+            ['{"preflight_verified":true}'],
+        )
+        self.assertEqual(
+            promote_release.current_release_details(result.stdout, result.stderr),
+            {"observed_current_release_sha": "0" * 40},
+        )
+
     def test_failed_remote_gate_reports_location_without_command_or_output(self):
         remote = promote_release.REMOTE_PROMOTE
         # Fail the first host gate before any actual host operation can run.
