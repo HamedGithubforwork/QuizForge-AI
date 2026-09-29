@@ -55,6 +55,7 @@ PUBLIC_SCHEMA_NAMES = (
     "ReviewPreview",
     "ReviewQueueCard",
     "ReviewQueue",
+    "NewCardQueue",
     "ReviewResult",
     "StudyNotificationPreferences",
     "StudyNotificationPreferencesUpdate",
