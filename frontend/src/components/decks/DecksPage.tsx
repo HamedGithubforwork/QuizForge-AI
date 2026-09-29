@@ -91,6 +91,50 @@ function formatDeckDate(
   ).format(date)
 }
 
+type StudyIntensity =
+  DeckDetail['study_intensity']
+
+const STUDY_INTENSITIES: Array<{
+  value: StudyIntensity
+  label: string
+  retention: string
+  description: string
+}> = [
+  {
+    value: 'relaxed',
+    label: 'Relaxed',
+    retention: '85%',
+    description:
+      'Longer intervals and fewer scheduled reviews.',
+  },
+  {
+    value: 'balanced',
+    label: 'Balanced',
+    retention: '90%',
+    description:
+      'Current default with a balanced review workload.',
+  },
+  {
+    value: 'intensive',
+    label: 'Intensive',
+    retention: '95%',
+    description:
+      'Shorter intervals for stronger target retention.',
+  },
+]
+
+function studyIntensityInfo(
+  value: StudyIntensity,
+) {
+  return (
+    STUDY_INTENSITIES.find(
+      (item) =>
+        item.value === value,
+    ) ??
+    STUDY_INTENSITIES[1]
+  )
+}
+
 function hasStudyProgress(
   card: CardRow,
 ) {
@@ -248,6 +292,16 @@ function DeckDetailView({
   ] = useState(false)
   const [deckName, setDeckName] =
     useState(deck.name)
+  const [
+    studySettingsOpen,
+    setStudySettingsOpen,
+  ] = useState(false)
+  const [
+    studyIntensity,
+    setStudyIntensity,
+  ] = useState<StudyIntensity>(
+    deck.study_intensity,
+  )
   const [busy, setBusy] =
     useState(false)
   const [
@@ -300,6 +354,10 @@ function DeckDetailView({
 
   useEffect(() => {
     setDeckName(deck.name)
+    setStudyIntensity(
+      deck.study_intensity,
+    )
+    setStudySettingsOpen(false)
     setEditing(false)
     setConfirmingDelete(false)
     setManagementError('')
@@ -316,6 +374,7 @@ function DeckDetailView({
   }, [
     deck.id,
     deck.name,
+    deck.study_intensity,
   ])
 
   async function handleRename(
@@ -366,7 +425,52 @@ function DeckDetailView({
     }
   }
 
+  async function handleStudySettingsSave(
+    event: FormEvent,
+  ) {
+    event.preventDefault()
+
+    if (
+      studyIntensity ===
+      deck.study_intensity
+    ) {
+      setStudySettingsOpen(false)
+      setManagementError('')
+      return
+    }
+
+    setBusy(true)
+    setManagementError('')
+
+    try {
+      const updated =
+        await updateStudyDeck(
+          deck.id,
+          {
+            study_intensity:
+              studyIntensity,
+          },
+          apiFetch,
+        )
+
+      onDeckUpdated(updated)
+      setStudyIntensity(
+        updated.study_intensity,
+      )
+      setStudySettingsOpen(false)
+    } catch (caught) {
+      setManagementError(
+        caught instanceof Error
+          ? caught.message
+          : 'Could not update study intensity.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleDelete() {
+    setStudySettingsOpen(false)
     setBusy(true)
     setManagementError('')
 
@@ -390,6 +494,7 @@ function DeckDetailView({
   async function handleDuplicate() {
     setBusy(true)
     setEditing(false)
+    setStudySettingsOpen(false)
     setConfirmingDelete(false)
     setManagementError('')
 
@@ -657,6 +762,26 @@ function DeckDetailView({
             </p>
           )}
 
+          <div className="deck-study-intensity-summary">
+            <span>
+              Study intensity
+            </span>
+            <strong>
+              {
+                studyIntensityInfo(
+                  deck.study_intensity,
+                ).label
+              }
+            </strong>
+            <small>
+              {
+                studyIntensityInfo(
+                  deck.study_intensity,
+                ).retention
+              } target retention
+            </small>
+          </div>
+
           <div className="deck-management-buttons">
             <button
               className="deck-management-button"
@@ -664,12 +789,30 @@ function DeckDetailView({
               disabled={busy}
               onClick={() => {
                 setEditing(true)
+                setStudySettingsOpen(false)
                 setConfirmingDelete(false)
                 setDeckName(deck.name)
                 setManagementError('')
               }}
             >
               Rename
+            </button>
+
+            <button
+              className="deck-management-button"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setStudySettingsOpen(true)
+                setEditing(false)
+                setConfirmingDelete(false)
+                setStudyIntensity(
+                  deck.study_intensity,
+                )
+                setManagementError('')
+              }}
+            >
+              Study Settings
             </button>
 
             <button
@@ -690,6 +833,7 @@ function DeckDetailView({
               onClick={() => {
                 setConfirmingDelete(true)
                 setEditing(false)
+                setStudySettingsOpen(false)
                 setManagementError('')
               }}
             >
@@ -879,6 +1023,112 @@ function DeckDetailView({
               onClick={() => {
                 setEditing(false)
                 setDeckName(deck.name)
+                setManagementError('')
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {studySettingsOpen && (
+        <form
+          className="deck-management-panel deck-study-settings-panel"
+          onSubmit={
+            handleStudySettingsSave
+          }
+        >
+          <div>
+            <span className="decks-eyebrow">
+              STUDY SETTINGS
+            </span>
+
+            <h2>
+              Choose study intensity
+            </h2>
+
+            <p>
+              Higher target retention
+              schedules cards sooner and
+              increases the review
+              workload.
+            </p>
+          </div>
+
+          <div
+            className="study-intensity-options"
+            role="radiogroup"
+            aria-label="Study intensity"
+          >
+            {STUDY_INTENSITIES.map(
+              (option) => (
+                <label
+                  className={
+                    studyIntensity ===
+                    option.value
+                      ? 'study-intensity-option selected'
+                      : 'study-intensity-option'
+                  }
+                  key={option.value}
+                >
+                  <input
+                    type="radio"
+                    name="study-intensity"
+                    value={option.value}
+                    checked={
+                      studyIntensity ===
+                      option.value
+                    }
+                    disabled={busy}
+                    onChange={() =>
+                      setStudyIntensity(
+                        option.value,
+                      )
+                    }
+                  />
+
+                  <span>
+                    <strong>
+                      {option.label}
+                    </strong>
+
+                    <small>
+                      {option.retention}
+                      {' '}target retention
+                    </small>
+                  </span>
+
+                  <p>
+                    {
+                      option.description
+                    }
+                  </p>
+                </label>
+              ),
+            )}
+          </div>
+
+          <div className="deck-management-panel-actions">
+            <button
+              className="decks-primary-button"
+              type="submit"
+              disabled={busy}
+            >
+              {busy
+                ? 'Saving…'
+                : 'Save Study Settings'}
+            </button>
+
+            <button
+              className="decks-secondary-button"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setStudySettingsOpen(false)
+                setStudyIntensity(
+                  deck.study_intensity,
+                )
                 setManagementError('')
               }}
             >
