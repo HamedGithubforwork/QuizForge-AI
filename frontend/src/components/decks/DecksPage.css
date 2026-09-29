@@ -15,6 +15,16 @@
   margin: 0 auto;
 }
 
+.decks-header-actions {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  justify-content: flex-end;
+
+  gap: 9px;
+}
+
 .decks-header,
 .deck-detail-header {
   display: flex;
@@ -1876,6 +1886,74 @@
   font-weight: 800;
 }
 
+
+.missed-evidence-badge {
+  padding: 4px 8px;
+
+  border: 1px solid #e9c3c3;
+  border-radius: 999px;
+
+  background: #fff5f5;
+
+  color: #a54a4a;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.missed-history-scope {
+  margin-top: 18px;
+  padding: 9px 11px;
+
+  border-radius: 9px;
+
+  background: #f7f7fb;
+
+  color: #7a8192;
+
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.missed-answer-grid {
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(0, 1.25fr);
+
+  gap: 10px;
+}
+
+.missed-your-answer {
+  display: grid;
+
+  gap: 7px;
+
+  padding: 18px;
+
+  border: 1px solid #ebcaca;
+  border-radius: 14px;
+
+  background: #fff7f7;
+
+  color: #8f4444;
+}
+
+.missed-your-answer > span {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+
+  text-transform: uppercase;
+}
+
+.missed-your-answer > strong {
+  overflow-wrap: anywhere;
+
+  font-size: 17px;
+}
+
 .cram-next-button {
   width: 100%;
 
@@ -1922,6 +2000,14 @@
     padding: 22px;
   }
 
+  .decks-header-actions {
+    width: 100%;
+  }
+
+  .decks-header-actions > button {
+    flex: 1;
+  }
+
   .decks-header
     .decks-primary-button {
     width: 100%;
@@ -1965,6 +2051,10 @@
   .deck-tile-badges {
     flex-direction: column;
     align-items: flex-end;
+  }
+
+  .missed-answer-grid {
+    grid-template-columns: 1fr;
   }
 
   .review-ratings {
