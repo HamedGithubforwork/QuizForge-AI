@@ -52,6 +52,7 @@ MIGRATION_FILES = (
     "20260928_007_card_study_state.sql",
     "20260928_008_card_tags.sql",
     "20260928_009_deck_exam_date.sql",
+    "20260929_010_deck_study_intensity.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -91,7 +92,7 @@ manifest=Path(sys.argv[2])
 value=json.loads(manifest.read_text())
 assert value.get("schema")==1
 items=value.get("migrations")
-assert isinstance(items,list) and len(items)==8
+assert isinstance(items,list) and len(items)==10
 expected=[
  "20260927_001_decks_cards.sql",
  "20260927_002_fsrs_reviews.sql",
@@ -101,6 +102,8 @@ expected=[
  "20260928_006_move_card.sql",
  "20260928_007_card_study_state.sql",
  "20260928_008_card_tags.sql",
+ "20260928_009_deck_exam_date.sql",
+ "20260929_010_deck_study_intensity.sql",
 ]
 assert [item.get("name") for item in items]==expected
 assert set(path.name for path in root.iterdir())==set(expected)
@@ -226,6 +229,18 @@ esac
 
 test "$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='decks' AND column_name='exam_date'))::int")" = "1"
 test "$(dbq "SELECT has_column_privilege('quizforge_app','app.decks','exam_date','UPDATE')::int")" = "1"
+
+# 010: per-deck FSRS study intensity. Balanced preserves the current 90% default.
+intensity_state="$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='decks' AND column_name='study_intensity'))::int")"
+case "$intensity_state" in
+  "0") apply_sql "$root/20260929_010_deck_study_intensity.sql"; applied_010=true ;;
+  "1") applied_010=false ;;
+  *) exit 50 ;;
+esac
+
+test "$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='decks' AND column_name='study_intensity'))::int")" = "1"
+test "$(dbq "SELECT has_column_privilege('quizforge_app','app.decks','study_intensity','UPDATE')::int")" = "1"
+test "$(dbq "SELECT (NOT EXISTS (SELECT 1 FROM app.decks WHERE study_intensity NOT IN ('relaxed','balanced','intensive')))::int")" = "1"
 
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
@@ -389,7 +404,7 @@ test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_not
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$applied_007" "$applied_008" "$applied_009" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$applied_007" "$applied_008" "$applied_009" "$applied_010" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -404,8 +419,9 @@ print("QF_RESULT="+json.dumps({
   "card_study_state_migration_applied": values[6],
   "card_tags_migration_applied": values[7],
   "deck_exam_date_migration_applied": values[8],
-  "notifier_credential_ready": values[9],
-  "vapid_credentials_ready": values[10],
+  "deck_study_intensity_migration_applied": values[9],
+  "notifier_credential_ready": values[10],
+  "vapid_credentials_ready": values[11],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -752,6 +768,7 @@ def main() -> int:
             "card_study_state_migration_applied",
             "card_tags_migration_applied",
             "deck_exam_date_migration_applied",
+            "deck_study_intensity_migration_applied",
             "notifier_credential_ready",
             "vapid_credentials_ready",
             "all_postconditions_verified",
