@@ -222,6 +222,8 @@ export function buildExamPlan(
     0
   let recommendedReviewCardsToday =
     0
+  let uncappedReviewCardsToday =
+    0
 
   if (daysRemaining >= 0) {
     const studyDays =
@@ -245,16 +247,19 @@ export function buildExamPlan(
         requiredNewCardsPerDay,
       )
 
+    uncappedReviewCardsToday =
+      reviewDue.length +
+      Math.min(
+        weakNotDue.length,
+        extraWeakReviews(
+          intensity,
+        ),
+      )
+
     recommendedReviewCardsToday =
       Math.min(
         MAX_REVIEWS_PER_DAY,
-        reviewDue.length +
-          Math.min(
-            weakNotDue.length,
-            extraWeakReviews(
-              intensity,
-            ),
-          ),
+        uncappedReviewCardsToday,
       )
   }
 
@@ -318,7 +323,7 @@ export function buildExamPlan(
     workloadCapped:
       requiredNewCardsPerDay >
         MAX_NEW_PER_DAY ||
-      reviewDue.length >
+      uncappedReviewCardsToday >
         MAX_REVIEWS_PER_DAY,
     weakTags,
   }
