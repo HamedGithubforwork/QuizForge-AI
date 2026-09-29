@@ -17,6 +17,7 @@ from history_postgres import PostgresHistoryRepository
 from quiz_history import router
 from decks import router as decks_router
 from study_notifications import router as study_notifications_router
+from study_analytics import router as study_analytics_router
 
 pytestmark = pytest.mark.skipif(os.getenv("TEST_HISTORY_POSTGRES") != "1", reason="Requires isolated TLS PostgreSQL")
 ISSUER = "https://history-test.invalid/auth/v1"
@@ -76,6 +77,7 @@ def api(owner, monkeypatch, request, cognito):
         app.include_router(router)
         app.include_router(decks_router)
         app.include_router(study_notifications_router)
+        app.include_router(study_analytics_router)
         def authenticate(request):
             if request.url.host == "cognito-idp.ca-central-1.amazonaws.com":
                 return cognito.handler(request)
@@ -1016,6 +1018,203 @@ def test_move_card_preserves_review_state_and_owner_boundary(api, owner):
                 },
             )
             assert stale.status_code == 404
+
+    asyncio.run(scenario())
+
+def test_study_analytics_aggregate_owner_review_data(api, owner):
+    async def scenario():
+        async with api() as (client, _):
+            created = await client.post(
+                "/api/decks",
+                headers=headers(),
+                json={
+                    "name": "Analytics Deck",
+                    "cards": [
+                        {
+                            "question_type": "short_answer",
+                            "question": "New card",
+                            "answer": {"correct_answer": "A"},
+                        },
+                        {
+                            "question_type": "short_answer",
+                            "question": "Learning card",
+                            "answer": {"correct_answer": "B"},
+                        },
+                        {
+                            "question_type": "short_answer",
+                            "question": "Difficult mature card",
+                            "answer": {"correct_answer": "C"},
+                            "tags": ["exam"],
+                        },
+                        {
+                            "question_type": "short_answer",
+                            "question": "Suspended card",
+                            "answer": {"correct_answer": "D"},
+                        },
+                    ],
+                },
+            )
+            assert created.status_code == 201, created.text
+            body = created.json()
+            deck_id = body["id"]
+            card_ids = {
+                item["question"]:
+                    item["id"]
+                for item in body["cards"]
+            }
+            learning_card_id = (
+                card_ids[
+                    "Learning card"
+                ]
+            )
+            difficult_card_id = (
+                card_ids[
+                    "Difficult mature card"
+                ]
+            )
+            suspended_card_id = (
+                card_ids[
+                    "Suspended card"
+                ]
+            )
+
+            owner.execute(
+                """UPDATE app.cards
+                   SET fsrs_state=1,fsrs_step=1,stability=2.0,difficulty=6.0,
+                       due_at=now()+interval '1 day',
+                       last_reviewed_at=now()-interval '1 day',
+                       review_count=2,lapse_count=0
+                   WHERE id=%s""",
+                (learning_card_id,),
+            )
+            owner.execute(
+                """UPDATE app.cards
+                   SET fsrs_state=2,fsrs_step=NULL,stability=30.0,difficulty=8.5,
+                       due_at=now()-interval '1 hour',
+                       last_reviewed_at=now()-interval '3 days',
+                       review_count=5,lapse_count=2
+                   WHERE id=%s""",
+                (difficult_card_id,),
+            )
+            owner.execute(
+                """UPDATE app.cards
+                   SET suspended=true
+                   WHERE id=%s""",
+                (suspended_card_id,),
+            )
+
+            review_rows = [
+                (
+                    learning_card_id,
+                    USERS[0],
+                    2,
+                    owner.execute(
+                        "SELECT now()-interval '6 days'"
+                    ).fetchone()[0],
+                    30000,
+                ),
+                (
+                    learning_card_id,
+                    USERS[0],
+                    3,
+                    owner.execute(
+                        "SELECT now()-interval '1 day'"
+                    ).fetchone()[0],
+                    40000,
+                ),
+                (
+                    difficult_card_id,
+                    USERS[0],
+                    1,
+                    owner.execute(
+                        "SELECT now()-interval '2 days'"
+                    ).fetchone()[0],
+                    50000,
+                ),
+                (
+                    difficult_card_id,
+                    USERS[0],
+                    4,
+                    owner.execute(
+                        "SELECT now()-interval '10 minutes'"
+                    ).fetchone()[0],
+                    60000,
+                ),
+            ]
+            for review_row in review_rows:
+                owner.execute(
+                    """INSERT INTO app.card_review_logs(
+                        card_id,user_id,rating,reviewed_at,review_duration_ms
+                    ) VALUES (%s,%s,%s,%s,%s)""",
+                    review_row,
+                )
+
+            foreign = await client.post(
+                "/api/decks",
+                headers=headers("valid-b"),
+                json={
+                    "name": "Foreign Analytics",
+                    "cards": [
+                        {
+                            "question_type": "short_answer",
+                            "question": "Foreign card",
+                            "answer": {"correct_answer": "X"},
+                        },
+                    ],
+                },
+            )
+            assert foreign.status_code == 201
+
+            response = await client.get(
+                "/api/study-analytics/summary",
+                headers=headers(),
+                params={"timezone": "UTC"},
+            )
+            assert response.status_code == 200, response.text
+            data = response.json()
+
+            assert data["timezone"] == "UTC"
+            assert data["total_decks"] == 1
+            assert data["activity"]["reviews_today"] == 1
+            assert data["activity"]["reviews_last_7_days"] == 4
+            assert data["activity"]["study_time_today_ms"] == 60000
+            assert data["activity"]["study_time_last_7_days_ms"] == 180000
+            assert data["activity"]["active_days_last_7_days"] >= 3
+
+            memory = data["memory"]
+            assert memory["total_cards"] == 4
+            assert memory["active_cards"] == 3
+            assert memory["suspended_cards"] == 1
+            assert memory["new_cards"] == 1
+            assert memory["learning_cards"] == 1
+            assert memory["review_cards"] == 1
+            assert memory["mature_cards"] == 1
+            assert memory["retention_card_count"] == 2
+            assert 0 < memory["estimated_retention"] <= 1
+
+            ratings = data["ratings_last_30_days"]
+            assert ratings == {
+                "again": 1,
+                "hard": 1,
+                "good": 1,
+                "easy": 1,
+                "total": 4,
+            }
+
+            assert data["difficult_cards"][0]["card_id"] == difficult_card_id
+            assert data["difficult_cards"][0]["deck_id"] == deck_id
+            assert data["difficult_cards"][0]["lapse_count"] == 2
+            assert data["difficult_cards"][0]["tags"] == ["exam"]
+
+            foreign_view = await client.get(
+                "/api/study-analytics/summary",
+                headers=headers("valid-b"),
+                params={"timezone": "UTC"},
+            )
+            assert foreign_view.status_code == 200
+            assert foreign_view.json()["total_decks"] == 1
+            assert foreign_view.json()["memory"]["total_cards"] == 1
+            assert foreign_view.json()["activity"]["reviews_last_7_days"] == 0
 
     asyncio.run(scenario())
 

@@ -44,6 +44,7 @@ import quiz_service
 from quiz_history import router as quiz_history_router
 from decks import router as decks_router
 from study_notifications import router as study_notifications_router
+from study_analytics import router as study_analytics_router
 from quiz_service import (
     Quiz,
     generate_quiz_from_pages,
@@ -70,6 +71,7 @@ app = create_app()
 app.include_router(quiz_history_router)
 app.include_router(decks_router)
 app.include_router(study_notifications_router)
+app.include_router(study_analytics_router)
 app.include_router(pdf_jobs_router)
 
 QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0

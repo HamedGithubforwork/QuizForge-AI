@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import DecksPage from './components/decks/DecksPage'
+import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
@@ -61,7 +62,8 @@ export default function CognitoAuthGate() {
       setCode('')
       if (
         window.location.pathname.startsWith('/settings') ||
-        window.location.pathname.startsWith('/decks')
+        window.location.pathname.startsWith('/decks') ||
+        window.location.pathname.startsWith('/progress')
       ) {
         window.history.replaceState({}, '', '/')
         setPathname('/')
@@ -296,6 +298,7 @@ export default function CognitoAuthGate() {
         : 'account'
   const inSettings = pathname === '/settings' || pathname.startsWith('/settings/')
   const inDecks = pathname === '/decks' || pathname.startsWith('/decks/')
+  const inProgress = pathname === '/progress'
 
   const signedInBar = account?.enrolled ? (
     <div className="account-bar">
@@ -326,6 +329,16 @@ export default function CognitoAuthGate() {
             onClick={() => navigate('/decks')}
           >
             Decks
+          </button>
+
+          <button
+            className={inProgress ? 'account-nav-button active' : 'account-nav-button'}
+            type="button"
+            disabled={busy}
+            aria-current={inProgress ? 'page' : undefined}
+            onClick={() => navigate('/progress')}
+          >
+            Progress
           </button>
 
           <button
@@ -378,6 +391,14 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}
     <DecksPage
       pathname={pathname}
+      onNavigate={navigate}
+    />
+  </>
+
+  if (account?.enrolled && inProgress) return <>
+    {signedInBar}
+    {error && <p role="alert">{error}</p>}
+    <ProgressPage
       onNavigate={navigate}
     />
   </>
