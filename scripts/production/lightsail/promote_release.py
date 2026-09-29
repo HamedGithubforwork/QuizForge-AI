@@ -221,6 +221,33 @@ PY
 """
 
 
+def extract_qf_results(raw: str) -> list[str]:
+    marker = "QF_RESULT="
+    values: list[str] = []
+    for line in raw.splitlines():
+        index = line.find(marker)
+        if index >= 0:
+            values.append(
+                line[index + len(marker):].strip()
+            )
+    return values
+
+
+def combined_qf_results(
+    stdout: str,
+    stderr: str,
+) -> list[str]:
+    stdout_values = extract_qf_results(stdout)
+    stderr_values = extract_qf_results(stderr)
+    if (
+        len(stdout_values) == 1
+        and len(stderr_values) == 1
+        and stdout_values[0] == stderr_values[0]
+    ):
+        return stdout_values
+    return stdout_values + stderr_values
+
+
 def safe_code(
     value: Any,
     fallback: str = "UNKNOWN",
@@ -665,18 +692,18 @@ def main() -> int:
             timeout=600,
             check=True,
         )
-        values = [
-            line.removeprefix(
-                "QF_RESULT="
-            )
-            for line
-            in completed.stdout
-            .splitlines()
-            if line.startswith(
-                "QF_RESULT="
-            )
-        ]
+        values = combined_qf_results(
+            completed.stdout,
+            completed.stderr,
+        )
         if len(values) != 1:
+            report["result_marker_count"] = len(values)
+            report["stdout_marker_count"] = len(
+                extract_qf_results(completed.stdout)
+            )
+            report["stderr_marker_count"] = len(
+                extract_qf_results(completed.stderr)
+            )
             raise ValueError(
                 "Unexpected promotion output"
             )
