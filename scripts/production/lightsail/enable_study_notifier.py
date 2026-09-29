@@ -101,7 +101,9 @@ PY
 # Require a successful one-shot run before enabling recurrence. This may send
 # a reminder only if an existing user has explicitly enabled reminders and is
 # currently inside the configured reminder window.
-probe="$(sudo docker compose -f "$compose" --profile scheduled run --rm --no-deps notifier)"
+# Compose defaults to interactive stdin even without a TTY. Do not let the
+# child consume the remaining controller script streamed through bash -s.
+probe="$(sudo docker compose -f "$compose" --profile scheduled run --rm --no-deps notifier </dev/null)"
 python3 - "$probe" <<'PY'
 import json
 import sys
