@@ -55,6 +55,9 @@ const DECK_PATH =
 const REVIEW_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/review$/i
 
+const LEARN_PATH =
+  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/learn$/i
+
 const CRAM_PATH =
   /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/cram$/i
 
@@ -237,17 +240,26 @@ function DeckList({
                   : 'cards'}
               </span>
 
-              <span
-                className={
-                  deck.due_count > 0
-                    ? 'deck-due-badge deck-due-badge-active'
-                    : 'deck-due-badge'
-                }
-              >
-                {deck.due_count > 0
-                  ? `${deck.due_count} due`
-                  : 'Caught up'}
-              </span>
+              {deck.review_due_count > 0 && (
+                <span className="deck-due-badge deck-due-badge-active">
+                  {deck.review_due_count}
+                  {' '}review
+                </span>
+              )}
+
+              {deck.new_count > 0 && (
+                <span className="deck-new-badge">
+                  {deck.new_count}
+                  {' '}new
+                </span>
+              )}
+
+              {deck.review_due_count === 0 &&
+                deck.new_count === 0 && (
+                <span className="deck-due-badge">
+                  Caught up
+                </span>
+              )}
             </div>
           </div>
 
@@ -858,16 +870,30 @@ function DeckDetailView({
 
             <div
               className={
-                deck.due_count > 0
+                deck.review_due_count > 0
                   ? 'deck-detail-stat deck-detail-stat-due'
                   : 'deck-detail-stat deck-detail-stat-clear'
               }
             >
               <strong>
-                {deck.due_count}
+                {deck.review_due_count}
               </strong>
 
-              <span>due now</span>
+              <span>reviews due</span>
+            </div>
+
+            <div
+              className={
+                deck.new_count > 0
+                  ? 'deck-detail-stat deck-detail-stat-new'
+                  : 'deck-detail-stat deck-detail-stat-clear'
+              }
+            >
+              <strong>
+                {deck.new_count}
+              </strong>
+
+              <span>new cards</span>
             </div>
           </div>
 
@@ -884,6 +910,22 @@ function DeckDetailView({
           >
             + Add Card
           </button>
+
+          {activeCardCount > 0 && (
+            <button
+              className="decks-secondary-button deck-learn-new-button"
+              type="button"
+              onClick={() =>
+                onNavigate(
+                  `/decks/${deck.id}/learn`,
+                )
+              }
+            >
+              {deck.new_count > 0
+                ? `Learn ${deck.new_count} New`
+                : 'Learn New (0)'}
+            </button>
+          )}
 
           {activeCardCount > 0 && (
             <button
@@ -965,9 +1007,9 @@ function DeckDetailView({
                 )
               }
             >
-              {deck.due_count > 0
-                ? `Review ${deck.due_count} Due`
-                : 'Review Status'}
+              {deck.review_due_count > 0
+                ? `Review ${deck.review_due_count} Due`
+                : 'Review Due (0)'}
             </button>
           )}
         </div>
@@ -1787,6 +1829,10 @@ export default function DecksPage({
     pathname.match(REVIEW_PATH)
   const reviewDeckId =
     reviewMatch?.[1] ?? null
+  const learnMatch =
+    pathname.match(LEARN_PATH)
+  const learnDeckId =
+    learnMatch?.[1] ?? null
   const cramMatch =
     pathname.match(CRAM_PATH)
   const cramDeckId =
@@ -1820,6 +1866,7 @@ export default function DecksPage({
     !missedQuestions &&
     !deckId &&
     !reviewDeckId &&
+    !learnDeckId &&
     !cramDeckId &&
     !weakDeckId &&
     !recentDeckId &&
@@ -1838,6 +1885,7 @@ export default function DecksPage({
         if (
           missedQuestions ||
           reviewDeckId ||
+          learnDeckId ||
           cramDeckId ||
           weakDeckId ||
           recentDeckId ||
@@ -1912,6 +1960,7 @@ export default function DecksPage({
     pathname,
     recentDeckId,
     reviewDeckId,
+    learnDeckId,
     weakDeckId,
   ])
 
@@ -1944,6 +1993,12 @@ export default function DecksPage({
           <ReviewDeckPage
             deckId={reviewDeckId}
             onNavigate={onNavigate}
+          />
+        ) : learnDeckId ? (
+          <ReviewDeckPage
+            deckId={learnDeckId}
+            onNavigate={onNavigate}
+            mode="learn"
           />
         ) : cramDeckId ? (
           <CramDeckPage
