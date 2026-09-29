@@ -241,8 +241,8 @@ test(
     assert.ok(focus)
 
     let path = ''
-    let body:
-      FormData | null = null
+    const bodies:
+      FormData[] = []
 
     const quiz =
       await generateWeakDeckPracticeQuiz(
@@ -252,8 +252,9 @@ test(
           init,
         ) => {
           path = requestPath
-          body =
-            init?.body as FormData
+          bodies.push(
+            init?.body as FormData,
+          )
 
           return new Response(
             JSON.stringify({
@@ -276,20 +277,22 @@ test(
       path,
       '/api/quizzes/generate',
     )
+    const body = bodies[0]
+    assert.ok(body)
     assert.equal(
-      body?.get(
+      body.get(
         'document_sha256',
       ),
       'd'.repeat(64),
     )
     assert.equal(
-      body?.get(
+      body.get(
         'question_count',
       ),
       '5',
     )
     assert.equal(
-      body?.get(
+      body.get(
         'focus_pages',
       ),
       '3',
@@ -297,7 +300,7 @@ test(
     assert.deepEqual(
       JSON.parse(
         String(
-          body?.get(
+          body.get(
             'avoid_questions',
           ),
         ),
