@@ -10,7 +10,46 @@ from uuid import UUID
 from fsrs import Card, Rating, Scheduler, State
 
 
-DEFAULT_SCHEDULER = Scheduler()
+STUDY_INTENSITY_RETENTION = {
+    "relaxed": 0.85,
+    "balanced": 0.90,
+    "intensive": 0.95,
+}
+
+DEFAULT_STUDY_INTENSITY = "balanced"
+
+
+def desired_retention(
+    study_intensity: str,
+) -> float:
+    try:
+        return STUDY_INTENSITY_RETENTION[
+            study_intensity
+        ]
+    except KeyError:
+        raise ValueError(
+            "Study intensity is invalid."
+        ) from None
+
+
+def scheduler_for_intensity(
+    study_intensity: str,
+    *,
+    enable_fuzzing: bool = True,
+) -> Scheduler:
+    return Scheduler(
+        desired_retention=desired_retention(
+            study_intensity
+        ),
+        enable_fuzzing=enable_fuzzing,
+    )
+
+
+DEFAULT_SCHEDULER = (
+    scheduler_for_intensity(
+        DEFAULT_STUDY_INTENSITY
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -67,7 +106,8 @@ def schedule_review(
     *,
     review_datetime: datetime | None = None,
     review_duration_ms: int | None = None,
-    scheduler: Scheduler = DEFAULT_SCHEDULER,
+    study_intensity: str = DEFAULT_STUDY_INTENSITY,
+    scheduler: Scheduler | None = None,
 ) -> ScheduledReview:
     try:
         fsrs_rating = Rating(rating)
@@ -83,8 +123,15 @@ def schedule_review(
         else as_utc(review_datetime)
     )
     before = card_from_row(row)
+    active_scheduler = (
+        scheduler
+        if scheduler is not None
+        else scheduler_for_intensity(
+            study_intensity
+        )
+    )
 
-    updated, log = scheduler.review_card(
+    updated, log = active_scheduler.review_card(
         before,
         fsrs_rating,
         review_datetime=current,
@@ -111,3 +158,42 @@ def schedule_review(
         review_duration_ms=log.review_duration,
         lapse_increment=lapse_increment,
     )
+
+def preview_review_due_times(
+    row: Mapping[str, Any],
+    *,
+    study_intensity: str = DEFAULT_STUDY_INTENSITY,
+    review_datetime: datetime | None = None,
+) -> dict[str, datetime]:
+    current = (
+        datetime.now(timezone.utc)
+        if review_datetime is None
+        else as_utc(review_datetime)
+    )
+    preview_scheduler = (
+        scheduler_for_intensity(
+            study_intensity,
+            enable_fuzzing=False,
+        )
+    )
+    labels = {
+        1: "again",
+        2: "hard",
+        3: "good",
+        4: "easy",
+    }
+
+    return {
+        label: schedule_review(
+            row,
+            rating,
+            review_datetime=current,
+            study_intensity=
+                study_intensity,
+            scheduler=
+                preview_scheduler,
+        ).due_at
+        for rating, label
+        in labels.items()
+    }
+
