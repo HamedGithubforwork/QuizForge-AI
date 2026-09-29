@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import App from './App'
 import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
@@ -108,6 +108,7 @@ export default function CognitoAuthGate() {
     await run(async () => {
       if (mode === 'enroll') return requestConfirmation()
       if (!linkingAvailable) throw new Error('Existing-account linking is not configured.')
+      const { createClient } = await import('@supabase/supabase-js')
       // A separate, non-persistent client never changes the production browser session.
       const client = createClient(secureEndpoint(import.meta.env.VITE_SUPABASE_URL), import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
         { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false,
