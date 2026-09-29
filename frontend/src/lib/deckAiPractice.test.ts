@@ -74,6 +74,7 @@ function deck(
     id: DECK_ID,
     name: 'Biology',
     description: null,
+    study_intensity: 'balanced',
     card_count:
       cards.length,
     due_count: 0,
