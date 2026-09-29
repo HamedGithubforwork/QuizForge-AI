@@ -157,6 +157,179 @@
   color: #5d51d0;
 }
 
+.progress-streak-panel {
+  margin-bottom: 18px;
+}
+
+.progress-streak-badge {
+  flex: 0 0 auto;
+
+  padding: 6px 10px;
+
+  border-radius: 999px;
+
+  background: #f1f2f6;
+
+  color: #757c8d;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.progress-streak-badge-active {
+  background: #fff3e5;
+
+  color: #ad6428;
+}
+
+.progress-streak-layout {
+  display: grid;
+
+  gap: 18px;
+}
+
+.progress-streak-stats {
+  display: grid;
+
+  grid-template-columns:
+    repeat(3, minmax(0, 1fr));
+
+  gap: 10px;
+}
+
+.progress-streak-stats > div {
+  display: grid;
+
+  gap: 4px;
+
+  padding: 15px;
+
+  border-radius: 12px;
+
+  background: #f8f9fc;
+}
+
+.progress-streak-stats span,
+.progress-weekly-goal-copy span,
+.progress-calendar-heading span {
+  color: #747b8e;
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.progress-streak-stats strong {
+  color: #30364c;
+
+  font-size: 24px;
+}
+
+.progress-streak-stats small,
+.progress-calendar-heading small {
+  color: #9a9fac;
+
+  font-size: 10px;
+}
+
+.progress-weekly-goal {
+  display: grid;
+
+  gap: 9px;
+
+  padding: 14px 15px;
+
+  border: 1px solid #ebe8ff;
+  border-radius: 12px;
+
+  background: #faf9ff;
+}
+
+.progress-weekly-goal-copy {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.progress-weekly-goal-copy strong {
+  color: #6156bd;
+
+  font-size: 12px;
+}
+
+.progress-weekly-track {
+  height: 8px;
+
+  overflow: hidden;
+
+  border-radius: 999px;
+
+  background: #ebe9f8;
+}
+
+.progress-weekly-track > span {
+  display: block;
+
+  height: 100%;
+
+  border-radius: inherit;
+
+  background: #7165dc;
+}
+
+.progress-calendar-block {
+  display: grid;
+
+  gap: 10px;
+}
+
+.progress-calendar-heading {
+  display: flex;
+
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 12px;
+}
+
+.progress-calendar {
+  display: grid;
+
+  grid-template-columns:
+    repeat(7, minmax(0, 1fr));
+
+  gap: 6px;
+}
+
+.progress-calendar-day {
+  min-height: 22px;
+
+  border: 1px solid #ececf2;
+  border-radius: 5px;
+
+  background: #f3f4f7;
+}
+
+.progress-calendar-level-1 {
+  border-color: #dad6fa;
+
+  background: #e9e6ff;
+}
+
+.progress-calendar-level-2 {
+  border-color: #beb7f4;
+
+  background: #cbc5f7;
+}
+
+.progress-calendar-level-3 {
+  border-color: #7468d9;
+
+  background: #776bdc;
+}
+
 .progress-two-column {
   display: grid;
 
@@ -486,6 +659,10 @@
   .progress-two-column {
     grid-template-columns: 1fr;
   }
+
+  .progress-streak-stats {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (
@@ -515,6 +692,12 @@
   }
 
   .progress-panel-heading {
+    flex-direction: column;
+  }
+
+  .progress-weekly-goal-copy,
+  .progress-calendar-heading {
+    align-items: flex-start;
     flex-direction: column;
   }
 
