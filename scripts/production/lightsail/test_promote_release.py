@@ -2,11 +2,68 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
 
 from scripts.production.lightsail import promote_release
 
 
 class PromoteReleaseTests(unittest.TestCase):
+    def test_inspection_runs_real_read_only_gates_without_rollout_commands(self):
+        # Only the read-only host commands below are permitted by this fixture.
+        # In particular, an image pull, backup, or service restart fails it.
+        helpers = """test() { return 0; }
+systemctl() { [ "$1" = is-active ] || [ "$1" = is-enabled ]; }
+readlink() { printf '/opt/quizforge/releases/%040d\\n' 0; }
+stat() { printf '600\\n'; }
+sudo() {
+  [ "$1 $2" = 'docker compose' ] && [ "$5 $6 $7" = 'exec -T db' ] || return 99
+  cat >/dev/null
+  printf '1\\n'
+}
+"""
+        result = subprocess.run(
+            ["bash", "-s", "--", "a" * 40, "/unused"],
+            input=helpers + promote_release.REMOTE_INSPECT,
+            text=True, capture_output=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            promote_release.combined_qf_results(result.stdout, result.stderr),
+            ['{"preflight_verified":true}'],
+        )
+        self.assertEqual(
+            promote_release.current_release_details(result.stdout, result.stderr),
+            {"observed_current_release_sha": "0" * 40},
+        )
+
+    def test_failed_remote_gate_reports_location_without_command_or_output(self):
+        remote = promote_release.REMOTE_PROMOTE
+        # Fail the first host gate before any actual host operation can run.
+        script = 'test() { echo "private detail" >&2; return 73; }\n' + remote
+        result = subprocess.run(
+            ["bash", "-s", "--", "a" * 40, "/unused"],
+            input=script, text=True, capture_output=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 73)
+        line = script.splitlines().index("test -f /etc/quizforge/launch-approved") + 1
+        self.assertEqual(
+            promote_release.remote_failure_details(result.stdout, result.stderr),
+            {"remote_failure_status": 73, "remote_failure_line": line},
+        )
+        self.assertNotIn("private detail", json.dumps(
+            promote_release.remote_failure_details(result.stdout, result.stderr),
+        ))
+
+    def test_failure_diagnostics_reject_unbounded_or_ambiguous_data(self):
+        for raw in (
+            'QF_FAILURE=private:1', 'QF_FAILURE=0:1', 'QF_FAILURE=256:1',
+            'QF_FAILURE=1:0', 'QF_FAILURE=1:99999',
+            'QF_FAILURE=1:10\nQF_FAILURE=1:11',
+            'QF_FAILURE=1:10 private data',
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(promote_release.remote_failure_details("", raw), {})
+
     def test_remote_switch_requires_backup_migrations_and_rollback(self):
         remote = promote_release.REMOTE_PROMOTE
 
