@@ -76,6 +76,25 @@ class PromoteReleaseTests(unittest.TestCase):
             [payload],
         )
 
+    def test_zero_exit_fallback_keeps_remote_safety_contract(self):
+        source = Path(
+            "scripts/production/lightsail/promote_release.py"
+        ).read_text()
+        self.assertIn(
+            "result_transport_fallback_used",
+            source,
+        )
+        for value in (
+            '"backup_completed_before_switch": True',
+            '"release_switched": True',
+            '"frontend_switched": True',
+            '"local_https_verified": True',
+            '"rollback_retained": True',
+            "check=True",
+            'REMOTE_PROMOTE = r"""set -euo pipefail',
+        ):
+            self.assertIn(value, source)
+
     def test_sanitized_report_rejects_ips_and_private_values(self):
         with tempfile.TemporaryDirectory() as directory:
             old = promote_release.RESULT
