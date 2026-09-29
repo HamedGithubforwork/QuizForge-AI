@@ -484,6 +484,18 @@ def safe_code(
     )
 
 
+def extract_qf_results(raw: str) -> list[str]:
+    marker = "QF_RESULT="
+    values: list[str] = []
+    for line in raw.splitlines():
+        index = line.find(marker)
+        if index >= 0:
+            values.append(
+                line[index + len(marker):].strip()
+            )
+    return values
+
+
 def write_report(
     report: Mapping[str, Any],
     forbidden: list[str],
@@ -739,17 +751,17 @@ def main() -> int:
             check=True,
         )
         report["phase"] = "remote_migration_completed"
-        values = [
-            line.removeprefix(
-                "QF_RESULT="
-            )
-            for line
-            in completed.stdout.splitlines()
-            if line.startswith(
-                "QF_RESULT="
-            )
-        ]
+        values = extract_qf_results(
+            completed.stdout
+        )
         if len(values) != 1:
+            report["result_marker_count"] = len(values)
+            report["remote_stdout_nonempty"] = bool(
+                completed.stdout.strip()
+            )
+            report["remote_stderr_nonempty"] = bool(
+                completed.stderr.strip()
+            )
             raise ValueError(
                 "Unexpected migration output"
             )

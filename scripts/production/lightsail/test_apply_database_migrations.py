@@ -180,6 +180,29 @@ class MigrationControllerTests(unittest.TestCase):
             remote,
         )
 
+    def test_result_marker_parser_accepts_plain_and_prefixed_lines(self):
+        payload = '{"ok":true}'
+        self.assertEqual(
+            migrations.extract_qf_results(
+                "notice\nQF_RESULT=" + payload + "\n"
+            ),
+            [payload],
+        )
+        self.assertEqual(
+            migrations.extract_qf_results(
+                "remote-prefix QF_RESULT=" + payload + "\n"
+            ),
+            [payload],
+        )
+
+    def test_result_marker_parser_counts_multiple_markers(self):
+        self.assertEqual(
+            migrations.extract_qf_results(
+                "QF_RESULT={}\nQF_RESULT={}\n"
+            ),
+            ["{}", "{}"],
+        )
+
     def test_summary_codes_are_bounded(self):
         self.assertEqual(
             migrations.safe_code(
