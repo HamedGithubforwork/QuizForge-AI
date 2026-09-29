@@ -79,6 +79,8 @@ class PostgresDeckRepository:
             "study_intensity": row["study_intensity"],
             "card_count": row["card_count"],
             "due_count": row["due_count"],
+            "review_due_count": row["review_due_count"],
+            "new_count": row["new_count"],
             "next_due_at": row["next_due_at"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
@@ -128,7 +130,20 @@ class PostgresDeckRepository:
                 """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity,
                           count(c.id)::int AS card_count,
                           count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
-                          min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
+                          count(c.id) FILTER (
+                              WHERE c.suspended=false
+                                AND c.review_count > 0
+                                AND c.due_at <= now()
+                          )::int AS review_due_count,
+                          count(c.id) FILTER (
+                              WHERE c.suspended=false
+                                AND c.review_count = 0
+                          )::int AS new_count,
+                          min(c.due_at) FILTER (
+                              WHERE c.suspended=false
+                                AND c.review_count > 0
+                                AND c.due_at > now()
+                          ) AS next_due_at
                    FROM app.decks d
                    LEFT JOIN app.cards c
                      ON c.deck_id=d.id AND c.user_id=d.user_id
@@ -186,7 +201,20 @@ class PostgresDeckRepository:
                     """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity,
                               count(c.id)::int AS card_count,
                               count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
-                              min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
+                              count(c.id) FILTER (
+                                  WHERE c.suspended=false
+                                    AND c.review_count > 0
+                                    AND c.due_at <= now()
+                              )::int AS review_due_count,
+                              count(c.id) FILTER (
+                                  WHERE c.suspended=false
+                                    AND c.review_count = 0
+                              )::int AS new_count,
+                              min(c.due_at) FILTER (
+                                  WHERE c.suspended=false
+                                    AND c.review_count > 0
+                                    AND c.due_at > now()
+                              ) AS next_due_at
                        FROM app.decks d
                        LEFT JOIN app.cards c
                          ON c.deck_id=d.id AND c.user_id=d.user_id
