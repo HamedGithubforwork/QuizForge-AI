@@ -165,6 +165,8 @@ export type DeckSummary = {
   "study_intensity": "relaxed" | "balanced" | "intensive"
   "card_count": number
   "due_count": number
+  "review_due_count": number
+  "new_count": number
   "next_due_at": string | null
   "created_at": string
   "updated_at": string
@@ -178,6 +180,8 @@ export type DeckDetail = {
   "study_intensity": "relaxed" | "balanced" | "intensive"
   "card_count": number
   "due_count": number
+  "review_due_count": number
+  "new_count": number
   "next_due_at": string | null
   "created_at": string
   "updated_at": string
@@ -232,6 +236,14 @@ export type ReviewQueue = {
   "study_intensity": "relaxed" | "balanced" | "intensive"
   "due_count": number
   "next_due_at": string | null
+  "cards": ReviewQueueCard[]
+}
+
+export type NewCardQueue = {
+  "deck_id": string
+  "deck_name": string
+  "study_intensity": "relaxed" | "balanced" | "intensive"
+  "new_count": number
   "cards": ReviewQueueCard[]
 }
 
@@ -421,6 +433,7 @@ export const API_ROUTES = [
   "GET /api/admin/metrics",
   "GET /api/decks",
   "GET /api/decks/{deck_id}",
+  "GET /api/decks/{deck_id}/learn",
   "GET /api/decks/{deck_id}/review",
   "GET /api/documents/jobs",
   "GET /api/documents/jobs/{job_id}",
