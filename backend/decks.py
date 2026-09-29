@@ -14,6 +14,13 @@ from app_shared import AuthenticatedUser, get_current_user
 router = APIRouter(prefix="/api/decks", tags=["decks"])
 
 
+StudyIntensity = Literal[
+    "relaxed",
+    "balanced",
+    "intensive",
+]
+
+
 def normalize_card_tags(
     value: list[str],
 ) -> list[str]:
@@ -138,12 +145,24 @@ class ReviewRequest(BaseModel):
     )
 
 
+class ReviewPreview(BaseModel):
+    again: datetime
+    hard: datetime
+    good: datetime
+    easy: datetime
+
+
+class ReviewQueueCard(CardRow):
+    review_preview: ReviewPreview
+
+
 class ReviewQueue(BaseModel):
     deck_id: UUID
     deck_name: str
+    study_intensity: StudyIntensity
     due_count: int = Field(ge=0)
     next_due_at: datetime | None
-    cards: list[CardRow]
+    cards: list[ReviewQueueCard]
 
 
 class ReviewResult(BaseModel):
@@ -158,6 +177,7 @@ class DeckCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     exam_date: date | None = None
+    study_intensity: StudyIntensity = "balanced"
     cards: list[CardCreate] = Field(default_factory=list, max_length=50)
 
     @field_validator("name")
@@ -199,6 +219,7 @@ class DeckUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     description: str | None = Field(default=None, max_length=2000)
     exam_date: date | None = None
+    study_intensity: StudyIntensity | None = None
 
     @field_validator("name")
     @classmethod
@@ -216,6 +237,15 @@ class DeckUpdate(BaseModel):
             raise ValueError("At least one deck field must be changed.")
         if "name" in self.model_fields_set and self.name is None:
             raise ValueError("Deck name cannot be null.")
+        if (
+            "study_intensity"
+            in self.model_fields_set
+            and self.study_intensity
+            is None
+        ):
+            raise ValueError(
+                "Study intensity cannot be null."
+            )
         return self
 
 
@@ -391,6 +421,7 @@ class DeckSummary(BaseModel):
     name: str
     description: str | None
     exam_date: date | None = None
+    study_intensity: StudyIntensity
     card_count: int = Field(ge=0)
     due_count: int = Field(ge=0)
     next_due_at: datetime | None
