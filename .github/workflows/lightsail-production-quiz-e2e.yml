@@ -11,6 +11,13 @@ on:
       - "scripts/production/lightsail/test_production_canary_identity.py"
       - "scripts/production/private_files.py"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Study smoke test (no model calls), or explicitly approved paid quiz canary"
+        type: choice
+        options: [study, paid_quiz]
+        default: study
+        required: true
 
 permissions:
   contents: read
@@ -44,10 +51,9 @@ jobs:
       - name: Parse the production canary without executing it
         env:
           CANARY_FIXTURE_PATH: /tmp/nonexistent-production-canary-fixture.json
-        run: >-
-          npx --prefix e2e playwright test
-          --config=e2e/playwright.production-canary.config.ts
-          --list
+        run: |
+          CANARY_MODE=study npx --prefix e2e playwright test --config=e2e/playwright.production-canary.config.ts --list
+          CANARY_MODE=paid_quiz npx --prefix e2e playwright test --config=e2e/playwright.production-canary.config.ts --list
 
   production-e2e:
     needs: validate
@@ -65,6 +71,7 @@ jobs:
       group: quizforge-permanent-production-paid-e2e
       cancel-in-progress: false
     env:
+      CANARY_MODE: ${{ inputs.mode }}
       CANARY_FRONTEND_URL: https://quizfromnotes.com
       CANARY_FIXTURE_PATH: /tmp/production-canary-identity.json
       AWS_EC2_METADATA_DISABLED: "true"
@@ -111,7 +118,7 @@ jobs:
         run: >-
           python -m scripts.production.lightsail.production_canary_identity
           prepare "$CANARY_FIXTURE_PATH"
-      - name: Run one real production Cognito PDF-to-quiz browser canary
+      - name: Run selected production browser canary
         run: >-
           npx --prefix e2e playwright test
           --config=e2e/playwright.production-canary.config.ts
