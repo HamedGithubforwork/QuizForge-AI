@@ -105,7 +105,7 @@ export type CardRow = {
   "fsrs_state": 1 | 2 | 3
   "fsrs_step": number | null
   "stability": number | null
-  "difficulty": number | null
+  "difficulty"?: number | null
   "due_at": string
   "last_reviewed_at": string | null
   "review_count": number
@@ -246,7 +246,7 @@ export type MemoryMetrics = {
   "review_cards": number
   "mature_cards": number
   "retention_card_count": number
-  "estimated_retention": number | null
+  "estimated_retention"?: number | null
 }
 
 export type RatingDistribution = {
@@ -277,7 +277,6 @@ export type StudyAnalyticsSummary = {
   "ratings_last_30_days": RatingDistribution
   "difficult_cards": DifficultCard[]
 }
-
 
 export type PdfJobResponse = {
   "job_id": string
