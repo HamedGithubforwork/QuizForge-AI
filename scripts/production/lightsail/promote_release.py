@@ -103,15 +103,6 @@ do
 done
 
 # A successful fresh recovery point is mandatory immediately before switching.
-sudo systemctl start quizforge-backup.service
-test "$(systemctl show quizforge-backup.service -p Result --value)" = "success"
-backup_completed=true
-
-sudo rm -rf "$stage" "$frontend_stage"
-sudo install -d -m 0755 /opt/quizforge/releases "$frontends"
-sudo install -d -m 0700 "$stage"
-sudo install -d -m 0755 "$frontend_stage"
-
 work="$(mktemp -d)"
 cleanup() {
   rm -rf "$work"
@@ -129,6 +120,19 @@ assert re.fullmatch(r"[0-9a-f]{64}",value.get("frontend_tree_sha256",""))
 images=value.get("images")
 assert isinstance(images,list) and len(images)==5 and len(set(images))==5
 PY
+
+# Schema migrations add tables that the old host backup allowlist rejects.
+# Refresh only the pinned backup reader/dependency; retain old source versions.
+python3 "$work/refresh_backup_runtime.py" "$work/operations" "$work/manifest.json"
+
+sudo systemctl start quizforge-backup.service
+test "$(systemctl show quizforge-backup.service -p Result --value)" = "success"
+backup_completed=true
+
+sudo rm -rf "$stage" "$frontend_stage"
+sudo install -d -m 0755 /opt/quizforge/releases "$frontends"
+sudo install -d -m 0700 "$stage"
+sudo install -d -m 0755 "$frontend_stage"
 
 sudo cp -a "$work/release/." "$stage/"
 sudo chmod 0600 "$stage/compose.json" "$stage/reviewed-ai-policy.sql"

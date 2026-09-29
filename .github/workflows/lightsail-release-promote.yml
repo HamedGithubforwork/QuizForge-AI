@@ -6,6 +6,8 @@ on:
       - ".github/workflows/lightsail-release-promote.yml"
       - "scripts/production/lightsail/promote_release.py"
       - "scripts/production/lightsail/test_promote_release.py"
+      - "scripts/production/lightsail/refresh_backup_runtime.py"
+      - "scripts/production/lightsail/test_refresh_backup_runtime.py"
       - "scripts/production/lightsail/test_remote_stdin.py"
       - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/stage_release.py"
@@ -44,7 +46,7 @@ jobs:
       - name: Validate promotion controller
         run: |
           python -m py_compile             scripts/production/lightsail/promote_release.py             scripts/production/lightsail/stage_release.py
-          python -m unittest scripts.production.lightsail.test_promote_release scripts.production.lightsail.test_remote_stdin -v
+          python -m unittest scripts.production.lightsail.test_promote_release scripts.production.lightsail.test_remote_stdin scripts.production.lightsail.test_refresh_backup_runtime -v
 
       - name: Validate immutable promoted release lock
         run: |
@@ -235,6 +237,10 @@ jobs:
               "release_sha":lock["release_sha"],
               "application_candidate_sha":lock["application_candidate_sha"],
               "frontend_tree_sha256":tree,
+              "backup_runtime_sha256":{
+                  name:hashlib.sha256((Path("release-source/scripts/production")/name).read_bytes()).hexdigest()
+                  for name in ("private_files.py","lightsail_backup.py")
+              },
               "images":[
                   config["images"][name]
                   for name in ("api","operations","caddy","postgres","redis")
@@ -250,7 +256,10 @@ jobs:
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/promotion-bundle"
-          mkdir -p "$root/release" "$root/frontend" "$root/systemd"
+          mkdir -p "$root/release" "$root/frontend" "$root/systemd" "$root/operations"
+          cp release-source/scripts/production/lightsail_backup.py "$root/operations/"
+          cp release-source/scripts/production/private_files.py "$root/operations/"
+          cp scripts/production/lightsail/refresh_backup_runtime.py "$root/"
 
           cp "$RUNNER_TEMP/rendered-release/compose.json" "$root/release/"
           cp "$RUNNER_TEMP/rendered-release/Caddyfile" "$root/release/"

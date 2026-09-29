@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - "scripts/production/lightsail_backup*.py"
+      - "scripts/production/lightsail/refresh_backup_runtime.py"
+      - "scripts/production/lightsail/test_refresh_backup_runtime.py"
+      - ".github/workflows/lightsail-release-promote.yml"
       - "scripts/production/systemd/**"
       - "infra/aws/lightsail-backups/**"
       - "scripts/production/test_lightsail_backup*.py"
@@ -15,6 +18,9 @@ on:
     branches: [main]
     paths:
       - "scripts/production/lightsail_backup*.py"
+      - "scripts/production/lightsail/refresh_backup_runtime.py"
+      - "scripts/production/lightsail/test_refresh_backup_runtime.py"
+      - ".github/workflows/lightsail-release-promote.yml"
       - "scripts/production/systemd/**"
       - "infra/aws/lightsail-backups/**"
       - "scripts/production/test_lightsail_backup*.py"
