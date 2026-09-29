@@ -58,6 +58,24 @@ class PromoteReleaseTests(unittest.TestCase):
             remote,
         )
 
+    def test_result_parser_accepts_stderr_transport_and_mirrored_marker(self):
+        payload = '{"ok":true}'
+        self.assertEqual(
+            promote_release.combined_qf_results(
+                "",
+                "sudo-note\nQF_RESULT=" + payload + "\n",
+            ),
+            [payload],
+        )
+        line = "QF_RESULT=" + payload + "\n"
+        self.assertEqual(
+            promote_release.combined_qf_results(
+                line,
+                line,
+            ),
+            [payload],
+        )
+
     def test_sanitized_report_rejects_ips_and_private_values(self):
         with tempfile.TemporaryDirectory() as directory:
             old = promote_release.RESULT
