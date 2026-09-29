@@ -1201,6 +1201,14 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                 "total": 4,
             }
 
+            streaks = data["streaks"]
+            assert streaks["current_streak_days"] >= 1
+            assert streaks["longest_streak_days"] >= streaks["current_streak_days"]
+            assert 0 <= streaks["active_days_this_week"] <= 7
+            assert streaks["weekly_goal_days"] == 5
+            assert len(streaks["recent_activity"]) == 28
+            assert streaks["recent_activity"][-1]["review_count"] >= 1
+
             assert data["difficult_cards"][0]["card_id"] == difficult_card_id
             assert data["difficult_cards"][0]["deck_id"] == deck_id
             assert data["difficult_cards"][0]["lapse_count"] == 2
@@ -1215,6 +1223,11 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
             assert foreign_view.json()["total_decks"] == 1
             assert foreign_view.json()["memory"]["total_cards"] == 1
             assert foreign_view.json()["activity"]["reviews_last_7_days"] == 0
+            assert foreign_view.json()["streaks"]["current_streak_days"] == 0
+            assert sum(
+                item["review_count"]
+                for item in foreign_view.json()["streaks"]["recent_activity"]
+            ) == 0
 
     asyncio.run(scenario())
 
