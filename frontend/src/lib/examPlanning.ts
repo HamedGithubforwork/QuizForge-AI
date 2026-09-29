@@ -1,5 +1,4 @@
 import type {
-  CardRow,
   DeckDetail,
 } from '../types/api.generated'
 import {
