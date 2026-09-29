@@ -166,13 +166,13 @@ class PostgreSQLRecovery(unittest.TestCase):
                 ('10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000002',
                 'Other owner','other.pdf',NULL,'hard','short_answer',1,1,100,'{}','{}',now());
             INSERT INTO app.decks(
-                id,user_id,name,description,created_at,updated_at,exam_date
+                id,user_id,name,description,created_at,updated_at,exam_date,study_intensity
             ) VALUES (
                 '30000000-0000-0000-0000-000000000001',
                 '00000000-0000-0000-0000-000000000001',
                 'Biology Midterm','Cell biology',
                 '2026-09-21 01:02:03+00','2026-09-21 01:02:03+00',
-                '2026-12-15'
+                '2026-12-15','intensive'
             );
             INSERT INTO app.cards(id,deck_id,user_id,question_type,question,answer,choices,explanation,
                 source_filename,document_sha256,source_pages,created_at,updated_at) VALUES
@@ -270,6 +270,12 @@ class PostgreSQLRecovery(unittest.TestCase):
                     "SELECT exam_date::text FROM app.decks"
                 ).fetchall(),
                 [('2026-12-15',)],
+            )
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT study_intensity FROM app.decks"
+                ).fetchall(),
+                [('intensive',)],
             )
             self.assertEqual(self.target.execute("SELECT question,source_pages FROM app.cards").fetchall(),
                              [('What organelle produces ATP?', [12, 14])])
