@@ -12,6 +12,12 @@ on:
       - "scripts/production/lightsail/host_control.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
   workflow_dispatch:
+    inputs:
+      inspect_only:
+        description: Inspect existing timer state without running the sender or changing units
+        type: boolean
+        default: true
+        required: true
 
 permissions:
   contents: read
@@ -69,6 +75,7 @@ jobs:
     env:
       AWS_EC2_METADATA_DISABLED: "true"
       LIGHTSAIL_ADMIN_IPV4_CIDR: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+      QF_NOTIFIER_INSPECT_ONLY: ${{ inputs.inspect_only }}
 
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +107,7 @@ jobs:
               "lightsail:GetInstanceAccessDetails"
             ],"Resource":"*"}]}
 
-      - name: Enable reviewed study notifier timer
+      - name: Inspect or enable reviewed study notifier timer
         run: python -m scripts.production.lightsail.enable_study_notifier
 
       - name: Publish sanitized notifier activation result

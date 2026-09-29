@@ -38,6 +38,47 @@ TIMER = Path(
     "scripts/production/lightsail/quizforge-study-notifier.timer"
 )
 
+ACTIVATION_FIELDS = (
+    "notifier_probe_succeeded", "notifier_timer_enabled",
+    "notifier_timer_active", "notifier_timer_has_next_run",
+)
+INSPECTION_FIELDS = (
+    "application_active", "notifier_timer_enabled", "notifier_timer_active",
+    "notifier_timer_has_next_run", "notifier_service_matches",
+    "notifier_timer_matches", "notifier_last_run_succeeded",
+)
+
+# Inspect existing state without copying units, running the sender, or changing
+# systemd. Return only fixed boolean fields; never return host output or env files.
+REMOTE_INSPECT = r"""set -euo pipefail
+python3 - "$1" "$2" <<'PY'
+import hashlib,json,subprocess,sys
+from pathlib import Path
+def status(*args):
+    return subprocess.run(["systemctl",*args],stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode == 0
+def prop(unit,name):
+    result=subprocess.run(["systemctl","show",unit,"-p",name,"--value"],
+        stdin=subprocess.DEVNULL,capture_output=True,text=True,check=False)
+    return result.stdout.strip() if result.returncode == 0 else ""
+def matches(name,digest):
+    path=Path("/etc/systemd/system")/name
+    return path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==digest
+timer="quizforge-study-notifier.timer"
+service="quizforge-study-notifier.service"
+next_run=prop(timer,"NextElapseUSecRealtime")
+print("QF_RESULT="+json.dumps({
+    "application_active":status("is-active","--quiet","quizforge.service"),
+    "notifier_timer_enabled":status("is-enabled","--quiet",timer),
+    "notifier_timer_active":status("is-active","--quiet",timer),
+    "notifier_timer_has_next_run":bool(next_run and next_run != "n/a"),
+    "notifier_service_matches":matches(service,sys.argv[1]),
+    "notifier_timer_matches":matches(timer,sys.argv[2]),
+    "notifier_last_run_succeeded":prop(service,"Result")=="success",
+},sort_keys=True))
+PY
+"""
+
 
 REMOTE = r"""set -euo pipefail
 service_source="$1"
@@ -171,6 +212,22 @@ def safe_code(
     )
 
 
+def parse_result(output: str, inspection: bool) -> dict[str, bool]:
+    values = [line.removeprefix("QF_RESULT=") for line in output.splitlines()
+              if line.startswith("QF_RESULT=")]
+    if len(values) != 1:
+        raise ValueError("Unexpected notifier output")
+    state = json.loads(values[0])
+    fields = INSPECTION_FIELDS if inspection else ACTIVATION_FIELDS
+    if not isinstance(state, dict) or set(state) != set(fields):
+        raise ValueError("Unexpected notifier result fields")
+    if not all(type(state[name]) is bool for name in fields):
+        raise ValueError("Unexpected notifier result types")
+    if not inspection and not all(state.values()):
+        raise ValueError("Notifier activation acceptance incomplete")
+    return state
+
+
 def write_report(
     report: Mapping[str, Any],
     forbidden: list[str],
@@ -236,6 +293,12 @@ def main() -> int:
     temp: Path | None = None
 
     try:
+        report["stage"] = "validate_inputs"
+        inspect_value = os.environ.get("QF_NOTIFIER_INSPECT_ONLY", "true")
+        if inspect_value not in ("true", "false"):
+            raise ValueError("Invalid inspection mode")
+        inspection = inspect_value == "true"
+        report["inspection_only"] = inspection
         service_sha = sha256(
             SERVICE
         )
@@ -268,6 +331,7 @@ def main() -> int:
             "lightsail",
             region_name=REGION,
         )
+        report["stage"] = "inspect_instance"
         instance = lightsail.get_instance(
             instanceName=INSTANCE_NAME
         )["instance"]
@@ -311,6 +375,7 @@ def main() -> int:
                 "Baseline firewall mismatch"
             )
 
+        report["stage"] = "open_temporary_ssh"
         runner = runner_ipv4()
         forbidden.append(runner)
         lightsail.open_instance_public_ports(
@@ -330,10 +395,12 @@ def main() -> int:
             "temporary_ssh_rule_opened"
         ] = True
 
+        report["stage"] = "verify_host_key"
         known = scan_host(
             ip,
             pins,
         )
+        report["stage"] = "obtain_temporary_access"
         access = (
             lightsail.get_instance_access_details(
                 instanceName=
@@ -403,10 +470,11 @@ def main() -> int:
             + TIMER.name
         )
 
-        for local, remote in (
+        report["stage"] = "copy_reviewed_units"
+        for local, remote in (() if inspection else (
             (SERVICE, remote_service),
             (TIMER, remote_timer),
-        ):
+        )):
             subprocess.run(
                 scp_command(
                     key,
@@ -421,6 +489,9 @@ def main() -> int:
                 check=True,
             )
 
+        report["stage"] = "inspect_remote" if inspection else "activate_remote"
+        remote_args = ([service_sha, timer_sha] if inspection else
+                       [remote_service, remote_timer, service_sha, timer_sha])
         completed = subprocess.run(
             ssh_command(
                 key,
@@ -429,15 +500,13 @@ def main() -> int:
                 username,
                 ip,
                 "sudo",
+                "-n",
                 "bash",
                 "-s",
                 "--",
-                remote_service,
-                remote_timer,
-                service_sha,
-                timer_sha,
+                *remote_args,
             ),
-            input=REMOTE,
+            input=REMOTE_INSPECT if inspection else REMOTE,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -445,43 +514,11 @@ def main() -> int:
             check=True,
         )
 
-        values = [
-            line.removeprefix(
-                "QF_RESULT="
-            )
-            for line
-            in completed.stdout.splitlines()
-            if line.startswith(
-                "QF_RESULT="
-            )
-        ]
-        if len(values) != 1:
-            raise ValueError(
-                "Unexpected notifier activation output"
-            )
-
-        state = json.loads(
-            values[0]
-        )
-        required = (
-            "notifier_probe_succeeded",
-            "notifier_timer_enabled",
-            "notifier_timer_active",
-            "notifier_timer_has_next_run",
-        )
-        if not all(
-            state.get(name)
-            is True
-            for name in required
-        ):
-            raise ValueError(
-                "Notifier activation acceptance incomplete"
-            )
-
-        report.update(state)
-        report["result"] = (
-            "study_notifier_timer_enabled"
-        )
+        report["stage"] = "validate_remote_result"
+        report.update(parse_result(completed.stdout, inspection))
+        report["result"] = ("study_notifier_inspected" if inspection else
+                            "study_notifier_timer_enabled")
+        report["stage"] = "complete"
 
     except ClientError as error:
         report["error_code"] = (
@@ -578,13 +615,13 @@ def main() -> int:
 
         if (
             report.get("result")
-            == "study_notifier_timer_enabled"
+            in ("study_notifier_timer_enabled", "study_notifier_inspected")
             and not report.get(
                 "baseline_firewall_restored"
             )
         ):
             report["result"] = (
-                "notifier_enabled_firewall_cleanup_unverified"
+                "notifier_operation_firewall_cleanup_unverified"
             )
 
         try:
@@ -600,7 +637,7 @@ def main() -> int:
     return (
         0
         if report.get("result")
-        == "study_notifier_timer_enabled"
+        in ("study_notifier_timer_enabled", "study_notifier_inspected")
         else 1
     )
 
