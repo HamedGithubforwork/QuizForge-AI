@@ -1087,49 +1087,51 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                 (card_ids[3],),
             )
 
-            owner.executemany(
-                """INSERT INTO app.card_review_logs(
-                    card_id,user_id,rating,reviewed_at,review_duration_ms
-                ) VALUES (%s,%s,%s,%s,%s)""",
-                [
-                    (
-                        card_ids[1],
-                        USERS[0],
-                        2,
-                        owner.execute(
-                            "SELECT now()-interval '6 days'"
-                        ).fetchone()[0],
-                        30000,
-                    ),
-                    (
-                        card_ids[1],
-                        USERS[0],
-                        3,
-                        owner.execute(
-                            "SELECT now()-interval '1 day'"
-                        ).fetchone()[0],
-                        40000,
-                    ),
-                    (
-                        card_ids[2],
-                        USERS[0],
-                        1,
-                        owner.execute(
-                            "SELECT now()-interval '2 days'"
-                        ).fetchone()[0],
-                        50000,
-                    ),
-                    (
-                        card_ids[2],
-                        USERS[0],
-                        4,
-                        owner.execute(
-                            "SELECT now()-interval '10 minutes'"
-                        ).fetchone()[0],
-                        60000,
-                    ),
-                ],
-            )
+            review_rows = [
+                (
+                    card_ids[1],
+                    USERS[0],
+                    2,
+                    owner.execute(
+                        "SELECT now()-interval '6 days'"
+                    ).fetchone()[0],
+                    30000,
+                ),
+                (
+                    card_ids[1],
+                    USERS[0],
+                    3,
+                    owner.execute(
+                        "SELECT now()-interval '1 day'"
+                    ).fetchone()[0],
+                    40000,
+                ),
+                (
+                    card_ids[2],
+                    USERS[0],
+                    1,
+                    owner.execute(
+                        "SELECT now()-interval '2 days'"
+                    ).fetchone()[0],
+                    50000,
+                ),
+                (
+                    card_ids[2],
+                    USERS[0],
+                    4,
+                    owner.execute(
+                        "SELECT now()-interval '10 minutes'"
+                    ).fetchone()[0],
+                    60000,
+                ),
+            ]
+            for review_row in review_rows:
+                owner.execute(
+                    """INSERT INTO app.card_review_logs(
+                        card_id,user_id,rating,reviewed_at,review_duration_ms
+                    ) VALUES (%s,%s,%s,%s,%s)""",
+                    review_row,
+                )
 
             foreign = await client.post(
                 "/api/decks",
