@@ -496,6 +496,21 @@ def extract_qf_results(raw: str) -> list[str]:
     return values
 
 
+def combined_qf_results(
+    stdout: str,
+    stderr: str,
+) -> list[str]:
+    stdout_values = extract_qf_results(stdout)
+    stderr_values = extract_qf_results(stderr)
+    if (
+        len(stdout_values) == 1
+        and len(stderr_values) == 1
+        and stdout_values[0] == stderr_values[0]
+    ):
+        return stdout_values
+    return stdout_values + stderr_values
+
+
 def write_report(
     report: Mapping[str, Any],
     forbidden: list[str],
@@ -751,11 +766,18 @@ def main() -> int:
             check=True,
         )
         report["phase"] = "remote_migration_completed"
-        values = extract_qf_results(
-            completed.stdout
+        values = combined_qf_results(
+            completed.stdout,
+            completed.stderr,
         )
         if len(values) != 1:
             report["result_marker_count"] = len(values)
+            report["stdout_marker_count"] = len(
+                extract_qf_results(completed.stdout)
+            )
+            report["stderr_marker_count"] = len(
+                extract_qf_results(completed.stderr)
+            )
             report["remote_stdout_nonempty"] = bool(
                 completed.stdout.strip()
             )
