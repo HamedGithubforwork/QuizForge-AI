@@ -165,6 +165,14 @@ class ReviewQueue(BaseModel):
     cards: list[ReviewQueueCard]
 
 
+class NewCardQueue(BaseModel):
+    deck_id: UUID
+    deck_name: str
+    study_intensity: StudyIntensity
+    new_count: int = Field(ge=0)
+    cards: list[ReviewQueueCard]
+
+
 class ReviewResult(BaseModel):
     card: CardRow
     remaining_due_count: int = Field(ge=0)
@@ -424,6 +432,8 @@ class DeckSummary(BaseModel):
     study_intensity: StudyIntensity
     card_count: int = Field(ge=0)
     due_count: int = Field(ge=0)
+    review_due_count: int = Field(ge=0)
+    new_count: int = Field(ge=0)
     next_due_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -494,6 +504,26 @@ async def get_review_queue(
             "Review limit must be between 1 and 50.",
         )
     return await repository.review_queue(
+        deck_id,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/{deck_id}/learn",
+    response_model=NewCardQueue,
+)
+async def get_new_card_queue(
+    deck_id: UUID,
+    limit: int = 20,
+    repository=Depends(get_deck_repository),
+):
+    if not 1 <= limit <= 50:
+        raise HTTPException(
+            422,
+            "Learn limit must be between 1 and 50.",
+        )
+    return await repository.new_card_queue(
         deck_id,
         limit=limit,
     )
