@@ -773,6 +773,96 @@ test(
 )
 
 test(
+  'updateStudyDeck can set and clear an exam date',
+  async () => {
+    const bodies: unknown[] = []
+
+    const fetcher = async (
+      _path: string,
+      init?: RequestInit,
+    ) => {
+      bodies.push(
+        JSON.parse(
+          String(init?.body),
+        ),
+      )
+
+      const payload =
+        bodies.at(-1) as {
+          exam_date:
+            string | null
+        }
+
+      return new Response(
+        JSON.stringify({
+          id:
+            '11111111-1111-4111-8111-111111111111',
+          name:
+            'Biology Midterm',
+          description: null,
+          exam_date:
+            payload.exam_date,
+          card_count: 0,
+          due_count: 0,
+          next_due_at: null,
+          created_at:
+            '2026-09-27T15:00:00Z',
+          updated_at:
+            '2026-09-28T12:00:00Z',
+          cards: [],
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+        },
+      )
+    }
+
+    const saved =
+      await updateStudyDeck(
+        'deck',
+        {
+          exam_date:
+            '2026-12-15',
+        },
+        fetcher,
+      )
+    const cleared =
+      await updateStudyDeck(
+        'deck',
+        {
+          exam_date: null,
+        },
+        fetcher,
+      )
+
+    assert.deepEqual(
+      bodies,
+      [
+        {
+          exam_date:
+            '2026-12-15',
+        },
+        {
+          exam_date: null,
+        },
+      ],
+    )
+    assert.equal(
+      saved.exam_date,
+      '2026-12-15',
+    )
+    assert.equal(
+      cleared.exam_date,
+      null,
+    )
+  },
+)
+
+test(
   'deleteStudyDeck sends DELETE and accepts an empty 204 response',
   async () => {
     let path = ''
