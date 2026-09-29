@@ -66,15 +66,15 @@ def matches(name,digest):
     return path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==digest
 timer="quizforge-study-notifier.timer"
 service="quizforge-study-notifier.service"
-next_run=prop(timer,"NextElapseUSecRealtime")
+next_run=prop(timer,"NextElapseUSecMonotonic")
 print("QF_RESULT="+json.dumps({
     "application_active":status("is-active","--quiet","quizforge.service"),
     "notifier_timer_enabled":status("is-enabled","--quiet",timer),
     "notifier_timer_active":status("is-active","--quiet",timer),
-    "notifier_timer_has_next_run":bool(next_run and next_run != "n/a"),
+    "notifier_timer_has_next_run":next_run not in ("", "n/a", "0", "infinity"),
     "notifier_service_matches":matches(service,sys.argv[1]),
     "notifier_timer_matches":matches(timer,sys.argv[2]),
-    "notifier_last_run_succeeded":prop(service,"Result")=="success",
+    "notifier_last_run_succeeded":bool(prop(service,"ExecMainStartTimestamp")) and prop(service,"Result")=="success",
 },sort_keys=True))
 PY
 """
@@ -173,9 +173,21 @@ sudo systemctl enable --now quizforge-study-notifier.timer >/dev/null
 systemctl is-enabled --quiet quizforge-study-notifier.timer
 systemctl is-active --quiet quizforge-study-notifier.timer
 
-next_run="$(systemctl show quizforge-study-notifier.timer -p NextElapseUSecRealtime --value)"
-test -n "$next_run"
-test "$next_run" != "n/a"
+# OnBootSec/OnUnitInactiveSec use the monotonic clock, not OnCalendar's
+# realtime clock. A just-fired timer may briefly be running its service before
+# systemd schedules the next interval, so allow a bounded settling period.
+scheduled=false
+for attempt in {1..15}; do
+  next_run="$(systemctl show quizforge-study-notifier.timer -p NextElapseUSecMonotonic --value)"
+  case "$next_run" in
+    ""|n/a|0|infinity) ;;
+    *) scheduled=true; break ;;
+  esac
+  if [ "$attempt" -lt 15 ]; then sleep 2; fi
+done
+test "$scheduled" = true
+systemctl is-enabled --quiet quizforge-study-notifier.timer
+systemctl is-active --quiet quizforge-study-notifier.timer
 
 trap - ERR
 
