@@ -11,7 +11,7 @@ import type {
 import {
   weakCardLapseRate,
   weakStudyCards,
-} from './studyModes'
+} from './studyModes.ts'
 
 type ApiFetch = (
   path: string,
