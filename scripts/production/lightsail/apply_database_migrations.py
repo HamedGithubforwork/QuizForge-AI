@@ -51,6 +51,7 @@ MIGRATION_FILES = (
     "20260928_006_move_card.sql",
     "20260928_007_card_study_state.sql",
     "20260928_008_card_tags.sql",
+    "20260928_009_deck_exam_date.sql",
 )
 SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 
@@ -215,6 +216,17 @@ test "$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE tabl
 test "$(dbq "SELECT has_column_privilege('quizforge_app','app.cards','tags','UPDATE')::int")" = "1"
 test "$(dbq "SELECT (to_regclass('app.cards_tags_gin_idx') IS NOT NULL)::int")" = "1"
 
+# 009: optional deck exam date for exam-mode planning.
+exam_date_state="$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='decks' AND column_name='exam_date'))::int")"
+case "$exam_date_state" in
+  "0") apply_sql "$root/20260928_009_deck_exam_date.sql"; applied_009=true ;;
+  "1") applied_009=false ;;
+  *) exit 49 ;;
+esac
+
+test "$(dbq "SELECT (EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='app' AND table_name='decks' AND column_name='exam_date'))::int")" = "1"
+test "$(dbq "SELECT has_column_privilege('quizforge_app','app.decks','exam_date','UPDATE')::int")" = "1"
+
 # Create or reconcile the private notifier credential only on the host.
 # No credential value is printed.
 test -x /opt/quizforge/backup-venv/bin/python
@@ -377,7 +389,7 @@ test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_not
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_push_subscriptions'::regclass")" = "1"
 test "$(dbq "SELECT (relrowsecurity)::int FROM pg_class WHERE oid='app.study_notification_deliveries'::regclass")" = "1"
 
-python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$applied_007" "$applied_008" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
+python3 - "$applied_001" "$applied_002" "$applied_003" "$applied_004" "$applied_005" "$applied_006" "$applied_007" "$applied_008" "$applied_009" "$notifier_credential_ready" "$vapid_credentials_ready" <<'PY'
 import json
 import sys
 values=[item=="true" for item in sys.argv[1:]]
@@ -391,8 +403,9 @@ print("QF_RESULT="+json.dumps({
   "move_card_migration_applied": values[5],
   "card_study_state_migration_applied": values[6],
   "card_tags_migration_applied": values[7],
-  "notifier_credential_ready": values[8],
-  "vapid_credentials_ready": values[9],
+  "deck_exam_date_migration_applied": values[8],
+  "notifier_credential_ready": values[9],
+  "vapid_credentials_ready": values[10],
   "all_postconditions_verified": True,
 },sort_keys=True))
 PY
@@ -738,6 +751,7 @@ def main() -> int:
             "move_card_migration_applied",
             "card_study_state_migration_applied",
             "card_tags_migration_applied",
+            "deck_exam_date_migration_applied",
             "notifier_credential_ready",
             "vapid_credentials_ready",
             "all_postconditions_verified",

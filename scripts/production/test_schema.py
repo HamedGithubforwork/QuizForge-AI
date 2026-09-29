@@ -96,6 +96,13 @@ class DeckSchema(unittest.TestCase):
                     "'name', 'UPDATE') AS allowed"
                 ).fetchone()["allowed"]
             )
+            self.assertTrue(
+                owner.execute(
+                    "SELECT has_column_privilege("
+                    "'quizforge_app', 'app.decks', "
+                    "'exam_date', 'UPDATE') AS allowed"
+                ).fetchone()["allowed"]
+            )
 
             self.assertTrue(
                 owner.execute(

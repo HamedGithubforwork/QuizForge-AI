@@ -165,9 +165,15 @@ class PostgreSQLRecovery(unittest.TestCase):
                 '{"0":2}', '2026-09-20 23:01:02.123456+00'),
                 ('10000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000002',
                 'Other owner','other.pdf',NULL,'hard','short_answer',1,1,100,'{}','{}',now());
-            INSERT INTO app.decks(id,user_id,name,description,created_at,updated_at) VALUES
-                ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001',
-                 'Biology Midterm','Cell biology','2026-09-21 01:02:03+00','2026-09-21 01:02:03+00');
+            INSERT INTO app.decks(
+                id,user_id,name,description,created_at,updated_at,exam_date
+            ) VALUES (
+                '30000000-0000-0000-0000-000000000001',
+                '00000000-0000-0000-0000-000000000001',
+                'Biology Midterm','Cell biology',
+                '2026-09-21 01:02:03+00','2026-09-21 01:02:03+00',
+                '2026-12-15'
+            );
             INSERT INTO app.cards(id,deck_id,user_id,question_type,question,answer,choices,explanation,
                 source_filename,document_sha256,source_pages,created_at,updated_at) VALUES
                 ('40000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001',
@@ -259,6 +265,12 @@ class PostgreSQLRecovery(unittest.TestCase):
             self.target.execute("SET LOCAL quizforge.user_id='00000000-0000-0000-0000-000000000001'")
             self.assertEqual(self.target.execute("SELECT quiz_title FROM app.quiz_history").fetchall(), [('Énergie et résumé',)])
             self.assertEqual(self.target.execute("SELECT name FROM app.decks").fetchall(), [('Biology Midterm',)])
+            self.assertEqual(
+                self.target.execute(
+                    "SELECT exam_date::text FROM app.decks"
+                ).fetchall(),
+                [('2026-12-15',)],
+            )
             self.assertEqual(self.target.execute("SELECT question,source_pages FROM app.cards").fetchall(),
                              [('What organelle produces ATP?', [12, 14])])
             self.assertEqual(
