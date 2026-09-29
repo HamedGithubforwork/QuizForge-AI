@@ -680,6 +680,8 @@ def main() -> int:
                 known,
                 username,
                 ip,
+                "sudo",
+                "-n",
                 "bash",
                 "-s",
                 "--",
