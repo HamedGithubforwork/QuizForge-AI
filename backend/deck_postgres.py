@@ -8,7 +8,10 @@ from psycopg import Error as DatabaseError, sql
 from psycopg.types.json import Jsonb
 from psycopg_pool import PoolClosed, PoolTimeout, TooManyRequests
 
-from spaced_repetition import schedule_review
+from spaced_repetition import (
+    preview_review_due_times,
+    schedule_review,
+)
 
 
 class PostgresDeckRepository:
@@ -73,6 +76,7 @@ class PostgresDeckRepository:
             "name": row["name"],
             "description": row["description"],
             "exam_date": row["exam_date"],
+            "study_intensity": row["study_intensity"],
             "card_count": row["card_count"],
             "due_count": row["due_count"],
             "next_due_at": row["next_due_at"],
@@ -121,7 +125,7 @@ class PostgresDeckRepository:
     async def _summary_row(self, conn, user_id, deck_id):
         return await (
             await conn.execute(
-                """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,
+                """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity,
                           count(c.id)::int AS card_count,
                           count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
                           min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
@@ -129,7 +133,7 @@ class PostgresDeckRepository:
                    LEFT JOIN app.cards c
                      ON c.deck_id=d.id AND c.user_id=d.user_id
                    WHERE d.id=%s AND d.user_id=%s
-                   GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date""",
+                   GROUP BY d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity""",
                 (deck_id, user_id),
             )
         ).fetchone()
@@ -179,7 +183,7 @@ class PostgresDeckRepository:
         async with self.transaction() as (conn, user_id):
             rows = await (
                 await conn.execute(
-                    """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,
+                    """SELECT d.id,d.user_id,d.name,d.description,d.created_at,d.updated_at,d.exam_date,d.study_intensity,
                               count(c.id)::int AS card_count,
                               count(c.id) FILTER (WHERE c.suspended=false AND c.due_at <= now())::int AS due_count,
                               min(c.due_at) FILTER (WHERE c.suspended=false AND c.due_at > now()) AS next_due_at
@@ -205,10 +209,18 @@ class PostgresDeckRepository:
         async with self.transaction() as (conn, user_id):
             row = await (
                 await conn.execute(
-                    """INSERT INTO app.decks(user_id,name,description,exam_date)
-                       VALUES (%s,%s,%s,%s)
+                    """INSERT INTO app.decks(
+                        user_id,name,description,exam_date,study_intensity
+                    )
+                       VALUES (%s,%s,%s,%s,%s)
                        RETURNING id""",
-                    (user_id, payload.name, payload.description, payload.exam_date),
+                    (
+                        user_id,
+                        payload.name,
+                        payload.description,
+                        payload.exam_date,
+                        payload.study_intensity,
+                    ),
                 )
             ).fetchone()
             deck_id = row["id"]
@@ -232,7 +244,7 @@ class PostgresDeckRepository:
         ):
             source = await (
                 await conn.execute(
-                    """SELECT name,description,exam_date
+                    """SELECT name,description,exam_date,study_intensity
                        FROM app.decks
                        WHERE id=%s AND user_id=%s""",
                     (
@@ -262,8 +274,8 @@ class PostgresDeckRepository:
             created = await (
                 await conn.execute(
                     """INSERT INTO app.decks(
-                        user_id,name,description,exam_date
-                    ) VALUES (%s,%s,%s,%s)
+                        user_id,name,description,exam_date,study_intensity
+                    ) VALUES (%s,%s,%s,%s,%s)
                     RETURNING id""",
                     (
                         user_id,
@@ -273,6 +285,9 @@ class PostgresDeckRepository:
                         ],
                         source[
                             "exam_date"
+                        ],
+                        source[
+                            "study_intensity"
                         ],
                     ),
                 )
@@ -339,6 +354,19 @@ class PostgresDeckRepository:
             if "exam_date" in payload.model_fields_set:
                 assignments.append(sql.SQL("exam_date=%s"))
                 values.append(payload.exam_date)
+
+            if (
+                "study_intensity"
+                in payload.model_fields_set
+            ):
+                assignments.append(
+                    sql.SQL(
+                        "study_intensity=%s"
+                    )
+                )
+                values.append(
+                    payload.study_intensity
+                )
 
             assignments.append(sql.SQL("updated_at=now()"))
             values.extend((deck_id, user_id))
@@ -702,12 +730,42 @@ class PostgresDeckRepository:
                     (deck_id, user_id, limit),
                 )
             ).fetchall()
+            review_now = datetime.now(
+                timezone.utc
+            )
+            cards = self._cards(
+                rows,
+                user_id,
+            )
+            for card, row in zip(
+                cards,
+                rows,
+                strict=True,
+            ):
+                card[
+                    "review_preview"
+                ] = (
+                    preview_review_due_times(
+                        row,
+                        study_intensity=
+                            summary[
+                                "study_intensity"
+                            ],
+                        review_datetime=
+                            review_now,
+                    )
+                )
+
             return {
                 "deck_id": deck_id,
                 "deck_name": summary["name"],
+                "study_intensity":
+                    summary[
+                        "study_intensity"
+                    ],
                 "due_count": stats["due_count"],
                 "next_due_at": stats["next_due_at"],
-                "cards": self._cards(rows, user_id),
+                "cards": cards,
             }
 
     async def review_card(
@@ -723,13 +781,16 @@ class PostgresDeckRepository:
         ) as (conn, user_id):
             row = await (
                 await conn.execute(
-                    """SELECT id,deck_id,user_id,question_type,question,answer,choices,
-                              explanation,source_filename,document_sha256,source_pages,tags,
-                              fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                              review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at
-                       FROM app.cards
-                       WHERE id=%s AND deck_id=%s AND user_id=%s
-                       FOR UPDATE""",
+                    """SELECT c.id,c.deck_id,c.user_id,c.question_type,c.question,c.answer,c.choices,
+                              c.explanation,c.source_filename,c.document_sha256,c.source_pages,c.tags,
+                              c.fsrs_state,c.fsrs_step,c.stability,c.difficulty,c.due_at,c.last_reviewed_at,
+                              c.review_count,c.lapse_count,c.suspended,c.progress_reset_at,c.created_at,c.updated_at,
+                              d.study_intensity
+                       FROM app.cards c
+                       JOIN app.decks d
+                         ON d.id=c.deck_id AND d.user_id=c.user_id
+                       WHERE c.id=%s AND c.deck_id=%s AND c.user_id=%s
+                       FOR UPDATE OF c""",
                     (card_id, deck_id, user_id),
                 )
             ).fetchone()
@@ -760,6 +821,10 @@ class PostgresDeckRepository:
                     rating,
                     review_datetime=reviewed_at,
                     review_duration_ms=review_duration_ms,
+                    study_intensity=
+                        row[
+                            "study_intensity"
+                        ],
                 )
             except ValueError:
                 raise HTTPException(
