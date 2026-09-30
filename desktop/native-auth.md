@@ -1,6 +1,6 @@
 # Native sign-in integration plan
 
-Status: transaction and token-verification primitives tested; **native sign-in is not enabled**. The preview still uses its existing hosted sign-in window. No protocol handler, browser launcher or new Cognito client is enabled. The token client is not connected to the running application.
+Status: transaction, token-verification and session-lifecycle primitives tested; **native sign-in is not enabled**. The preview still uses its existing hosted sign-in window. No protocol handler, browser launcher or new Cognito client is enabled. The token client is not connected to the running application.
 
 `src/native-auth-attempt.cjs` is main-process-only preparation for system-browser sign-in. It produces a pinned Cognito authorization URL with independent random state, nonce and S256 PKCE proof. The verifier stays in its closure until a matching callback is consumed once. Attempts expire after five monotonic minutes or explicit cancellation. Unrelated callbacks do not cancel an active attempt; matching malformed or denied responses consume it. Errors never include returned provider values.
 
@@ -10,11 +10,13 @@ The proposed callback is `com.quizfromnotes.desktop.preview:/oauth/callback`. Th
 
 Windows installer acceptance loads this module and its production JWT dependency from the installed ASAR without contacting the network. Unit tests use real synthetic RSA signatures and mocked HTTP, not real accounts.
 
+`src/native-session.cjs` composes the transaction and token client in memory. It opens only the generated URL through an injected main-process browser launcher, settles cancelled/replaced/expired attempts, ignores unrelated or duplicate callbacks, and serializes refresh. An epoch guard prevents delayed exchange or refresh results from restoring a signed-out/replaced account; discarded token results are revoked where possible. Sign-out clears local identity immediately even when remote revocation fails. A sticky `revocationUnconfirmed` status exposes that limitation without private error details. Session views omit refresh tokens. This module has no IPC, protocol registration, storage or running-shell integration; its session view is for trusted main-process callers only.
+
 ## Remaining activation requirements
 
 1. Configure a dedicated public desktop Cognito app client without a client secret, using authorization code grant and the exact callback. Review scopes and retain the existing web client and web callbacks. The shared API/identity verifier supports one optional `COGNITO_DESKTOP_CLIENT_ID` alongside `COGNITO_CLIENT_ID`. It defaults to disabled, requires a distinct explicit client ID and retains all access-token, issuer, scope, signature, expiration and online revocation checks. Configure both API and identity services only after registration and end-to-end acceptance; no deployed value is changed by this preparation. Never accept arbitrary clients from the pool.
 2. Register the private URI scheme in the Windows installer, handle both cold and second-instance launches, and allow only one pending attempt. Cancel the old attempt on replacement, window closure and sign-out. Launch only the internally produced authorization URL through the system browser; renderer-provided URLs must never reach `shell.openExternal`.
-3. Connect the tested transaction and token client to a cancellable main-process session lifecycle. Reject late exchange/refresh results after logout or account replacement. Complete authenticated API/identity acceptance before binding account data; a decoded JWT or callback state alone is not identity verification.
+3. Connect the tested main-process session lifecycle to the app and complete authenticated API/identity acceptance before binding account data. Keep the epoch/cancellation guards intact when adding window, account-switch and renderer integration; a decoded JWT or callback state alone is not identity verification.
 4. Bind encrypted study snapshots to that verified account. Keep tokens out of renderer IPC, URLs, logs and persisted snapshots. Define refresh/revocation and sign-out cancellation before exposing account data. Design a narrowly scoped renderer bridge with sender/frame checks and explicit commands; the current remote renderer has no preload or IPC.
 5. Test real Windows cold/warm callbacks, cancellation, MFA, replay, wrong client/issuer/nonce, account switching and logout, plus the existing hosted-login regression. Complete signing and manual Windows acceptance before making a public native-login release.
 
