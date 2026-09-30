@@ -24,7 +24,12 @@ try {
         $publicFile = Join-Path $root "$name.cer"
         Export-Certificate -Cert $certificate -FilePath $publicFile | Out-Null
         Write-Output "Update fixture stage: trust $name root"
-        Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+        # Import-Certificate can open a CurrentUser root-store confirmation dialog.
+        # Trust only this invocation's public test certificate, explicitly and without UI.
+        & certutil.exe -user -f -addstore Root $publicFile | Out-Null
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path "Cert:\CurrentUser\Root\$($certificate.Thumbprint)")) {
+            throw 'Disposable root certificate import failed.'
+        }
         Write-Output "Update fixture stage: trust $name publisher"
         Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
         $file = Join-Path $root "$name.exe"
