@@ -1,0 +1,116 @@
+name: Desktop native authentication readiness
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/desktop-auth-readiness.yml
+      - scripts/production/lightsail/native_auth_readiness.py
+      - scripts/production/lightsail/test_native_auth_readiness.py
+      - scripts/production/lightsail/native-client-source.json
+      - scripts/production/lightsail/style_cognito_hosted_ui.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate read-only native authentication inspection
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.16'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - name: Resolve reviewed configuration source
+        id: policy
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.production.lightsail.native_auth_readiness import source_commit
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('commit=' + source_commit() + '\n')
+          PY
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.policy.outputs.commit }}
+          path: application-configuration
+          persist-credentials: false
+      - name: Test controller and exact application configuration policy without AWS
+        run: |
+          python -m unittest scripts.production.lightsail.test_native_auth_readiness -v
+          python -m py_compile scripts/production/lightsail/native_auth_readiness.py
+          node --test application-configuration/desktop/test/native-client-config.test.cjs
+
+  inspect:
+    name: Inspect existing Cognito clients without changes
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: quizforge-native-auth-readiness
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.16'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - name: Resolve reviewed configuration source
+        id: policy
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.production.lightsail.native_auth_readiness import source_commit
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('commit=' + source_commit() + '\n')
+          PY
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.policy.outputs.commit }}
+          path: application-configuration
+          persist-credentials: false
+      - name: Assume read-only Cognito metadata session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-native-auth-readiness
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients",
+              "cognito-idp:DescribeUserPool","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeUserPoolDomain"
+            ],"Resource":"*"}]}
+      - name: Inspect exact production boundaries and native client readiness
+        env:
+          AWS_EC2_METADATA_DISABLED: 'true'
+        run: python -m scripts.production.lightsail.native_auth_readiness
+      - name: Publish sanitized readiness summary only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-native-auth-readiness
+          path: native-auth-readiness-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
