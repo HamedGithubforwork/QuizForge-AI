@@ -128,3 +128,13 @@ its actual unsigned installer cannot pass the signing gate. A successful signed
 build cannot be claimed until an owner-controlled certificate is available and
 that path runs on Windows. Nothing publishes automatically. Signing alone does
 not complete account acceptance, authenticated updates, or offline synchronization.
+
+## Desktop diagnostics
+
+Open **Help → Desktop diagnostics…** to inspect app/Electron/Chromium versions,
+platform/architecture, packaged status and this session's page-load and renderer-exit
+counts. Choose **Copy** to put the displayed report on your clipboard for support.
+Closing the dialog does not copy anything; nothing uploads automatically. The report
+contains no URLs, error messages, account identifiers, study content, file paths,
+tokens or environment variables. Counts reset when the app closes. This is a minimal
+in-memory support report, not persistent crash dumps or telemetry.

@@ -1,7 +1,7 @@
 'use strict'
 // Runs under real Electron on Windows CI; never contacts production.
 const assert = require('node:assert/strict')
-const { app, BrowserWindow, safeStorage } = require('electron')
+const { app, BrowserWindow, safeStorage, clipboard } = require('electron')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
@@ -9,14 +9,23 @@ const { createWindowsSnapshotStore } = require('../src/windows-snapshot-store.cj
 const { snapshotDeck } = require('./snapshot-fixture.cjs')
 const { windowOptions } = require('../src/policy.cjs')
 const { guardContents } = require('../src/guards.cjs')
+const { createDiagnostics } = require('../src/diagnostics.cjs')
 app.enableSandbox()
 let stage = 'app readiness'
 const timeout = setTimeout(() => { console.error(`Desktop smoke timed out at ${stage}`); app.exit(1) }, 20000)
 app.whenReady().then(async () => {
   const window = new BrowserWindow(windowOptions())
   guardContents(window.webContents)
+  const diagnostics = createDiagnostics({ appVersion: '0.1.0', electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome, platform: process.platform, arch: process.arch, packaged: false })
+  diagnostics.attach(window.webContents)
   stage = 'loading synthetic page'
   await window.loadURL('data:text/html,<h1>Desktop security smoke</h1>')
+  stage = 'native diagnostics and clipboard'
+  assert.equal(JSON.parse(diagnostics.report()).pageLoads, 1)
+  await clipboard.writeText(diagnostics.report())
+  assert.equal(await clipboard.readText(), diagnostics.report())
+  clipboard.clear()
   stage = 'renderer isolation and popup'
   const result = await window.webContents.executeJavaScript(`({
     node: typeof require, process: typeof process,
@@ -51,7 +60,7 @@ app.whenReady().then(async () => {
   }
   window.destroy()
   clearTimeout(timeout)
-  console.log('Real Electron smoke passed: isolated renderer, blocked popup/navigation, Windows encrypted snapshots')
+  console.log('Real Electron smoke passed: isolated renderer, blocked popup/navigation, Windows encrypted snapshots, local diagnostics/clipboard')
   app.exit(0)
 }).catch(error => {
   console.error(error.message)
