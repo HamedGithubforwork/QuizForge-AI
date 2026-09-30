@@ -18,9 +18,14 @@ HERE = Path(__file__).resolve().parent
 
 
 def validate(config):
-    if set(config) != {"public", "images", "monthly_budget_usd", "alert_email", "ssh_public_key", "admin_ipv4_cidr", "ai_daily_requests", "ai_monthly_requests", "ai_monthly_budget_usd"}:
+    if set(config) - {"desktop_client_id"} != {"public", "images", "monthly_budget_usd", "alert_email", "ssh_public_key", "admin_ipv4_cidr", "ai_daily_requests", "ai_monthly_requests", "ai_monthly_budget_usd"}:
         raise ValueError("Use only the documented release fields; credentials are separate")
     public_config(config["public"])
+    if "desktop_client_id" in config:
+        client = config["desktop_client_id"]
+        if (not isinstance(client, str) or not re.fullmatch(r"[a-z0-9]{1,128}", client)
+                or client == config["public"]["client"]):
+            raise ValueError("Desktop client must be one distinct reviewed public client")
     images = config["images"]
     if set(images) != {"api", "operations", "postgres", "redis", "caddy"}:
         raise ValueError("All five reviewed image digests are required")
@@ -58,6 +63,8 @@ def compose(config):
 
     common = {"AUTH_PROVIDER": "cognito", "COGNITO_USER_POOL_ID": public["pool"],
               "COGNITO_CLIENT_ID": public["client"], "AWS_EC2_METADATA_DISABLED": "true"}
+    if "desktop_client_id" in config:
+        common["COGNITO_DESKTOP_CLIENT_ID"] = config["desktop_client_id"]
     services = {}
     for name, prefix, role, port, memory in (("api", "HISTORY_DB", "app", 8000, 704), ("identity", "IDENTITY_DB", "identity", 8001, 128)):
         settings = common | {prefix + "_HOST": "db.quizforge.internal", prefix + "_NAME": "quizforge",

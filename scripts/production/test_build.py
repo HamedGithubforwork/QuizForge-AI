@@ -98,6 +98,25 @@ class ProductionBuildTests(unittest.TestCase):
                     frontend
                 )
 
+    def test_preserves_complete_desktop_gate_without_restoring_legacy_auth(self):
+        with tempfile.TemporaryDirectory() as root:
+            frontend = self.fixture(root)
+            (frontend / "src" / "DesktopAuthGate.tsx").write_text("export default function DesktopAuthGate() {return null}")
+            (frontend / "src" / "lib" / "desktop.ts").write_text("export function desktopBridge() {return undefined}")
+            production_build.narrow_production_auth_source(frontend)
+            self.assertEqual((frontend / "src" / "AuthGate.tsx").read_text(), production_build.COGNITO_DESKTOP_GATE_SOURCE)
+            session = (frontend / "src" / "lib" / "authSession.ts").read_text()
+            self.assertIn("desktop.status()", session)
+            self.assertNotIn("supabase", session.lower())
+            self.assertFalse((frontend / "src" / "lib" / "supabase.ts").exists())
+
+    def test_incomplete_desktop_source_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            frontend = self.fixture(root)
+            (frontend / "src" / "DesktopAuthGate.tsx").write_text("export default function DesktopAuthGate() {return null}")
+            with self.assertRaisesRegex(ValueError, "Incomplete desktop"):
+                production_build.narrow_production_auth_source(frontend)
+
     def test_requires_reviewed_candidate_auth_files(self):
         with tempfile.TemporaryDirectory() as root:
             frontend = self.fixture(root)

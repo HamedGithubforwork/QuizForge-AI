@@ -13,6 +13,10 @@ on:
       - "scripts/production/lightsail/stage_release.py"
       - "scripts/production/lightsail/ssh-host-pins.json"
       - "scripts/production/lightsail/release-lock.json"
+      - "scripts/production/lightsail/desktop_activation.py"
+      - "scripts/production/lightsail/test_desktop_activation.py"
+      - "scripts/production/lightsail/desktop-activation.json"
+      - "scripts/production/lightsail/render.py"
   workflow_dispatch:
     inputs:
       inspect_only:
@@ -46,7 +50,7 @@ jobs:
       - name: Validate promotion controller
         run: |
           python -m py_compile             scripts/production/lightsail/promote_release.py             scripts/production/lightsail/stage_release.py
-          python -m unittest scripts.production.lightsail.test_promote_release scripts.production.lightsail.test_remote_stdin scripts.production.lightsail.test_refresh_backup_runtime -v
+          python -m unittest scripts.production.lightsail.test_promote_release scripts.production.lightsail.test_remote_stdin scripts.production.lightsail.test_refresh_backup_runtime scripts.production.lightsail.test_desktop_activation -v
 
       - name: Validate immutable promoted release lock
         run: |
@@ -158,6 +162,7 @@ jobs:
                 "sts:GetCallerIdentity",
                 "cognito-idp:ListUserPools",
                 "cognito-idp:ListUserPoolClients",
+                "cognito-idp:DescribeUserPoolClient",
                 "cognito-idp:GetUserPoolMfaConfig",
                 "cognito-idp:DescribeUserPoolDomain",
                 "lightsail:GetInstance",
@@ -220,6 +225,17 @@ jobs:
               "ai_monthly_requests":0,
               "ai_monthly_budget_usd":5,
           }
+          activation_source=Path("release-source/scripts/production/lightsail/desktop-activation.json")
+          if activation_source.exists():
+              import sys
+              sys.path.insert(0, str(Path("release-source").resolve()))
+              from scripts.production.lightsail.desktop_activation import activation_client
+              desktop_client=activation_client(
+                  activation_source, lock["application_candidate_sha"], public,
+                  Path("application-candidate"), boto3.client("cognito-idp",region_name="ca-central-1"),
+              )
+              if desktop_client:
+                  config["desktop_client_id"]=desktop_client
           private=Path(os.environ["RUNNER_TEMP"])/"promote-config.json"
           private.write_text(json.dumps(config)+"\n")
           private.chmod(0o600)

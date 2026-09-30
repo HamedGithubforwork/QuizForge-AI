@@ -15,7 +15,7 @@ on:
       mode:
         description: "Study smoke test (no model calls), or explicitly approved paid quiz canary"
         type: choice
-        options: [study, paid_quiz]
+        options: [study, native_study, paid_quiz]
         default: study
         required: true
 
@@ -53,6 +53,7 @@ jobs:
           CANARY_FIXTURE_PATH: /tmp/nonexistent-production-canary-fixture.json
         run: |
           CANARY_MODE=study npx --prefix e2e playwright test --config=e2e/playwright.production-canary.config.ts --list
+          CANARY_MODE=native_study npx --prefix e2e playwright test --config=e2e/playwright.production-canary.config.ts --list
           CANARY_MODE=paid_quiz npx --prefix e2e playwright test --config=e2e/playwright.production-canary.config.ts --list
 
   production-e2e:
@@ -114,6 +115,29 @@ jobs:
               "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
               "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
             ],"Resource":"*"}]}
+      - name: Read pinned application for native study acceptance
+        if: inputs.mode == 'native_study'
+        id: native-candidate
+        run: |
+          python - <<'PY'
+          import json,os,re
+          from pathlib import Path
+          lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+          pin=json.loads(Path("scripts/production/lightsail/desktop-activation.json").read_text())
+          sha=lock["application_candidate_sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}",sha) and pin["application_candidate_sha"]==sha
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out: out.write("sha="+sha+"\n")
+          PY
+      - name: Check out exact native application modules
+        if: inputs.mode == 'native_study'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.native-candidate.outputs.sha }}
+          path: application-candidate
+          persist-credentials: false
+      - name: Install pinned native token-verification dependencies without build scripts
+        if: inputs.mode == 'native_study'
+        run: npm ci --ignore-scripts --prefix application-candidate/desktop
       - name: Prepare one synthetic production Cognito user with mandatory TOTP
         run: >-
           python -m scripts.production.lightsail.production_canary_identity

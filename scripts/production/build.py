@@ -56,6 +56,28 @@ export async function authSession(
 """
 
 
+COGNITO_DESKTOP_GATE_SOURCE = """import { lazy, Suspense } from 'react'
+import { desktopBridge } from './lib/desktop'
+const Gate = lazy(() => desktopBridge() ? import('./DesktopAuthGate') : import('./CognitoAuthGate'))
+export default function AuthGate() {
+  return <Suspense fallback={<p role="status">Loading account…</p>}><Gate /></Suspense>
+}
+"""
+
+COGNITO_DESKTOP_SESSION_SOURCE = COGNITO_SESSION_SOURCE.replace(
+    "import { session } from './cognitoBrowser'",
+    "import { session } from './cognitoBrowser'\nimport { desktopBridge } from './desktop'",
+).replace(
+    "  return session(refresh)",
+    "  const desktop = desktopBridge()\n"
+    "  if (desktop) {\n"
+    "    const { account } = await desktop.status()\n"
+    "    return account?.enrolled ? { ...account, accessToken: '' } : null\n"
+    "  }\n"
+    "  return session(refresh)",
+)
+
+
 def narrow_production_auth_source(frontend):
     src = frontend / "src"
     required = [
@@ -70,8 +92,14 @@ def narrow_production_auth_source(frontend):
     if missing:
         raise ValueError("Pinned frontend lacks reviewed auth source: " + ", ".join(missing))
 
-    (src / "AuthGate.tsx").write_text(COGNITO_GATE_SOURCE, encoding="utf-8")
-    (src / "lib" / "authSession.ts").write_text(COGNITO_SESSION_SOURCE, encoding="utf-8")
+    desktop_files = [src / "DesktopAuthGate.tsx", src / "lib" / "desktop.ts"]
+    desktop = all(path.is_file() for path in desktop_files)
+    if any(path.exists() for path in desktop_files) and not desktop:
+        raise ValueError("Incomplete desktop authentication source")
+    (src / "AuthGate.tsx").write_text(
+        COGNITO_DESKTOP_GATE_SOURCE if desktop else COGNITO_GATE_SOURCE, encoding="utf-8")
+    (src / "lib" / "authSession.ts").write_text(
+        COGNITO_DESKTOP_SESSION_SOURCE if desktop else COGNITO_SESSION_SOURCE, encoding="utf-8")
 
     legacy_gate = src / "SupabaseAuthGate.tsx"
     legacy_adapter = src / "lib" / "supabase.ts"
