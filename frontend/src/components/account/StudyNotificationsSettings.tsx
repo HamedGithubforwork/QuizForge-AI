@@ -17,7 +17,10 @@ import {
   saveStudyNotificationPreferences,
 } from '../../lib/studyNotifications'
 
-const availableTimezones = Intl.supportedValuesOf('timeZone')
+const availableTimezones =
+  typeof Intl.supportedValuesOf === 'function'
+    ? Intl.supportedValuesOf('timeZone')
+    : ['UTC']
 
 function cleanTime(
   value: string | undefined,
