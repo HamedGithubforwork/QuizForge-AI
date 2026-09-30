@@ -5,6 +5,8 @@ on:
     paths:
       - .github/workflows/desktop-auth-readiness.yml
       - scripts/production/lightsail/native_auth_readiness.py
+      - scripts/production/lightsail/native_login_availability.py
+      - scripts/production/lightsail/test_native_login_availability.py
       - scripts/production/lightsail/test_native_auth_readiness.py
       - scripts/production/lightsail/native-client-source.json
       - scripts/production/lightsail/style_cognito_hosted_ui.py
@@ -46,7 +48,7 @@ jobs:
           persist-credentials: false
       - name: Test controller and exact application configuration policy without AWS
         run: |
-          python -m unittest scripts.production.lightsail.test_native_auth_readiness -v
+          python -m unittest scripts.production.lightsail.test_native_auth_readiness scripts.production.lightsail.test_native_login_availability -v
           python -m py_compile scripts/production/lightsail/native_auth_readiness.py
           node --test application-configuration/desktop/test/native-client-config.test.cjs
 
@@ -106,11 +108,17 @@ jobs:
         env:
           AWS_EC2_METADATA_DISABLED: 'true'
         run: python -m scripts.production.lightsail.native_auth_readiness
+      - name: Verify signed-out native hosted login without credentials
+        env:
+          AWS_EC2_METADATA_DISABLED: 'true'
+        run: python -m scripts.production.lightsail.native_login_availability
       - name: Publish sanitized readiness summary only
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-native-auth-readiness
-          path: native-auth-readiness-results/summary.json
+          path: |
+            native-auth-readiness-results/summary.json
+            native-login-availability-results/summary.json
           if-no-files-found: error
           retention-days: 30
