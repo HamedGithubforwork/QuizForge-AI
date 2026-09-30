@@ -1,0 +1,48 @@
+name: Desktop preview
+
+on:
+  pull_request:
+    branches: [application/production]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-preview:
+    name: Windows desktop preview
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=moderate
+      - run: npm test
+      - name: Exercise the real sandboxed renderer
+        run: npx --no-install electron test/runtime.cjs
+      - name: Build internal preview installer
+        run: npm run pack:windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Retain preview for manual Windows acceptance
+        uses: actions/upload-artifact@v7
+        with:
+          name: quiz-from-notes-windows-preview
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 7

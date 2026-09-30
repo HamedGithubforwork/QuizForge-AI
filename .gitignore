@@ -33,3 +33,7 @@ terraform.rc
 
 # VS Code
 .vscode/
+
+# Desktop preview
+desktop/node_modules/
+desktop/dist/
