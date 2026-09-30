@@ -800,7 +800,8 @@
   line-height: 1.45;
 }
 
-.settings-reminder-grid input {
+.settings-reminder-grid input,
+.settings-reminder-grid select {
   min-height: 44px;
 
   padding: 0 12px;
@@ -815,7 +816,8 @@
   font: inherit;
 }
 
-.settings-reminder-grid input:focus {
+.settings-reminder-grid input:focus,
+.settings-reminder-grid select:focus {
   border-color: #8277ed;
 
   outline: 0;
@@ -935,3 +937,21 @@
   }
 }
 
+
+.settings-timezone-field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.settings-reminder-grid select {
+  width: 100%;
+  min-width: 0;
+}
+
+.settings-timezone-field > small {
+  color: #687185;
+  font-size: 12px;
+  line-height: 1.45;
+}
