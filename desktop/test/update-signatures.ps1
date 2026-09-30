@@ -6,6 +6,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
 }
 $installers = @(Get-ChildItem (Join-Path $PSScriptRoot '../dist') -Filter '*.exe' -File)
 if ($installers.Count -ne 1) { throw 'Expected exactly one unsigned preview installer.' }
+Write-Output 'Update fixture stage: verify unsigned input'
 if ((Get-AuthenticodeSignature $installers[0].FullName).Status -ne 'NotSigned') {
     throw 'This test requires the unsigned preview, not a release signing key.'
 }
@@ -14,6 +15,7 @@ $certificates = @()
 New-Item -ItemType Directory -Path $root | Out-Null
 try {
     foreach ($name in @('expected', 'other')) {
+        Write-Output "Update fixture stage: create $name certificate"
         $subject = 'CN=QFN CI ' + $name + ' ' + [guid]::NewGuid().ToString('N')
         $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject `
             -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable `
@@ -21,15 +23,19 @@ try {
         $certificates += $certificate
         $publicFile = Join-Path $root "$name.cer"
         Export-Certificate -Cert $certificate -FilePath $publicFile | Out-Null
+        Write-Output "Update fixture stage: trust $name root"
         Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\CurrentUser\Root' | Out-Null
+        Write-Output "Update fixture stage: trust $name publisher"
         Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
         $file = Join-Path $root "$name.exe"
         Copy-Item -LiteralPath $installers[0].FullName -Destination $file
+        Write-Output "Update fixture stage: sign and verify $name EXE"
         $signature = Set-AuthenticodeSignature -FilePath $file -Certificate $certificate -HashAlgorithm SHA256
         if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
             throw 'Disposable signing fixture could not be verified by Windows.'
         }
     }
+    Write-Output 'Update fixture stage: create and verify tampered EXE'
     Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $root 'unsigned.exe')
     $tampered = Join-Path $root 'tampered.exe'
     Copy-Item -LiteralPath (Join-Path $root 'expected.exe') -Destination $tampered
@@ -45,6 +51,7 @@ try {
     if ((Get-AuthenticodeSignature $tampered).Status -eq 'Valid') { throw 'Tampering did not invalidate the fixture.' }
     @{ publisherName = $certificates[0].Subject } | ConvertTo-Json |
         Set-Content (Join-Path $root 'publisher.json') -Encoding utf8NoBOM
+    Write-Output 'Update fixture stage: launch Electron acceptance'
     & (Join-Path $PSScriptRoot '../node_modules/.bin/electron.cmd') (Join-Path $PSScriptRoot 'update-signatures.cjs') $root
     if ($LASTEXITCODE -ne 0) { throw 'Real Windows update signature acceptance failed.' }
 } finally {

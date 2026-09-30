@@ -1,12 +1,18 @@
 'use strict'
 // Real Electron/NSIS downloader and Windows Authenticode checks. Test-only local
 // feed/configuration overrides never ship in the application ASAR.
+const { app } = require('electron')
+// A startup assertion must fail CI, not open Electron's modal error dialog.
+process.on('uncaughtException', error => {
+  console.error(`Update acceptance startup failure: ${error.message}`)
+  app.exit(1)
+})
+console.log('Update acceptance: initializing Electron harness')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const http = require('node:http')
 const { createHash, randomUUID } = require('node:crypto')
-const { app } = require('electron')
 const { NsisUpdater } = require('electron-updater')
 const { getNetSession } = require('electron-updater/out/electronHttpExecutor')
 const { createUpdates, loadApprovedConfiguration } = require('../src/updates.cjs')
