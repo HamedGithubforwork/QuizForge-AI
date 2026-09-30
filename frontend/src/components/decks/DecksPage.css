@@ -2975,3 +2975,20 @@
   gap: 9px;
 }
 
+
+.create-deck-form {
+  margin-bottom: 24px;
+}
+
+.create-deck-form h2 {
+  margin: 0 0 8px;
+}
+
+.create-deck-form p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.create-deck-form [role="alert"] {
+  color: #a12626;
+}
