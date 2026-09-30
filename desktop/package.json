@@ -1,0 +1,33 @@
+{
+  "name": "quiz-from-notes-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal Windows preview of Quiz From Notes",
+  "author": "Quiz From Notes",
+  "license": "UNLICENSED",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "pack:windows": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.5.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.quizfromnotes.desktop.preview",
+    "productName": "Quiz From Notes Preview",
+    "asar": true,
+    "directories": { "output": "dist" },
+    "files": ["src/**/*", "package.json"],
+    "win": { "target": "nsis" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}
