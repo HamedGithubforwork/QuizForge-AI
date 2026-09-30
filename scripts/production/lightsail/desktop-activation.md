@@ -1,0 +1,13 @@
+# Native desktop study activation
+
+Preview 0.1.3 uses the dedicated public Cognito client already registered and accepted by the owner. It keeps bearer and refresh tokens in the main process, verifies the same enrolled identity online, and proxies only reviewed study operations. No database migration or new cloud service is required.
+
+The production frontend narrowing step retains the desktop gate only when both reviewed desktop source files are present. Ordinary browsers and older desktop previews use the existing Cognito browser gate. The local Supabase adapter remains excluded from production.
+
+`desktop-activation.json` pins one application candidate. Only that exact candidate can add its packaged public native client ID to the API and identity service environments. Before rendering, the controller checks the public pool/client match and reads the registered client policy with the existing deployment role, using the candidate's strict offline policy verifier. The promotion session adds only `DescribeUserPoolClient` read access already available to the role; it does not change IAM, create/update clients, alter users, billing, pool tier or web callbacks. Unpinned releases remain web-only.
+
+The release lock must separately pin the reviewed application and immutable build digests. Use the existing candidate build, read-only promotion preflight, backup-before-switch promotion and rollback protections. Do not use latest/main as an application substitute. Existing database and backup runtime checks remain mandatory.
+
+After promotion, run production quiz E2E with `mode=study` and `mode=native_study`. The native mode reuses the existing disposable-user/TOTP fixture boundary, checks out exactly the activation-pinned application, runs its real PKCE/token/account modules against production, creates and reviews one synthetic manual deck, then removes it and revokes the session. It blocks non-study API requests and makes no model calls. Browser traces, screenshots and videos remain disabled; credentials/tokens/callbacks stay in memory/private fixture files. The existing always-run cleanup removes only that synthetic user's empty identity, Cognito user and temporary fixture client.
+
+The native canary runs on Linux with Chromium; it is not Windows compatibility evidence. Windows CI separately exercises the actual Electron preload, installer/upgrade, protocol handler, signature gate and Store packaging fixture. Native notification scheduling is tested with synthetic time/data; an owner-device visual toast check remains distinct from automated API/UI acceptance. Reminders require explicit device opt-in each app session and run only while the app is open. Store release and automatic updating remain deferred.

@@ -47,7 +47,7 @@ export function readCanaryFixture(): CanaryFixture {
   }
 }
 
-function currentTotp(secret: string) {
+export function currentTotp(secret: string) {
   const alphabet =
     'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
   let bits = ''

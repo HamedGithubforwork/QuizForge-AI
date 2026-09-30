@@ -4,13 +4,13 @@ import {
 } from '@playwright/test'
 
 const mode = process.env.CANARY_MODE || 'study'
-if (!['study', 'paid_quiz'].includes(mode)) {
+if (!['study', 'native_study', 'paid_quiz'].includes(mode)) {
   throw new Error('Unknown production canary mode')
 }
 
 export default defineConfig({
   testDir: './production-canary-tests',
-  testMatch: mode === 'study' ? 'production-study.spec.ts' : 'production-quiz.spec.ts',
+  testMatch: mode === 'native_study' ? 'production-native-study.spec.ts' : mode === 'study' ? 'production-study.spec.ts' : 'production-quiz.spec.ts',
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,

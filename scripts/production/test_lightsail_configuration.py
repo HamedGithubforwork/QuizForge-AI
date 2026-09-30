@@ -27,6 +27,18 @@ def fixture():
 
 
 class Configuration(unittest.TestCase):
+    def test_optional_desktop_client_is_explicit_and_shared_only_by_auth_services(self):
+        base = fixture()
+        self.assertNotIn("COGNITO_DESKTOP_CLIENT_ID", compose(base)["services"]["api"]["environment"])
+        services = compose(base | {"desktop_client_id": "revieweddesktopclient"})["services"]
+        for name in ("api", "identity"):
+            self.assertEqual(services[name]["environment"]["COGNITO_DESKTOP_CLIENT_ID"], "revieweddesktopclient")
+        for name in ("guard", "notifier"):
+            self.assertNotIn("COGNITO_DESKTOP_CLIENT_ID", services[name]["environment"])
+        for bad in ("", "*", base["public"]["client"], None, ["one", "two"]):
+            with self.assertRaises(ValueError):
+                validate(base | {"desktop_client_id": bad})
+
     def test_host_heartbeat_rejects_disk_pressure_and_either_failed_service(self):
         with patch.object(host_health.shutil, "disk_usage", return_value=SimpleNamespace(total=60 * 1024**3, free=1024**3)):
             self.assertFalse(host_health.healthy())
