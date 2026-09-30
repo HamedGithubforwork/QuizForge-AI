@@ -319,6 +319,7 @@ export default function StudyNotificationsSettings() {
           <label className="settings-toggle">
             <input
               type="checkbox"
+              aria-label="Enable study reminders"
               checked={enabled}
               disabled={saving}
               onChange={(event) =>
