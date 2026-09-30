@@ -1,6 +1,6 @@
 # Native sign-in integration plan
 
-Status: transaction, token-verification and session-lifecycle primitives tested; **native sign-in is not enabled**. The preview still uses its existing hosted sign-in window. The installer registers the private callback scheme and the shell receives bounded cold/warm callbacks. The native session and system-browser launcher are not enabled. The token client is not connected to the running application.
+Status: the unsigned Windows preview provides **Help → Test desktop sign-in…** for manual acceptance. The test opens the system browser, receives the exact installed callback, verifies token signatures/claims and refresh, and revokes its in-memory test session before reporting success. The study window still uses its existing hosted login; native study-account integration and offline storage are not enabled.
 
 `src/native-auth-attempt.cjs` is main-process-only preparation for system-browser sign-in. It produces a pinned Cognito authorization URL with independent random state, nonce and S256 PKCE proof. The verifier stays in its closure until a matching callback is consumed once. Attempts expire after five monotonic minutes or explicit cancellation. Unrelated callbacks do not cancel an active attempt; matching malformed or denied responses consume it. Errors never include returned provider values.
 
@@ -10,7 +10,7 @@ The proposed callback is `com.quizfromnotes.desktop.preview:/oauth/callback`. Th
 
 Windows installer acceptance loads this module and its production JWT dependency from the installed ASAR without contacting the network. Unit tests use real synthetic RSA signatures and mocked HTTP, not real accounts.
 
-`src/native-session.cjs` composes the transaction and token client in memory. It opens only the generated URL through an injected main-process browser launcher, settles cancelled/replaced/expired attempts, ignores unrelated or duplicate callbacks, and serializes refresh. An epoch guard prevents delayed exchange or refresh results from restoring a signed-out/replaced account; discarded token results are revoked where possible. Sign-out clears local identity immediately even when remote revocation fails. A sticky `revocationUnconfirmed` status exposes that limitation without private error details. Session views omit refresh tokens. This module has no IPC, protocol registration, storage or running-shell integration; its session view is for trusted main-process callers only.
+`src/native-session.cjs` composes the transaction and token client in memory. It opens only the generated URL through an injected main-process browser launcher, settles cancelled/replaced/expired attempts, ignores unrelated or duplicate callbacks, and serializes refresh. An epoch guard prevents delayed exchange or refresh results from restoring a signed-out/replaced account; discarded token results are revoked where possible. Sign-out clears local identity immediately even when remote revocation fails. A sticky `revocationUnconfirmed` status exposes that limitation without private error details. Session views omit refresh tokens. The acceptance menu connects this module to the shell callback receiver and internally generated browser URL. Its session view remains main-process-only; there is no renderer IPC or persisted token store.
 
 ## Remaining activation requirements
 
@@ -27,3 +27,11 @@ Windows installer acceptance loads this module and its production JWT dependency
 - [Electron security](https://www.electronjs.org/docs/latest/tutorial/security): external navigation and IPC boundaries.
 
 `src/native-protocol.cjs` accepts a single exact callback from bounded OS arguments and forwards it only to an already-pending in-memory session. Cold/signed-out callbacks are discarded, never queued. State, expiry, replay and PKCE remain the session transaction’s responsibility. Windows acceptance checks the exact per-user protocol command, cold callback launch, warm dispatch through the registered URI handler, single-window behavior and uninstall cleanup. Real account/MFA acceptance remains required.
+
+## Manual Windows native acceptance
+
+Install preview 0.1.1, then choose **Help → Test desktop sign-in…**. Complete sign-in/MFA in the system browser and allow it to return to Quiz From Notes Preview. Expect **Desktop sign-in test passed**. The test verifies refresh and attempts remote revocation automatically; it does not sign the study screen into this account. **Help → Cancel desktop sign-in test** cancels an unfinished attempt. Closing the app clears the private session and waits for bounded revocation. Cold or replayed callbacks cannot resume a prior attempt.
+
+Repeat cancellation and sign-in with another account. Never share callback URLs, codes, tokens or passwords in test reports. Report only the final message and whether browser return worked. A real Windows account/MFA run remains required; automated CI uses synthetic sessions and signed-out page loads only.
+
+The packaged `src/native-runtime.json` contains only public OAuth routing IDs, sourced from the read-only configuration artifact after live policy and hosted-form checks. It contains no secret and cannot be overridden by renderer content, environment variables or command-line arguments. The configuration artifact provenance is recorded in the application PR.

@@ -11,6 +11,12 @@ app.whenReady().then(async () => {
   assert.equal(typeof client.exchange, 'function')
   assert.equal(typeof client.refresh, 'function')
   assert.equal(typeof client.revoke, 'function')
+  const config = require(path.join(process.argv[2], 'src/native-runtime.json'))
+  assert.equal(config.schema, 1)
+  assert.deepEqual(Object.keys(config).sort(), ['clientId', 'poolId', 'schema'])
+  await createNativeAuthClient({ ...config,
+    fetchImpl: () => { throw new Error('This packaging check must not contact the network') } })
+  assert.equal(typeof require(path.join(process.argv[2], 'src/native-sign-in-test.cjs')).createNativeSignInTest, 'function')
   clearTimeout(timeout)
   console.log('Installed authentication module and JWT dependency loaded without network access')
   app.exit(0)

@@ -38,10 +38,9 @@ No administrator installation is required. The app is separately versioned.
 - Reuse the deployed React interface at `https://quizfromnotes.com`.
 - Permit only that exact origin and reviewed paths on its exact public Cognito
   hosted-login origin; reject other navigation, redirects, popups and webviews.
-- Preserve the existing in-window authorization-code/PKCE redirect. No desktop
-  callback URI or authentication-provider configuration change is introduced.
+- Preserve the existing in-window authorization-code/PKCE redirect. The explicit native sign-in acceptance test uses a separate reviewed desktop client and private callback.
 - Enable Electron sandbox, context isolation and web security. Disable Node in
-  every renderer context. No preload, IPC bridge, shell opener or custom protocol.
+  every renderer context. No preload or renderer IPC bridge. Only the explicit native test can open its internally generated sign-in URL in the system browser.
 - Use an in-memory browser partition. Tokens retain the web app's in-memory
   handling; closing the app discards the session. No persistent token cache yet.
 - Deny permission requests and downloads. PDF upload uses the existing browser
@@ -138,3 +137,13 @@ Closing the dialog does not copy anything; nothing uploads automatically. The re
 contains no URLs, error messages, account identifiers, study content, file paths,
 tokens or environment variables. Counts reset when the app closes. This is a minimal
 in-memory support report, not persistent crash dumps or telemetry.
+
+## Native browser sign-in acceptance (preview 0.1.1)
+
+Use **Help → Test desktop sign-in…** in the installed Windows app. Finish signing in
+and any MFA in your system browser, allow the return to the desktop app, and expect
+**Desktop sign-in test passed**. The test checks refresh and revokes its private test
+session. It leaves the study window on its existing account. Cancel through
+**Help → Cancel desktop sign-in test**. See `native-auth.md` for acceptance details.
+This menu is available only in the packaged Windows preview with reviewed public
+configuration. It does not enable offline study or native desktop reminders.
