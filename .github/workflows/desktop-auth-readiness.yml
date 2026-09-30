@@ -122,3 +122,10 @@ jobs:
             native-login-availability-results/summary.json
           if-no-files-found: error
           retention-days: 30
+      - name: Publish verified public desktop routing configuration
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-desktop-public-config
+          path: native-desktop-public-config/runtime.json
+          if-no-files-found: error
+          retention-days: 30
