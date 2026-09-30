@@ -27,6 +27,7 @@ function createAuthorizationAttempt({ clientId, now = () => performance.now() })
   return {
     authorizationUrl: authorization.href,
     cancel,
+    isActive: () => active,
     consumeCallback(raw) {
       const elapsed = now() - started
       if (!active || !Number.isFinite(elapsed) || elapsed < 0 || elapsed >= ATTEMPT_LIFETIME_MS) { cancel(); reject() }
