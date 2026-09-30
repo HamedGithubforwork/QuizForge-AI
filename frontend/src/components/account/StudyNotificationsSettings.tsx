@@ -17,6 +17,11 @@ import {
   saveStudyNotificationPreferences,
 } from '../../lib/studyNotifications'
 
+const availableTimezones =
+  typeof Intl.supportedValuesOf === 'function'
+    ? Intl.supportedValuesOf('timeZone')
+    : ['UTC']
+
 function cleanTime(
   value: string | undefined,
 ) {
@@ -52,6 +57,11 @@ export default function StudyNotificationsSettings() {
     useState('')
   const [error, setError] =
     useState('')
+
+  const deviceTimezone = detectedTimezone()
+  const timezoneOptions = Array.from(new Set([
+    'UTC', timezone, deviceTimezone, ...availableTimezones,
+  ])).sort((a, b) => a.localeCompare(b))
 
   const supported =
     browserPushSupported()
@@ -356,38 +366,37 @@ export default function StudyNotificationsSettings() {
             />
           </label>
 
-          <label>
-            <span>
-              Time zone
-            </span>
-
-            <input
-              type="text"
-              value={timezone}
-              disabled={saving}
-              required
-              maxLength={100}
-              onChange={(event) =>
-                setTimezone(
-                  event.target
-                    .value,
-                )
-              }
-            />
+          <div className="settings-timezone-field">
+            <label>
+              <span>Time zone</span>
+              <select
+                value={timezone}
+                disabled={saving}
+                required
+                aria-describedby="reminder-timezone-help"
+                onChange={(event) => setTimezone(event.target.value)}
+              >
+                {timezoneOptions.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone.replaceAll('_', ' ')}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <button
               className="settings-inline-action"
               type="button"
               disabled={saving}
-              onClick={() =>
-                setTimezone(
-                  detectedTimezone(),
-                )
-              }
+              onClick={() => setTimezone(deviceTimezone)}
             >
-              Use this device
+              Use my computer’s time zone ({deviceTimezone.replaceAll('_', ' ')})
             </button>
-          </label>
+            <small id="reminder-timezone-help">
+              Sets the time zone for your reminder time. This does not enable
+              notifications. Click Save reminder settings to apply changes.
+            </small>
+          </div>
 
           <label>
             <span>
