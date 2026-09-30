@@ -1,0 +1,162 @@
+name: Register reviewed desktop Cognito client
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/desktop-native-client-registration.yml
+      - scripts/production/lightsail/provision_native_client.py
+      - scripts/production/lightsail/test_provision_native_client.py
+      - scripts/production/lightsail/native_auth_readiness.py
+      - scripts/production/lightsail/test_native_auth_readiness.py
+      - scripts/production/lightsail/native-client-source.json
+      - scripts/production/lightsail/style_cognito_hosted_ui.py
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type register-reviewed-desktop-client to create the dedicated public OAuth client'
+        required: true
+        type: string
+
+concurrency:
+  group: quizforge-native-client-registration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate native client registration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.16'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - name: Resolve reviewed configuration source
+        id: policy
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.production.lightsail.native_auth_readiness import source_commit
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('commit=' + source_commit() + '\n')
+          PY
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.policy.outputs.commit }}
+          path: application-configuration
+          persist-credentials: false
+      - name: Test controller and exact application configuration policy without AWS
+        run: |
+          python -m unittest scripts.production.lightsail.test_native_auth_readiness scripts.production.lightsail.test_provision_native_client -v
+          python -m py_compile scripts/production/lightsail/native_auth_readiness.py
+          node --test application-configuration/desktop/test/native-client-config.test.cjs
+
+  register:
+    name: Register only the reviewed public desktop client
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'register-reviewed-desktop-client'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11.16'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install locked controller dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - name: Resolve reviewed configuration source
+        id: policy
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.production.lightsail.native_auth_readiness import source_commit
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('commit=' + source_commit() + '\n')
+          PY
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.policy.outputs.commit }}
+          path: application-configuration
+          persist-credentials: false
+      - name: Assume read-only Cognito metadata session
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-native-client-preflight
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
+              "sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients",
+              "cognito-idp:DescribeUserPool","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeUserPoolDomain"
+            ],"Resource":"*"}]}
+      - name: Validate existing boundaries and resolve the sole allowed pool
+        id: target
+        env:
+          AWS_EC2_METADATA_DISABLED: 'true'
+        run: |
+          python - <<'PYCODE'
+          import os
+          import boto3
+          from scripts.production.lightsail import native_auth_readiness as r
+          if r.main():
+              raise SystemExit(1)
+          sts = boto3.client('sts', region_name=r.REGION)
+          account = sts.get_caller_identity()['Account']
+          pool, _ = r.discover(boto3.client('cognito-idp', region_name=r.REGION))
+          arn = f'arn:aws:cognito-idp:{r.REGION}:{account}:userpool/{pool}'
+          print('::add-mask::' + arn)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('pool_arn=' + arn + '\n')
+          PYCODE
+      - name: Assume session restricted to creating a client in the verified pool
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-native-client-registration
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:ListUserPools",
+                "cognito-idp:DescribeUserPoolDomain"],"Resource":"*"},
+              {"Effect":"Allow","Action":["cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPool",
+                "cognito-idp:DescribeUserPoolClient","cognito-idp:CreateUserPoolClient"],
+                "Resource":"${{ steps.target.outputs.pool_arn }}"}]}
+      - name: Register and verify exact native client without deployment
+        env:
+          AWS_EC2_METADATA_DISABLED: 'true'
+          REGISTRATION_CONFIRMATION: ${{ inputs.confirmation }}
+        run: python -m scripts.production.lightsail.provision_native_client
+      - name: Publish sanitized registration summary only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-native-client-registration
+          path: |
+            native-client-registration-results/summary.json
+            native-auth-readiness-results/summary.json
+          if-no-files-found: error
+          retention-days: 30
