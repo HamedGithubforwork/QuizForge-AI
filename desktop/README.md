@@ -21,6 +21,12 @@ npm run pack:windows
 The dedicated Windows CI job runs a real renderer security smoke and builds a
 per-user NSIS installer. Its seven-day artifact is an **unsigned internal preview**,
 not a public release. Packaging never publishes a GitHub release or update feed.
+The signed-out hosted-login check opens the real site, clicks Sign in, verifies
+S256 PKCE and the expected sandboxed Cognito username/password form, then clears
+its temporary browser session. It never enters credentials, exchanges tokens or
+calls generation. This check depends on public site/Cognito availability and does
+not establish authenticated account acceptance.
+
 No administrator installation is required. The app is separately versioned.
 
 ## Boundaries
