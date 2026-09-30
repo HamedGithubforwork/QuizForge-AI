@@ -85,6 +85,11 @@ const NOW = new Date(
   0,
 )
 
+// Keep reviewed cards overdue relative to the local clock used by the plan.
+const OVERDUE_AT = new Date(
+  NOW.getTime() - 4 * 60 * 60 * 1000,
+).toISOString()
+
 test(
   'returns null when no exam date is configured',
   () => {
@@ -111,7 +116,7 @@ test(
             {
               review_count: 4,
               due_at:
-                '2026-09-28T08:00:00Z',
+                OVERDUE_AT,
             },
           ),
           card(
@@ -347,7 +352,7 @@ test(
             {
               review_count: 2,
               due_at:
-                '2026-09-28T08:00:00Z',
+                OVERDUE_AT,
             },
           ),
       )
