@@ -28,7 +28,8 @@ async function fixture(t) {
   }
   return { directory, encryption, store: createSnapshotStore({ directory, encryption }) }
 }
-const decks = [{ id: 'deck-1', name: 'Private study notes', cards: [{ question: 'Private question', answer: 'Private answer' }] }]
+const { snapshotDeck } = require('./snapshot-fixture.cjs')
+const decks = [snapshotDeck()]
 
 test('encrypted snapshots survive store recreation, isolate accounts and delete only the selected account', async t => {
   const { directory, encryption, store } = await fixture(t)
@@ -108,4 +109,18 @@ test('rejects oversized encrypted files before decryption and rejects linked fil
     await assert.rejects(store.remove('owner'), /Unsafe/)
     assert.equal(await fs.readFile(target, 'utf8'), 'untouched')
   }
+})
+
+test('invalid save preserves ciphertext and invalid decrypted card data fails closed', async t => {
+  const { directory, encryption, store } = await fixture(t)
+  await store.save('owner', decks)
+  const file = path.join(directory, (await fs.readdir(directory))[0])
+  const original = await fs.readFile(file)
+  const invalid = structuredClone(decks)
+  invalid[0].cards[0].deck_id = '33333333-3333-4333-8333-333333333333'
+  assert.throws(() => store.save('owner', invalid), /incompatible/)
+  assert.deepEqual(await fs.readFile(file), original)
+  const malformed = { schema: 1, ownerId: 'owner', savedAt: new Date().toISOString(), decks: invalid }
+  await fs.writeFile(file, await encryption.encrypt(JSON.stringify(malformed)))
+  await assert.rejects(store.load('owner'), /^Error: Invalid or incompatible study snapshot\.$/)
 })
