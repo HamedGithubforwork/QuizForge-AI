@@ -36,6 +36,8 @@ try {
     if (-not (Test-Path $executable) -or -not (Test-Path $uninstaller)) { throw 'Installed files are missing.' }
     if (@(Find-Registration).Count -ne 1) { throw 'Per-user uninstall registration is missing.' }
     Write-Output 'Per-user installation passed.'
+    & (Join-Path $PSScriptRoot '../node_modules/.bin/electron.cmd') (Join-Path $PSScriptRoot 'packaged-auth.cjs') (Join-Path $installDir 'resources/app.asar')
+    if ($LASTEXITCODE -ne 0) { throw 'Packaged native authentication dependency check failed.' }
 
     $running = Start-Process -FilePath $executable -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
