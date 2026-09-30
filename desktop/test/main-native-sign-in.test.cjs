@@ -6,7 +6,7 @@ const { readFileSync } = require('node:fs')
 const vm = require('node:vm')
 const tick = () => new Promise(resolve => setImmediate(resolve))
 
-test('native menu drives main-process browser/callback/refresh/revoke with no renderer bridge', async () => {
+for (const windowsStore of [false, true]) test(`native menu drives browser/callback/refresh/revoke; Store=${windowsStore}`, async () => {
   const app = new EventEmitter(), menus = new Map(), reports = [], opened = [], calls = []
   let window, quits=0
   Object.assign(app,{isPackaged:true,getVersion:()=> '0.1.0',enableSandbox(){},requestSingleInstanceLock:()=>true,
@@ -30,13 +30,20 @@ test('native menu drives main-process browser/callback/refresh/revoke with no re
   const tokenResult={accessToken:'synthetic',refreshToken:'synthetic-refresh',subject:'synthetic',userId:'synthetic',email:'private',expiresAt:Date.now()+300000}
   const client={exchange:async()=>{calls.push('exchange');return tokenResult},refresh:async()=>{calls.push('refresh');return tokenResult},revoke:async()=>calls.push('revoke')}
   const overrides={electron,'./native-runtime.json':{schema:1,poolId:'ca-central-1_Synthetic',clientId:'syntheticclient'},
+    './updates.cjs':{...require('../src/updates.cjs'), loadApprovedConfiguration:()=>{
+      assert.equal(windowsStore,false,'Store package must never read an external updater feed');return false
+    }},
     './native-auth-client.cjs':{createNativeAuthClient:async()=>client},
     './guards.cjs':{guardContents(){}},'./diagnostics.cjs':{createDiagnostics:()=>({attach(){}}),showDiagnostics:async()=>{}}}
   const context={require:name=>Object.hasOwn(overrides,name)?overrides[name]:require('../src/'+name.slice(2)),
-    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout}
+    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',windowsStore,arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout}
   vm.runInNewContext(readFileSync(require.resolve('../src/main.cjs'),'utf8'),context)
   await tick()
   assert.equal(window.options.webPreferences.preload,undefined)
+  menus.get('desktop-updates').click()
+  await tick()
+  assert.equal(reports.pop().message,windowsStore ? 'Microsoft Store manages updates for this app.' : 'Automatic updates are not enabled in this preview')
+  assert.equal(menus.get('desktop-updates').label,windowsStore ? 'Updates through Microsoft Store…' : 'Check for updates…')
   assert.equal(menus.get('native-test-start').enabled,true)
   menus.get('native-test-start').click()
   await tick()

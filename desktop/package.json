@@ -9,7 +9,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
-    "pack:windows": "electron-builder --win nsis --x64 --publish never"
+    "pack:windows": "electron-builder --win nsis --x64 --publish never",
+    "pack:store": "electron-builder --config build/store.cjs --win appx --x64 --publish never"
   },
   "devDependencies": {
     "electron": "44.5.0",
