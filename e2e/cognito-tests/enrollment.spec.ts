@@ -184,3 +184,84 @@ test('revocation failure clears local account and reports the failure', async ({
   await expect(page.getByRole('alert')).toContainText('session revocation failed')
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
 })
+
+for (const hasExistingDeck of [false, true]) {
+  test(`manual deck creation and first card work with ${hasExistingDeck ? 'an existing library' : 'an empty library'}`, async ({ page }) => {
+    await setup(page, { enrolled: true })
+    const id = '00000000-0000-4000-8000-000000000201'
+    const now = '2026-09-01T12:00:00Z'
+    const emptyDeck = {
+      id, name: 'Biology notes', description: null, exam_date: null,
+      study_intensity: 'balanced', card_count: 0, due_count: 0, next_due_at: null,
+      created_at: now, updated_at: now, cards: [] as Record<string, unknown>[],
+    }
+    let created: typeof emptyDeck | null = null
+    let createCalls = 0
+    let rejectNextCreate = hasExistingDeck
+    await page.route('**/api-mock/api/decks**', async route => {
+      const request = route.request()
+      expect(request.headers().authorization).toMatch(/^Bearer synthetic-/)
+      const path = new URL(request.url()).pathname
+      if (request.method() === 'POST' && path.endsWith('/decks')) {
+        createCalls++
+        expect(request.postDataJSON()).toEqual({ name: 'Biology notes', description: 'My own questions', cards: [] })
+        if (rejectNextCreate) {
+          rejectNextCreate = false
+          return route.fulfill({ status: 503, json: { detail: 'Please try again shortly.' } })
+        }
+        created = { ...emptyDeck, ...request.postDataJSON() }
+        return route.fulfill({ status: 201, json: created })
+      }
+      if (request.method() === 'POST' && path.endsWith('/cards')) {
+        expect(created).not.toBeNull()
+        const payload = request.postDataJSON()
+        expect(payload.cards).toHaveLength(1)
+        expect(payload.cards[0].question).toBe('What is a cell?')
+        expect(payload.cards[0].answer.correct_answer).toBe('The basic unit of life.')
+        created = { ...created!, card_count: 1, due_count: 1, next_due_at: now, cards: [{
+          ...payload.cards[0], id: '00000000-0000-4000-8000-000000000301', deck_id: id,
+          fsrs_state: 1, fsrs_step: 0, stability: null, difficulty: null, due_at: now,
+          last_reviewed_at: null, review_count: 0, lapse_count: 0, suspended: false,
+          progress_reset_at: null, created_at: now, updated_at: now,
+        }] }
+        return route.fulfill({ json: created })
+      }
+      if (path.endsWith('/decks')) return route.fulfill({ json: [
+        ...(hasExistingDeck ? [{ ...emptyDeck, id: '00000000-0000-4000-8000-000000000202', name: 'Existing deck' }] : []),
+        ...(created ? [created] : []),
+      ] })
+      if (path.endsWith('/' + id) && created) return route.fulfill({ json: created })
+      return route.fulfill({ status: 404, json: { detail: 'Not found' } })
+    })
+    await login(page)
+    await page.getByRole('button', { name: 'Decks', exact: true }).click()
+    await page.getByRole('button', { name: '+ Create Deck', exact: true }).click()
+    const form = page.getByRole('form', { name: 'Create a study deck' })
+    await form.getByLabel('Deck name', { exact: true }).fill('   ')
+    await form.getByRole('button', { name: 'Create Deck', exact: true }).click()
+    await expect(form.getByRole('alert')).toHaveText('Enter a deck name.')
+    expect(createCalls).toBe(0)
+    await form.getByLabel('Deck name', { exact: true }).fill('  Biology notes  ')
+    await form.getByLabel('Description (optional)', { exact: true }).fill('My own questions')
+    await form.getByRole('button', { name: 'Create Deck', exact: true }).click()
+    if (hasExistingDeck) {
+      await expect(form.getByRole('alert')).toHaveText('Please try again shortly.')
+      await expect(form.getByLabel('Deck name', { exact: true })).toHaveValue('  Biology notes  ')
+      await form.getByRole('button', { name: 'Create Deck', exact: true }).click()
+    }
+    await expect(page).toHaveURL(new RegExp('/decks/' + id + '$'))
+    await expect(page.getByRole('heading', { name: 'Biology notes', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: '+ Add Card', exact: true }).first().click()
+    await page.getByLabel('Question', { exact: true }).fill('What is a cell?')
+    await page.getByLabel('Correct answer', { exact: true }).fill('The basic unit of life.')
+    await page.getByRole('button', { name: 'Add Card', exact: true }).click()
+    await expect(page.getByText('What is a cell?', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Decks', exact: true }).click()
+    await expect(page.getByRole('button', { name: /Biology notes/ })).toBeVisible()
+    expect(createCalls).toBe(hasExistingDeck ? 2 : 1)
+    await page.getByRole('button', { name: '+ Create Deck', exact: true }).click()
+    await page.getByRole('form', { name: 'Create a study deck' }).getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('form', { name: 'Create a study deck' })).toHaveCount(0)
+    expect(createCalls).toBe(hasExistingDeck ? 2 : 1)
+  })
+}

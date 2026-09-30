@@ -35,6 +35,7 @@ import type {
   DeckSummary,
 } from '../../types/api.generated'
 import CardEditor from './CardEditor'
+import CreateDeckForm from './CreateDeckForm'
 import CramDeckPage from './CramDeckPage'
 import DeckAiPracticePage from './DeckAiPracticePage'
 import ExamPlanPage from './ExamPlanPage'
@@ -189,13 +190,8 @@ function DeckList({
         </h2>
 
         <p>
-          Generate a quiz, finish it,
-          and choose{' '}
-          <strong>
-            Save as Study Deck
-          </strong>
-          {' '}to keep the questions
-          for future review.
+          Choose Create Deck to add your own cards, or generate a quiz
+          and use Save as Study Deck to keep its questions.
         </p>
 
         <button
@@ -1774,6 +1770,7 @@ export default function DecksPage({
   pathname,
   onNavigate,
 }: DecksPageProps) {
+  const [creatingDeck, setCreatingDeck] = useState(false)
   const [decks, setDecks] =
     useState<DeckSummary[]>([])
   const [deck, setDeck] =
@@ -2040,13 +2037,20 @@ export default function DecksPage({
                 </h1>
 
                 <p>
-                  Keep generated questions
-                  organized for review and
-                  spaced repetition.
+                  Create your own cards or save generated questions
+                  for review and spaced repetition.
                 </p>
               </div>
 
               <div className="decks-header-actions">
+                <button
+                  className="decks-primary-button"
+                  type="button"
+                  disabled={creatingDeck}
+                  onClick={() => setCreatingDeck(true)}
+                >
+                  + Create Deck
+                </button>
                 <button
                   className="decks-secondary-button"
                   type="button"
@@ -2070,6 +2074,16 @@ export default function DecksPage({
                 </button>
               </div>
             </header>
+
+            {creatingDeck && (
+              <CreateDeckForm
+                onCancel={() => setCreatingDeck(false)}
+                onCreated={(created) => {
+                  setCreatingDeck(false)
+                  onNavigate(`/decks/${created.id}`)
+                }}
+              />
+            )}
 
             {decks.length > 0 && (
               <section
