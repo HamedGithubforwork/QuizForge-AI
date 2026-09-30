@@ -17,7 +17,8 @@ const { NsisUpdater } = require('electron-updater')
 const { getNetSession } = require('electron-updater/out/electronHttpExecutor')
 const { createUpdates, loadApprovedConfiguration } = require('../src/updates.cjs')
 
-if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true' || process.env.RUNNER_OS !== 'Windows') {
+if (process.platform !== 'win32' || process.env.GITHUB_ACTIONS !== 'true' ||
+    process.env.RUNNER_OS !== 'Windows' || process.env.RUNNER_ENVIRONMENT !== 'github-hosted') {
   throw Error('Update signature acceptance requires disposable Windows CI')
 }
 const root = fs.realpathSync(process.argv[2])
