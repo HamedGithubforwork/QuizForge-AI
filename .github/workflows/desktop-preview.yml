@@ -35,6 +35,8 @@ jobs:
       - run: npm test
       - name: Exercise the real sandboxed renderer
         run: npx --no-install electron test/runtime.cjs
+      - name: Exercise native account bridge in real Electron
+        run: npx --no-install electron test/native-runtime.cjs
       - name: Verify signed-out hosted sign-in
         run: npx --no-install electron test/hosted-login.cjs
       - name: Build internal preview installer
