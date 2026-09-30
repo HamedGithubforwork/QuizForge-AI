@@ -18,6 +18,10 @@ function Find-Registration {
 }
 if (@(Find-Registration).Count -ne 0) { throw 'A prior installation exists; refusing to alter it.' }
 
+$protocolRoot = 'HKCU:\Software\Classes\com.quizfromnotes.desktop.preview'
+if (Test-Path $protocolRoot) { throw 'A prior protocol registration exists; refusing to alter it.' }
+$syntheticCallback = 'com.quizfromnotes.desktop.preview:/oauth/callback?code=synthetic&state=synthetic'
+
 $installDir = Join-Path $env:LOCALAPPDATA ('Programs\QFN-Acceptance-' + [guid]::NewGuid().ToString('N'))
 $executable = Join-Path $installDir ($product + '.exe')
 $uninstaller = Join-Path $installDir ('Uninstall ' + $product + '.exe')
@@ -35,11 +39,15 @@ try {
     Wait-Helper $install 120000 'Installation'
     if (-not (Test-Path $executable) -or -not (Test-Path $uninstaller)) { throw 'Installed files are missing.' }
     if (@(Find-Registration).Count -ne 1) { throw 'Per-user uninstall registration is missing.' }
-    Write-Output 'Per-user installation passed.'
+    $protocol = Get-Item $protocolRoot
+    if ($null -eq $protocol.GetValue('URL Protocol')) { throw 'URL protocol marker is missing.' }
+    $command = (Get-Item (Join-Path $protocolRoot 'shell\open\command')).GetValue('')
+    if ($command -ne ('"' + $executable + '" "%1"')) { throw 'Protocol command is not bound to this installed executable.' }
+    Write-Output 'Per-user installation and exact protocol registration passed.'
     & (Join-Path $PSScriptRoot '../node_modules/.bin/electron.cmd') (Join-Path $PSScriptRoot 'packaged-auth.cjs') (Join-Path $installDir 'resources/app.asar')
     if ($LASTEXITCODE -ne 0) { throw 'Packaged native authentication dependency check failed.' }
 
-    $running = Start-Process -FilePath $executable -PassThru
+    $running = Start-Process -FilePath $executable -ArgumentList @($syntheticCallback) -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
     do {
         Start-Sleep -Milliseconds 500
@@ -48,6 +56,15 @@ try {
     } while ($running.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
     if ($running.MainWindowHandle -eq 0) { throw 'Packaged application did not display a window.' }
     if ($running.MainWindowTitle -notlike 'Quiz From Notes*') { throw 'Packaged application displayed an unexpected window.' }
+    # Dispatch through Windows' registered URI handler while the first instance
+    # is alive. A callback with no pending transaction must remain signed out.
+    Start-Process -FilePath $syntheticCallback
+    Start-Sleep -Seconds 2
+    $running.Refresh()
+    if ($running.HasExited -or $running.MainWindowHandle -eq 0) { throw 'Warm protocol dispatch lost the existing window.' }
+    $windows = @(Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -eq $executable })
+    if ($windows.Count -ne 1 -or $windows[0].Id -ne $running.Id) { throw 'Protocol dispatch created another app window.' }
+    Write-Output 'Cold callback launch and registered warm dispatch passed.'
     if (-not $running.CloseMainWindow() -or -not $running.WaitForExit(15000)) {
         throw 'Packaged application did not close cleanly.'
     }
@@ -67,7 +84,8 @@ try {
             Start-Sleep -Milliseconds 500
         }
         if ((Test-Path $executable) -or @(Find-Registration).Count -ne 0) { throw 'Uninstallation left application files or registration.' }
-        Write-Output 'Per-user uninstallation passed.'
+        if (Test-Path $protocolRoot) { throw 'Uninstallation left the protocol registration.' }
+        Write-Output 'Per-user uninstallation and protocol cleanup passed.'
       }
     } finally {
         # Only this invocation's generated directory may be removed. Never delete

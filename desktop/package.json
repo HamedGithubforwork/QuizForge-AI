@@ -19,15 +19,23 @@
     "appId": "com.quizfromnotes.desktop.preview",
     "productName": "Quiz From Notes Preview",
     "asar": true,
-    "directories": { "output": "dist" },
-    "files": ["src/**/*", "package.json"],
-    "win": { "target": "nsis" },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

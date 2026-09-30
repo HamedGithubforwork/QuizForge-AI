@@ -11,6 +11,10 @@ const diagnostics = createDiagnostics({
 })
 
 app.enableSandbox()
+const { createCallbackReceiver } = require('./native-protocol.cjs')
+// The native session is attached only after the reviewed login integration.
+let nativeSession = null
+const receiveCallback = createCallbackReceiver({ getSession: () => nativeSession, focus: focusWindow })
 let mainWindow
 let showingFailure = false
 
@@ -30,6 +34,13 @@ async function reportFailure() {
   } finally {
     showingFailure = false
   }
+}
+
+function focusWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 }
 
 function loadHome() {
@@ -52,13 +63,16 @@ function createWindow() {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
+  app.on('second-instance', (_event, argv) => {
+    void receiveCallback(argv)
+    focusWindow()
   })
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    void receiveCallback([url])
+  })
+  // Cold callbacks cannot match a prior process's private PKCE transaction.
+  void receiveCallback(process.argv)
   app.whenReady().then(() => {
     const browserSession = session.fromPartition('quiz-from-notes-preview')
     browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
