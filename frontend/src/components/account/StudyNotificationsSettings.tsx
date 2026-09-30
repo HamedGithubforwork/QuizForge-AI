@@ -366,6 +366,7 @@ export default function StudyNotificationsSettings() {
             <label>
               <span>Time zone</span>
               <select
+                aria-label="Time zone"
                 value={timezone}
                 disabled={saving}
                 required
