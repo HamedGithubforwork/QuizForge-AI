@@ -44,11 +44,20 @@ def auth_provider():
 class CognitoSettings:
     pool_id: str
     client_id: str
+    desktop_client_id: str = ""
 
     def __post_init__(self):
         if (not re.fullmatch(r"ca-central-1_[A-Za-z0-9]{1,55}", self.pool_id)
                 or not re.fullmatch(r"[a-z0-9]{1,128}", self.client_id)):
             raise RuntimeError("Cognito requires a ca-central-1 pool and app client")
+
+        if self.desktop_client_id and (not re.fullmatch(r"[a-z0-9]{1,128}", self.desktop_client_id)
+                                       or self.desktop_client_id == self.client_id):
+            raise RuntimeError("Cognito desktop client must be a distinct explicit app client")
+
+    @property
+    def accepted_client_ids(self):
+        return (self.client_id, self.desktop_client_id) if self.desktop_client_id else (self.client_id,)
 
     @property
     def endpoint(self):
@@ -60,7 +69,8 @@ class CognitoSettings:
 
     @classmethod
     def from_environment(cls):
-        return cls(os.getenv("COGNITO_USER_POOL_ID", ""), os.getenv("COGNITO_CLIENT_ID", ""))
+        return cls(os.getenv("COGNITO_USER_POOL_ID", ""), os.getenv("COGNITO_CLIENT_ID", ""),
+                   os.getenv("COGNITO_DESKTOP_CLIENT_ID", ""))
 
 
 def validate_auth_configuration():
@@ -153,7 +163,7 @@ class CognitoVerifier:
                                 options={"require": ["exp", "iat", "auth_time", "sub", "iss",
                                                      "client_id", "token_use", "scope"],
                                          "verify_aud": False})
-            if (claims["token_use"] != "access" or claims["client_id"] != self.settings.client_id
+            if (claims["token_use"] != "access" or claims["client_id"] not in self.settings.accepted_client_ids
                     or "aud" in claims  # Resource-bound tokens need an explicit future audience policy.
                     or not isinstance(claims["scope"], str)
                     or USER_SCOPE not in claims["scope"].split()

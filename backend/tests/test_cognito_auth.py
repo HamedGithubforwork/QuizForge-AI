@@ -180,3 +180,64 @@ def test_invalid_provider_and_incompatible_history_fail_before_startup(monkeypat
     monkeypatch.setenv("COGNITO_CLIENT_ID", "client123")
     monkeypatch.setenv("HISTORY_BACKEND", "supabase")
     with pytest.raises(RuntimeError, match="PostgreSQL history"): validate_auth_configuration()
+
+
+@pytest.mark.parametrize("enabled,client_id,accepted", [
+    (False, "client123", True), (False, "desktop123", False),
+    (True, "client123", True), (True, "desktop123", True), (True, "other123", False),
+    (True, ["desktop123"], False), (True, None, False),
+])
+def test_desktop_client_is_explicit_opt_in_and_preserves_web_identity(cognito, enabled, client_id, accepted):
+    settings = CognitoSettings(cognito.settings.pool_id, cognito.settings.client_id,
+                               "desktop123" if enabled else "")
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(cognito.handler)) as client:
+            token = cognito.sign(changes={"client_id": client_id})
+            if accepted:
+                subject, email = await CognitoVerifier(settings).verify(token, client)
+                assert subject == str(UUID(int=101)) and email == "same-email@example.invalid"
+                assert [request.method for request in cognito.calls] == ["GET", "POST"]
+            else:
+                with pytest.raises(HTTPException) as error:
+                    await CognitoVerifier(settings).verify(token, client)
+                assert error.value.status_code == 401
+                assert all(request.method == "GET" for request in cognito.calls)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("changes", [{"token_use": "id"}, {"iss": "https://attacker.invalid"},
+                                      {"exp": 1}, {"scope": "openid email"}, {"aud": "other"}])
+def test_allowed_desktop_client_still_requires_valid_access_claims(cognito, changes):
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(cognito.handler)) as client:
+            verifier = CognitoVerifier(CognitoSettings(cognito.settings.pool_id, cognito.settings.client_id, "desktop123"))
+            with pytest.raises(HTTPException) as error:
+                await verifier.verify(cognito.sign(changes={"client_id": "desktop123", **changes}), client)
+            assert error.value.status_code == 401
+            assert all(request.method == "GET" for request in cognito.calls)
+    asyncio.run(scenario())
+
+
+def test_desktop_revocation_is_checked_with_cached_signing_key(cognito):
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(cognito.handler)) as client:
+            verifier = CognitoVerifier(CognitoSettings(cognito.settings.pool_id, cognito.settings.client_id, "desktop123"))
+            token = cognito.sign(changes={"client_id": "desktop123"})
+            await verifier.verify(token, client)
+            cognito.response = httpx.Response(400, json={"__type": "NotAuthorizedException"})
+            with pytest.raises(HTTPException) as error:
+                await verifier.verify(token, client)
+            assert error.value.status_code == 401
+            assert [r.method for r in cognito.calls] == ["GET", "POST", "POST"]
+    asyncio.run(scenario())
+
+
+def test_desktop_configuration_is_off_by_default_and_rejects_ambiguous_values(cognito, monkeypatch):
+    monkeypatch.delenv("COGNITO_DESKTOP_CLIENT_ID", raising=False)
+    assert CognitoSettings.from_environment().accepted_client_ids == ("client123",)
+    monkeypatch.setenv("COGNITO_DESKTOP_CLIENT_ID", "desktop123")
+    assert CognitoSettings.from_environment().accepted_client_ids == ("client123", "desktop123")
+    for value in ("client123", "*", "desktop123,other123", " desktop123", "a" * 129):
+        monkeypatch.setenv("COGNITO_DESKTOP_CLIENT_ID", value)
+        with pytest.raises(RuntimeError, match="distinct explicit app client"):
+            CognitoSettings.from_environment()
