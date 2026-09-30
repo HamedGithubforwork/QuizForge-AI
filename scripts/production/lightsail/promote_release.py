@@ -43,6 +43,21 @@ RESULT = Path(
 )
 
 
+FRONTEND_PREFLIGHT = r"""
+# Preserve a live frontend hotfix separately from the original release snapshot.
+# Decide the exact rollback path before backup or any filesystem mutation.
+if [ -L /opt/quizforge/frontend ]; then
+  test "$(readlink -f /opt/quizforge/frontend)" = "$old_frontend"
+else
+  test -d /opt/quizforge/frontend
+  if [ -e "$old_frontend" ] || [ -L "$old_frontend" ]; then
+    old_frontend="$frontends/${old_sha}-before-${release_sha}"
+  fi
+  [ ! -e "$old_frontend" ] && [ ! -L "$old_frontend" ] || exit 38
+fi
+"""
+
+
 REMOTE_PROMOTE = r"""set -euo pipefail
 release_sha="$1"
 archive="$2"
@@ -84,6 +99,7 @@ frontend_stage="$frontends/.promoting-$release_sha"
 [ ! -e "$final" ] || exit 36
 [ ! -e "$new_frontend" ] || exit 37
 
+""" + FRONTEND_PREFLIGHT + r"""
 # New application code is not allowed to start against an old database.
 compose_current="/opt/quizforge/current/compose.json"
 dbq() {
@@ -143,12 +159,12 @@ sudo find "$frontend_stage" -type f -exec chmod 0644 {} +
 
 sudo docker compose -f "$stage/compose.json" --profile scheduled config --quiet
 
-# Convert the original one-off frontend directory to a versioned symlink once.
+# Convert the live directory to the preflight-selected rollback symlink.
 if [ -L /opt/quizforge/frontend ]; then
   test "$(readlink -f /opt/quizforge/frontend)" = "$old_frontend"
 else
   test -d /opt/quizforge/frontend
-  [ ! -e "$old_frontend" ] || exit 38
+  [ ! -e "$old_frontend" ] && [ ! -L "$old_frontend" ] || exit 38
   sudo mv /opt/quizforge/frontend "$old_frontend"
   sudo ln -s "$old_frontend" /opt/quizforge/frontend
 fi
