@@ -6,13 +6,15 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
 
 $package = Get-Content (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json
 $product = $package.build.productName
+# electron-builder defaults to "${productName} ${version}" in Add/Remove Programs.
+$displayName = "$product $($package.version)"
 $installers = @(Get-ChildItem (Join-Path $PSScriptRoot '../dist') -Filter '*.exe' -File)
 if ($installers.Count -ne 1) { throw 'Expected exactly one preview installer.' }
 $registryRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 function Find-Registration {
     if (-not (Test-Path $registryRoot)) { return }
     @(Get-ChildItem $registryRoot | ForEach-Object { Get-ItemProperty $_.PSPath } |
-        Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq $product })
+        Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq $displayName })
 }
 if (@(Find-Registration).Count -ne 0) { throw 'A prior installation exists; refusing to alter it.' }
 
