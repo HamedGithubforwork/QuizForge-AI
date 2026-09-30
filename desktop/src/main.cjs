@@ -1,9 +1,14 @@
 'use strict'
 
-const { app, BrowserWindow, dialog, Menu, session } = require('electron')
+const { app, BrowserWindow, dialog, Menu, session, clipboard } = require('electron')
 const { APP_ORIGIN, windowOptions } = require('./policy.cjs')
 
 const { guardContents } = require('./guards.cjs')
+const { createDiagnostics, showDiagnostics } = require('./diagnostics.cjs')
+const diagnostics = createDiagnostics({
+  appVersion: app.getVersion(), electronVersion: process.versions.electron,
+  chromeVersion: process.versions.chrome, platform: process.platform, arch: process.arch, packaged: app.isPackaged,
+})
 
 app.enableSandbox()
 let mainWindow
@@ -37,6 +42,7 @@ function createWindow() {
   mainWindow = new BrowserWindow(windowOptions())
   const contents = mainWindow.webContents
   guardContents(contents)
+  diagnostics.attach(contents)
   contents.on('render-process-gone', () => reportFailure())
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = undefined })
@@ -64,6 +70,9 @@ if (!app.requestSingleInstanceLock()) {
         { role: 'quit' },
       ] },
       { role: 'editMenu' },
+      { label: 'Help', submenu: [{ label: 'Desktop diagnostics…', click: () => {
+        showDiagnostics({ dialog, clipboard, diagnostics }).catch(() => {})
+      } }] },
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
     ]))
     createWindow()
