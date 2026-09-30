@@ -95,3 +95,31 @@ not persist authentication tokens. A future authenticated offline workflow must
 validate full deck/card contracts, provide explicit save/remove controls, and
 reconcile queued reviews before this store is connected to the UI. Windows CI
 exercises a real OS-encrypted round trip and deletion using synthetic data only.
+
+## Opt-in signed candidate build
+
+On a Windows signing machine with PowerShell 7, install the owner's existing
+trusted code-signing certificate/private-key provider in the current-user Windows
+certificate store. No certificate purchase, enrollment, key export, secret upload,
+or paid service is performed by this repository. If no certificate exists, owner
+selection and approval of the signing provider/cost are required first.
+
+From a clean checkout of the reviewed commit, run:
+
+```powershell
+./desktop/scripts/build-signed.ps1 -ReviewedCommit <full-reviewed-commit> -CertificateThumbprint <40-character-thumbprint>
+```
+
+The script requires the exact clean commit, audits dependencies, runs unit tests,
+forces code signing, and pins the Windows certificate. It independently requires
+trusted, timestamped Authenticode signatures on the installer and packaged app.
+It creates `dist-signed/verified-candidate.json` with version, reviewed commit,
+public certificate thumbprint and installer SHA-256 only after those checks pass.
+The manifest is an integrity record, not an authenticated update feed. Keep each
+reviewed candidate and manifest together for manual rollback/reinstallation.
+
+The unsigned CI preview remains separate. CI parses the scripts and proves that
+its actual unsigned installer cannot pass the signing gate. A successful signed
+build cannot be claimed until an owner-controlled certificate is available and
+that path runs on Windows. Nothing publishes automatically. Signing alone does
+not complete account acceptance, authenticated updates, or offline synchronization.
