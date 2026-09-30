@@ -17,6 +17,7 @@ test('creates a unique bounded S256 authorization attempt and consumes its proof
   assert.equal(authorize.origin, AUTH_ORIGIN)
   assert.equal(authorize.pathname, '/oauth2/authorize')
   assert.equal(authorize.searchParams.get('response_type'), 'code')
+  assert.equal(authorize.searchParams.get('scope'), 'openid email aws.cognito.signin.user.admin')
   assert.equal(authorize.searchParams.get('redirect_uri'), CALLBACK_URL)
   assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256')
   assert.match(state, /^[A-Za-z0-9_-]{43}$/)

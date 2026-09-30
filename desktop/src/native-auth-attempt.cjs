@@ -19,7 +19,7 @@ function createAuthorizationAttempt({ clientId, now = () => performance.now() })
   const authorization = new URL('/oauth2/authorize', AUTH_ORIGIN)
   authorization.search = new URLSearchParams({
     response_type: 'code', client_id: clientId, redirect_uri: CALLBACK_URL,
-    scope: 'openid email profile aws.cognito.signin.user.admin', state, nonce,
+    scope: 'openid email aws.cognito.signin.user.admin', state, nonce,
     code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url'),
   }).toString()
   function cancel() { active = false; verifier = undefined }

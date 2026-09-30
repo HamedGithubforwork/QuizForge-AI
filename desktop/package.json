@@ -29,5 +29,8 @@
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false
     }
+  },
+  "dependencies": {
+    "jose": "6.2.12"
   }
 }
