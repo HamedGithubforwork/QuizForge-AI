@@ -1,3 +1,4 @@
+import { desktopBridge, desktopFetch } from './desktop'
 import { authSession } from './authSession'
 import {
   rememberCurrentDocumentIdentity,
@@ -72,15 +73,19 @@ export async function apiFetch(
   path: string,
   init: RequestInit = {},
 ) {
-  const accessToken =
-    await getAccessToken()
-
   const preparedInit =
     prepareQuizGenerationRequest(
       path,
       init,
     )
 
+  const desktop = desktopBridge()
+  if (desktop) {
+    const response = await desktopFetch(desktop, path, preparedInit)
+    await captureDocumentIdentity(path, response)
+    return response
+  }
+  const accessToken = await getAccessToken()
   let response =
     await sendAuthenticatedRequest(
       path,

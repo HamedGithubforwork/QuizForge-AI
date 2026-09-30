@@ -111,6 +111,7 @@ function createNativeSession({ clientId, client, openBrowser, onChange = () => {
       const old = invalidate()
       if (!await revoke(old)) throw revocationError()
     },
+    generation: () => epoch,
     status: () => ({ signingIn: pending !== null, signedIn: current !== null, revocationUnconfirmed }),
   }
 }

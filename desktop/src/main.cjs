@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, dialog, Menu, session, clipboard, shell } = require('electron')
+const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, Notification } = require('electron')
 const { APP_ORIGIN, windowOptions } = require('./policy.cjs')
 
 const { guardContents } = require('./guards.cjs')
@@ -13,18 +13,26 @@ const diagnostics = createDiagnostics({
 app.enableSandbox()
 const { createNativeAuthClient } = require('./native-auth-client.cjs')
 const { createNativeSession } = require('./native-session.cjs')
+const { createNativeReminders } = require('./native-reminders.cjs')
+const { createNativeAccount } = require('./native-account.cjs')
+const { installNativeBridge } = require('./native-bridge.cjs')
+const path = require('node:path')
 const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
 const { createUpdates, loadApprovedConfiguration } = require('./updates.cjs')
 let updates
 let updateTimer
 const storeManaged = process.platform === 'win32' && process.windowsStore === true
 const { PROTOCOL, createCallbackReceiver } = require('./native-protocol.cjs')
-// This session is used only by the explicit native acceptance menu, never by the renderer.
+// Main-process study session; the acceptance test uses a separate session.
 let nativeSession = null
+let testSession = null
+let nativeAccount = null
+let reminders = null
+let reminderTimer = null
 let nativeTest = null
 let shutdownPromise = null
 let shutdownComplete = false
-const receiveCallback = createCallbackReceiver({ getSession: () => nativeSession, focus: focusWindow })
+const receiveCallback = createCallbackReceiver({ getSession: () => nativeTest?.status().running ? testSession : nativeSession, focus: focusWindow })
 let mainWindow
 let showingFailure = false
 
@@ -53,6 +61,13 @@ function focusWindow() {
   mainWindow.focus()
 }
 
+async function disposeSessions() {
+  clearInterval(reminderTimer)
+  reminders?.dispose()
+  nativeAccount?.clear()
+  await Promise.allSettled([nativeTest?.dispose(), nativeSession?.signOut()])
+}
+
 function loadHome() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.loadURL(APP_ORIGIN).catch(() => reportFailure())
@@ -60,13 +75,15 @@ function loadHome() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow(windowOptions())
+  const options = windowOptions()
+  if (app.isPackaged && process.platform === 'win32') options.webPreferences.preload = path.join(__dirname, 'preload.cjs')
+  mainWindow = new BrowserWindow(options)
   const contents = mainWindow.webContents
   guardContents(contents)
   diagnostics.attach(contents)
   contents.on('render-process-gone', () => reportFailure())
   mainWindow.once('ready-to-show', () => mainWindow.show())
-  mainWindow.on('closed', () => { mainWindow = undefined; shutdownPromise ||= nativeTest?.dispose() })
+  mainWindow.on('closed', () => { mainWindow = undefined; shutdownPromise ||= disposeSessions() })
   loadHome()
 }
 
@@ -107,7 +124,7 @@ function updateNativeMenu() {
   const running = nativeTest?.status().running === true
   const start = menu?.getMenuItemById('native-test-start')
   const cancel = menu?.getMenuItemById('native-test-cancel')
-  if (start) start.enabled = !!nativeTest && !running
+  if (start) start.enabled = !!nativeTest && !running && !nativeSession?.status().signingIn
   if (cancel) cancel.enabled = running
 }
 
@@ -125,7 +142,7 @@ async function reportNativeTest(result) {
 }
 
 async function runNativeTest() {
-  if (!nativeTest || nativeTest.status().running) return
+  if (!nativeTest || nativeTest.status().running || nativeSession?.status().signingIn) return
   if (!app.isDefaultProtocolClient(PROTOCOL)) {
     await dialog.showMessageBox(mainWindow, { type: 'warning', title: 'Desktop sign-in test',
       message: 'Reinstall this preview to enable returning from your browser.', buttons: ['OK'] })
@@ -169,6 +186,10 @@ if (!app.requestSingleInstanceLock()) {
       } }] },
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
     ]))
+    installNativeBridge({ ipcMain, getWindow: () => mainWindow,
+      getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
+      canSignIn: () => !nativeTest?.status().running,
+      openAccountWebsite: () => shell.openExternal(APP_ORIGIN + '/settings/security') })
     createWindow()
     let updater = null
     if (!storeManaged && app.isPackaged && process.platform === 'win32' && loadApprovedConfiguration(process.resourcesPath)) {
@@ -176,7 +197,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     updates = createUpdates({ updater, prompt: updatePrompt, changed: updateMenu,
       beforeInstall: async () => {
-        shutdownPromise ||= nativeTest?.dispose()
+        shutdownPromise ||= disposeSessions()
         await shutdownPromise
         shutdownComplete = true
       } })
@@ -198,8 +219,25 @@ if (!app.requestSingleInstanceLock()) {
         const client = await createNativeAuthClient(config)
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
+          openBrowser: url => shell.openExternal(url), onChange: () => {
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear() }
+            updateNativeMenu()
+          } })
+        nativeAccount = createNativeAccount({ session: nativeSession })
+        if (!storeManaged) app.setAppUserModelId('com.quizfromnotes.desktop.preview')
+        reminders = createNativeReminders({ account: nativeAccount, supported: () => Notification.isSupported(),
+          show: options => {
+            const notification = new Notification(options)
+            notification.on('click', focusWindow)
+            notification.on('failed', () => {})
+            notification.show()
+            return notification
+          } })
+        reminderTimer = setInterval(() => { void reminders.tick() }, 60000)
+        reminderTimer.unref()
+        testSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url) })
-        nativeTest = createNativeSignInTest({ session: nativeSession, report: reportNativeTest, changed: updateNativeMenu })
+        nativeTest = createNativeSignInTest({ session: testSession, report: reportNativeTest, changed: updateNativeMenu })
         updateNativeMenu()
       } catch { /* Leave acceptance menu disabled; never log configuration/errors. */ }
     }
@@ -208,9 +246,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', event => {
     clearTimeout(updateTimer)
     updates?.dispose()
-    if (shutdownComplete || !nativeTest) return
+    if (shutdownComplete || (!nativeTest && !nativeSession)) return
     event.preventDefault()
-    shutdownPromise ||= nativeTest.dispose()
+    shutdownPromise ||= disposeSessions()
     void shutdownPromise.finally(() => { shutdownComplete = true; app.quit() })
   })
   app.on('window-all-closed', () => app.quit())

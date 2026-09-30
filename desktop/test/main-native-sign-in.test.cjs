@@ -10,7 +10,7 @@ for (const windowsStore of [false, true]) test(`native menu drives browser/callb
   const app = new EventEmitter(), menus = new Map(), reports = [], opened = [], calls = []
   let window, quits=0
   Object.assign(app,{isPackaged:true,getVersion:()=> '0.1.0',enableSandbox(){},requestSingleInstanceLock:()=>true,
-    whenReady:()=>Promise.resolve(),isDefaultProtocolClient:()=>true,quit:()=>quits++})
+    whenReady:()=>Promise.resolve(),isDefaultProtocolClient:()=>true,setAppUserModelId(){},quit:()=>quits++})
   class Window extends EventEmitter {
     constructor(options){super();window=this;this.webContents=new EventEmitter();this.options=options}
     loadURL(){return Promise.resolve()}
@@ -20,7 +20,7 @@ for (const windowsStore of [false, true]) test(`native menu drives browser/callb
     focus(){}
   }
   const menu={getMenuItemById:id=>menus.get(id)}
-  const electron={app,BrowserWindow:Window,clipboard:{},
+  const electron={ipcMain:{handle(){}},Notification:{isSupported:()=>true},app,BrowserWindow:Window,clipboard:{},
     shell:{openExternal:async url=>opened.push(url)},
     Menu:{buildFromTemplate:template=>{for(const root of template)for(const item of root.submenu||[])if(item.id)menus.set(item.id,item);return menu},
       setApplicationMenu(){},getApplicationMenu:()=>menu},
@@ -35,11 +35,12 @@ for (const windowsStore of [false, true]) test(`native menu drives browser/callb
     }},
     './native-auth-client.cjs':{createNativeAuthClient:async()=>client},
     './guards.cjs':{guardContents(){}},'./diagnostics.cjs':{createDiagnostics:()=>({attach(){}}),showDiagnostics:async()=>{}}}
-  const context={require:name=>Object.hasOwn(overrides,name)?overrides[name]:require('../src/'+name.slice(2)),
-    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',windowsStore,arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout}
+  const context={require:name=>Object.hasOwn(overrides,name)?overrides[name]:name.startsWith('node:')?require(name):require('../src/'+name.slice(2)),
+    __dirname:require('node:path').dirname(require.resolve('../src/main.cjs')),
+    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',windowsStore,arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout,setInterval,clearInterval}
   vm.runInNewContext(readFileSync(require.resolve('../src/main.cjs'),'utf8'),context)
   await tick()
-  assert.equal(window.options.webPreferences.preload,undefined)
+  assert.match(window.options.webPreferences.preload,/preload.cjs$/)
   menus.get('desktop-updates').click()
   await tick()
   assert.equal(reports.pop().message,windowsStore ? 'Microsoft Store manages updates for this app.' : 'Automatic updates are not enabled in this preview')

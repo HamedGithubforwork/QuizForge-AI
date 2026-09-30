@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react'
+import { desktopBridge } from './lib/desktop'
 import { authProvider } from './lib/authSession'
 
-const Gate = lazy(() => authProvider === 'cognito'
+const Gate = lazy(() => desktopBridge() ? import('./DesktopAuthGate') : authProvider === 'cognito'
   ? import('./CognitoAuthGate') : import('./SupabaseAuthGate'))
 
 export default function AuthGate() {

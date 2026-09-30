@@ -1,3 +1,4 @@
+import { desktopBridge } from '../../lib/desktop'
 import {
   useEffect,
   useState,
@@ -63,8 +64,9 @@ export default function StudyNotificationsSettings() {
     'UTC', timezone, deviceTimezone, ...availableTimezones,
   ])).sort((a, b) => a.localeCompare(b))
 
-  const supported =
-    browserPushSupported()
+  const desktop = desktopBridge()
+  const [nativeSupported, setNativeSupported] = useState(false)
+  const supported = desktop ? nativeSupported : browserPushSupported()
 
   useEffect(() => {
     let active = true
@@ -79,7 +81,7 @@ export default function StudyNotificationsSettings() {
             getStudyNotificationPreferences(
               apiFetch,
             ),
-            currentBrowserPushSubscription(),
+            desktop ? desktop.reminderStatus() : currentBrowserPushSubscription(),
           ])
 
         if (!active) {
@@ -104,8 +106,9 @@ export default function StudyNotificationsSettings() {
           preferences.minimum_due_cards ??
             1,
         )
+        if (desktop) setNativeSupported(Boolean(subscription && 'supported' in subscription && subscription.supported))
         setBrowserConnected(
-          Boolean(subscription),
+          desktop ? Boolean(subscription && 'enabled' in subscription && subscription.enabled) : Boolean(subscription),
         )
       } catch (caught) {
         if (active) {
@@ -127,7 +130,7 @@ export default function StudyNotificationsSettings() {
     return () => {
       active = false
     }
-  }, [])
+  }, [desktop])
 
   async function save(
     event: FormEvent,
@@ -146,9 +149,7 @@ export default function StudyNotificationsSettings() {
         supported &&
         !connected
       ) {
-        await enableBrowserPush(
-          apiFetch,
-        )
+        await (desktop ? desktop.enableReminders() : enableBrowserPush(apiFetch))
         connected = true
         setBrowserConnected(true)
       }
@@ -158,7 +159,7 @@ export default function StudyNotificationsSettings() {
         !supported
       ) {
         throw new Error(
-          'This browser does not support Web Push notifications.',
+          desktop ? 'Windows notifications are unavailable on this desktop.' : 'This browser does not support Web Push notifications.',
         )
       }
 
@@ -216,12 +217,10 @@ export default function StudyNotificationsSettings() {
     setMessage('')
 
     try {
-      await enableBrowserPush(
-        apiFetch,
-      )
+      await (desktop ? desktop.enableReminders() : enableBrowserPush(apiFetch))
       setBrowserConnected(true)
       setMessage(
-        'This browser is connected for study reminders.',
+        desktop ? 'Desktop reminders are enabled while this app is open. Enable again after signing out or restarting.' : 'This browser is connected for study reminders.',
       )
     } catch (caught) {
       setError(
@@ -240,12 +239,10 @@ export default function StudyNotificationsSettings() {
     setMessage('')
 
     try {
-      await disableBrowserPush(
-        apiFetch,
-      )
+      await (desktop ? desktop.disableReminders() : disableBrowserPush(apiFetch))
       setBrowserConnected(false)
       setMessage(
-        'This browser was removed from study reminders.',
+        desktop ? 'Reminders are disabled on this desktop.' : 'This browser was removed from study reminders.',
       )
     } catch (caught) {
       setError(
@@ -281,9 +278,7 @@ export default function StudyNotificationsSettings() {
         </h1>
 
         <p>
-          Get a browser notification
-          when your spaced-repetition
-          cards are ready to review.
+          {desktop ? 'Get a Windows notification while this app is open when your study cards are ready to review.' : 'Get a browser notification when your spaced-repetition cards are ready to review.'}
         </p>
       </div>
 
@@ -324,6 +319,7 @@ export default function StudyNotificationsSettings() {
           <label className="settings-toggle">
             <input
               type="checkbox"
+              aria-label="Enable study reminders"
               checked={enabled}
               disabled={saving}
               onChange={(event) =>
@@ -370,6 +366,7 @@ export default function StudyNotificationsSettings() {
             <label>
               <span>Time zone</span>
               <select
+                aria-label="Time zone"
                 value={timezone}
                 disabled={saving}
                 required
@@ -446,14 +443,11 @@ export default function StudyNotificationsSettings() {
         <div className="settings-card-heading">
           <div>
             <h2>
-              This browser
+              {desktop ? 'This desktop' : 'This browser'}
             </h2>
 
             <p>
-              Connect this device to
-              receive review reminders
-              even when Quiz From Notes
-              is not open.
+              {desktop ? 'Keep the app open and signed in. Enable reminders again after signing out or restarting. We check once a minute for up to 15 minutes after your saved time.' : 'Connect this device to receive review reminders even when Quiz From Notes is not open.'}
             </p>
           </div>
 
@@ -472,8 +466,7 @@ export default function StudyNotificationsSettings() {
 
         {!supported ? (
           <div className="settings-coming-soon">
-            Web Push is not supported
-            by this browser.
+            {desktop ? 'Windows notifications are unavailable.' : 'Web Push is not supported by this browser.'}
           </div>
         ) : browserConnected ? (
           <button
@@ -484,7 +477,7 @@ export default function StudyNotificationsSettings() {
               void disconnectBrowser()
             }
           >
-            Remove this browser
+            {desktop ? 'Disable on this desktop' : 'Remove this browser'}
           </button>
         ) : (
           <button
@@ -495,15 +488,12 @@ export default function StudyNotificationsSettings() {
               void connectBrowser()
             }
           >
-            Enable browser notifications
+            {desktop ? 'Enable on this desktop' : 'Enable browser notifications'}
           </button>
         )}
 
         <p className="settings-method-note">
-          Browser permission is controlled
-          by your browser or operating
-          system. You can connect multiple
-          devices to the same account.
+          {desktop ? 'Windows notification settings and Do not disturb may silence reminders. Closing the app stops desktop reminders. Other connected browsers keep their own reminder delivery.' : 'Browser permission is controlled by your browser or operating system. You can connect multiple devices to the same account.'}
         </p>
       </section>
     </>
