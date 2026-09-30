@@ -19,7 +19,11 @@ npm run pack:windows
 ```
 
 The dedicated Windows CI job runs a real renderer security smoke and builds a
-per-user NSIS installer. Its seven-day artifact is an **unsigned internal preview**,
+per-user NSIS installer. It then installs the package for the disposable runner's
+user, verifies the packaged window opens and closes, and uninstalls it. The smoke
+refuses a pre-existing installation and checks per-user registration/removal.
+It makes only signed-out page loads; no credentials or model calls are used.
+Its seven-day artifact is an **unsigned internal preview**,
 not a public release. Packaging never publishes a GitHub release or update feed.
 The signed-out hosted-login check opens the real site, clicks Sign in, verifies
 S256 PKCE and the expected sandboxed Cognito username/password form, then clears
@@ -49,7 +53,7 @@ No administrator installation is required. The app is separately versioned.
 
 ## Acceptance before expanding distribution
 
-1. On Windows, manually verify installer/uninstaller, signup and existing-account
+1. On Windows, manually verify installation on a normal user machine, signup and existing-account
    login, MFA, password recovery, logout, PDF selection, deck browsing and due-card
    review. Automated sandbox checks are not authentication acceptance.
 2. Verify Cognito's supported native-app/system-browser authorization approach
