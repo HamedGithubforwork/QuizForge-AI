@@ -1,6 +1,6 @@
 {
   "name": "quiz-from-notes-desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Internal Windows preview of Quiz From Notes",
   "author": "Quiz From Notes",
@@ -36,9 +36,12 @@
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
       "include": "build/installer.nsh"
-    }
+    },
+    "publish": null
   },
   "dependencies": {
-    "jose": "6.2.12"
+    "electron-updater": "6.8.9",
+    "jose": "6.2.12",
+    "js-yaml": "4.3.2"
   }
 }

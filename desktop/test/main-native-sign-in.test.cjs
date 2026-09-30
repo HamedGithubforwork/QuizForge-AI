@@ -33,7 +33,7 @@ test('native menu drives main-process browser/callback/refresh/revoke with no re
     './native-auth-client.cjs':{createNativeAuthClient:async()=>client},
     './guards.cjs':{guardContents(){}},'./diagnostics.cjs':{createDiagnostics:()=>({attach(){}}),showDiagnostics:async()=>{}}}
   const context={require:name=>Object.hasOwn(overrides,name)?overrides[name]:require('../src/'+name.slice(2)),
-    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',arch:'x64',argv:['app.exe']},setImmediate}
+    process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout}
   vm.runInNewContext(readFileSync(require.resolve('../src/main.cjs'),'utf8'),context)
   await tick()
   assert.equal(window.options.webPreferences.preload,undefined)
