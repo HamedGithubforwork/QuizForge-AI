@@ -68,3 +68,24 @@ of the shell; a bundled, version-compatible offline UI belongs in the next slice
 Security references: [Electron security](https://www.electronjs.org/docs/latest/tutorial/security),
 [process sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox),
 and [NSIS packaging](https://www.electron.build/docs/nsis/).
+
+## Encrypted snapshot storage foundation
+
+`windows-snapshot-store.cjs` provides main-process-only snapshot save/load/remove
+operations using Electron's asynchronous Windows OS encryption. Files use opaque
+account-derived names, a versioned envelope, an 8 MiB plaintext bound, and atomic
+same-directory replacement. Concurrent operations are serialized. Encryption
+unavailability, corruption, wrong-owner envelopes, unknown schema versions,
+symlinks, and oversized files fail closed; there is no plaintext fallback.
+
+The caller must obtain the account identity from a verified session. Encryption
+protects stored data at the Windows-account boundary; it does not protect against
+malware already running as that Windows user. Snapshot validation checks the
+storage envelope and minimal deck shape, not every card/API business rule.
+
+This is a tested storage foundation, **not an enabled offline feature**. It has no
+renderer IPC bridge, does not save any real account data automatically, and does
+not persist authentication tokens. A future authenticated offline workflow must
+validate full deck/card contracts, provide explicit save/remove controls, and
+reconcile queued reviews before this store is connected to the UI. Windows CI
+exercises a real OS-encrypted round trip and deletion using synthetic data only.
