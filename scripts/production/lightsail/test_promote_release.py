@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import subprocess
+import shlex
 
 from scripts.production.lightsail import promote_release
 
@@ -35,6 +36,73 @@ sudo() {
             promote_release.current_release_details(result.stdout, result.stderr),
             {"observed_current_release_sha": "0" * 40},
         )
+
+    def test_frontend_promotion_retains_live_hotfix_and_original_snapshot(self):
+        for mode in ("original", "versioned", "hotfix", "collision", "wrong_link"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                frontends = root / "frontends"
+                frontends.mkdir()
+                old_sha, release_sha = "a" * 40, "b" * 40
+                original = frontends / old_sha
+                preserved = frontends / f"{old_sha}-before-{release_sha}"
+                live = root / "frontend"
+                if mode != "original":
+                    original.mkdir()
+                    (original / "index.html").write_text("original release")
+                if mode == "versioned":
+                    live.symlink_to(original, target_is_directory=True)
+                elif mode == "wrong_link":
+                    other = root / "unreviewed"
+                    other.mkdir()
+                    live.symlink_to(other, target_is_directory=True)
+                else:
+                    live.mkdir()
+                    (live / "index.html").write_text("live frontend")
+                if mode == "collision":
+                    preserved.mkdir()
+                    (preserved / "index.html").write_text("existing recovery copy")
+                before = sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+                setup = (
+                    "set -euo pipefail\n"
+                    + f"frontends={shlex.quote(str(frontends))}\n"
+                    + f"old_sha={old_sha}\nrelease_sha={release_sha}\n"
+                    + 'old_frontend="$frontends/$old_sha"\n'
+                    + 'sudo() { command "$@"; }\n'
+                )
+                preflight = promote_release.FRONTEND_PREFLIGHT.replace(
+                    "/opt/quizforge/frontend", str(live),
+                )
+                checked = subprocess.run(
+                    ["bash", "-s"], input=setup + preflight,
+                    text=True, capture_output=True, timeout=5,
+                )
+                self.assertEqual(before, sorted(str(p.relative_to(root)) for p in root.rglob("*")))
+                if mode in ("collision", "wrong_link"):
+                    self.assertNotEqual(checked.returncode, 0)
+                    self.assertTrue(original.is_dir())
+                    if mode == "collision":
+                        self.assertEqual((preserved / "index.html").read_text(), "existing recovery copy")
+                        self.assertEqual((live / "index.html").read_text(), "live frontend")
+                    continue
+                self.assertEqual(checked.returncode, 0, checked.stderr)
+                conversion = promote_release.REMOTE_PROMOTE.split(
+                    "# Convert the live directory", 1,
+                )[1].split('sudo mv "$stage" "$final"', 1)[0]
+                conversion = "# Convert the live directory" + conversion
+                result = subprocess.run(
+                    ["bash", "-s"],
+                    input=setup + preflight + conversion.replace("/opt/quizforge/frontend", str(live)),
+                    text=True, capture_output=True, timeout=5,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                expected = preserved if mode == "hotfix" else original
+                self.assertTrue(live.is_symlink())
+                self.assertEqual(live.resolve(), expected)
+                self.assertEqual((live / "index.html").read_text(),
+                                 "original release" if mode == "versioned" else "live frontend")
+                if mode == "hotfix":
+                    self.assertEqual((original / "index.html").read_text(), "original release")
 
     def test_failed_remote_gate_reports_location_without_command_or_output(self):
         remote = promote_release.REMOTE_PROMOTE
