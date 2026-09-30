@@ -25,6 +25,12 @@ refuses a pre-existing installation and checks per-user registration/removal.
 It makes only signed-out page loads; no credentials or model calls are used.
 Its seven-day artifact is an **unsigned internal preview**,
 not a public release. Packaging never publishes a GitHub release or update feed.
+The signed-out hosted-login check opens the real site, clicks Sign in, verifies
+S256 PKCE and the expected sandboxed Cognito username/password form, then clears
+its temporary browser session. It never enters credentials, exchanges tokens or
+calls generation. This check depends on public site/Cognito availability and does
+not establish authenticated account acceptance.
+
 No administrator installation is required. The app is separately versioned.
 
 ## Boundaries
