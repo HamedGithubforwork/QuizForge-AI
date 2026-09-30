@@ -11,6 +11,7 @@ import boto3
 from scripts.production.lightsail import native_auth_readiness as readiness
 
 RESULT = Path('native-login-availability-results/summary.json')
+PUBLIC_CONFIG = Path('native-desktop-public-config/runtime.json')
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -82,6 +83,15 @@ def probe(url, origin, request=fetch):
     raise ValueError('Too many login redirects')
 
 
+def public_runtime_config(description, pool_id, web_id, verify=readiness.verify_policy):
+    # Verify the full service response before selecting only public routing IDs.
+    verify(description, pool_id, web_id)
+    client_id = description['UserPoolClient']['ClientId']
+    if not readiness.CLIENT_RE.fullmatch(str(client_id)) or client_id == web_id:
+        raise ValueError('Unexpected native client')
+    return {'schema': 1, 'poolId': pool_id, 'clientId': client_id}
+
+
 def main():
     report = {'schema': 1, 'result': 'login_page_unavailable', 'signed_out_login_page_verified': False,
               'credentials_submitted': False, 'account_login_verified': False, 'changes_performed': False}
@@ -95,7 +105,7 @@ def main():
         summary = readiness.inspect(boto3.client('sts', region_name=readiness.REGION), cognito)
         if not summary['native_client_present']:
             raise ValueError('Registration required')
-        pool, _ = readiness.discover(cognito)
+        pool, web_id = readiness.discover(cognito)
         expected = readiness.expected_policy(pool)
         clients = [c for c in readiness.pages(cognito, 'list_user_pool_clients', 'UserPoolClients', UserPoolId=pool, MaxResults=60)
                    if c.get('ClientName') == expected['ClientName']]
@@ -107,6 +117,12 @@ def main():
                                    capture_output=True, text=True, timeout=10, check=True)
         config = json.loads(generated.stdout)
         probe(config['url'], config['origin'])
+        description = cognito.describe_user_pool_client(UserPoolId=pool, ClientId=clients[0]['ClientId'])
+        public_config = public_runtime_config(description, pool, web_id)
+        if public_config['clientId'] != clients[0]['ClientId']:
+            raise ValueError('Native identity changed')
+        PUBLIC_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        PUBLIC_CONFIG.write_text(json.dumps(public_config, indent=2) + '\n')
         report.update(result='signed_out_login_page_verified', signed_out_login_page_verified=True, configuration_commit=commit)
     except Exception:
         pass  # Service identifiers, HTML and exception messages are never logged.
