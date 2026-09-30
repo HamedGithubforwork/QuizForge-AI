@@ -86,13 +86,18 @@ symlinks, and oversized files fail closed; there is no plaintext fallback.
 
 The caller must obtain the account identity from a verified session. Encryption
 protects stored data at the Windows-account boundary; it does not protect against
-malware already running as that Windows user. Snapshot validation checks the
-storage envelope and minimal deck shape, not every card/API business rule.
+malware already running as that Windows user. Snapshot validation requires complete schema-1 DeckDetail/CardRow responses: known
+fields, UUIDs and deck/card ownership, globally unique IDs, bounded card content,
+question/answer shapes, dates, FSRS values, source references and matching counts.
+Unknown or incomplete snapshots fail closed on both save and load. Earlier minimal
+synthetic fixtures are intentionally incompatible; no real user data has been saved
+by this unconnected storage layer. Changes to backend/decks.py response contracts
+must be reviewed alongside snapshot-validation.cjs.
 
 This is a tested storage foundation, **not an enabled offline feature**. It has no
 renderer IPC bridge, does not save any real account data automatically, and does
 not persist authentication tokens. A future authenticated offline workflow must
-validate full deck/card contracts, provide explicit save/remove controls, and
+bind the account from a verified session, provide explicit save/remove controls, and
 reconcile queued reviews before this store is connected to the UI. Windows CI
 exercises a real OS-encrypted round trip and deletion using synthetic data only.
 

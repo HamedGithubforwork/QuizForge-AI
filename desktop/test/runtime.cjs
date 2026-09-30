@@ -6,6 +6,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
 const { createWindowsSnapshotStore } = require('../src/windows-snapshot-store.cjs')
+const { snapshotDeck } = require('./snapshot-fixture.cjs')
 const { windowOptions } = require('../src/policy.cjs')
 const { guardContents } = require('../src/guards.cjs')
 app.enableSandbox()
@@ -37,12 +38,12 @@ app.whenReady().then(async () => {
     const store = createWindowsSnapshotStore({
       app: { isReady: () => app.isReady(), getPath: () => directory }, safeStorage,
     })
-    const decks = [{ id: 'synthetic', name: 'Synthetic private notes', cards: [] }]
+    const decks = [snapshotDeck()]
     await store.save('synthetic-owner', decks)
     assert.deepEqual((await store.load('synthetic-owner')).decks, decks)
     const files = await fs.readdir(path.join(directory, 'study-snapshots-v1'))
     const encrypted = await fs.readFile(path.join(directory, 'study-snapshots-v1', files[0]))
-    assert.equal(encrypted.includes(Buffer.from('Synthetic private notes')), false)
+    assert.equal(encrypted.includes(Buffer.from('Private study notes')), false)
     await store.remove('synthetic-owner')
     assert.equal(await store.load('synthetic-owner'), null)
   } finally {

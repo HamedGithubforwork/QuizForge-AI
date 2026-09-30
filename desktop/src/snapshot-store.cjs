@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const { createHash, randomUUID } = require('node:crypto')
+const { validateEnvelope } = require('./snapshot-validation.cjs')
 const MAX_PLAINTEXT_BYTES = 8 * 1024 * 1024
 const MAX_ENCRYPTED_BYTES = 12 * 1024 * 1024
 
@@ -11,17 +12,6 @@ function ownerKey(ownerId) {
     throw new Error('Invalid snapshot account.')
   }
   return createHash('sha256').update(ownerId).digest('hex') + '.qfn'
-}
-
-function validateEnvelope(value, ownerId) {
-  if (!value || value.schema !== 1 || value.ownerId !== ownerId ||
-      typeof value.savedAt !== 'string' || !Number.isFinite(Date.parse(value.savedAt)) ||
-      !Array.isArray(value.decks) || value.decks.length > 1000 ||
-      value.decks.some(deck => !deck || typeof deck.id !== 'string' ||
-        typeof deck.name !== 'string' || !Array.isArray(deck.cards))) {
-    throw new Error('Invalid or incompatible study snapshot.')
-  }
-  return value
 }
 
 // Main-process only. The caller must supply a verified account identity; this
