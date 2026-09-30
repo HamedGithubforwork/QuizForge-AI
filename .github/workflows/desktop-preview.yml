@@ -52,6 +52,17 @@ jobs:
         run: ./test/signing-gate.ps1
       - name: Install, launch and uninstall packaged preview
         run: ./test/installer.ps1
+      - name: Build and inspect unsigned Store packaging fixture
+        run: |
+          npm run pack:store
+          if ($LASTEXITCODE -ne 0) { throw 'Store fixture build failed.' }
+          ./test/store-package.ps1
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          QFN_STORE_IDENTITY_NAME: QuizFromNotes.CITest
+          QFN_STORE_PUBLISHER: CN=QuizFromNotes CI Test
+          QFN_STORE_PUBLISHER_DISPLAY_NAME: CI Test Only
+          QFN_STORE_DISPLAY_NAME: Quiz From Notes CI Test
       - name: Retain preview for manual Windows acceptance
         uses: actions/upload-artifact@v7
         with:

@@ -17,6 +17,7 @@ const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
 const { createUpdates, loadApprovedConfiguration } = require('./updates.cjs')
 let updates
 let updateTimer
+const storeManaged = process.platform === 'win32' && process.windowsStore === true
 const { PROTOCOL, createCallbackReceiver } = require('./native-protocol.cjs')
 // This session is used only by the explicit native acceptance menu, never by the renderer.
 let nativeSession = null
@@ -93,6 +94,14 @@ async function updatePrompt(kind) {
   return kind === 'restart' && result.response === 0
 }
 
+async function showStoreUpdates() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  await dialog.showMessageBox(mainWindow, { type: 'info', title: 'Quiz From Notes updates',
+    message: 'Microsoft Store manages updates for this app.',
+    detail: 'Open Microsoft Store to check for app updates. Automatic updates follow your Store settings.',
+    buttons: ['OK'] })
+}
+
 function updateNativeMenu() {
   const menu = Menu.getApplicationMenu()
   const running = nativeTest?.status().running === true
@@ -150,7 +159,8 @@ if (!app.requestSingleInstanceLock()) {
       ] },
       { role: 'editMenu' },
       { label: 'Help', submenu: [
-        { id: 'desktop-updates', label: 'Check for updates…', click: () => { void updates?.check(true).catch(() => {}) } },
+        { id: 'desktop-updates', label: storeManaged ? 'Updates through Microsoft Store…' : 'Check for updates…',
+          click: () => { void (storeManaged ? showStoreUpdates() : updates?.check(true))?.catch(() => {}) } },
         { id: 'native-test-start', label: 'Test desktop sign-in…', enabled: false, click: () => { void runNativeTest().catch(() => {}) } },
         { id: 'native-test-cancel', label: 'Cancel desktop sign-in test', enabled: false, click: () => { void nativeTest?.cancel() } },
         { type: 'separator' },
@@ -161,7 +171,7 @@ if (!app.requestSingleInstanceLock()) {
     ]))
     createWindow()
     let updater = null
-    if (app.isPackaged && process.platform === 'win32' && loadApprovedConfiguration(process.resourcesPath)) {
+    if (!storeManaged && app.isPackaged && process.platform === 'win32' && loadApprovedConfiguration(process.resourcesPath)) {
       updater = require('electron-updater').autoUpdater
     }
     updates = createUpdates({ updater, prompt: updatePrompt, changed: updateMenu,

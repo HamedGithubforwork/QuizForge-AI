@@ -150,6 +150,11 @@ configuration. It does not enable offline study or native desktop reminders.
 
 ## Updates to the installed app
 
+The selected release route is now **Microsoft Store, initially Private audience**.
+See [Store preparation](store.md) for the packaging profile, account/identity setup,
+and outstanding Windows acceptance. The direct-EXE update path below remains an
+optional alternative; no signing subscription is required for Store distribution.
+
 The main process supports **Help → Check for updates…** and **Restart to update…**.
 An update-enabled signed build checks after startup and every four hours, downloads
 new published releases, and leaves restart under your control. Save your work before
