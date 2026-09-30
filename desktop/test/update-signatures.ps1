@@ -1,0 +1,81 @@
+# Disposable CI only: no release certificate, private-key export or publication.
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
+    throw 'Update signature acceptance is restricted to disposable Windows CI runners.'
+}
+$principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'The disposable runner must already be elevated; do not request interactive elevation.'
+}
+$installers = @(Get-ChildItem (Join-Path $PSScriptRoot '../dist') -Filter '*.exe' -File)
+if ($installers.Count -ne 1) { throw 'Expected exactly one unsigned preview installer.' }
+Write-Output 'Update fixture stage: verify unsigned input'
+if ((Get-AuthenticodeSignature $installers[0].FullName).Status -ne 'NotSigned') {
+    throw 'This test requires the unsigned preview, not a release signing key.'
+}
+$root = Join-Path $env:RUNNER_TEMP ('qfn-update-signatures-' + [guid]::NewGuid().ToString('N'))
+$certificates = @()
+New-Item -ItemType Directory -Path $root | Out-Null
+try {
+    foreach ($name in @('expected', 'other')) {
+        Write-Output "Update fixture stage: create $name certificate"
+        $subject = 'CN=QFN CI ' + $name + ' ' + [guid]::NewGuid().ToString('N')
+        $certificate = New-SelfSignedCertificate -Type CodeSigningCert -Subject $subject `
+            -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy NonExportable `
+            -HashAlgorithm SHA256 -NotAfter (Get-Date).AddHours(6)
+        $certificates += $certificate
+        $publicFile = Join-Path $root "$name.cer"
+        Export-Certificate -Cert $certificate -FilePath $publicFile | Out-Null
+        Write-Output "Update fixture stage: trust $name root"
+        # CurrentUser Root imports (including certutil -f) require a GUI confirmation.
+        # Use Microsoft's LocalMachine test-signing pattern ONLY on this disposable
+        # hosted runner. No UAC prompt, trust-policy change or release key is needed.
+        Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
+        if (-not (Test-Path "Cert:\LocalMachine\Root\$($certificate.Thumbprint)")) {
+            throw 'Disposable root certificate import failed.'
+        }
+        Write-Output "Update fixture stage: trust $name publisher"
+        Import-Certificate -FilePath $publicFile -CertStoreLocation 'Cert:\CurrentUser\TrustedPublisher' | Out-Null
+        $file = Join-Path $root "$name.exe"
+        Copy-Item -LiteralPath $installers[0].FullName -Destination $file
+        Write-Output "Update fixture stage: sign and verify $name EXE"
+        $signature = Set-AuthenticodeSignature -FilePath $file -Certificate $certificate -HashAlgorithm SHA256
+        if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
+            throw 'Disposable signing fixture could not be verified by Windows.'
+        }
+    }
+    Write-Output 'Update fixture stage: create and verify tampered EXE'
+    Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $root 'unsigned.exe')
+    $tampered = Join-Path $root 'tampered.exe'
+    Copy-Item -LiteralPath (Join-Path $root 'expected.exe') -Destination $tampered
+    # Change a byte in the PE DOS stub, outside the checksum/security-directory exceptions.
+    $stream = [IO.File]::Open($tampered, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite)
+    try {
+        $stream.Position = 80
+        $byte = $stream.ReadByte()
+        if ($byte -lt 0) { throw 'Invalid PE fixture.' }
+        $stream.Position = 80
+        $stream.WriteByte([byte]($byte -bxor 1))
+    } finally { $stream.Dispose() }
+    if ((Get-AuthenticodeSignature $tampered).Status -eq 'Valid') { throw 'Tampering did not invalidate the fixture.' }
+    @{ publisherName = $certificates[0].Subject } | ConvertTo-Json |
+        Set-Content (Join-Path $root 'publisher.json') -Encoding utf8NoBOM
+    Write-Output 'Update fixture stage: launch Electron acceptance'
+    & (Join-Path $PSScriptRoot '../node_modules/.bin/electron.cmd') (Join-Path $PSScriptRoot 'update-signatures.cjs') $root
+    if ($LASTEXITCODE -ne 0) { throw 'Real Windows update signature acceptance failed.' }
+} finally {
+    Write-Output 'Update fixture stage: remove disposable certificates and keys'
+    foreach ($certificate in $certificates) {
+        foreach ($store in @('LocalMachine\Root', 'CurrentUser\TrustedPublisher', 'CurrentUser\My')) {
+            $certificatePath = "Cert:\$store\$($certificate.Thumbprint)"
+            if (Test-Path $certificatePath) {
+                if ($store -eq 'CurrentUser\My') { Remove-Item -LiteralPath $certificatePath -DeleteKey -Force }
+                else { Remove-Item -LiteralPath $certificatePath -Force }
+            }
+            if (Test-Path $certificatePath) { throw 'Disposable certificate cleanup failed.' }
+        }
+    }
+    if (Test-Path $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+}
+Write-Output 'Disposable update certificates and signed fixtures removed; nothing published.'

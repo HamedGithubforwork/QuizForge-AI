@@ -171,8 +171,14 @@ the actual installer. Run `scripts/draft-update.ps1` with the reviewed commit,
 certificate thumbprint and release notes to upload a **draft** to the existing public
 GitHub repository. Publish only after real signed version-to-version Windows acceptance.
 Upload the EXE, its blockmap and latest.yml together; retain prior signed releases.
-CI tests a synthetic older installer upgrading in place and rejects unsigned output,
-but it cannot establish real signed-feed acceptance without the owner's certificate.
+CI tests a synthetic older installer upgrading in place and rejects unsigned output.
+It also downloads copies of the actual EXE through the real Electron/NSIS updater,
+using temporary test certificates trusted only inside the disposable Windows runner.
+It checks the expected signer, wrong signer, unsigned/tampered binaries, checksum
+failures, rejected-download cleanup and recovery. These fixtures are never installed
+or uploaded, and the test certificates are removed. This is automated real-Windows
+coverage, not interactive acceptance or public signed-release/feed acceptance; the
+latter still requires the owner's trusted certificate and actual release path.
 Never set a fake publisher or disable signature checks to make unsigned previews update.
 
 Only published releases reach installed apps; merging a PR alone does not ship an
