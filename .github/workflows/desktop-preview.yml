@@ -41,6 +41,9 @@ jobs:
         run: npm run pack:windows
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Verify real Windows update signatures and failed-download recovery
+        run: ./test/update-signatures.ps1
+        timeout-minutes: 5
       - name: Build synthetic previous-version installer for in-place upgrade acceptance
         run: npx --no-install electron-builder --win nsis --x64 --publish never '-c.extraMetadata.version=0.0.1' '-c.directories.output=dist-previous'
         env:
