@@ -7,15 +7,21 @@ import {
 
 const apiOrigin = 'https://api.quizfromnotes.com'
 
-test('production Cognito, persistent deck, and FSRS review without model calls', async ({ page }) => {
+test('production manual deck creation, first card, and FSRS review without model calls', async ({ page }) => {
   let blockedWrites = 0
-  // Allow the study review write only. Any accidental AI/upload/generation
+  let deckId: string | undefined
+  let createAllowed = true
+  // Allow one manual deck creation, then card/review writes to that deck only.
+  // Any accidental AI/upload/generation
   // request from the browser is blocked before it reaches production.
   await page.route(`${apiOrigin}/api/**`, async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
-    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method()) ||
-        (request.method() === 'POST' && /^\/api\/decks\/[a-f0-9-]{36}\/review$/.test(path))) {
+    const creatingDeck = request.method() === 'POST' && path === '/api/decks' && createAllowed
+    if (creatingDeck) createAllowed = false
+    const writingCreatedDeck = request.method() === 'POST' && deckId &&
+      [`/api/decks/${deckId}/cards`, `/api/decks/${deckId}/review`].includes(path)
+    if (['GET', 'HEAD', 'OPTIONS'].includes(request.method()) || creatingDeck || writingCreatedDeck) {
       await route.continue()
     } else {
       blockedWrites += 1
@@ -36,27 +42,32 @@ test('production Cognito, persistent deck, and FSRS review without model calls',
   const authorization = await list.request().headerValue('authorization')
   expect(Boolean(authorization?.startsWith('Bearer '))).toBe(true)
   const headers = { Authorization: authorization!, Origin: new URL(frontendUrl).origin }
-  let deckId: string | undefined
   try {
-    const created = await page.request.post(`${apiOrigin}/api/decks`, {
-      headers,
-      data: {
-        name: 'Production Study Canary',
-        cards: [{
-          question_type: 'multiple_choice',
-          question: 'Which protocol protects HTTP traffic?',
-          choices: ['TLS', 'UDP'],
-          answer: { correct_index: 0 },
-          explanation: 'Synthetic smoke-test card; no model generation.',
-        }],
-      },
-    }).catch(() => { throw new Error('Synthetic deck creation transport failed') })
+    await page.getByRole('button', { name: '+ Create Deck', exact: true }).click()
+    const form = page.getByRole('form', { name: 'Create a study deck' })
+    await form.getByLabel('Deck name', { exact: true }).fill('Production Study Canary')
+    await form.getByLabel('Description (optional)', { exact: true }).fill('Synthetic smoke test; no model generation.')
+    const createdPromise = page.waitForResponse((response) =>
+      response.url() === `${apiOrigin}/api/decks` && response.request().method() === 'POST')
+    await form.getByRole('button', { name: 'Create Deck', exact: true }).click()
+    const created = await createdPromise
     expect(created.status()).toBe(201)
     const deck = await created.json()
     expect(typeof deck.id === 'string' && /^[a-f0-9-]{36}$/.test(deck.id)).toBe(true)
     deckId = deck.id
-    expect(deck.card_count).toBe(1)
+    expect(deck.card_count).toBe(0)
     expect(deck.study_intensity).toBe('balanced')
+    await expect(page.getByRole('heading', { name: 'Production Study Canary' })).toBeVisible()
+    await page.getByRole('button', { name: '+ Add Card', exact: true }).first().click()
+    await page.getByLabel('Question', { exact: true }).fill('Which protocol protects HTTP traffic?')
+    await page.getByLabel('Correct answer', { exact: true }).fill('TLS')
+    const addedPromise = page.waitForResponse((response) =>
+      response.url() === `${apiOrigin}/api/decks/${deckId}/cards` && response.request().method() === 'POST')
+    await page.getByRole('button', { name: 'Add Card', exact: true }).click()
+    const added = await addedPromise
+    expect(added.status()).toBe(201)
+    expect((await added.json()).card_count).toBe(1)
+    await expect(page.getByText('Which protocol protects HTTP traffic?', { exact: true })).toBeVisible()
 
     // Tokens intentionally live only in memory. Use the application's router
     // so this test does not log itself out with a full document navigation.
