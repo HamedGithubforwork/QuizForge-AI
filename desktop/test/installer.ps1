@@ -35,6 +35,12 @@ function Wait-Helper($process, [int]$milliseconds, [string]$label) {
 }
 $running = $null
 try {
+    $previous = @(Get-ChildItem (Join-Path $PSScriptRoot '../dist-previous') -Filter '*.exe' -File)
+    if ($previous.Count -ne 1) { throw 'Expected one synthetic previous-version installer.' }
+    $baseline = Start-Process -FilePath $previous[0].FullName -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
+    Wait-Helper $baseline 120000 'Baseline installation'
+    if (-not (Test-Path $executable)) { throw 'Baseline executable is missing.' }
+    if ((Get-Item $executable).VersionInfo.ProductVersion -notlike '0.0.1*') { throw 'Baseline version is incorrect.' }
     $install = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
     Wait-Helper $install 120000 'Installation'
     if (-not (Test-Path $executable) -or -not (Test-Path $uninstaller)) { throw 'Installed files are missing.' }
@@ -43,7 +49,8 @@ try {
     if ($null -eq $protocol.GetValue('URL Protocol')) { throw 'URL protocol marker is missing.' }
     $command = (Get-Item (Join-Path $protocolRoot 'shell\open\command')).GetValue('')
     if ($command -ne ('"' + $executable + '" "%1"')) { throw 'Protocol command is not bound to this installed executable.' }
-    Write-Output 'Per-user installation and exact protocol registration passed.'
+    if ((Get-Item $executable).VersionInfo.ProductVersion -notlike "$($package.version)*") { throw 'In-place upgrade did not replace the installed executable.' }
+    Write-Output 'Previous-version in-place upgrade, per-user installation and exact protocol registration passed.'
     & (Join-Path $PSScriptRoot '../node_modules/.bin/electron.cmd') (Join-Path $PSScriptRoot 'packaged-auth.cjs') (Join-Path $installDir 'resources/app.asar')
     if ($LASTEXITCODE -ne 0) { throw 'Packaged native authentication dependency check failed.' }
 

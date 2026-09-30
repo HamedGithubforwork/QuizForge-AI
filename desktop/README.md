@@ -147,3 +147,36 @@ session. It leaves the study window on its existing account. Cancel through
 **Help → Cancel desktop sign-in test**. See `native-auth.md` for acceptance details.
 This menu is available only in the packaged Windows preview with reviewed public
 configuration. It does not enable offline study or native desktop reminders.
+
+## Updates to the installed app
+
+The main process supports **Help → Check for updates…** and **Restart to update…**.
+An update-enabled signed build checks after startup and every four hours, downloads
+new published releases, and leaves restart under your control. Save your work before
+restarting. Ordinary quit never installs an update. Downloads use electron-updater's
+checksum and Windows publisher-signature verification; prereleases, downgrades and
+web installers are disabled. No account or GitHub token is embedded in the app.
+
+The current unsigned preview deliberately reports that updates are not enabled.
+Version 0.1.1 cannot acquire an updater remotely: one manual installation of the first
+update-enabled signed build is required. Subsequent published versions replace the
+existing installation and preserve its app-data directory. Web-interface changes
+already appear when the app reloads and do not require replacing the executable.
+
+To activate this path, the owner must supply an existing trusted Windows signing
+certificate or approve a signing provider/cost. On the signing machine, use the
+existing build command with `-EnableUpdates`. This selects `build/update-enabled.cjs`,
+forces signing, embeds the certificate publisher, and verifies `latest.yml` against
+the actual installer. Run `scripts/draft-update.ps1` with the reviewed commit,
+certificate thumbprint and release notes to upload a **draft** to the existing public
+GitHub repository. Publish only after real signed version-to-version Windows acceptance.
+Upload the EXE, its blockmap and latest.yml together; retain prior signed releases.
+CI tests a synthetic older installer upgrading in place and rejects unsigned output,
+but it cannot establish real signed-feed acceptance without the owner's certificate.
+Never set a fake publisher or disable signature checks to make unsigned previews update.
+
+Only published releases reach installed apps; merging a PR alone does not ship an
+executable. For a faulty release, publish a higher version containing the known-good
+code, because automatic downgrades are disabled. A manual verified older installer
+remains a recovery option. Do not change the app ID/product name or use an expiring
+Actions-artifact URL as the update feed. Nothing is published or purchased by default.

@@ -41,6 +41,10 @@ jobs:
         run: npm run pack:windows
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Build synthetic previous-version installer for in-place upgrade acceptance
+        run: npx --no-install electron-builder --win nsis --x64 --publish never -c.extraMetadata.version=0.0.1 -c.directories.output=dist-previous
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - name: Verify unsigned output cannot pass the signing gate
         run: ./test/signing-gate.ps1
       - name: Install, launch and uninstall packaged preview

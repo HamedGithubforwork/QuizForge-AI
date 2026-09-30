@@ -17,6 +17,10 @@ app.whenReady().then(async () => {
   await createNativeAuthClient({ ...config,
     fetchImpl: () => { throw new Error('This packaging check must not contact the network') } })
   assert.equal(typeof require(path.join(process.argv[2], 'src/native-sign-in-test.cjs')).createNativeSignInTest, 'function')
+  const updates = require(path.join(process.argv[2], 'src/updates.cjs'))
+  assert.equal(updates.loadApprovedConfiguration(path.dirname(process.argv[2])), false)
+  assert.equal(updates.createUpdates({ updater: null, prompt: async () => {} }).status().phase, 'unavailable')
+  assert.equal(typeof require(path.join(process.argv[2], 'node_modules/electron-updater')).NsisUpdater, 'function')
   clearTimeout(timeout)
   console.log('Installed authentication module and JWT dependency loaded without network access')
   app.exit(0)

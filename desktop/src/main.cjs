@@ -14,6 +14,9 @@ app.enableSandbox()
 const { createNativeAuthClient } = require('./native-auth-client.cjs')
 const { createNativeSession } = require('./native-session.cjs')
 const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
+const { createUpdates, loadApprovedConfiguration } = require('./updates.cjs')
+let updates
+let updateTimer
 const { PROTOCOL, createCallbackReceiver } = require('./native-protocol.cjs')
 // This session is used only by the explicit native acceptance menu, never by the renderer.
 let nativeSession = null
@@ -64,6 +67,30 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = undefined; shutdownPromise ||= nativeTest?.dispose() })
   loadHome()
+}
+
+function updateMenu() {
+  const item = Menu.getApplicationMenu()?.getMenuItemById('desktop-updates')
+  if (!item || !updates) return
+  const { phase, progress, busy } = updates.status()
+  item.enabled = !busy
+  item.label = phase === 'ready' ? 'Restart to update…' : phase === 'checking' ? 'Checking for updates…' :
+    phase === 'downloading' ? `Downloading update… ${progress}%` : 'Check for updates…'
+}
+
+async function updatePrompt(kind) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const copy = {
+    restart: ['An update is ready', 'Finish and save your work first. Restart now to update this installed app?', ['Restart and update', 'Later']],
+    current: ['You’re up to date', 'No newer desktop release is available.', ['OK']],
+    error: ['Could not update the app', 'Your current version is still available. Check your connection and try again later.', ['OK']],
+    unavailable: ['Automatic updates are not enabled in this preview', 'An update-enabled signed release is needed once. Future releases can then update this installation.', ['OK']],
+  }
+  const [message, detail, buttons] = copy[kind]
+  const result = await dialog.showMessageBox(mainWindow, { title: 'Quiz From Notes updates',
+    type: kind === 'error' ? 'warning' : 'info', message, detail, buttons,
+    defaultId: kind === 'restart' ? 1 : 0, cancelId: kind === 'restart' ? 1 : 0 })
+  return kind === 'restart' && result.response === 0
 }
 
 function updateNativeMenu() {
@@ -123,6 +150,7 @@ if (!app.requestSingleInstanceLock()) {
       ] },
       { role: 'editMenu' },
       { label: 'Help', submenu: [
+        { id: 'desktop-updates', label: 'Check for updates…', click: () => { void updates?.check(true).catch(() => {}) } },
         { id: 'native-test-start', label: 'Test desktop sign-in…', enabled: false, click: () => { void runNativeTest().catch(() => {}) } },
         { id: 'native-test-cancel', label: 'Cancel desktop sign-in test', enabled: false, click: () => { void nativeTest?.cancel() } },
         { type: 'separator' },
@@ -132,6 +160,27 @@ if (!app.requestSingleInstanceLock()) {
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
     ]))
     createWindow()
+    let updater = null
+    if (app.isPackaged && process.platform === 'win32' && loadApprovedConfiguration(process.resourcesPath)) {
+      updater = require('electron-updater').autoUpdater
+    }
+    updates = createUpdates({ updater, prompt: updatePrompt, changed: updateMenu,
+      beforeInstall: async () => {
+        shutdownPromise ||= nativeTest?.dispose()
+        await shutdownPromise
+        shutdownComplete = true
+      } })
+    if (updater) {
+      // Check once after startup and then every four hours; never restart on quit.
+      const schedule = delay => {
+        updateTimer = setTimeout(async () => {
+          await updates.check().catch(() => {})
+          if (mainWindow && !mainWindow.isDestroyed()) schedule(4 * 60 * 60 * 1000)
+        }, delay)
+        updateTimer.unref()
+      }
+      schedule(20000)
+    }
     if (app.isPackaged && process.platform === 'win32') {
       try {
         const config = require('./native-runtime.json')
@@ -147,6 +196,8 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => { if (!mainWindow) createWindow() })
   })
   app.on('before-quit', event => {
+    clearTimeout(updateTimer)
+    updates?.dispose()
     if (shutdownComplete || !nativeTest) return
     event.preventDefault()
     shutdownPromise ||= nativeTest.dispose()

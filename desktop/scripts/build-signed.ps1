@@ -1,7 +1,8 @@
 # Run on the owner's Windows signing machine. No certificate/key is exported.
 param(
   [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{40}$')][string]$ReviewedCommit,
-  [Parameter(Mandatory)][ValidatePattern('^[0-9A-Fa-f]{40}$')][string]$CertificateThumbprint
+  [Parameter(Mandatory)][ValidatePattern('^[0-9A-Fa-f]{40}$')][string]$CertificateThumbprint,
+  [switch]$EnableUpdates
 )
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'Signed desktop builds require Windows PowerShell 7.' }
@@ -26,7 +27,9 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Dependency audit failed.' }
   & npm.cmd test
   if ($LASTEXITCODE -ne 0) { throw 'Desktop tests failed.' }
-  & npx.cmd --no-install electron-builder --win nsis --x64 --publish never "-c.directories.output=$output" '-c.forceCodeSigning=true' "-c.win.signtoolOptions.certificateSha1=$CertificateThumbprint"
+  $updateArguments = @()
+  if ($EnableUpdates) { $updateArguments = @('--config', 'build/update-enabled.cjs') }
+  & npx.cmd --no-install electron-builder @updateArguments --win nsis --x64 --publish never "-c.directories.output=$output" '-c.forceCodeSigning=true' "-c.win.signtoolOptions.certificateSha1=$CertificateThumbprint"
   if ($LASTEXITCODE -ne 0) { throw 'Signed packaging failed; do not distribute its output.' }
   $package = Get-Content package.json -Raw | ConvertFrom-Json
   $installers = @(Get-ChildItem $output -Filter '*.exe' -File)
@@ -35,8 +38,13 @@ try {
   foreach ($file in @($installers[0].FullName, $application)) {
     & (Join-Path $PSScriptRoot 'verify-signature.ps1') -Path $file -CertificateThumbprint $CertificateThumbprint
   }
+  if ($EnableUpdates) {
+    & node (Join-Path $PSScriptRoot 'verify-update-build.cjs') $output
+    if ($LASTEXITCODE -ne 0) { throw 'Update metadata verification failed; do not publish.' }
+  }
   [ordered]@{
     schema = 1
+    updatesEnabled = [bool]$EnableUpdates
     version = $package.version
     commit = $head
     certificateThumbprint = $CertificateThumbprint.ToUpperInvariant()
