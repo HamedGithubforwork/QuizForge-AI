@@ -124,7 +124,7 @@ API release; older servers leave events pending. No automatic background sync.
 
 Copies include card content and source references, remain encrypted in the Windows
 profile after sign-out, and are not portable backups or automatically refreshed.
-Server decks are never changed; collection is not a server-wide transaction.
+Saving a copy does not change server decks; collection is not a server-wide transaction. Explicit sync updates the online review schedule.
 The offline picker can remove a selected opted-in copy without internet after a
 second confirmation. Sign-out, account replacement and snapshot save/remove close
 any open reader. Explicit offline reopening remains possible until the copy is
@@ -132,9 +132,9 @@ removed. No authentication tokens or purchase assertions are persisted.
 
 Offline access is available during development. A future verified one-time purchase
 entitlement will gate it; there is no payment bypass flag or fake entitlement.
-Review replay needs a separate idempotent server contract before activation.
-Windows CI saves and reopens synthetic OS-encrypted data in two separate processes,
-with no online identity dependency, and exercises native answer-reveal interaction.
+Review sync uses the idempotent offline-review server contract. Windows CI saves,
+reopens and rates synthetic OS-encrypted data, then verifies the persisted rating
+in a third process, with no online identity dependency.
 
 ## Opt-in signed candidate build
 

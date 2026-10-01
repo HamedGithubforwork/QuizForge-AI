@@ -38,13 +38,14 @@ app.whenReady().then(async () => {
       const value = await store.load(copies[0].ownerId)
       stage = 'offline window'
       const reader = createOfflineReader({ BrowserWindow, session })
-      let recorded
-      const saved = new Promise(resolve => { recorded = resolve })
+      let recorded, recordFailed
+      const saved = new Promise((resolve, reject) => { recorded = resolve; recordFailed = reject })
+      void saved.catch(() => {})
       await reader.open(value, { record: async (cardId, rating, guard) => {
         const updated = await store.recordReview(value.ownerId, cardId, rating, value.savedAt, guard)
         recorded(updated)
         return updated
-      } })
+      }, reportError: async () => { recordFailed(Error('Rating handler failed')) } })
       const window = BrowserWindow.getAllWindows()[0]
       assert.equal(window.webContents.getLastWebPreferences().javascript, false)
       assert.equal(window.webContents.getLastWebPreferences().preload, undefined)
@@ -68,8 +69,11 @@ app.whenReady().then(async () => {
       assert.notEqual((await query('.answer[open]')).nodeId, 0)
       stage = 'save rating through script-free reader'
       const rating = await query('.ratings a:nth-child(3)')
+      await dev.sendCommand('DOM.scrollIntoViewIfNeeded', { nodeId: rating.nodeId })
       const { model } = await dev.sendCommand('DOM.getBoxModel', { nodeId: rating.nodeId })
       const x = model.content[0] + 5, y = model.content[1] + 5
+      const metrics = await dev.sendCommand('Page.getLayoutMetrics')
+      assert.ok(y >= 0 && y < metrics.cssVisualViewport.clientHeight, 'Rating must be visible before click')
       await dev.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
       await dev.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
       const updated = await saved
