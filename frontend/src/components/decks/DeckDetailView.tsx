@@ -102,6 +102,10 @@ export default function DeckDetailView({
     managementError,
     setManagementError,
   ] = useState('')
+  const [
+    addCardRequest,
+    setAddCardRequest,
+  ] = useState(0)
 
   useEffect(() => {
     setDeckName(deck.name)
@@ -410,12 +414,12 @@ export default function DeckDetailView({
             className="decks-secondary-button"
             type="button"
             disabled={busy}
-            onClick={() => {
-              setAddingCard(true)
-              setEditingCardId(null)
-              setConfirmingCardDelete(null)
-              setCardActionError('')
-            }}
+            onClick={() =>
+              setAddCardRequest(
+                (request) =>
+                  request + 1,
+              )
+            }
           >
             + Add Card
           </button>
@@ -737,6 +741,7 @@ export default function DeckDetailView({
         availableDecks={availableDecks}
         onNavigate={onNavigate}
         onDeckUpdated={onDeckUpdated}
+        addCardRequest={addCardRequest}
       />
     </>
   )
