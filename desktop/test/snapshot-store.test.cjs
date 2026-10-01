@@ -138,3 +138,29 @@ test('session invalidation during encryption preserves the previous file and cle
   await assert.rejects(store.remove('owner', guard), /Account changed/)
   assert.deepEqual((await store.load('owner')).decks, decks)
 })
+
+test('offline discovery survives restart but excludes copies without explicit opt-in', async t => {
+  const { directory, encryption, store } = await fixture(t)
+  await store.save('online-only', decks)
+  await store.save('offline-owner', decks, () => {}, { offlineAccess: true })
+  const reopened = createSnapshotStore({ directory, encryption })
+  const copies = await reopened.listOffline()
+  assert.equal(copies.length, 1)
+  assert.equal(copies[0].ownerId, 'offline-owner')
+  assert.equal((await reopened.load(copies[0].ownerId)).offlineAccess, true)
+  await reopened.remove('offline-owner')
+  assert.deepEqual(await reopened.listOffline(), [])
+  assert.notEqual(await reopened.load('online-only'), null)
+})
+
+test('offline discovery refuses swapped, malformed and oversized ciphertext', async t => {
+  const { directory, store } = await fixture(t)
+  await store.save('one', decks, () => {}, { offlineAccess: true })
+  const first = (await fs.readdir(directory))[0]
+  await store.save('two', [])
+  const second = (await fs.readdir(directory)).find(name => name !== first)
+  await fs.copyFile(path.join(directory, first), path.join(directory, second))
+  await assert.rejects(store.listOffline(), /Could not unlock/)
+  await fs.truncate(path.join(directory, first), 13 * 1024 * 1024)
+  await assert.rejects(store.listOffline())
+})

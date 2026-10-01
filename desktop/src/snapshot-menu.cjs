@@ -1,6 +1,6 @@
 'use strict'
 
-function createSnapshotMenu({ account, snapshots, dialog, getWindow }) {
+function createSnapshotMenu({ account, snapshots, dialog, getWindow, changed = () => {} }) {
   let busy = false
   return async function run(action) {
     if (busy || !['save', 'remove'].includes(action)) return
@@ -19,14 +19,15 @@ function createSnapshotMenu({ account, snapshots, dialog, getWindow }) {
         account.generation() === generation && account.current()?.userId === identity.userId
       const { response } = await dialog.showMessageBox(window, {
         type: 'question', title: 'Local study copy',
-        message: action === 'save' ? 'Save an encrypted copy of this account’s decks on this computer?' : 'Remove this account’s local study copy?',
+        message: action === 'save' ? 'Enable offline study for this account on this Windows profile?' : 'Remove this account’s local study copy?',
         detail: action === 'save'
-          ? 'This replaces this account’s previous local copy. The copy includes questions, answers and source references, remains on this Windows profile after sign-out, and is not a portable backup. Offline browsing and review synchronization are not enabled yet. Your server decks are unchanged.'
+          ? 'Anyone using this Windows login can open these decks without internet or account sign-in, including after sign-out or restart. This replaces the previous local copy and stores questions, answers and source references encrypted on this profile. Remove the local copy to disable offline access. Offline practice does not yet save or synchronize progress. Your server decks are unchanged.'
           : 'Only this account’s encrypted copy on this computer will be removed. Your server decks and other accounts’ copies are unchanged.',
         buttons: [action === 'save' ? 'Save local copy' : 'Remove local copy', 'Cancel'], defaultId: 1, cancelId: 1,
       })
       if (response !== 0 || !current()) return
-      const result = await snapshots[action]()
+      const result = action === 'save' ? await snapshots.save({ offlineAccess: true }) : await snapshots.remove()
+      changed()
       if (!current()) return
       await dialog.showMessageBox(window, { type: 'info', title: 'Local study copy',
         message: action === 'save' ? `Encrypted copy saved: ${result.deckCount} decks, ${result.cardCount} cards.` : 'Local study copy removed.',

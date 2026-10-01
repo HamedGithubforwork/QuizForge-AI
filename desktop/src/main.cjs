@@ -18,6 +18,8 @@ const { createNativeAccount } = require('./native-account.cjs')
 const { createAccountSnapshots } = require('./account-snapshots.cjs')
 const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
+const { createOfflineReader } = require('./offline-reader.cjs')
+const { createOfflineMenu } = require('./offline-menu.cjs')
 const { installNativeBridge } = require('./native-bridge.cjs')
 const path = require('node:path')
 const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
@@ -31,6 +33,8 @@ let nativeSession = null
 let testSession = null
 let nativeAccount = null
 let snapshotMenu = null
+let snapshotStore = null
+let offlineMenu = null
 let reminders = null
 let reminderTimer = null
 let nativeTest = null
@@ -48,10 +52,11 @@ async function reportFailure() {
       type: 'warning',
       title: 'Unable to open Quiz From Notes',
       message: 'Check your internet connection and try again.',
-      detail: 'This preview requires an internet connection. Your saved decks remain in your account.',
-      buttons: ['Retry', 'Close'], defaultId: 0, cancelId: 1,
+      detail: 'You can open a library previously enabled for offline study on this Windows profile.',
+      buttons: ['Retry', 'Offline study', 'Close'], defaultId: 0, cancelId: 2,
     })
     if (response === 0) setImmediate(() => loadHome())
+    else if (response === 1) await offlineMenu?.open()
     else app.quit()
   } finally {
     showingFailure = false
@@ -66,6 +71,7 @@ function focusWindow() {
 }
 
 async function disposeSessions() {
+  offlineMenu?.clear()
   clearInterval(reminderTimer)
   reminders?.dispose()
   nativeAccount?.clear()
@@ -176,8 +182,9 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'Quiz From Notes', submenu: [
         { label: 'Home', click: loadHome },
-        { id: 'snapshot-save', label: 'Save encrypted local study copy…', enabled: false, click: () => { void snapshotMenu?.('save').catch(() => {}) } },
+        { id: 'snapshot-save', label: 'Save for offline study…', enabled: false, click: () => { void snapshotMenu?.('save').catch(() => {}) } },
         { id: 'snapshot-remove', label: 'Remove local study copy…', enabled: false, click: () => { void snapshotMenu?.('remove').catch(() => {}) } },
+        { id: 'offline-open', label: 'Open offline study…', enabled: false, click: () => { void offlineMenu?.open().catch(() => {}) } },
         { role: 'quit' },
       ] },
       { role: 'editMenu' },
@@ -197,6 +204,12 @@ if (!app.requestSingleInstanceLock()) {
       canSignIn: () => !nativeTest?.status().running,
       openAccountWebsite: () => shell.openExternal(APP_ORIGIN + '/settings/security') })
     createWindow()
+    if (app.isPackaged && process.platform === 'win32') {
+      snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
+      offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
+        dialog, getWindow: () => mainWindow })
+      Menu.getApplicationMenu().getMenuItemById('offline-open').enabled = true
+    }
     let updater = null
     if (!storeManaged && app.isPackaged && process.platform === 'win32' && loadApprovedConfiguration(process.resourcesPath)) {
       updater = require('electron-updater').autoUpdater
@@ -226,14 +239,13 @@ if (!app.requestSingleInstanceLock()) {
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url), onChange: () => {
-            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear() }
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear() }
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })
-        const snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
         snapshotMenu = createSnapshotMenu({ account: nativeAccount,
           snapshots: createAccountSnapshots({ account: nativeAccount, store: snapshotStore }),
-          dialog, getWindow: () => mainWindow })
+          dialog, getWindow: () => mainWindow, changed: () => offlineMenu?.clear() })
         for (const id of ['snapshot-save', 'snapshot-remove']) Menu.getApplicationMenu().getMenuItemById(id).enabled = true
         if (!storeManaged) app.setAppUserModelId('com.quizfromnotes.desktop.preview')
         reminders = createNativeReminders({ account: nativeAccount, supported: () => Notification.isSupported(),
