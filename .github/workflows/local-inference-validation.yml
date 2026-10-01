@@ -1,0 +1,60 @@
+name: Local inference benchmark validation
+on:
+  pull_request:
+    paths: ['desktop/benchmarks/**', '.github/workflows/local-inference-validation.yml']
+  push:
+    branches: ['application/production']
+    paths: ['desktop/benchmarks/**', '.github/workflows/local-inference-validation.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s desktop/benchmarks -p 'test_*.py'
+  windows-cpu:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Download and verify pinned evaluation inputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/llama"
+          curl.exe -fL --max-time 300 -o "$env:RUNNER_TEMP/model.gguf" 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf'
+          if ($LASTEXITCODE -ne 0) { throw 'Model download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/model.gguf" -Algorithm SHA256).Hash.ToLower() -ne '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5') { throw 'Model checksum mismatch' }
+      - name: Evaluate synthetic quizzes on real Windows CPU
+        shell: pwsh
+        run: |
+          $runtime = @(Get-ChildItem "$env:RUNNER_TEMP/llama" -Recurse -Filter llama-server.exe)
+          if ($runtime.Count -ne 1) { throw 'Expected one runtime executable' }
+          python desktop/benchmarks/run_cpu.py --runtime $runtime[0].FullName --model-file "$env:RUNNER_TEMP/model.gguf" --model-sha256 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5 --runtime-version b11317 --output "$env:RUNNER_TEMP/local-inference-results.json"
+          exit $LASTEXITCODE
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: local-inference-windows-cpu
+          path: ${{ runner.temp }}/local-inference-results.json
+          if-no-files-found: ignore
+          retention-days: 7
