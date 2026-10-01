@@ -6,7 +6,7 @@ from uuid import UUID
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, UUID4, field_validator, model_validator
 
 from app_shared import AuthenticatedUser, get_current_user
 
@@ -143,6 +143,21 @@ class ReviewRequest(BaseModel):
         ge=0,
         le=86_400_000,
     )
+
+
+class OfflineReviewRequest(ReviewRequest):
+    event_id: UUID4
+    reviewed_at: AwareDatetime
+    expected_updated_at: AwareDatetime
+    expected_study_intensity: StudyIntensity
+
+
+class OfflineReviewResult(BaseModel):
+    event_id: UUID
+    replayed: bool
+    card: CardRow
+    remaining_due_count: int = Field(ge=0)
+    next_due_at: datetime | None
 
 
 class ReviewPreview(BaseModel):
@@ -515,6 +530,21 @@ async def review_card(
         review_duration_ms=(
             payload.review_duration_ms
         ),
+    )
+
+
+@router.post("/{deck_id}/offline-review", response_model=OfflineReviewResult)
+async def offline_review_card(
+    deck_id: UUID,
+    payload: OfflineReviewRequest,
+    repository=Depends(get_deck_repository),
+):
+    return await repository.review_card(
+        deck_id,
+        card_id=payload.card_id,
+        rating=payload.rating,
+        review_duration_ms=payload.review_duration_ms,
+        offline=payload,
     )
 
 

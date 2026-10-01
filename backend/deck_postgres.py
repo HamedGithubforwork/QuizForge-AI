@@ -1,7 +1,7 @@
 """PostgreSQL deck queries under transaction-local verified identities."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from psycopg import Error as DatabaseError, sql
@@ -775,10 +775,18 @@ class PostgresDeckRepository:
         card_id,
         rating,
         review_duration_ms,
+        offline=None,
     ):
         async with self.transaction(
             isolation="READ COMMITTED"
         ) as (conn, user_id):
+            if offline is not None:
+                # Serialize a user's event even if a retry names another card.
+                # Hash collisions only serialize unrelated work, never authorize it.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (f"offline-review:{user_id}:{offline.event_id}",),
+                )
             row = await (
                 await conn.execute(
                     """SELECT c.id,c.deck_id,c.user_id,c.question_type,c.question,c.answer,c.choices,
@@ -790,7 +798,7 @@ class PostgresDeckRepository:
                        JOIN app.decks d
                          ON d.id=c.deck_id AND d.user_id=c.user_id
                        WHERE c.id=%s AND c.deck_id=%s AND c.user_id=%s
-                       FOR UPDATE OF c""",
+                       FOR UPDATE OF c""" + (",d" if offline is not None else ""),
                     (card_id, deck_id, user_id),
                 )
             ).fetchone()
@@ -800,92 +808,117 @@ class PostgresDeckRepository:
                     "Card does not exist in this deck.",
                 )
 
-            if row["suspended"]:
-                raise HTTPException(
-                    409,
-                    "This card is suspended.",
-                )
+            replayed = False
+            reviewed_at = datetime.now(timezone.utc)
+            if offline is not None:
+                previous = await (await conn.execute(
+                    """SELECT card_id,rating,reviewed_at,review_duration_ms
+                       FROM app.card_review_logs WHERE id=%s AND user_id=%s""",
+                    (offline.event_id, user_id),
+                )).fetchone()
+                if previous is not None:
+                    if (previous["card_id"] != card_id
+                            or previous["rating"] != rating
+                            or previous["reviewed_at"] != offline.reviewed_at
+                            or previous["review_duration_ms"] != review_duration_ms):
+                        raise HTTPException(409, "This review event was already used for different data.")
+                    replayed = True
+                else:
+                    if (row["updated_at"] != offline.expected_updated_at
+                            or row["study_intensity"] != offline.expected_study_intensity):
+                        raise HTTPException(409, "This card changed online. Refresh it before reviewing again.")
+                    if (offline.reviewed_at > reviewed_at
+                            or offline.reviewed_at < reviewed_at - timedelta(days=90)
+                            or offline.reviewed_at < row["updated_at"]):
+                        raise HTTPException(422, "Offline review time is outside the supported range.")
+                reviewed_at = offline.reviewed_at
 
-            reviewed_at = datetime.now(
-                timezone.utc
-            )
-            if row["due_at"] > reviewed_at:
-                raise HTTPException(
-                    409,
-                    "This card is not due yet.",
-                )
+            updated = row
+            if not replayed:
+                if row["suspended"]:
+                    raise HTTPException(
+                        409,
+                        "This card is suspended.",
+                    )
 
-            try:
-                scheduled = schedule_review(
-                    row,
-                    rating,
-                    review_datetime=reviewed_at,
-                    review_duration_ms=review_duration_ms,
-                    study_intensity=
-                        row[
-                            "study_intensity"
-                        ],
-                )
-            except ValueError:
-                raise HTTPException(
-                    422,
-                    "Review rating or duration is invalid.",
-                ) from None
-            except RuntimeError:
-                raise HTTPException(
-                    503,
-                    "Spaced repetition scheduling is temporarily unavailable.",
-                ) from None
+                if row["due_at"] > reviewed_at:
+                    raise HTTPException(
+                        409,
+                        "This card is not due yet.",
+                    )
 
-            updated = await (
+                try:
+                    scheduled = schedule_review(
+                        row,
+                        rating,
+                        review_datetime=reviewed_at,
+                        review_duration_ms=review_duration_ms,
+                        study_intensity=
+                            row[
+                                "study_intensity"
+                            ],
+                    )
+                except ValueError:
+                    raise HTTPException(
+                        422,
+                        "Review rating or duration is invalid.",
+                    ) from None
+                except RuntimeError:
+                    raise HTTPException(
+                        503,
+                        "Spaced repetition scheduling is temporarily unavailable.",
+                    ) from None
+
+                updated = await (
+                    await conn.execute(
+                        """UPDATE app.cards SET
+                            fsrs_state=%s,
+                            fsrs_step=%s,
+                            stability=%s,
+                            difficulty=%s,
+                            due_at=%s,
+                            last_reviewed_at=%s,
+                            review_count=review_count+1,
+                            lapse_count=lapse_count+%s,
+                            updated_at=now()
+                           WHERE id=%s AND deck_id=%s AND user_id=%s
+                           RETURNING id,deck_id,user_id,question_type,question,answer,choices,
+                                     explanation,source_filename,document_sha256,source_pages,tags,
+                                     fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
+                                     review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at""",
+                        (
+                            scheduled.fsrs_state,
+                            scheduled.fsrs_step,
+                            scheduled.stability,
+                            scheduled.difficulty,
+                            scheduled.due_at,
+                            scheduled.last_reviewed_at,
+                            scheduled.lapse_increment,
+                            card_id,
+                            deck_id,
+                            user_id,
+                        ),
+                    )
+                ).fetchone()
+                if updated is None:
+                    raise HTTPException(
+                        404,
+                        "Card does not exist in this deck.",
+                    )
+
                 await conn.execute(
-                    """UPDATE app.cards SET
-                        fsrs_state=%s,
-                        fsrs_step=%s,
-                        stability=%s,
-                        difficulty=%s,
-                        due_at=%s,
-                        last_reviewed_at=%s,
-                        review_count=review_count+1,
-                        lapse_count=lapse_count+%s,
-                        updated_at=now()
-                       WHERE id=%s AND deck_id=%s AND user_id=%s
-                       RETURNING id,deck_id,user_id,question_type,question,answer,choices,
-                                 explanation,source_filename,document_sha256,source_pages,tags,
-                                 fsrs_state,fsrs_step,stability,difficulty,due_at,last_reviewed_at,
-                                 review_count,lapse_count,suspended,progress_reset_at,created_at,updated_at""",
+                    """INSERT INTO app.card_review_logs(
+                        id,card_id,user_id,rating,reviewed_at,review_duration_ms
+                    ) VALUES (COALESCE(%s,gen_random_uuid()),%s,%s,%s,%s,%s)""",
                     (
-                        scheduled.fsrs_state,
-                        scheduled.fsrs_step,
-                        scheduled.stability,
-                        scheduled.difficulty,
-                        scheduled.due_at,
-                        scheduled.last_reviewed_at,
-                        scheduled.lapse_increment,
+                        offline.event_id if offline is not None else None,
                         card_id,
-                        deck_id,
                         user_id,
+                        scheduled.rating,
+                        scheduled.reviewed_at,
+                        scheduled.review_duration_ms,
                     ),
                 )
-            ).fetchone()
-            if updated is None:
-                raise HTTPException(
-                    404,
-                    "Card does not exist in this deck.",
-                )
-
-            await conn.execute(
-                """INSERT INTO app.card_review_logs(
-                    card_id,user_id,rating,reviewed_at,review_duration_ms
-                ) VALUES (%s,%s,%s,%s,%s)""",
-                (
-                    card_id,
-                    user_id,
-                    scheduled.rating,
-                    scheduled.reviewed_at,
-                    scheduled.review_duration_ms,
-                ),
-            )
 
             stats = await (
                 await conn.execute(
@@ -899,6 +932,7 @@ class PostgresDeckRepository:
             ).fetchone()
 
             return {
+                **({"event_id": offline.event_id, "replayed": replayed} if offline is not None else {}),
                 "card": self._cards(
                     [updated],
                     user_id,
