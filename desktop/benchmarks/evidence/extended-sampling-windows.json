@@ -1,0 +1,523 @@
+{
+  "schema": 1,
+  "suite": "all",
+  "synthetic_only": true,
+  "paid_model_calls": 0,
+  "platform": "Windows",
+  "architecture": "AMD64",
+  "runtime_version": "b11317",
+  "model_sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+  "benchmark_sha256": "b74ddea065709298d28974755f054dfede5af78cb56d36fdc27e206d279227d5",
+  "generation_settings": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0,
+    "presence_penalty": 1.5,
+    "seed": 42,
+    "max_tokens": 1800,
+    "timeout_seconds": 300
+  },
+  "model_bytes": 2497280256,
+  "hardware_acceptance": "not_established",
+  "semantic_quality": "requires_human_review",
+  "median_seconds": 63.6205,
+  "structurally_valid": 6,
+  "runs": [
+    {
+      "fixture": "facts",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Luma Observatory Facts",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "In which year was the Luma Observatory opened?",
+            "choices": [
+              "2022",
+              "2042",
+              "2030",
+              "2050"
+            ],
+            "correct_index": 1,
+            "explanation": "The Luma Observatory was opened in 2042 according to the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Who is the director of the Luma Observatory?",
+            "choices": [
+              "Mira Sen",
+              "Dr. Alan Smith",
+              "Professor Jane Doe",
+              "Mr. Richard Brown"
+            ],
+            "correct_index": 0,
+            "explanation": "The director of the Luma Observatory is Mira Sen according to the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many telescopes does the Luma Observatory have?",
+            "choices": [
+              "2",
+              "3",
+              "4",
+              "5"
+            ],
+            "correct_index": 1,
+            "explanation": "The Luma Observatory has three telescopes according to the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What does the blue telescope at the Luma Observatory measure?",
+            "choices": [
+              "Distance",
+              "Temperature",
+              "Speed",
+              "Time"
+            ],
+            "correct_index": 1,
+            "explanation": "The blue telescope measures temperature according to the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What does the red telescope at the Luma Observatory measure?",
+            "choices": [
+              "Distance",
+              "Temperature",
+              "Speed",
+              "Time"
+            ],
+            "correct_index": 0,
+            "explanation": "The red telescope measures distance according to the notes.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 443,
+        "prompt_tokens": 256,
+        "total_tokens": 699,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "elapsed_seconds": 63.434
+    },
+    {
+      "fixture": "multi_page",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Aster and Boreal Project Facts",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "How many samples does each container hold in the Aster project?",
+            "choices": [
+              "12",
+              "8",
+              "6",
+              "4"
+            ],
+            "correct_index": 0,
+            "explanation": "The Aster project uses copper containers, and each container holds 12 samples according to page 1 of the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How often are samples collected in the Boreal project?",
+            "choices": [
+              "Every two hours",
+              "Every six hours",
+              "Every four hours",
+              "Every eight hours"
+            ],
+            "correct_index": 0,
+            "explanation": "The Boreal project uses glass containers, and samples are collected every two hours according to page 2 of the notes.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What material are the containers used in the Aster project made of?",
+            "choices": [
+              "Glass",
+              "Copper",
+              "Plastic",
+              "Steel"
+            ],
+            "correct_index": 1,
+            "explanation": "The Aster project uses copper containers according to page 1 of the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many samples does each container hold in the Boreal project?",
+            "choices": [
+              "12",
+              "8",
+              "6",
+              "4"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project uses glass containers, and each container holds 8 samples according to page 2 of the notes.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the frequency of sample collection in the Aster project?",
+            "choices": [
+              "Every two hours",
+              "Every six hours",
+              "Every four hours",
+              "Every eight hours"
+            ],
+            "correct_index": 1,
+            "explanation": "The Aster project collects samples every six hours according to page 1 of the notes.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 488,
+        "prompt_tokens": 268,
+        "total_tokens": 756,
+        "prompt_tokens_details": {
+          "cached_tokens": 210
+        }
+      },
+      "elapsed_seconds": 63.807
+    },
+    {
+      "fixture": "instruction_in_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Tavi Rover Facts Quiz",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "How many wheels does the Tavi rover have?",
+            "choices": [
+              "Five",
+              "Six",
+              "Seven",
+              "Eight"
+            ],
+            "correct_index": 1,
+            "explanation": "The Tavi rover has six wheels according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How long does the battery of the Tavi rover last?",
+            "choices": [
+              "Eight hours",
+              "Nine hours",
+              "Ten hours",
+              "Eleven hours"
+            ],
+            "correct_index": 1,
+            "explanation": "The battery of the Tavi rover lasts nine hours according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many pictures does the camera of the Tavi rover take per minute?",
+            "choices": [
+              "Three",
+              "Four",
+              "Five",
+              "Six"
+            ],
+            "correct_index": 1,
+            "explanation": "The camera of the Tavi rover takes four pictures per minute according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What color is the antenna of the Tavi rover?",
+            "choices": [
+              "Black",
+              "Silver",
+              "Red",
+              "Blue"
+            ],
+            "correct_index": 1,
+            "explanation": "The antenna of the Tavi rover is silver according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the mass of the Tavi rover in kilograms?",
+            "choices": [
+              "30",
+              "40",
+              "50",
+              "60"
+            ],
+            "correct_index": 1,
+            "explanation": "The mass of the Tavi rover is 40 kilograms according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 394,
+        "prompt_tokens": 280,
+        "total_tokens": 674,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 51.764
+    },
+    {
+      "fixture": "french_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Station Bor\u00e9ale - Notes Fictives",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "En quelle ann\u00e9e a ouvert la station Bor\u00e9ale ?",
+            "choices": [
+              "2025",
+              "2030",
+              "2037",
+              "2040"
+            ],
+            "correct_index": 2,
+            "explanation": "Selon les notes fictives, la station Bor\u00e9ale a ouvert en 2037.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Qui est la directrice de la station Bor\u00e9ale ?",
+            "choices": [
+              "L\u00e9a Morel",
+              "Marie Dupont",
+              "Jean-Pierre Martin",
+              "Sophie Dubois"
+            ],
+            "correct_index": 0,
+            "explanation": "Selon les notes fictives, la directrice de la station Bor\u00e9ale est L\u00e9a Morel.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Combien de capteurs poss\u00e8de la station Bor\u00e9ale ?",
+            "choices": [
+              "Cinq",
+              "Six",
+              "Sept",
+              "Huit"
+            ],
+            "correct_index": 2,
+            "explanation": "Selon les notes fictives, la station Bor\u00e9ale poss\u00e8de sept capteurs.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Quel capteur mesure la pression ?",
+            "choices": [
+              "Le capteur vert",
+              "Le capteur orange",
+              "Le capteur bleu",
+              "Le capteur jaune"
+            ],
+            "correct_index": 0,
+            "explanation": "Selon les notes fictives, le capteur vert mesure la pression.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Quel capteur mesure l'humidit\u00e9 ?",
+            "choices": [
+              "Le capteur vert",
+              "Le capteur orange",
+              "Le capteur bleu",
+              "Le capteur jaune"
+            ],
+            "correct_index": 1,
+            "explanation": "Selon les notes fictives, le capteur orange mesure l'humidit\u00e9.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 535,
+        "prompt_tokens": 299,
+        "total_tokens": 834,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 70.774
+    },
+    {
+      "fixture": "long_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Fictional Survey Facts Quiz",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "What type of cases does the fictional Neral survey use?",
+            "choices": [
+              "Ceramic cases",
+              "Titanium cases",
+              "Plastic cases",
+              "Glass cases"
+            ],
+            "correct_index": 1,
+            "explanation": "The fictional Neral survey uses titanium cases according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many samples does each case hold for the fictional Vesta survey?",
+            "choices": [
+              "23 samples",
+              "17 samples",
+              "15 samples",
+              "19 samples"
+            ],
+            "correct_index": 0,
+            "explanation": "The fictional Vesta survey uses ceramic cases, and each case holds 23 samples according to the study facts.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "At what temperature do samples in the Neral survey store?",
+            "choices": [
+              "4 degrees Celsius",
+              "9 degrees Celsius",
+              "12 degrees Celsius",
+              "6 degrees Celsius"
+            ],
+            "correct_index": 0,
+            "explanation": "The study facts state that Neral stores samples at 4 degrees Celsius.",
+            "source_pages": [
+              3
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "At what temperature do samples in the Vesta survey store?",
+            "choices": [
+              "4 degrees Celsius",
+              "9 degrees Celsius",
+              "12 degrees Celsius",
+              "6 degrees Celsius"
+            ],
+            "correct_index": 1,
+            "explanation": "The study facts state that Vesta stores samples at 9 degrees Celsius.",
+            "source_pages": [
+              3
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How often are measurements taken in the Neral survey?",
+            "choices": [
+              "Every five hours",
+              "Every seven hours",
+              "Every six hours",
+              "Every eight hours"
+            ],
+            "correct_index": 0,
+            "explanation": "The study facts state that measurements occur every five hours in the Neral survey.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 488,
+        "prompt_tokens": 1093,
+        "total_tokens": 1581,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 107.782
+    },
+    {
+      "fixture": "insufficient_source",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Insufficient source material",
+        "questions": []
+      },
+      "usage": {
+        "completion_tokens": 15,
+        "prompt_tokens": 234,
+        "total_tokens": 249,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 2.852
+    }
+  ],
+  "runtime_settings": {
+    "threads": 2,
+    "gpu_layers": 0,
+    "slots": 1,
+    "context": 4096
+  },
+  "peak_child_rss_kib": null
+}

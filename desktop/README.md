@@ -271,3 +271,34 @@ obtain explicit download/removal intent, and keep paths/model configuration out 
 renderer control. The disk check reserves model size plus 512 MiB; it is not a RAM
 or GPU compatibility guarantee. Native parsing/runtime execution, lifecycle,
 hardware checks, UI and purchase entitlements are separate unfinished steps.
+
+### Experimental local runtime boundary
+
+`src/local-runtime.cjs` is an internal, main-process-only component, not connected
+to the renderer or enabled in the preview. It verifies every file in the pinned
+Windows x64 CPU runtime bundle and the stored model before starting inference.
+The bundle manifest was derived from the checksum-verified official llama.cpp
+b11317 archive; no binary is committed or automatically installed. Preserve the
+archive's OpenMP license when packaging; full distribution/license review is
+still required before shipping a bundled engine.
+
+A session owns one CPU process, a random loopback port, a fresh API key and model
+alias. Only fixed HTTP paths are used, with bounded requests/responses and no
+proxy discovery or redirects. Credentials stay in the main process and child
+environment. Inherited llama configuration, provider secrets and proxy settings
+are excluded. Runtime stdout/stderr are discarded. Startup, total duration and
+shutdown are bounded; success, cancellation and errors terminate the owned
+child. One generation per instance is allowed. Main-process callers must still
+validate generated quiz semantics/shape before saving and sanitize errors before
+presenting them to a renderer. No general HTTP client or process handle belongs
+in an IPC contract.
+
+This is not isolation from malicious software running as the same OS user;
+verification also assumes app-owned parent directories remain trusted. Model
+files should not be removed while a session is using them. Abrupt termination
+of the parent is not yet covered by a Windows job-object lifetime policy; that
+and packaging, UI integration, broader model quality and real-device memory
+acceptance remain prerequisites for enabling this feature. The integration CI
+checks the actual Windows engine for authenticated output, denied unauthenticated
+access, a fresh key per session, concurrent-request rejection and child cleanup
+on both success and cancellation.
