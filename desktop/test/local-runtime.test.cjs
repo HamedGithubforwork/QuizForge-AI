@@ -65,6 +65,7 @@ test('loopback client bounds response bytes, request bytes and cancellation', as
 
 function fakeChild({ exited = false } = {}) {
   const child = new EventEmitter()
+  child.pid = 4242
   child.exitCode = exited ? 1 : null
   child.signalCode = null
   child.kills = []
@@ -92,6 +93,7 @@ function runtimeFixture(overrides = {}) {
     freePortFn: async () => 43123,
     randomBytesFn: size => Buffer.alloc(size, 0xab),
     spawnProcess: () => child,
+    guardProcess: async () => ({ dispose: async () => {} }),
     requestFn: async (_port, _key, route) => route === '/v1/models'
       ? { data: [{ id: alias }] }
       : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] },
@@ -146,5 +148,30 @@ test('a runtime process that exits during startup fails closed', async () => {
     runtime.complete({ messages: [{ role: 'user', content: 'test' }] }),
     { code: 'startup_failed' },
   )
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
+
+test('runtime does not contact the local server until process ownership is established', async () => {
+  let requests = 0
+  const child = fakeChild()
+  const runtime = createLocalRuntime({
+    directory: 'C:\\runtime',
+    modelStore: { status: async () => ({ ready: true, path: 'C:\\models\\model.gguf' }) },
+    platform: 'win32',
+    arch: 'x64',
+    verifyRuntimeFn: async () => 'C:\\runtime\\llama-server.exe',
+    freePortFn: async () => 43123,
+    randomBytesFn: size => Buffer.alloc(size, 0xab),
+    spawnProcess: () => child,
+    guardProcess: async () => { throw Object.assign(new Error('guard failed'), { code: 'watchdog_failed' }) },
+    requestFn: async () => { requests++; return {} },
+  })
+  await assert.rejects(
+    runtime.complete({ messages: [{ role: 'user', content: 'test' }] }),
+    { code: 'watchdog_failed' },
+  )
+  assert.equal(requests, 0)
+  assert.notEqual(child.signalCode, null)
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
 })
