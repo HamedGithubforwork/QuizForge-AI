@@ -60,25 +60,26 @@ to success and caller cancellation. Runtime/model integrity is still reverified
 for each session, so app restart does not trust stale in-memory readiness.
 
 Windows sessions now require a second ownership boundary before the runtime can
-be considered ready. `windows-process-guard.cjs` assigns the native runtime
-process to a Windows Job Object configured with KILL_ON_JOB_CLOSE. A separate
-minimal PowerShell watchdog owns the job handle and monitors the parent process.
-If the main process is hard-terminated, the watchdog exits and Windows closes the
-job handle, terminating the assigned runtime. If the watchdog itself dies, closing
-its handle provides the same fail-closed behavior. The watchdog receives only
-parent/child process IDs plus minimal system paths; it does not receive the local
-runtime API key, model path or provider credentials.
+be considered ready. `windows-process-guard.cjs` launches a minimal PowerShell
+watchdog with a private stdin pipe owned by the main process. The watchdog records
+the native child PID and start time, then reports READY. The runtime does not send
+health or generation requests until that handshake succeeds.
 
-The runtime does not send a health or generation request until the watchdog reports
-that assignment succeeded. If Job Object ownership cannot be established (for
-example because system policy blocks the watchdog), Local AI fails unavailable
-rather than running an unowned child. Normal success, cancellation and explicit
-shutdown still terminate the runtime directly and then dispose the watchdog.
+If the Electron/main process is hard-terminated, Windows closes the parent end of
+the watchdog pipe. EOF releases the watchdog, which rechecks the child PID/start
+time and force-terminates only that same process. This avoids relying on assigning
+a process that may already belong to an external Windows Job Object. If the
+watchdog exits unexpectedly while the parent is still alive, its parent-side
+AbortSignal cancels the runtime and the normal cleanup path terminates the child.
+The watchdog receives only the child PID plus minimal system paths; it never
+receives the local runtime API key, model path or provider credentials.
 
-Release acceptance requires a real-Windows test that starts a guarded child, force-
-terminates its parent without graceful cleanup, and independently verifies that
-the child disappears. Local AI must remain disabled until that test and the real
-llama-server lifecycle test pass on the exact reviewed head.
+Normal success, caller cancellation and explicit shutdown terminate the native
+runtime first, then close the watchdog pipe. Release acceptance requires a real
+Windows test that starts a guarded child, force-terminates its parent without
+graceful cleanup, and independently verifies that the child disappears, plus the
+real llama-server lifecycle test on the exact reviewed head. Local AI remains
+disabled until both pass.
 
 ## Model store
 
