@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, UUID4, field_validator, model_validator
 
 from app_shared import AuthenticatedUser, get_current_user
+from review_service import ReviewDomainError, ReviewService
 
 
 router = APIRouter(prefix="/api/decks", tags=["decks"])
@@ -473,6 +474,25 @@ async def get_deck_repository(
     )
 
 
+async def get_review_service(
+    repository=Depends(
+        get_deck_repository
+    ),
+):
+    return ReviewService(
+        repository
+    )
+
+
+def review_http_error(
+    error: ReviewDomainError,
+):
+    return HTTPException(
+        error.status_code,
+        error.detail,
+    )
+
+
 @router.get("", response_model=list[DeckSummary])
 async def list_decks(repository=Depends(get_deck_repository)):
     return await repository.list()
@@ -501,17 +521,22 @@ async def get_deck(
 async def get_review_queue(
     deck_id: UUID,
     limit: int = 20,
-    repository=Depends(get_deck_repository),
+    service=Depends(get_review_service),
 ):
     if not 1 <= limit <= 50:
         raise HTTPException(
             422,
             "Review limit must be between 1 and 50.",
         )
-    return await repository.review_queue(
-        deck_id,
-        limit=limit,
-    )
+    try:
+        return await service.review_queue(
+            deck_id,
+            limit=limit,
+        )
+    except ReviewDomainError as error:
+        raise review_http_error(
+            error
+        ) from None
 
 
 @router.post(
@@ -521,31 +546,42 @@ async def get_review_queue(
 async def review_card(
     deck_id: UUID,
     payload: ReviewRequest,
-    repository=Depends(get_deck_repository),
+    service=Depends(get_review_service),
 ):
-    return await repository.review_card(
-        deck_id,
-        card_id=payload.card_id,
-        rating=payload.rating,
-        review_duration_ms=(
-            payload.review_duration_ms
-        ),
-    )
+    try:
+        return await service.review_card(
+            deck_id,
+            card_id=payload.card_id,
+            rating=payload.rating,
+            review_duration_ms=(
+                payload.review_duration_ms
+            ),
+        )
+    except ReviewDomainError as error:
+        raise review_http_error(
+            error
+        ) from None
 
 
 @router.post("/{deck_id}/offline-review", response_model=OfflineReviewResult)
 async def offline_review_card(
     deck_id: UUID,
     payload: OfflineReviewRequest,
-    repository=Depends(get_deck_repository),
+    service=Depends(get_review_service),
 ):
-    return await repository.review_card(
-        deck_id,
-        card_id=payload.card_id,
-        rating=payload.rating,
-        review_duration_ms=payload.review_duration_ms,
-        offline=payload,
-    )
+    try:
+        return await service.review_card(
+            deck_id,
+            card_id=payload.card_id,
+            rating=payload.rating,
+            review_duration_ms=
+                payload.review_duration_ms,
+            offline=payload,
+        )
+    except ReviewDomainError as error:
+        raise review_http_error(
+            error
+        ) from None
 
 
 @router.post(
