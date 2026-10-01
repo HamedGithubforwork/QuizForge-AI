@@ -38,3 +38,35 @@ prompt. Do not attribute the preliminary API-contract failure to model quality.
 Next comparison: Qwen3 4B Q4_K_M, followed by real Windows and representative
 hardware/longer-source evaluation if quality warrants it. No default runtime/model
 or shipping hardware requirements have been selected.
+
+## Qwen3 4B Q4_K_M — basic suite
+
+Using the original benchmark at PR #476 head
+`b3b645ae2f0771f78008f27ca16d32d06691553c`:
+
+| Environment | Structural pass | Median per 5 questions | Model download | Peak child RSS |
+| --- | --- | --- | --- | --- |
+| Native Linux shared Xeon host, automated | 3/3 | 143.192 s | 2,497,280,256 bytes | 5,027,844 KiB |
+| Real Windows 2025 GitHub runner, automated | 3/3 | 64.815 s | 2,497,280,256 bytes | Not measured |
+
+These are different hardware/host environments, not an operating-system speed
+comparison. One sample per fixture cannot establish latency variance or a p95.
+The Windows artifact came from successful run 36847849375; its ZIP SHA-256 was
+`7a0f61b427f25ac332b59ecf674f3d526976edcf9a6e8284331047c35808ad8f`.
+Windows desktop regression 36847849298 also passed. Both use two CPU threads,
+4096 context tokens, no GPU offload and one slot.
+
+Assistant review of all 15 questions in each output found the selected answers,
+explanations and page citations consistent with the synthetic source. Windows
+multi-page questions 1 and 4 repeat the Aster container-capacity fact in different
+wording; exact-string duplicate validation cannot catch this semantic repetition.
+Linux multi-page question 5 revisits container materials already partly tested.
+Neither run followed the quoted injection. This is encouraging small-fixture
+evidence, not general prompt-injection resistance or launch-quality acceptance.
+
+Decision: retain 4B Q4_K_M as an experimental candidate for extended testing.
+Do not pick a default or advertise RAM/GPU requirements yet. The weights alone
+are about 2.33 GiB; Linux peak child RSS was about 4.8 GiB before accounting for
+Electron and other applications. Windows memory and consumer-device behavior
+remain unmeasured. The 0.6B model remains rejected under the evaluated settings;
+other prompts, quantizations or sampling settings have not been ruled out.
