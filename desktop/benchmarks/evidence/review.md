@@ -100,3 +100,17 @@ Request times were 190.479 s (French), 206.691 s (longer notes) and 4.723 s
 source SHA-256. This is one seeded screen, not evidence of a general correctness
 rate; broader held-out material, multiple seeds and consumer hardware remain
 necessary before selecting a default or enabling unattended deck creation.
+
+### Final extended Windows sampling result
+
+Run 36851298469 at source c2504dc182febf6593927bc690a45734b79463c7
+passed all six cases. `extended-sampling-windows.json` preserves its synthetic
+artifact with line endings normalized. The benchmark source hash records Windows
+CRLF checkout bytes; the Linux report records LF bytes. Manual review found all
+25 selected answers, explanations and cited pages correct against the fixture
+facts, without repeated concepts. French output including its title was French.
+The insufficient-source case returned no questions. Case times were 63.434,
+63.807, 51.764, 70.774, 107.782 and 2.852 seconds; median including abstention was
+63.6205 seconds. This is one seed on a hosted Windows runner, not real-device
+memory acceptance or evidence that all subjects/languages are reliable. No
+product default is selected. The initial greedy configuration remains rejected.
