@@ -11,6 +11,7 @@ const {
 
 function fakeWatchdog() {
   const process = new EventEmitter()
+  process.stdin = new PassThrough()
   process.stdout = new PassThrough()
   process.exitCode = null
   process.signalCode = null
@@ -19,11 +20,17 @@ function fakeWatchdog() {
     queueMicrotask(() => process.emit('close'))
     return true
   }
+  process.stdin.on('finish', () => {
+    if (process.exitCode === null && process.signalCode === null) {
+      process.exitCode = 0
+      queueMicrotask(() => process.emit('close', 0))
+    }
+  })
   return process
 }
 
-test('watchdog environment contains only system paths and process identities', () => {
-  const env = watchdogEnvironment(123, 456, {
+test('watchdog environment contains only system paths and child identity', () => {
+  const env = watchdogEnvironment(456, {
     SystemRoot: 'C:\\Windows',
     TEMP: 'C:\\Temp',
     OPENAI_API_KEY: 'secret',
@@ -32,17 +39,15 @@ test('watchdog environment contains only system paths and process identities', (
     NODE_OPTIONS: '--require bad',
   })
   assert.deepEqual(Object.keys(env).sort(),
-    ['PATH', 'QFN_CHILD_PID', 'QFN_PARENT_PID', 'SystemRoot', 'TEMP'])
-  assert.equal(env.QFN_PARENT_PID, '123')
+    ['PATH', 'QFN_CHILD_PID', 'SystemRoot', 'TEMP'])
   assert.equal(env.QFN_CHILD_PID, '456')
 })
 
-test('guard waits for assignment handshake and disposes the watchdog', async () => {
+test('guard waits for pipe handshake and closes cleanly through stdin', async () => {
   const watchdog = fakeWatchdog()
   let executable, args, options
   const promise = createWindowsProcessGuard({ pid: 456 }, {
     platform: 'win32',
-    parentPid: 123,
     environment: { SystemRoot: 'C:\\Windows' },
     spawnProcess(file, argv, config) {
       executable = file
@@ -56,17 +61,35 @@ test('guard waits for assignment handshake and disposes the watchdog', async () 
   assert.equal(executable, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
   assert.equal(args.includes('-EncodedCommand'), true)
   assert.equal(options.shell, false)
-  assert.deepEqual(options.stdio, ['ignore', 'pipe', 'ignore'])
+  assert.deepEqual(options.stdio, ['pipe', 'pipe', 'ignore'])
   assert.equal('LLAMA_API_KEY' in options.env, false)
+  assert.equal(guard.signal.aborted, false)
   await guard.dispose()
-  assert.equal(watchdog.signalCode, 'SIGTERM')
+  assert.equal(watchdog.exitCode, 0)
+  assert.equal(guard.signal.aborted, false)
 })
 
-test('guard fails closed when the watchdog exits before assignment', async () => {
+test('unexpected watchdog exit aborts the ownership signal', async () => {
+  const watchdog = fakeWatchdog()
+  const promise = createWindowsProcessGuard({ pid: 456 }, {
+    platform: 'win32',
+    environment: { SystemRoot: 'C:\\Windows' },
+    spawnProcess() {
+      queueMicrotask(() => watchdog.stdout.write('READY\r\n'))
+      return watchdog
+    },
+  })
+  const guard = await promise
+  watchdog.exitCode = 7
+  watchdog.emit('close', 7)
+  assert.equal(guard.signal.aborted, true)
+  assert.equal(guard.signal.reason?.code, 'watchdog_failed')
+})
+
+test('guard fails closed when the watchdog exits before handshake', async () => {
   const watchdog = fakeWatchdog()
   await assert.rejects(createWindowsProcessGuard({ pid: 456 }, {
     platform: 'win32',
-    parentPid: 123,
     environment: { SystemRoot: 'C:\\Windows' },
     spawnProcess() {
       queueMicrotask(() => {
