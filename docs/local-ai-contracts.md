@@ -46,6 +46,41 @@ prove available RAM, runtime-binary readiness, supported GPU, sustained performa
 quiz quality or launch readiness. Real hardware evaluation and a fuller capability
 policy remain prerequisites before UI enablement. The model is not a chosen default.
 
+## Runtime lifecycle
+
+The runtime instance now has explicit `status()` and idempotent `shutdown()`
+ownership. One inference session may run at a time. Shutdown closes the instance,
+cancels any active operation through an owner signal, waits for the existing
+bounded child cleanup path, and prevents a later request from starting on the
+same instance. Success, caller cancellation, startup failure and explicit shutdown
+all converge on the same terminate-then-force-kill cleanup path.
+
+The real Windows runtime validation must exercise explicit shutdown in addition
+to success and caller cancellation. Runtime/model integrity is still reverified
+for each session, so app restart does not trust stale in-memory readiness.
+
+Windows sessions now require a second ownership boundary before the runtime can
+be considered ready. `windows-process-guard.cjs` launches a minimal PowerShell
+watchdog with a private stdin pipe owned by the main process. The watchdog records
+the native child PID and start time, then reports READY. The runtime does not send
+health or generation requests until that handshake succeeds.
+
+If the Electron/main process is hard-terminated, Windows closes the parent end of
+the watchdog pipe. EOF releases the watchdog, which rechecks the child PID/start
+time and force-terminates only that same process. This avoids relying on assigning
+a process that may already belong to an external Windows Job Object. If the
+watchdog exits unexpectedly while the parent is still alive, its parent-side
+AbortSignal cancels the runtime and the normal cleanup path terminates the child.
+The watchdog receives only the child PID plus minimal system paths; it never
+receives the local runtime API key, model path or provider credentials.
+
+Normal success, caller cancellation and explicit shutdown terminate the native
+runtime first, then close the watchdog pipe. Release acceptance requires a real
+Windows test that starts a guarded child, force-terminates its parent without
+graceful cleanup, and independently verifies that the child disappears, plus the
+real llama-server lifecycle test on the exact reviewed head. Local AI remains
+disabled until both pass.
+
 ## Model store
 
 `createModelStoreContract({id, store})` exposes `status`, `download`, and `remove`.

@@ -11,6 +11,7 @@ function sources(overrides = {}) {
     'desktop/src/model-store-contract.cjs': "const api = require('./local-ai-provider.cjs')",
     'desktop/src/local-ai.cjs': "module.exports = require('./local-ai-provider.cjs')",
     'desktop/src/windows-local-ai-provider.cjs': "const core = require('./local-ai-provider.cjs')",
+    'desktop/src/windows-process-guard.cjs': "const path = require('node:path')",
     'desktop/src/local-runtime.cjs': "const http = require('node:http')",
     'desktop/src/local-model-store.cjs': "const fs = require('node:fs/promises')",
     'desktop/src/main.cjs': "require('./local-ai.cjs'); require('./windows-local-ai-provider.cjs')",

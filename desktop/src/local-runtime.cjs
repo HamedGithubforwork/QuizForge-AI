@@ -9,6 +9,7 @@ const { createHash, randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
 const MANIFEST = require('./local-runtime-manifest.json')
+const { createWindowsProcessGuard } = require('./windows-process-guard.cjs')
 const fail = code => Object.assign(new Error('Local runtime: ' + code), { code })
 
 async function verifyRuntime(directory, manifest = MANIFEST, signal) {
@@ -91,49 +92,118 @@ async function stop(child, closed) {
   if (!await Promise.race([closed.then(() => true), delay(3000, false)])) throw fail('shutdown_failed')
 }
 
-function createLocalRuntime({ directory, modelStore, spawnProcess = spawn }) {
-  let busy = false
-  return {
-    async complete(payload, { signal } = {}) {
-      if (busy) throw fail('busy')
-      if (process.platform !== 'win32' || process.arch !== 'x64') throw fail('unsupported_platform')
-      // Payload is produced by trusted main-process quiz logic, not passed through from a renderer.
-      if (!payload || !Array.isArray(payload.messages) || payload.tools || payload.stream) throw fail('invalid_request')
-      busy = true
-      let child, closed
-      const bounded = AbortSignal.any([AbortSignal.timeout(6 * 60 * 1000), ...(signal ? [signal] : [])])
-      try {
-        const executable = await verifyRuntime(directory, MANIFEST, bounded)
-        const model = await modelStore.status({ signal: bounded })
-        if (!model.ready) throw fail('model_missing')
-        bounded.throwIfAborted()
-        const key = randomBytes(32).toString('hex')
-        const alias = 'qfn-' + randomBytes(16).toString('hex')
-        const port = await freePort()
-        child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
-          '-c', '4096', '-t', '2', '-ngl', '0', '-np', '1', '--no-ui', '--no-agent',
-          '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
-        { cwd: directory, windowsHide: true, shell: false, stdio: 'ignore', env: runtimeEnvironment(key) })
-        let launchError
-        child.on('error', () => { launchError = true })
-        closed = new Promise(resolve => child.once('close', resolve))
-        const startup = AbortSignal.any([bounded, AbortSignal.timeout(60000)])
-        for (;;) {
-          startup.throwIfAborted()
-          if (launchError || child.exitCode !== null || child.signalCode !== null) throw fail('startup_failed')
-          try {
-            const models = await request(port, key, '/v1/models', undefined,
-              AbortSignal.any([startup, AbortSignal.timeout(2000)]))
-            if (models.data?.some(item => item.id === alias)) break
-          } catch { startup.throwIfAborted() }
-          await delay(100, undefined, { signal: startup })
-        }
-        return await request(port, key, '/v1/chat/completions', { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) }, bounded)
-      } finally {
-        try { if (child && closed) await stop(child, closed) } finally { busy = false }
+function createLocalRuntime({
+  directory,
+  modelStore,
+  spawnProcess = spawn,
+  verifyRuntimeFn = verifyRuntime,
+  freePortFn = freePort,
+  requestFn = request,
+  randomBytesFn = randomBytes,
+  platform = process.platform,
+  arch = process.arch,
+  guardProcess = createWindowsProcessGuard,
+}) {
+  let active = null
+  let closed = false
+  const ownerAbort = new AbortController()
+
+  async function run(payload, signal) {
+    let child, childClosed, processGuard
+    const bounded = AbortSignal.any([
+      AbortSignal.timeout(6 * 60 * 1000),
+      ownerAbort.signal,
+      ...(signal ? [signal] : []),
+    ])
+    try {
+      const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
+      const model = await modelStore.status({ signal: bounded })
+      if (!model.ready) throw fail('model_missing')
+      bounded.throwIfAborted()
+      const key = randomBytesFn(32).toString('hex')
+      const alias = 'qfn-' + randomBytesFn(16).toString('hex')
+      const port = await freePortFn()
+      child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
+        '-c', '4096', '-t', '2', '-ngl', '0', '-np', '1', '--no-ui', '--no-agent',
+        '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
+      { cwd: directory, windowsHide: true, shell: false, stdio: 'ignore', env: runtimeEnvironment(key) })
+      let launchError
+      child.on('error', () => { launchError = true })
+      childClosed = new Promise(resolve => child.once('close', resolve))
+      processGuard = await guardProcess(child, { platform })
+      const owned = AbortSignal.any([bounded, processGuard.signal])
+      const startup = AbortSignal.any([owned, AbortSignal.timeout(60000)])
+      for (;;) {
+        startup.throwIfAborted()
+        if (launchError || child.exitCode !== null || child.signalCode !== null) throw fail('startup_failed')
+        try {
+          const models = await requestFn(port, key, '/v1/models', undefined,
+            AbortSignal.any([startup, AbortSignal.timeout(2000)]))
+          if (models.data?.some(item => item.id === alias)) break
+        } catch { startup.throwIfAborted() }
+        await delay(100, undefined, { signal: startup })
       }
-    },
+      return await requestFn(port, key, '/v1/chat/completions',
+        { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
+        owned)
+    } finally {
+      let cleanupError = null
+      try {
+        if (child && childClosed) await stop(child, childClosed)
+      } catch (error) {
+        cleanupError = error
+      }
+      try {
+        await processGuard?.dispose()
+      } catch (error) {
+        cleanupError ||= error
+      }
+      if (child && childClosed &&
+          child.exitCode === null && child.signalCode === null &&
+          !await Promise.race([childClosed.then(() => true), delay(3000, false)])) {
+        cleanupError ||= fail('shutdown_failed')
+      }
+      if (cleanupError) throw cleanupError
+    }
   }
+
+  function complete(payload, { signal } = {}) {
+    if (closed) return Promise.reject(fail('runtime_closed'))
+    if (active) return Promise.reject(fail('busy'))
+    if (platform !== 'win32' || arch !== 'x64') return Promise.reject(fail('unsupported_platform'))
+    // Payload is produced by trusted main-process quiz logic, not passed through from a renderer.
+    if (!payload || !Array.isArray(payload.messages) || payload.tools || payload.stream) {
+      return Promise.reject(fail('invalid_request'))
+    }
+    const operation = run(payload, signal)
+    active = operation
+    void operation.finally(() => {
+      if (active === operation) active = null
+    }).catch(() => {})
+    return operation
+  }
+
+  async function shutdown() {
+    if (!closed) {
+      closed = true
+      ownerAbort.abort()
+    }
+    const operation = active
+    if (!operation) return
+    try {
+      await operation
+    } catch (error) {
+      // Cancellation/startup/request failures are already reported to the request
+      // caller. Shutdown itself only fails if native cleanup could not complete.
+      if (error?.code === 'shutdown_failed') throw error
+    }
+  }
+
+  function status() {
+    return Object.freeze({ busy: active !== null, closed })
+  }
+
+  return Object.freeze({ complete, shutdown, status })
 }
 
-module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, MANIFEST }
+module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, MANIFEST }
