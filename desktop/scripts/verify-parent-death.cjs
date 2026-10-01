@@ -72,7 +72,7 @@ async function main() {
   }
 }
 
-main().catch(() => {
-  console.error('Parent-death process-ownership validation failed')
+main().catch(error => {
+  console.error('Parent-death process-ownership validation failed:', error?.code || error?.name || 'unknown')
   process.exitCode = 1
 })
