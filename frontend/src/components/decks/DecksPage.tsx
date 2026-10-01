@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useState,
   type FormEvent,
 } from 'react'
@@ -7,6 +8,9 @@ import {
 import {
   apiFetch,
 } from '../../lib/api'
+import {
+  resolveDeckRoute,
+} from '../../lib/deckRoutes'
 import {
   deckTagOptions,
   filterStudyCards,
@@ -49,27 +53,6 @@ type DecksPageProps = {
   pathname: string
   onNavigate: (path: string) => void
 }
-
-const DECK_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i
-
-const REVIEW_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/review$/i
-
-const CRAM_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/cram$/i
-
-const WEAK_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/weak$/i
-
-const RECENT_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/recent$/i
-
-const AI_PRACTICE_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/ai-practice$/i
-
-const EXAM_PATH =
-  /^\/decks\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/exam$/i
 
 function formatDeckDate(
   value: string,
@@ -1780,48 +1763,11 @@ export default function DecksPage({
   const [error, setError] =
     useState('')
 
-  const reviewMatch =
-    pathname.match(REVIEW_PATH)
-  const reviewDeckId =
-    reviewMatch?.[1] ?? null
-  const cramMatch =
-    pathname.match(CRAM_PATH)
-  const cramDeckId =
-    cramMatch?.[1] ?? null
-  const weakMatch =
-    pathname.match(WEAK_PATH)
-  const weakDeckId =
-    weakMatch?.[1] ?? null
-  const recentMatch =
-    pathname.match(RECENT_PATH)
-  const recentDeckId =
-    recentMatch?.[1] ?? null
-  const aiPracticeMatch =
-    pathname.match(
-      AI_PRACTICE_PATH,
-    )
-  const aiPracticeDeckId =
-    aiPracticeMatch?.[1] ?? null
-  const examMatch =
-    pathname.match(EXAM_PATH)
-  const examDeckId =
-    examMatch?.[1] ?? null
-  const missedQuestions =
-    pathname === '/decks/missed'
-  const detailMatch =
-    pathname.match(DECK_PATH)
-  const deckId =
-    detailMatch?.[1] ?? null
-  const invalidPath =
-    pathname !== '/decks' &&
-    !missedQuestions &&
-    !deckId &&
-    !reviewDeckId &&
-    !cramDeckId &&
-    !weakDeckId &&
-    !recentDeckId &&
-    !aiPracticeDeckId &&
-    !examDeckId
+  const route = useMemo(
+    () =>
+      resolveDeckRoute(pathname),
+    [pathname],
+  )
 
   useEffect(() => {
     let active = true
@@ -1833,30 +1779,30 @@ export default function DecksPage({
 
       try {
         if (
-          missedQuestions ||
-          reviewDeckId ||
-          cramDeckId ||
-          weakDeckId ||
-          recentDeckId ||
-          aiPracticeDeckId ||
-          examDeckId
+          route.kind !== 'list' &&
+          route.kind !== 'detail' &&
+          route.kind !== 'invalid'
         ) {
           return
         }
 
-        if (invalidPath) {
+        if (
+          route.kind === 'invalid'
+        ) {
           throw new Error(
             'This study deck link is invalid.',
           )
         }
 
-        if (deckId) {
+        if (
+          route.kind === 'detail'
+        ) {
           const [
             nextDeck,
             nextDecks,
           ] = await Promise.all([
             getStudyDeck(
-              deckId,
+              route.deckId,
               apiFetch,
             ),
             listStudyDecks(
@@ -1899,18 +1845,7 @@ export default function DecksPage({
     return () => {
       active = false
     }
-  }, [
-    aiPracticeDeckId,
-    cramDeckId,
-    examDeckId,
-    deckId,
-    invalidPath,
-    missedQuestions,
-    pathname,
-    recentDeckId,
-    reviewDeckId,
-    weakDeckId,
-  ])
+  }, [route])
 
   const totalDue =
     decks.reduce(
@@ -1933,40 +1868,38 @@ export default function DecksPage({
   return (
     <main className="decks-page">
       <div className="decks-shell">
-        {missedQuestions ? (
+        {route.kind === 'missed' ? (
           <MissedQuestionsPage
             onNavigate={onNavigate}
           />
-        ) : reviewDeckId ? (
+        ) : route.kind === 'review' ? (
           <ReviewDeckPage
-            deckId={reviewDeckId}
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
-        ) : cramDeckId ? (
+        ) : route.kind === 'cram' ? (
           <CramDeckPage
-            deckId={cramDeckId}
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
-        ) : weakDeckId ? (
+        ) : route.kind === 'weak' ? (
           <WeakCardsPage
-            deckId={weakDeckId}
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
-        ) : recentDeckId ? (
+        ) : route.kind === 'recent' ? (
           <RecentlyAddedDeckPage
-            deckId={recentDeckId}
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
-        ) : aiPracticeDeckId ? (
+        ) : route.kind === 'ai-practice' ? (
           <DeckAiPracticePage
-            deckId={
-              aiPracticeDeckId
-            }
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
-        ) : examDeckId ? (
+        ) : route.kind === 'exam' ? (
           <ExamPlanPage
-            deckId={examDeckId}
+            deckId={route.deckId}
             onNavigate={onNavigate}
           />
         ) : loading ? (
