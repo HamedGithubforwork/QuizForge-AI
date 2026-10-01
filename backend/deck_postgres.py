@@ -798,7 +798,7 @@ class PostgresDeckRepository:
                        JOIN app.decks d
                          ON d.id=c.deck_id AND d.user_id=c.user_id
                        WHERE c.id=%s AND c.deck_id=%s AND c.user_id=%s
-                       FOR UPDATE OF c""",
+                       FOR UPDATE OF c""" + (",d" if offline is not None else ""),
                     (card_id, deck_id, user_id),
                 )
             ).fetchone()

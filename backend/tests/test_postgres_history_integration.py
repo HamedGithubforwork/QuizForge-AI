@@ -1283,6 +1283,18 @@ def test_offline_review_idempotency_conflicts_and_owner_boundary(api, owner, mon
             ]:
                 rejected = await client.post(url, headers=headers(), json=event | change)
                 assert rejected.status_code == status, rejected.text
+            # Scheduling must hold the deck lock too, so intensity cannot change
+            # between the stale-state check and commit.
+            import deck_postgres
+            schedule = deck_postgres.schedule_review
+            lock_checks = []
+            def locked_schedule(*args, **kwargs):
+                with pytest.raises(psycopg.errors.LockNotAvailable):
+                    with owner.transaction():
+                        owner.execute("SELECT id FROM app.decks WHERE id=%s FOR UPDATE NOWAIT", (deck["id"],))
+                lock_checks.append(True)
+                return schedule(*args, **kwargs)
+            monkeypatch.setattr(deck_postgres, "schedule_review", locked_schedule)
             # Real separate pool connections exercise racing, identical retries.
             first, retry = await asyncio.gather(*[
                 client.post(url, headers=headers(), json=event) for _ in range(2)
@@ -1293,6 +1305,7 @@ def test_offline_review_idempotency_conflicts_and_owner_boundary(api, owner, mon
             assert datetime.fromisoformat(first.json()["card"]["last_reviewed_at"].replace("Z", "+00:00")) == datetime.fromisoformat(event["reviewed_at"])
             logs = owner.execute("SELECT count(*) FROM app.card_review_logs WHERE card_id=%s", (card["id"],)).fetchone()[0]
             assert logs == 1
+            assert lock_checks == [True]
             changed = await client.post(url, headers=headers(), json=event | {"rating": 4})
             assert changed.status_code == 409
             stale = await client.post(url, headers=headers(), json=event | {"event_id": str(uuid4())})
