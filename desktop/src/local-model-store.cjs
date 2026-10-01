@@ -89,11 +89,11 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
         const disk = await fs.statfs(directory)
         if (disk.bavail * disk.bsize < spec.bytes + RESERVE) throw failure('insufficient_disk')
         const temporary = path.join(directory, randomUUID() + '.part')
-        let handle, reader
+        let handle, reader, created = false
         try {
           const result = await response(bounded)
           reader = result.body.getReader()
-          handle = await fs.open(temporary, 'wx', 0o600)
+          handle = await fs.open(temporary, 'wx', 0o600); created = true
           let bytes = 0
           const hash = createHash('sha256')
           for (;;) {
@@ -114,7 +114,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
         } finally {
           await reader?.cancel().catch(() => {})
           if (handle) await handle.close()
-          await fs.rm(temporary, { force: true })
+          if (created) await fs.rm(temporary, { force: true })
         }
       })
     },
