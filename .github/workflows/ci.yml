@@ -9,6 +9,9 @@ on:
       - "frontend/**"
       - "e2e/**"
       - "scripts/rds_rehearsal/identity_schema.sql"
+      - "scripts/check_architecture.py"
+      - "scripts/test_check_architecture.py"
+      - "ARCHITECTURE.md"
       - ".python-version"
       - "render.yaml"
       - ".github/workflows/ci.yml"
@@ -91,6 +94,25 @@ jobs:
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+
+  architecture:
+    name: Architecture boundaries
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+
+      - name: Self-test architecture guard
+        run: python scripts/test_check_architecture.py
+
+      - name: Enforce architecture boundaries
+        run: python scripts/check_architecture.py
 
   backend-tests:
     name: Backend tests
@@ -273,6 +295,7 @@ jobs:
     name: Required PR gate
     needs:
       - changes
+      - architecture
       - backend-tests
       - postgres-history
       - frontend-checks
@@ -285,6 +308,7 @@ jobs:
         shell: bash
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
+          ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           POSTGRES_RESULT: ${{ needs.postgres-history.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
@@ -293,6 +317,7 @@ jobs:
           set -euo pipefail
 
           echo "Change detection: ${CHANGES_RESULT}"
+          echo "Architecture:    ${ARCHITECTURE_RESULT}"
           echo "Backend tests:   ${BACKEND_RESULT}"
           echo "PostgreSQL API:  ${POSTGRES_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
@@ -303,7 +328,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${ARCHITECTURE_RESULT}" "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
