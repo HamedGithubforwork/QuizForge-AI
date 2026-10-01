@@ -245,3 +245,29 @@ Windows CI uses three separate Electron processes to save a library, reopen it
 and click a rating, and verify that rating survived another restart. Unit tests
 cover concurrent clicks, interrupted writes, replacement protection, account
 changes, retry identity and v1 upgrade isolation. Purchase gating remains deferred.
+
+## Local-model storage (not yet connected to UI)
+
+`local-model-store.cjs` is a main-process-only component for a future explicit
+model-download action. It is not imported by the current app and performs no
+automatic download. Its pinned Qwen3 4B Q4_K_M entry is an **experimental evaluation
+candidate**, not a selected default or a promise of local-generation availability.
+
+Downloads stream to a unique temporary file, require the exact reviewed byte count
+and SHA-256, and become usable only after completion. The final publish never
+replaces an existing file. Startup/status rehashes the complete model rather than
+trusting its filename; a damaged file requires explicit removal before retry.
+Cancellation and ordinary failures remove this attempt's temporary file. A hard
+process crash can leave an unused `.part` file; these never count as ready models.
+
+Requests send no study content or account credentials. Only HTTPS redirects on
+`huggingface.co` and the observed `us.aws.cdn.hf.co` download host are accepted,
+with at most five redirects and a 20-minute deadline. A changed CDN host fails
+closed until reviewed. Model bytes are public and are not encrypted. Study copies
+remain under their existing separate encrypted storage policy.
+
+The caller must provide an app-owned directory, map failures to generic UI copy,
+obtain explicit download/removal intent, and keep paths/model configuration out of
+renderer control. The disk check reserves model size plus 512 MiB; it is not a RAM
+or GPU compatibility guarantee. Native parsing/runtime execution, lifecycle,
+hardware checks, UI and purchase entitlements are separate unfinished steps.
