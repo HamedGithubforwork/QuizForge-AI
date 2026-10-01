@@ -67,4 +67,4 @@ async function main() {
   await assert.rejects(runtime.complete(payload), { code: 'runtime_closed' })
   console.log('PASS: verified runtime/model, authenticated generation, unauthorized rejection, exclusive session, fresh key, success/cancellation/shutdown cleanup')
 }
-main().catch(() => { console.error('Local runtime integration failed'); process.exitCode = 1 })
+main().catch(error => { console.error('Local runtime integration failed:', error?.code || error?.name || 'unknown'); process.exitCode = 1 })
