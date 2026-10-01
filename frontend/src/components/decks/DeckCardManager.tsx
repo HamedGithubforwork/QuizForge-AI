@@ -66,11 +66,13 @@ export default function DeckCardManager({
   availableDecks,
   onNavigate,
   onDeckUpdated,
+  addCardRequest,
 }: {
   deck: DeckDetail
   availableDecks: DeckSummary[]
   onNavigate: (path: string) => void
   onDeckUpdated: (deck: DeckDetail) => void
+  addCardRequest: number
 }) {
   const [addingCard, setAddingCard] =
     useState(false)
@@ -132,6 +134,20 @@ export default function DeckCardManager({
     deck.name,
     deck.study_intensity,
   ])
+
+  useEffect(() => {
+    if (addCardRequest === 0) {
+      return
+    }
+
+    setAddingCard(true)
+    setEditingCardId(null)
+    setMovingCardId(null)
+    setMoveTargetDeckId('')
+    setConfirmingCardDelete(null)
+    setConfirmingProgressReset(null)
+    setCardActionError('')
+  }, [addCardRequest])
 
   async function handleAddCard(
     payload: CardCreate,
