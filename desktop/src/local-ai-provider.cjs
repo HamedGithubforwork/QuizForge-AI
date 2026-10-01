@@ -80,7 +80,7 @@ function normalizeUsage(value) {
 
 function normalizeResult(value) {
   if (!value || typeof value !== 'object' || typeof value.text !== 'string' ||
-      value.text.length < 1 || Buffer.byteLength(value.text, 'utf8') > 4 * 1024 * 1024) {
+      value.text.length < 1 || new TextEncoder().encode(value.text).byteLength > 4 * 1024 * 1024) {
     throw failure('invalid_response')
   }
   const finishReason = value.finishReason ?? null
@@ -112,7 +112,7 @@ function createLocalAiProvider({ id, capability, generate }) {
     id,
 
     async capability({ signal } = {}) {
-      signal?.throwIfAborted()
+      if (signal?.aborted) throw failure('cancelled')
       try {
         return normalizeCapability(await capability({ signal }))
       } catch (error) {
@@ -122,7 +122,7 @@ function createLocalAiProvider({ id, capability, generate }) {
 
     async generate(request, { signal } = {}) {
       const normalized = normalizeRequest(request)
-      signal?.throwIfAborted()
+      if (signal?.aborted) throw failure('cancelled')
       try {
         return normalizeResult(await generate(normalized, { signal }))
       } catch (error) {
