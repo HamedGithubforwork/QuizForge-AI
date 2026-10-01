@@ -96,6 +96,8 @@ These modules may use Node runtime primitives, but they must not directly import
 
 The Windows local runtime is one implementation, not the product-level Local AI contract.
 
+Windows native runtime ownership is layered: `local-runtime.cjs` owns request/session cleanup and `windows-process-guard.cjs` owns abrupt-parent fail-closed behavior through a Windows Job Object watchdog. Runtime readiness requires the guard handshake before loopback requests begin. This is an OS adapter boundary and must not leak into the portable Local AI contracts or renderer IPC.
+
 Future platform seams should preserve common behavior for:
 
 - secure storage;
