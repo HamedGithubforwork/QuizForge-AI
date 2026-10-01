@@ -1,0 +1,24 @@
+name: Local inference benchmark validation
+on:
+  pull_request:
+    paths: ['desktop/benchmarks/**', '.github/workflows/local-inference-validation.yml']
+  push:
+    branches: ['application/production']
+    paths: ['desktop/benchmarks/**', '.github/workflows/local-inference-validation.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s desktop/benchmarks -p 'test_*.py'

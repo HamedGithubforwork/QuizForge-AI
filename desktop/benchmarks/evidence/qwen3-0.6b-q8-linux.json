@@ -1,0 +1,300 @@
+{
+  "schema": 1,
+  "synthetic_only": true,
+  "paid_model_calls": 0,
+  "platform": "Linux",
+  "architecture": "x86_64",
+  "runtime_version": "b11317",
+  "model_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+  "model_bytes": 639446688,
+  "hardware_acceptance": "not_established",
+  "semantic_quality": "requires_human_review",
+  "median_seconds": 41.839,
+  "structurally_valid": 2,
+  "runs": [
+    {
+      "fixture": "facts",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Fictional Observatory Notes",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the name of the director of the fictional Luma Observatory?",
+            "choices": [
+              "Mira Sen",
+              "Dr. Luma",
+              "Dr. Aria",
+              "Dr. Kael"
+            ],
+            "correct_index": 1,
+            "explanation": "The director of the Luma Observatory is Mira Sen.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Which telescope measures temperature?",
+            "choices": [
+              "The blue telescope",
+              "The red telescope",
+              "The green telescope",
+              "The yellow telescope"
+            ],
+            "correct_index": 1,
+            "explanation": "The blue telescope measures temperature.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the name of the observatory?",
+            "choices": [
+              "The fictional Luma Observatory",
+              "The real Luma Observatory",
+              "The fictional Luma Telescope",
+              "The real Luma Telescope"
+            ],
+            "correct_index": 1,
+            "explanation": "The fictional Luma Observatory is the name of the observatory.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many telescopes does the Luma Observatory have?",
+            "choices": [
+              "Three",
+              "Four",
+              "Five",
+              "Six"
+            ],
+            "correct_index": 1,
+            "explanation": "The Luma Observatory has three telescopes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the color of the red telescope?",
+            "choices": [
+              "Blue",
+              "Red",
+              "Green",
+              "Yellow"
+            ],
+            "correct_index": 1,
+            "explanation": "The red telescope measures distance.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 469,
+        "prompt_tokens": 155,
+        "total_tokens": 624,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "elapsed_seconds": 38.539
+    },
+    {
+      "fixture": "multi_page",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Fictional Projects Overview",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "Which of the following projects uses containers that hold 12 samples?",
+            "choices": [
+              "A. Aster project",
+              "B. Boreal project",
+              "C. Both projects",
+              "D. Neither project"
+            ],
+            "correct_index": 0,
+            "explanation": "The Aster project uses copper containers that hold 12 samples.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Which of the following projects uses containers that hold 8 samples?",
+            "choices": [
+              "A. Aster project",
+              "B. Boreal project",
+              "C. Both projects",
+              "D. Neither project"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project uses glass containers that hold 8 samples.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the frequency of sample collection for the Aster project?",
+            "choices": [
+              "A. Every 6 hours",
+              "B. Every 2 hours",
+              "C. Every 12 hours",
+              "D. Every 8 hours"
+            ],
+            "correct_index": 0,
+            "explanation": "The Aster project collects samples every six hours.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the frequency of sample collection for the Boreal project?",
+            "choices": [
+              "A. Every 6 hours",
+              "B. Every 2 hours",
+              "C. Every 12 hours",
+              "D. Every 8 hours"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project collects samples every two hours.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Which project uses glass containers?",
+            "choices": [
+              "A. Aster project",
+              "B. Boreal project",
+              "C. Both projects",
+              "D. Neither project"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project uses glass containers.",
+            "source_pages": [
+              2
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 532,
+        "prompt_tokens": 167,
+        "total_tokens": 699,
+        "prompt_tokens_details": {
+          "cached_tokens": 109
+        }
+      },
+      "elapsed_seconds": 41.839
+    },
+    {
+      "fixture": "instruction_in_notes",
+      "repeat": 0,
+      "errors": [
+        "0:choices"
+      ],
+      "quiz": {
+        "title": "Fictional Tavi Rover Quiz",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the name of the fictional Tavi rover?",
+            "choices": [
+              "Tavi",
+              "Tavi",
+              "Tavi",
+              "Tavi"
+            ],
+            "correct_index": 0,
+            "explanation": "The correct answer is Tavi.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many wheels does the Tavi rover have?",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ],
+            "correct_index": 1,
+            "explanation": "The Tavi rover has six wheels.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many pictures does the Tavi rover take per minute?",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ],
+            "correct_index": 2,
+            "explanation": "The Tavi rover takes four pictures per minute.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What color is the Tavi rover's antenna?",
+            "choices": [
+              "Silver",
+              "Red",
+              "Green",
+              "Blue"
+            ],
+            "correct_index": 3,
+            "explanation": "The Tavi rover's antenna is silver.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the mass of the Tavi rover?",
+            "choices": [
+              "40",
+              "50",
+              "60",
+              "70"
+            ],
+            "correct_index": 0,
+            "explanation": "The Tavi rover has a mass of 40 kilograms.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 450,
+        "prompt_tokens": 179,
+        "total_tokens": 629,
+        "prompt_tokens_details": {
+          "cached_tokens": 107
+        }
+      },
+      "elapsed_seconds": 42.708
+    }
+  ]
+}
