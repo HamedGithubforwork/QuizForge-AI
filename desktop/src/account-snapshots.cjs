@@ -5,7 +5,7 @@ const { validateEnvelope } = require('./snapshot-validation.cjs')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Main-process-only: identity, paths and content never come from renderer input.
-// No background persistence, offline authentication or review replay is enabled.
+// No background persistence, authentication-token storage or review replay.
 function createAccountSnapshots({ account, store, now = () => performance.now() }) {
   let busy = false
   async function run(operation) {
@@ -39,7 +39,7 @@ function createAccountSnapshots({ account, store, now = () => performance.now() 
   }
   return {
     status: () => ({ busy }),
-    save: () => run(async (ownerId, assertCurrent) => {
+    save: ({ offlineAccess = false } = {}) => run(async (ownerId, assertCurrent) => {
       const summaries = await read('/api/decks', assertCurrent)
       if (!Array.isArray(summaries) || summaries.length > 1000) throw new Error('Invalid or oversized deck list.')
       const ids = new Set()
@@ -63,7 +63,7 @@ function createAccountSnapshots({ account, store, now = () => performance.now() 
       // atomic replacement after encryption, not just before asynchronous work.
       await account.verify()
       assertCurrent()
-      await store.save(ownerId, decks, assertCurrent)
+      await store.save(ownerId, decks, assertCurrent, { offlineAccess })
       return { deckCount: decks.length, cardCount: decks.reduce((sum, deck) => sum + deck.cards.length, 0) }
     }),
     remove: () => run(async (ownerId, assertCurrent) => { await store.remove(ownerId, assertCurrent) }),

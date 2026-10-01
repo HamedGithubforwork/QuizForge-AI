@@ -53,7 +53,9 @@ function cardValid(card, deckId, ids) {
 
 function validateEnvelope(value, ownerId) {
   const reject = () => { throw new Error('Invalid or incompatible study snapshot.') }
-  if (!fields(value, ['schema', 'ownerId', 'savedAt', 'decks']) || value.schema !== 1 || value.ownerId !== ownerId ||
+  const names = ['schema', 'ownerId', 'savedAt', 'decks']
+  if (record(value) && Object.hasOwn(value, 'offlineAccess')) names.push('offlineAccess')
+  if (!fields(value, names) || (Object.hasOwn(value, 'offlineAccess') && typeof value.offlineAccess !== 'boolean') || value.schema !== 1 || value.ownerId !== ownerId ||
       !timestamp(value.savedAt) || !Array.isArray(value.decks) || value.decks.length > 1000) reject()
   const deckIds = new Set()
   const cardIds = new Set()

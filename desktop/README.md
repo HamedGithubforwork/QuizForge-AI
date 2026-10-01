@@ -60,15 +60,15 @@ No administrator installation is required. The app is separately versioned.
    PKCE system-browser flow if required. Do not loosen navigation to make it work.
 3. Add signed installers and authenticated, versioned automatic updates with a
    tested rollback path. Obtain owner approval for signing costs/credentials.
-4. Design encrypted local storage and offline deck/review synchronization before
-   claiming offline operation. This initial preview requires the internet; AI
-   unavailability is separate from network unavailability.
+4. Preview 0.1.5 supports opt-in offline deck browsing and answer-reveal practice.
+   Scheduled reviews, synchronization, editing and generation still require online
+   functionality; do not claim full offline feature parity.
 5. Add local inference behind an explicit provider boundary, hardware/model checks,
    and measured quality/latency tests. Keep cloud secrets server-side.
 
 Do not mark Phase 16 complete or advertise an offline/local-AI desktop product
 based on this foundation. Web releases still change the hosted UI independently
-of the shell; a bundled, version-compatible offline UI belongs in the next slice.
+of the shell; the bundled offline reader is versioned with the installer.
 
 Security references: [Electron security](https://www.electronjs.org/docs/latest/tutorial/security),
 [process sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox),
@@ -92,22 +92,41 @@ Unknown or incomplete snapshots fail closed on both save and load. Earlier minim
 synthetic fixtures are intentionally incompatible. Changes to backend/decks.py response contracts
 must be reviewed alongside snapshot-validation.cjs.
 
-Preview 0.1.4 connects this store to the verified native account through the
-**Quiz From Notes → Save encrypted local study copy / Remove local study copy**
+Preview 0.1.5 connects this store to the verified native account through the
+**Quiz From Notes → Save for offline study / Remove local study copy**
 menu. Both actions require explicit confirmation and online enrolled-account
 verification. Save fetches complete deck responses sequentially, validates them,
 checks identity again, and atomically replaces only that account's copy. Any
 incomplete collection leaves the old copy intact. Account changes during prompts,
 fetches or encryption invalidate the operation. Save/remove cannot overlap.
 
-This is **not enabled offline study or a portable backup**. Copies include card
-content and source references, remain encrypted in the Windows profile after
-sign-out, and are not automatically refreshed. Server decks are never changed;
-collection is not a server-wide transactional snapshot. No new renderer IPC,
-offline authentication, token persistence or review replay is exposed. Removal
-currently requires online sign-in to the owning account. Windows CI exercises the
-account/menu flow with synthetic responses and real OS-encrypted save/load/remove.
-Offline browsing and queued-review reconciliation remain separate work.
+Saving requires explicit consent that **anyone using the same Windows login can
+open this copy after sign-out or restart without account sign-in**. Older copies
+remain online-only until saved again with this consent. The encrypted envelope
+records an optional strictly boolean offlineAccess marker; ordinary online-only
+copies retain the previous shape. Old app versions cannot read opted-in copies.
+
+Choose **Open offline study** (also offered when the hosted app cannot load), select
+a library, and open decks/reveal answers in the bundled reader. It uses a separate
+ephemeral sandbox with no preload, renderer JavaScript, permissions or network.
+Dynamic content is escaped; CSP blocks scripts, requests, forms and frames. Native
+HTML disclosures remain keyboard-accessible. Cloud generation, editing and account
+operations stay in the online app. **Offline practice does not save or synchronize
+progress yet**; due dates and FSRS state are never locally rewritten.
+
+Copies include card content and source references, remain encrypted in the Windows
+profile after sign-out, and are not portable backups or automatically refreshed.
+Server decks are never changed; collection is not a server-wide transaction.
+The offline picker can remove a selected opted-in copy without internet after a
+second confirmation. Sign-out, account replacement and snapshot save/remove close
+any open reader. Explicit offline reopening remains possible until the copy is
+removed. No authentication tokens or purchase assertions are persisted.
+
+Offline access is available during development. A future verified one-time purchase
+entitlement will gate it; there is no payment bypass flag or fake entitlement.
+Review replay needs a separate idempotent server contract before activation.
+Windows CI saves and reopens synthetic OS-encrypted data in two separate processes,
+with no online identity dependency, and exercises native answer-reveal interaction.
 
 ## Opt-in signed candidate build
 

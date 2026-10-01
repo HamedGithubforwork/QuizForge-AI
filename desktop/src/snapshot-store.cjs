@@ -65,10 +65,11 @@ function createSnapshotStore({ directory, encryption }) {
     }
   }
   return {
-    save(ownerId, decks, assertCurrent = () => {}) {
+    save(ownerId, decks, assertCurrent = () => {}, { offlineAccess = false } = {}) {
       const filename = ownerKey(ownerId)
       // Freeze caller-owned input before queued work; persist only the envelope.
-      const json = JSON.stringify({ schema: 1, ownerId, savedAt: new Date().toISOString(), decks })
+      if (typeof offlineAccess !== 'boolean') throw new Error('Invalid offline-access option.')
+      const json = JSON.stringify({ schema: 1, ownerId, savedAt: new Date().toISOString(), decks, ...(offlineAccess ? { offlineAccess: true } : {}) })
       if (Buffer.byteLength(json) > MAX_PLAINTEXT_BYTES) throw new Error('Study snapshot is too large.')
       const envelope = validateEnvelope(JSON.parse(json), ownerId)
       return serial(async () => {
@@ -77,6 +78,29 @@ function createSnapshotStore({ directory, encryption }) {
         const file = path.join(directory, filename)
         await regularFile(file)
         await writeEnvelope(file, envelope, assertCurrent)
+      })
+    },
+    listOffline() {
+      return serial(async () => {
+        await ready()
+        const files = (await fs.readdir(directory)).filter(name => /^[a-f0-9]{64}\.qfn$/.test(name)).sort()
+        if (files.length > 100) throw new Error('Too many local study copies.')
+        const copies = []
+        for (const name of files) {
+          const file = path.join(directory, name)
+          await regularFile(file)
+          let value
+          try {
+            const plaintext = await encryption.decrypt(await fs.readFile(file))
+            if (typeof plaintext !== 'string' || Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) throw Error()
+            value = JSON.parse(plaintext)
+            if (ownerKey(value.ownerId) !== name) throw Error()
+            validateEnvelope(value, value.ownerId)
+          } catch { throw new Error('Could not unlock a local study copy.') }
+          if (value.offlineAccess === true) copies.push({ ownerId: value.ownerId, savedAt: value.savedAt,
+            deckCount: value.decks.length, label: value.decks[0]?.name || 'Empty library' })
+        }
+        return copies
       })
     },
     load(ownerId) {

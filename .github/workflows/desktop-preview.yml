@@ -37,6 +37,10 @@ jobs:
         run: npx --no-install electron test/runtime.cjs
       - name: Exercise native account bridge in real Electron
         run: npx --no-install electron test/native-runtime.cjs
+      - name: Save offline library in a separate Windows process
+        run: npx --no-install electron test/offline-runtime.cjs save
+      - name: Reopen and practice offline after process restart
+        run: npx --no-install electron test/offline-runtime.cjs read
       - name: Verify signed-out hosted sign-in
         run: npx --no-install electron test/hosted-login.cjs
       - name: Build internal preview installer
