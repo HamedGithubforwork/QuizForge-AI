@@ -6,14 +6,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Main-process-only: identity, paths and content never come from renderer input.
 // No background persistence, offline authentication or review replay is enabled.
-function createAccountSnapshots({ account, store }) {
+function createAccountSnapshots({ account, store, now = () => performance.now() }) {
   let busy = false
   async function run(operation) {
     if (busy) throw new Error('A local study copy operation is already running.')
     const identity = account.current()
     if (!identity?.enrolled) throw new Error('Sign in to your desktop account first.')
     const generation = account.generation()
+    const deadline = now() + 120000
     const assertCurrent = () => {
+      if (now() > deadline) throw new Error('The local copy request expired. Try again.')
       const current = account.current()
       if (account.generation() !== generation || !current?.enrolled || current.userId !== identity.userId) {
         throw new Error('Your desktop account changed. Try again after signing in.')

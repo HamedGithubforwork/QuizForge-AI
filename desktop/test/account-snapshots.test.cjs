@@ -91,6 +91,16 @@ test('empty accounts can replace a snapshot with an explicitly requested empty c
   assert.deepEqual(f.saved[0].decks, [])
 })
 
+test('collection deadline prevents long sequences of slow requests from replacing a copy', async () => {
+  const f = fixture(); let time = 0
+  const original = f.account.request
+  f.account.request = async value => { time += 120001; return original(value) }
+  const snapshots = createAccountSnapshots({ account: f.account, store: f.store, now: () => time })
+  await assert.rejects(snapshots.save(), /expired/)
+  assert.equal(f.saved.length, 0)
+  assert.equal(f.calls.filter(value => value.startsWith('/api/')).length, 1)
+})
+
 test('native menu requires confirmation, cancels on account change and reports only counts', async () => {
   for (const mode of ['cancel', 'switch', 'save', 'remove']) {
     const f = fixture(), messages = [], window = { isDestroyed: () => false }
