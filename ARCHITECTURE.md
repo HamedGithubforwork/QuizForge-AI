@@ -51,6 +51,7 @@ Current examples include:
 
 - `backend/spaced_repetition.py`
 - `backend/quiz_validation.py`
+- `backend/review_service.py`
 
 These modules are protected by the architecture check from importing FastAPI, database drivers, Redis clients, or cloud SDKs.
 
@@ -58,7 +59,13 @@ These modules are protected by the architecture check from importing FastAPI, da
 
 Repository modules own queries, transactions, persistence mapping, and database-specific concurrency controls.
 
-`backend/deck_postgres.py` currently contains some review orchestration in addition to persistence. Treat that as a known incremental refactor boundary: when future work materially changes review scheduling or deck workflows, prefer extracting the affected domain/application behavior instead of adding more unrelated rules to the repository. Do not rewrite the file solely to satisfy this document.
+Review ownership is split deliberately:
+
+- `backend/review_service.py` owns review-domain decisions, FSRS scheduling/preview orchestration, offline replay validation, stale-state checks, and review-domain errors.
+- `backend/deck_postgres.py` owns PostgreSQL identity scoping, transactions, advisory/row locks, queries, review-log persistence, and atomic commit behavior.
+- `backend/decks.py` translates HTTP validation/errors and delegates review operations to `ReviewService`.
+
+Keep concurrency-critical database controls in the repository while preserving domain decisions as infrastructure-independent code.
 
 ## Frontend
 
