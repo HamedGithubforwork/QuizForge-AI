@@ -93,7 +93,7 @@ function runtimeFixture(overrides = {}) {
     freePortFn: async () => 43123,
     randomBytesFn: size => Buffer.alloc(size, 0xab),
     spawnProcess: () => child,
-    guardProcess: async () => ({ dispose: async () => {} }),
+    guardProcess: async () => ({ signal: new AbortController().signal, dispose: async () => {} }),
     requestFn: async (_port, _key, route) => route === '/v1/models'
       ? { data: [{ id: alias }] }
       : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] },
@@ -172,6 +172,44 @@ test('runtime does not contact the local server until process ownership is estab
     { code: 'watchdog_failed' },
   )
   assert.equal(requests, 0)
+  assert.notEqual(child.signalCode, null)
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
+
+test('unexpected watchdog loss aborts the active runtime and cleans its child', async () => {
+  let guardAbort
+  let enteredRequest
+  const reachedRequest = new Promise(resolve => { enteredRequest = resolve })
+  const child = fakeChild()
+  const runtime = createLocalRuntime({
+    directory: 'C:\\runtime',
+    modelStore: { status: async () => ({ ready: true, path: 'C:\\models\\model.gguf' }) },
+    platform: 'win32',
+    arch: 'x64',
+    verifyRuntimeFn: async () => 'C:\\runtime\\llama-server.exe',
+    freePortFn: async () => 43123,
+    randomBytesFn: size => Buffer.alloc(size, 0xab),
+    spawnProcess: () => child,
+    guardProcess: async () => {
+      guardAbort = new AbortController()
+      return { signal: guardAbort.signal, dispose: async () => {} }
+    },
+    requestFn: async (_port, _key, route, _payload, signal) => {
+      if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+      enteredRequest()
+      return await new Promise((_resolve, reject) => {
+        const abort = () => reject(signal.reason ?? Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        if (signal.aborted) abort()
+        else signal.addEventListener('abort', abort, { once: true })
+      })
+    },
+  })
+  const operation = runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  operation.catch(() => {})
+  await reachedRequest
+  guardAbort.abort(Object.assign(new Error('lost'), { code: 'watchdog_failed' }))
+  await assert.rejects(operation)
   assert.notEqual(child.signalCode, null)
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
 })
