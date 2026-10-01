@@ -104,7 +104,7 @@ test('only current opaque rating links can record; repeated clicks and late comp
   } })
   const links = [...window.html.matchAll(/href="([^"]+)"/g)].map(x => x[1])
   assert.equal(links.length, 4)
-  const click = url => window.webContents.emit('will-navigate', { preventDefault() {} }, url)
+  const click = url => window.webContents.emit('will-frame-navigate', { preventDefault() {}, url, isMainFrame: true })
   click('https://evil.test'); assert.equal(calls, 0)
   click(links[2]); click(links[2]); assert.equal(calls, 1)
   reader.close(); release(); await new Promise(resolve => setImmediate(resolve))

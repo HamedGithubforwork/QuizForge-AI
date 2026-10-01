@@ -55,9 +55,9 @@ function createOfflineReader({ BrowserWindow, session }) {
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
       for (const name of ['will-navigate', 'will-redirect', 'will-frame-navigate', 'will-attach-webview']) window.webContents.on(name, event => event.preventDefault())
       let recording = false
-      window.webContents.on('will-navigate', (event, url) => {
+      window.webContents.on('will-frame-navigate', event => {
         event.preventDefault()
-        const command = commands.get(url)
+        const command = event.isMainFrame === true ? commands.get(event.url) : undefined
         if (!command || recording || window.isDestroyed() || current !== window) return
         recording = true
         const guard = () => { if (window.isDestroyed() || current !== window) throw Error('Offline reader closed.') }
