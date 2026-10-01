@@ -148,3 +148,21 @@ When a PR introduces or changes a durable boundary:
 2. update `scripts/check_architecture.py` if the boundary can be enforced mechanically;
 3. add contract/dependency tests where practical;
 4. keep the PR focused and behavior-preserving unless the roadmap task explicitly changes behavior.
+
+## Public feature entry points
+
+The existing deck directory is the feature boundary; a repository-wide folder move is not required. New cross-feature UI consumers import `frontend/src/components/decks/index.ts`, which exports the page and re-exports backend-generated wire types. `DesktopAuthGate` uses this entry. The existing direct `DecksPage.tsx` entry remains public for backward-compatible lazy loading. Other deck components, including review-mode pages, remain private to the deck feature. Existing shared `lib/` helpers remain shared; this change does not invent new restrictions on them.
+
+The portable Local AI entry is `desktop/src/local-ai.cjs`. It exports only `LocalAiError`, `createLocalAiProvider` and `createModelStoreContract`. Other product modules must not import the contract helpers directly. The explicit Windows adapter remains a composition choice; the public portable entry never imports or starts it. Internal adapter code and focused contract tests can exercise the underlying implementations. The provider/model-store contract and its readiness limitations are documented in [Local AI contracts](docs/local-ai-contracts.md). This is not Local AI UI activation or mobile runtime implementation.
+
+The backend review feature's public service entry remains `backend/review_service.py`. Its statically declared local dependency graph must stay independent of HTTP/composition and persistence modules, not merely avoid direct driver imports. SQL locks and atomic updates remain the repository's responsibility.
+
+## Enforced checks and their limits
+
+Run `python scripts/test_check_architecture.py` and `python scripts/check_architecture.py` for the Python dependency graph and the retained early Local AI import check. Run `node --test frontend/scripts/module-boundaries.test.mjs` and `node frontend/scripts/check-module-boundaries.mjs` after `npm ci --prefix frontend` for syntax-aware frontend/desktop checks. These use the already-locked TypeScript dependency, not an additional package.
+
+The syntax-aware checker handles static imports, side-effect imports, re-exports, require/import-equals, and literal dynamic imports, normalizes relative paths, and rejects computed imports and Node-specific globals in the portable Local AI core. Missing protected files and parse failures fail closed. It enforces the public entries above and rejects Electron/composition imports from the platform adapters. The Python checker follows local helper and package imports so an intermediate wrapper cannot hide a forbidden dependency.
+
+These are architecture checks for the repository's current module conventions, not a malicious-code sandbox or a complete data-flow/module-resolution analyzer. Review newly introduced aliases, loaders or executable code generation explicitly; do not assume these guards prove runtime security. Add narrowly scoped guard tests when a real boundary changes rather than weakening enforcement or reorganizing unrelated features.
+
+CI runs both guard self-tests and repository scans. The required PR gate explicitly requires architecture success; skipped, missing, cancelled or failed architecture checks cannot pass as an intentional skip. Existing generated-contract, backend, frontend, PostgreSQL, browser and Windows tests remain separate evidence for behavior.

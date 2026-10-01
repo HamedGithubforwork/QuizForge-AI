@@ -7,6 +7,7 @@ on:
     paths:
       - "backend/**"
       - "frontend/**"
+      - "desktop/src/**"
       - "e2e/**"
       - "scripts/rds_rehearsal/identity_schema.sql"
       - "scripts/check_architecture.py"
@@ -98,6 +99,7 @@ jobs:
   architecture:
     name: Architecture boundaries
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check out repository
@@ -113,6 +115,22 @@ jobs:
 
       - name: Enforce architecture boundaries
         run: python scripts/check_architecture.py
+
+      - name: Set up Node for syntax-aware boundary checks
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install existing locked frontend tooling
+        run: npm ci --prefix frontend
+
+      - name: Self-test feature and platform boundaries
+        run: node --test frontend/scripts/module-boundaries.test.mjs
+
+      - name: Enforce feature and platform boundaries
+        run: node frontend/scripts/check-module-boundaries.mjs
 
   backend-tests:
     name: Backend tests
@@ -328,7 +346,12 @@ jobs:
             exit 1
           fi
 
-          for result in "${ARCHITECTURE_RESULT}" "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          if [[ "${ARCHITECTURE_RESULT}" != "success" ]]; then
+            echo "Required architecture checks did not succeed."
+            exit 1
+          fi
+
+          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
