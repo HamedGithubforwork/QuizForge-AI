@@ -86,3 +86,28 @@ test('offline removal needs confirmation and only removes the selected Windows-u
     dialog: { showMessageBox: async () => ({ response: [1, 2, 0][calls++] }) } })
   await menu.open(); assert.deepEqual(removed, ['two'])
 })
+
+test('only current opaque rating links can record; repeated clicks and late completions cannot reopen a closed reader', async () => {
+  let window, calls = 0, release
+  class Window extends EventEmitter {
+    constructor() { super(); window = this; this.webContents = new EventEmitter(); this.webContents.setWindowOpenHandler = () => {} }
+    isDestroyed() { return !!this.destroyed }
+    destroy() { this.destroyed = true; this.emit('closed') }
+    show() {}
+    async loadURL(url) { this.html = decodeURIComponent(url.split(',').slice(1).join(',')) }
+  }
+  const session = { fromPartition: () => ({ setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, on() {}, webRequest: { onBeforeRequest() {} } }) }
+  const value = snapshot(), reader = createOfflineReader({ BrowserWindow: Window, session })
+  await reader.open(value, { record: async (cardId, rating, guard) => {
+    calls++; assert.equal(cardId, value.decks[0].cards[0].id); assert.equal(rating, 3)
+    await new Promise(resolve => { release = resolve }); guard(); return value
+  } })
+  const links = [...window.html.matchAll(/href="([^"]+)"/g)].map(x => x[1])
+  assert.equal(links.length, 4)
+  const click = url => window.webContents.emit('will-navigate', { preventDefault() {} }, url)
+  click('https://evil.test'); assert.equal(calls, 0)
+  click(links[2]); click(links[2]); assert.equal(calls, 1)
+  reader.close(); release(); await new Promise(resolve => setImmediate(resolve))
+  assert.equal(window.destroyed, true)
+  click(links[1]); assert.equal(calls, 1)
+})

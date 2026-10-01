@@ -164,3 +164,54 @@ test('offline discovery refuses swapped, malformed and oversized ciphertext', as
   await fs.truncate(path.join(directory, first), 13 * 1024 * 1024)
   await assert.rejects(store.listOffline())
 })
+
+
+test('offline ratings persist once across restart; pending events block snapshot replacement', async t => {
+  const { directory, encryption, store } = await fixture(t)
+  await store.save('owner', decks, () => {}, { offlineAccess: true })
+  const saved = await store.load('owner')
+  const card = decks[0].cards[0]
+  const results = await Promise.allSettled([1, 3].map(r => store.recordReview('owner', card.id, r, saved.savedAt)))
+  assert.equal(results.filter(r => r.status === 'fulfilled').length, 1)
+  const reopened = createSnapshotStore({ directory, encryption })
+  const value = await reopened.load('owner'), event = value.reviews[0]
+  assert.equal(value.reviews.length, 1)
+  assert.equal(event.expected_updated_at, card.updated_at)
+  assert.equal(event.synced, false)
+  assert.equal(value.decks[0].cards[0].review_count, 0)
+  await assert.rejects(reopened.save('owner', decks), /Sync pending/)
+  await reopened.acknowledgeReview('owner', event.event_id)
+  await assert.rejects(reopened.recordReview('owner', card.id, 4, saved.savedAt), /cannot be reviewed/)
+  await reopened.save('owner', decks, () => {}, { offlineAccess: true })
+  assert.equal((await reopened.load('owner')).reviews, undefined)
+})
+
+test('offline record rejects stale views, unavailable cards and cancelled writes without losing data', async t => {
+  const { store, encryption } = await fixture(t)
+  await store.save('owner', decks, () => {}, { offlineAccess: true })
+  const saved = await store.load('owner'), card = decks[0].cards[0]
+  await assert.rejects(store.recordReview('owner', card.id, 3, 'stale'), /cannot be reviewed/)
+  await assert.rejects(store.recordReview('other', card.id, 3, saved.savedAt), /cannot be reviewed/)
+  await assert.rejects(store.recordReview('owner', card.id, 3, saved.savedAt, () => { throw Error('cancelled') }), /cancelled/)
+  encryption.encrypt = async () => { throw Error('private') }
+  await assert.rejects(store.recordReview('owner', card.id, 3, saved.savedAt), /encrypt/)
+  assert.equal((await store.load('owner')).reviews, undefined)
+})
+
+test('Windows upgrade preserves legacy consent and timestamp; older writes cannot replace queued reviews', async t => {
+  const { directory, encryption } = await fixture(t)
+  const legacy = createSnapshotStore({ directory: path.join(directory, 'study-snapshots-v1'), encryption })
+  await legacy.save('owner', decks, () => {}, { offlineAccess: true })
+  const previous = await legacy.load('owner')
+  const store = createWindowsSnapshotStore({ platform: 'win32', app: { isReady: () => true, getPath: () => directory },
+    safeStorage: { isAsyncEncryptionAvailable: encryption.available, encryptStringAsync: encryption.encrypt,
+      decryptStringAsync: async data => ({ result: await encryption.decrypt(data) }) } })
+  assert.equal((await store.listOffline()).length, 1)
+  assert.equal((await store.load('owner')).savedAt, previous.savedAt)
+  await store.recordReview('owner', decks[0].cards[0].id, 3, previous.savedAt)
+  await legacy.save('owner', [], () => {}, { offlineAccess: true })
+  assert.equal((await store.load('owner')).reviews.length, 1)
+  await store.remove('owner')
+  assert.equal(await store.load('owner'), null)
+  assert.deepEqual(await store.listOffline(), [])
+})

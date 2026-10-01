@@ -46,7 +46,7 @@ No administrator installation is required. The app is separately versioned.
 - Deny permission requests and downloads. PDF upload uses the existing browser
   file picker. Browser push is not claimed to work in Electron; use web reminders
   until a supported desktop notification path is verified.
-- A connection failure offers Retry/Close without logging URLs, codes or tokens.
+- A connection failure offers Retry/Offline study/Close without logging URLs, codes or tokens.
 - Existing server AI quotas and entitlements remain authoritative. No local model
   runtime, paid service, new AWS resource or automatic update is enabled.
 
@@ -60,9 +60,9 @@ No administrator installation is required. The app is separately versioned.
    PKCE system-browser flow if required. Do not loosen navigation to make it work.
 3. Add signed installers and authenticated, versioned automatic updates with a
    tested rollback path. Obtain owner approval for signing costs/credentials.
-4. Preview 0.1.5 supports opt-in offline deck browsing and answer-reveal practice.
-   Scheduled reviews, synchronization, editing and generation still require online
-   functionality; do not claim full offline feature parity.
+4. Preview 0.1.6 supports opt-in offline deck browsing and answer-reveal practice.
+   Due-card ratings persist locally and sync explicitly after reconnecting. Editing
+   and generation require online functionality; do not claim full offline parity.
 5. Add local inference behind an explicit provider boundary, hardware/model checks,
    and measured quality/latency tests. Keep cloud secrets server-side.
 
@@ -92,7 +92,7 @@ Unknown or incomplete snapshots fail closed on both save and load. Earlier minim
 synthetic fixtures are intentionally incompatible. Changes to backend/decks.py response contracts
 must be reviewed alongside snapshot-validation.cjs.
 
-Preview 0.1.5 connects this store to the verified native account through the
+Preview 0.1.6 connects this store to the verified native account through the
 **Quiz From Notes → Save for offline study / Remove local study copy**
 menu. Both actions require explicit confirmation and online enrolled-account
 verification. Save fetches complete deck responses sequentially, validates them,
@@ -111,8 +111,16 @@ a library, and open decks/reveal answers in the bundled reader. It uses a separa
 ephemeral sandbox with no preload, renderer JavaScript, permissions or network.
 Dynamic content is escaped; CSP blocks scripts, requests, forms and frames. Native
 HTML disclosures remain keyboard-accessible. Cloud generation, editing and account
-operations stay in the online app. **Offline practice does not save or synchronize
-progress yet**; due dates and FSRS state are never locally rewritten.
+operations stay in the online app. **Due-card ratings are saved encrypted locally**. Choose Again/Hard/Good/Easy
+after revealing the answer. One rating is allowed per saved card until sync and a
+fresh library download. Due dates and FSRS state are never locally rewritten.
+Choose **Sync offline reviews** while signed in to the same account to apply ratings
+using the original review times. Retries retain stable event IDs; lost responses
+cannot count a rating twice. Server changes may cause conflicts. Unconfirmed
+ratings remain on this computer, and pending ratings block a replacement download.
+Removal explicitly warns that it discards unsynced ratings. After successful sync,
+save a fresh copy to obtain current schedules. This requires the offline-review
+API release; older servers leave events pending. No automatic background sync.
 
 Copies include card content and source references, remain encrypted in the Windows
 profile after sign-out, and are not portable backups or automatically refreshed.
@@ -219,3 +227,21 @@ executable. For a faulty release, publish a higher version containing the known-
 code, because automatic downgrades are disabled. A manual verified older installer
 remains a recovery option. Do not change the app ID/product name or use an expiring
 Actions-artifact URL as the update feed. Nothing is published or purchased by default.
+
+## Offline progress upgrade and verification
+
+Preview 0.1.6 uses `study-snapshots-v2` for saved libraries and review events. It
+imports validated v1 copies only when an account has no v2 copy, preserving the
+original timestamp and opt-in marker. Older installers can neither read nor
+overwrite v2 ratings; edits made with an older installer are not merged back.
+Remove deletes the legacy fallback first and then v2, preventing resurrection.
+Do not delete v2 data when rolling back an installer.
+
+The reader still has no renderer JavaScript or preload. Rating links contain
+random per-window commands; main-process navigation interception cancels every
+navigation and accepts only current commands for due, unsuspended saved cards.
+The store rechecks snapshot identity and allows one durable event per card.
+Windows CI uses three separate Electron processes to save a library, reopen it
+and click a rating, and verify that rating survived another restart. Unit tests
+cover concurrent clicks, interrupted writes, replacement protection, account
+changes, retry identity and v1 upgrade isolation. Purchase gating remains deferred.

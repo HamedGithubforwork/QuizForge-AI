@@ -23,13 +23,13 @@ function createOfflineMenu({ store, reader, dialog, getWindow }) {
           const copy = copies[index]
           const result = await dialog.showMessageBox(window, { type: 'question', title: 'Offline study',
             message: `Saved library ${index + 1} of ${copies.length}: ${copy.label}`,
-            detail: `${copy.deckCount} decks · Saved ${copy.savedAt}\nThis library is unlocked by your Windows login. Practice does not save or synchronize progress yet.`,
+            detail: `${copy.deckCount} decks · Saved ${copy.savedAt}\nThis library is unlocked by your Windows login. Ratings are saved locally; sign in online to sync them.`,
             buttons: ['Open library', 'Next library', 'Remove local copy', 'Cancel'], defaultId: 3, cancelId: 3 })
           if (!current() || result.response === 3) return
           if (result.response === 1) { index = (index + 1) % copies.length; continue }
           if (result.response === 2) {
             const confirm = await dialog.showMessageBox(window, { type: 'warning', title: 'Remove offline library',
-              message: 'Remove this saved library from this Windows profile?', detail: 'Your online decks will not be changed.',
+              message: 'Remove this saved library from this Windows profile?', detail: 'Any unsynced ratings in this local copy will be permanently lost. Your online decks will not be changed.',
               buttons: ['Remove local copy', 'Cancel'], defaultId: 1, cancelId: 1 })
             if (!current() || confirm.response !== 0) return
             reader.close()
@@ -40,7 +40,15 @@ function createOfflineMenu({ store, reader, dialog, getWindow }) {
           const snapshot = await store.load(copy.ownerId)
           if (!current()) return
           if (!snapshot || snapshot.offlineAccess !== true) throw Error('Offline access unavailable')
-          await reader.open(snapshot)
+          await reader.open(snapshot, {
+            record: async (cardId, rating, readerCurrent) => {
+              const guard = () => { readerCurrent(); if (!current()) throw Error('Offline session changed.') }
+              guard()
+              return store.recordReview(copy.ownerId, cardId, rating, snapshot.savedAt, guard)
+            },
+            reportError: async readerWindow => dialog.showMessageBox(readerWindow, { type: 'warning', title: 'Offline review',
+              message: 'The rating could not be saved.', detail: 'No new rating was confirmed. Reopen this library to check its saved state before trying again.', buttons: ['OK'] }),
+          })
           if (!current()) reader.close()
           return
         }

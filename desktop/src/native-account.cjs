@@ -6,7 +6,7 @@ const rules = [
   ['GET|POST', '/api/decks', []],
   ['GET|PATCH|DELETE', `/api/decks/${UUID}`, []],
   ['GET|POST', `/api/decks/${UUID}/review`, ['limit']],
-  ['POST', `/api/decks/${UUID}/(duplicate|cards)`, []],
+  ['POST', `/api/decks/${UUID}/(duplicate|cards|offline-review)`, []],
   ['PATCH|DELETE', `/api/decks/${UUID}/cards/${UUID}`, []],
   ['POST', `/api/decks/${UUID}/cards/${UUID}/(move|suspend|resume|reset-progress)`, []],
   ['GET|PUT', '/api/study-notifications/preferences', []],
