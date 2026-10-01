@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PURE_BACKEND_MODULES = (
     Path("backend/spaced_repetition.py"),
     Path("backend/quiz_validation.py"),
+    Path("backend/review_service.py"),
 )
 
 FORBIDDEN_BACKEND_IMPORT_ROOTS = {

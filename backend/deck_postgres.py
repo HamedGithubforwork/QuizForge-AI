@@ -1,18 +1,12 @@
 """PostgreSQL deck queries under transaction-local verified identities."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from psycopg import Error as DatabaseError, sql
 from psycopg.types.json import Jsonb
 from psycopg_pool import PoolClosed, PoolTimeout, TooManyRequests
-
-from spaced_repetition import (
-    preview_review_due_times,
-    schedule_review,
-)
-
 
 class PostgresDeckRepository:
     def __init__(self, pool, *, issuer: str, subject: str):
@@ -696,7 +690,12 @@ class PostgresDeckRepository:
             )
             return await self._detail(conn, user_id, deck_id)
 
-    async def review_queue(self, deck_id, *, limit):
+    async def review_queue_state(
+        self,
+        deck_id,
+        *,
+        limit,
+    ):
         async with self.transaction() as (conn, user_id):
             summary_row = await self._summary_row(
                 conn,
@@ -730,31 +729,6 @@ class PostgresDeckRepository:
                     (deck_id, user_id, limit),
                 )
             ).fetchall()
-            review_now = datetime.now(
-                timezone.utc
-            )
-            cards = self._cards(
-                rows,
-                user_id,
-            )
-            for card, row in zip(
-                cards,
-                rows,
-                strict=True,
-            ):
-                card[
-                    "review_preview"
-                ] = (
-                    preview_review_due_times(
-                        row,
-                        study_intensity=
-                            summary[
-                                "study_intensity"
-                            ],
-                        review_datetime=
-                            review_now,
-                    )
-                )
 
             return {
                 "deck_id": deck_id,
@@ -765,10 +739,13 @@ class PostgresDeckRepository:
                     ],
                 "due_count": stats["due_count"],
                 "next_due_at": stats["next_due_at"],
-                "cards": cards,
+                "cards": self._cards(
+                    rows,
+                    user_id,
+                ),
             }
 
-    async def review_card(
+    async def apply_review(
         self,
         deck_id,
         *,
@@ -776,6 +753,7 @@ class PostgresDeckRepository:
         rating,
         review_duration_ms,
         offline=None,
+        prepare_review=None,
     ):
         async with self.transaction(
             isolation="READ COMMITTED"
@@ -808,66 +786,45 @@ class PostgresDeckRepository:
                     "Card does not exist in this deck.",
                 )
 
-            replayed = False
-            reviewed_at = datetime.now(timezone.utc)
+            previous = None
             if offline is not None:
-                previous = await (await conn.execute(
-                    """SELECT card_id,rating,reviewed_at,review_duration_ms
-                       FROM app.card_review_logs WHERE id=%s AND user_id=%s""",
-                    (offline.event_id, user_id),
-                )).fetchone()
-                if previous is not None:
-                    if (previous["card_id"] != card_id
-                            or previous["rating"] != rating
-                            or previous["reviewed_at"] != offline.reviewed_at
-                            or previous["review_duration_ms"] != review_duration_ms):
-                        raise HTTPException(409, "This review event was already used for different data.")
-                    replayed = True
-                else:
-                    if (row["updated_at"] != offline.expected_updated_at
-                            or row["study_intensity"] != offline.expected_study_intensity):
-                        raise HTTPException(409, "This card changed online. Refresh it before reviewing again.")
-                    if (offline.reviewed_at > reviewed_at
-                            or offline.reviewed_at < reviewed_at - timedelta(days=90)
-                            or offline.reviewed_at < row["updated_at"]):
-                        raise HTTPException(422, "Offline review time is outside the supported range.")
-                reviewed_at = offline.reviewed_at
+                previous = await (
+                    await conn.execute(
+                        """SELECT card_id,rating,reviewed_at,review_duration_ms
+                           FROM app.card_review_logs
+                           WHERE id=%s AND user_id=%s""",
+                        (
+                            offline.event_id,
+                            user_id,
+                        ),
+                    )
+                ).fetchone()
+
+            if prepare_review is None:
+                raise RuntimeError(
+                    "Review decision callback is required."
+                )
+
+            decision = prepare_review(
+                row,
+                previous=previous,
+                rating=rating,
+                review_duration_ms=
+                    review_duration_ms,
+                offline=offline,
+                now=datetime.now(
+                    timezone.utc
+                ),
+            )
+            replayed = decision.replayed
+            scheduled = decision.scheduled
 
             updated = row
             if not replayed:
-                if row["suspended"]:
-                    raise HTTPException(
-                        409,
-                        "This card is suspended.",
+                if scheduled is None:
+                    raise RuntimeError(
+                        "Review decision did not include a schedule."
                     )
-
-                if row["due_at"] > reviewed_at:
-                    raise HTTPException(
-                        409,
-                        "This card is not due yet.",
-                    )
-
-                try:
-                    scheduled = schedule_review(
-                        row,
-                        rating,
-                        review_datetime=reviewed_at,
-                        review_duration_ms=review_duration_ms,
-                        study_intensity=
-                            row[
-                                "study_intensity"
-                            ],
-                    )
-                except ValueError:
-                    raise HTTPException(
-                        422,
-                        "Review rating or duration is invalid.",
-                    ) from None
-                except RuntimeError:
-                    raise HTTPException(
-                        503,
-                        "Spaced repetition scheduling is temporarily unavailable.",
-                    ) from None
 
                 updated = await (
                     await conn.execute(
