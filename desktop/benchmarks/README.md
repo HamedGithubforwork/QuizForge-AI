@@ -105,5 +105,7 @@ The runtime runner defaults to all six cases and refuses an existing report path
 so a failed launch cannot be mistaken for a previous successful report. New
 reports include the benchmark source hash and generation settings. Its 930-second
 whole-benchmark deadline and 300-second per-request timeout bound CPU evaluation.
-The pinned model card recommends other sampling settings; these greedy,
-non-thinking results are one reproducible baseline, not an optimized quality claim.
+The saved basic-suite results use greedy decoding. Extended evaluation now uses
+the pinned model card’s recommended non-thinking settings: temperature 0.7,
+top-p 0.8, top-k 20, min-p 0 and presence penalty 1.5, with seed 42. Results remain
+a small development screen, not an optimized quality or launch-acceptance claim.

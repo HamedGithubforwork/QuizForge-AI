@@ -23,6 +23,8 @@ EXTENDED_FIXTURES = [
     {"id": "insufficient_source", "expected_questions": 0, "pages": {1: "Workshop notes. Content unavailable. The actual handout will be provided later."}},
 ]
 
+SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0, "presence_penalty": 1.5, "seed": 42}
+
 QUESTION_FIELDS = {"question_type", "question", "choices", "correct_index", "explanation", "source_pages"}
 SCHEMA = {
     "type": "object", "additionalProperties": False, "required": ["title", "questions"],
@@ -105,7 +107,7 @@ def request(port, payload, timeout):
 
 def payload(fixture):
     return {
-        "model": "local-benchmark", "stream": False, "temperature": 0, "seed": 42,
+        "model": "local-benchmark", "stream": False, **SAMPLING,
         "max_tokens": 1800, "chat_template_kwargs": {"enable_thinking": False},
         "json_schema": SCHEMA,
         "messages": [
@@ -161,7 +163,7 @@ def main():
               "platform": platform.system(), "architecture": platform.machine(),
               "runtime_version": args.runtime_version, "model_sha256": digest,
               "benchmark_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-              "generation_settings": {"temperature": 0, "seed": 42, "max_tokens": 1800, "timeout_seconds": args.timeout},
+              "generation_settings": {**SAMPLING, "max_tokens": 1800, "timeout_seconds": args.timeout},
               "model_bytes": args.model_file.stat().st_size,
               "hardware_acceptance": "not_established", "semantic_quality": "requires_human_review",
               "median_seconds": statistics.median(row["elapsed_seconds"] for row in rows),
