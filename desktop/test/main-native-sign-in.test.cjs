@@ -10,7 +10,7 @@ for (const windowsStore of [false, true]) test(`native menu drives browser/callb
   const app = new EventEmitter(), menus = new Map(), reports = [], opened = [], calls = []
   let window, quits=0
   Object.assign(app,{isPackaged:true,getVersion:()=> '0.1.0',enableSandbox(){},requestSingleInstanceLock:()=>true,
-    whenReady:()=>Promise.resolve(),isDefaultProtocolClient:()=>true,setAppUserModelId(){},quit:()=>quits++})
+    whenReady:()=>Promise.resolve(),isReady:()=>true,getPath:()=>require('node:os').tmpdir(),isDefaultProtocolClient:()=>true,setAppUserModelId(){},quit:()=>quits++})
   class Window extends EventEmitter {
     constructor(options){super();window=this;this.webContents=new EventEmitter();this.options=options}
     loadURL(){return Promise.resolve()}

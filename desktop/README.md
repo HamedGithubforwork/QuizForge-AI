@@ -89,16 +89,25 @@ malware already running as that Windows user. Snapshot validation requires compl
 fields, UUIDs and deck/card ownership, globally unique IDs, bounded card content,
 question/answer shapes, dates, FSRS values, source references and matching counts.
 Unknown or incomplete snapshots fail closed on both save and load. Earlier minimal
-synthetic fixtures are intentionally incompatible; no real user data has been saved
-by this unconnected storage layer. Changes to backend/decks.py response contracts
+synthetic fixtures are intentionally incompatible. Changes to backend/decks.py response contracts
 must be reviewed alongside snapshot-validation.cjs.
 
-This is a tested storage foundation, **not an enabled offline feature**. It has no
-renderer IPC bridge, does not save any real account data automatically, and does
-not persist authentication tokens. A future authenticated offline workflow must
-bind the account from a verified session, provide explicit save/remove controls, and
-reconcile queued reviews before this store is connected to the UI. Windows CI
-exercises a real OS-encrypted round trip and deletion using synthetic data only.
+Preview 0.1.4 connects this store to the verified native account through the
+**Quiz From Notes → Save encrypted local study copy / Remove local study copy**
+menu. Both actions require explicit confirmation and online enrolled-account
+verification. Save fetches complete deck responses sequentially, validates them,
+checks identity again, and atomically replaces only that account's copy. Any
+incomplete collection leaves the old copy intact. Account changes during prompts,
+fetches or encryption invalidate the operation. Save/remove cannot overlap.
+
+This is **not enabled offline study or a portable backup**. Copies include card
+content and source references, remain encrypted in the Windows profile after
+sign-out, and are not automatically refreshed. Server decks are never changed;
+collection is not a server-wide transactional snapshot. No new renderer IPC,
+offline authentication, token persistence or review replay is exposed. Removal
+currently requires online sign-in to the owning account. Windows CI exercises the
+account/menu flow with synthetic responses and real OS-encrypted save/load/remove.
+Offline browsing and queued-review reconciliation remain separate work.
 
 ## Opt-in signed candidate build
 

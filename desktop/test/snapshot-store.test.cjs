@@ -124,3 +124,17 @@ test('invalid save preserves ciphertext and invalid decrypted card data fails cl
   await fs.writeFile(file, await encryption.encrypt(JSON.stringify(malformed)))
   await assert.rejects(store.load('owner'), /^Error: Invalid or incompatible study snapshot\.$/)
 })
+
+test('session invalidation during encryption preserves the previous file and cleans temporary ciphertext', async t => {
+  const { directory, encryption, store } = await fixture(t)
+  await store.save('owner', decks)
+  const encrypt = encryption.encrypt
+  let current = true
+  encryption.encrypt = async text => { const bytes = await encrypt(text); current = false; return bytes }
+  const guard = () => { if (!current) throw Error('Account changed') }
+  await assert.rejects(store.save('owner', [], guard), /Account changed/)
+  assert.deepEqual((await store.load('owner')).decks, decks)
+  assert.equal((await fs.readdir(directory)).length, 1)
+  await assert.rejects(store.remove('owner', guard), /Account changed/)
+  assert.deepEqual((await store.load('owner')).decks, decks)
+})

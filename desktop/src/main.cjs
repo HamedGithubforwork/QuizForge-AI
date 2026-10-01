@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, Notification } = require('electron')
+const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, Notification, safeStorage } = require('electron')
 const { APP_ORIGIN, windowOptions } = require('./policy.cjs')
 
 const { guardContents } = require('./guards.cjs')
@@ -15,6 +15,9 @@ const { createNativeAuthClient } = require('./native-auth-client.cjs')
 const { createNativeSession } = require('./native-session.cjs')
 const { createNativeReminders } = require('./native-reminders.cjs')
 const { createNativeAccount } = require('./native-account.cjs')
+const { createAccountSnapshots } = require('./account-snapshots.cjs')
+const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
+const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { installNativeBridge } = require('./native-bridge.cjs')
 const path = require('node:path')
 const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
@@ -27,6 +30,7 @@ const { PROTOCOL, createCallbackReceiver } = require('./native-protocol.cjs')
 let nativeSession = null
 let testSession = null
 let nativeAccount = null
+let snapshotMenu = null
 let reminders = null
 let reminderTimer = null
 let nativeTest = null
@@ -172,6 +176,8 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'Quiz From Notes', submenu: [
         { label: 'Home', click: loadHome },
+        { id: 'snapshot-save', label: 'Save encrypted local study copy…', enabled: false, click: () => { void snapshotMenu?.('save').catch(() => {}) } },
+        { id: 'snapshot-remove', label: 'Remove local study copy…', enabled: false, click: () => { void snapshotMenu?.('remove').catch(() => {}) } },
         { role: 'quit' },
       ] },
       { role: 'editMenu' },
@@ -224,6 +230,11 @@ if (!app.requestSingleInstanceLock()) {
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })
+        const snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
+        snapshotMenu = createSnapshotMenu({ account: nativeAccount,
+          snapshots: createAccountSnapshots({ account: nativeAccount, store: snapshotStore }),
+          dialog, getWindow: () => mainWindow })
+        for (const id of ['snapshot-save', 'snapshot-remove']) Menu.getApplicationMenu().getMenuItemById(id).enabled = true
         if (!storeManaged) app.setAppUserModelId('com.quizfromnotes.desktop.preview')
         reminders = createNativeReminders({ account: nativeAccount, supported: () => Notification.isSupported(),
           show: options => {
