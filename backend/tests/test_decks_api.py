@@ -355,6 +355,7 @@ class FakeRepository:
         card_id,
         rating,
         review_duration_ms,
+        offline=None,
     ):
         self.calls.append(
             (
@@ -365,7 +366,10 @@ class FakeRepository:
                 review_duration_ms,
             )
         )
+        if offline is not None:
+            self.calls.append(("offline", offline))
         return {
+            **({"event_id": offline.event_id, "replayed": False} if offline is not None else {}),
             "card": card_row(
                 id=card_id,
                 fsrs_state=2,
@@ -1072,3 +1076,38 @@ def test_invalid_study_intensity_is_rejected_before_repository(
     assert response.status_code == 422
     assert repository.calls == []
 
+
+
+def offline_payload():
+    return {
+        "card_id": str(CARD_ID), "rating": 3,
+        "event_id": "4ac9f6ef-1846-462f-9f28-2d3b735e550d",
+        "reviewed_at": "2026-10-01T08:00:00Z",
+        "expected_updated_at": "2026-09-30T08:00:00Z",
+        "expected_study_intensity": "balanced",
+    }
+
+
+def test_offline_review_passes_validated_event_without_identity(api):
+    client, repository = api
+    payload = offline_payload()
+    response = client.post(f"/api/decks/{DECK_ID}/offline-review", json=payload)
+    assert response.status_code == 200
+    assert response.json()["event_id"] == payload["event_id"]
+    assert response.json()["replayed"] is False
+    assert repository.calls[-1][0] == "offline"
+    assert repository.calls[-1][1].reviewed_at.tzinfo is not None
+
+
+@pytest.mark.parametrize("change", [
+    {"event_id": str(UUID(int=1))}, {"event_id": None},
+    {"reviewed_at": "2026-10-01T08:00:00"},
+    {"expected_updated_at": "2026-09-30"},
+    {"expected_study_intensity": "forged"}, {"user_id": "forged"},
+    {"rating": 5}, {"review_duration_ms": -1},
+])
+def test_offline_review_rejects_invalid_events_before_storage(api, change):
+    client, repository = api
+    response = client.post(f"/api/decks/{DECK_ID}/offline-review", json=offline_payload() | change)
+    assert response.status_code == 422
+    assert repository.calls == []

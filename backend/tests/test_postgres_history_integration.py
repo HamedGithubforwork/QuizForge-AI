@@ -1247,3 +1247,60 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
 
     asyncio.run(scenario())
 
+
+
+def test_offline_review_idempotency_conflicts_and_owner_boundary(api, owner, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from uuid import uuid4
+    monkeypatch.setenv("HISTORY_DB_POOL_SIZE", "3")
+
+    async def scenario():
+        async with api() as (client, _):
+            created = await client.post("/api/decks", headers=headers(), json={
+                "name": "Offline fixture", "cards": [{
+                    "question_type": "short_answer", "question": "Offline?",
+                    "answer": {"correct_answer": "Yes", "accepted_answers": ["Yes"]},
+                }],
+            })
+            assert created.status_code == 201, created.text
+            deck = created.json()
+            card = deck["cards"][0]
+            url = f"/api/decks/{deck['id']}/offline-review"
+            event = {
+                "card_id": card["id"], "rating": 3, "event_id": str(uuid4()),
+                "reviewed_at": datetime.now(timezone.utc).isoformat(),
+                "expected_updated_at": card["updated_at"],
+                "expected_study_intensity": deck["study_intensity"],
+                "review_duration_ms": 1200,
+            }
+            other = await client.post(url, headers=headers("valid-b"), json=event)
+            assert other.status_code == 404
+            for change, status in [
+                ({"expected_study_intensity": "intensive"}, 409),
+                ({"expected_updated_at": "2000-01-01T00:00:00Z"}, 409),
+                ({"reviewed_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()}, 422),
+                ({"reviewed_at": "2000-01-01T00:00:00Z"}, 422),
+            ]:
+                rejected = await client.post(url, headers=headers(), json=event | change)
+                assert rejected.status_code == status, rejected.text
+            # Real separate pool connections exercise racing, identical retries.
+            first, retry = await asyncio.gather(*[
+                client.post(url, headers=headers(), json=event) for _ in range(2)
+            ])
+            assert first.status_code == retry.status_code == 200
+            assert sorted([first.json()["replayed"], retry.json()["replayed"]]) == [False, True]
+            assert first.json()["card"]["review_count"] == retry.json()["card"]["review_count"] == 1
+            assert datetime.fromisoformat(first.json()["card"]["last_reviewed_at"].replace("Z", "+00:00")) == datetime.fromisoformat(event["reviewed_at"])
+            logs = owner.execute("SELECT count(*) FROM app.card_review_logs WHERE card_id=%s", (card["id"],)).fetchone()[0]
+            assert logs == 1
+            changed = await client.post(url, headers=headers(), json=event | {"rating": 4})
+            assert changed.status_code == 409
+            stale = await client.post(url, headers=headers(), json=event | {"event_id": str(uuid4())})
+            assert stale.status_code == 409
+            # A later reset must remain intact when an acknowledged response is lost.
+            owner.execute("UPDATE app.cards SET review_count=0,updated_at=clock_timestamp(),progress_reset_at=clock_timestamp() WHERE id=%s", (card["id"],))
+            replay = await client.post(url, headers=headers(), json=event)
+            assert replay.status_code == 200 and replay.json()["replayed"] is True
+            assert replay.json()["card"]["review_count"] == 0
+            assert owner.execute("SELECT count(*) FROM app.card_review_logs WHERE card_id=%s", (card["id"],)).fetchone()[0] == 1
+    asyncio.run(scenario())

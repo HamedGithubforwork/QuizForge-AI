@@ -190,6 +190,24 @@ export type ReviewRequest = {
   "review_duration_ms"?: number | null
 }
 
+export type OfflineReviewRequest = {
+  "card_id": string
+  "rating": 1 | 2 | 3 | 4
+  "review_duration_ms"?: number | null
+  "event_id": string
+  "reviewed_at": string
+  "expected_updated_at": string
+  "expected_study_intensity": "relaxed" | "balanced" | "intensive"
+}
+
+export type OfflineReviewResult = {
+  "event_id": string
+  "replayed": boolean
+  "card": CardRow
+  "remaining_due_count": number
+  "next_due_at": string | null
+}
+
 export type ReviewPreview = {
   "again": string
   "hard": string
@@ -441,6 +459,7 @@ export const API_ROUTES = [
   "POST /api/decks/{deck_id}/cards/{card_id}/resume",
   "POST /api/decks/{deck_id}/cards/{card_id}/suspend",
   "POST /api/decks/{deck_id}/duplicate",
+  "POST /api/decks/{deck_id}/offline-review",
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",
