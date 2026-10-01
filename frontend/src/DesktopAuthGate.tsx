@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import App from './App'
-import DecksPage from './components/decks/DecksPage'
+import DecksPage from './components/decks'
 import ProgressPage from './components/progress/ProgressPage'
 import StudyNotificationsSettings from './components/account/StudyNotificationsSettings'
 import { desktopBridge, type DesktopAccount } from './lib/desktop'
