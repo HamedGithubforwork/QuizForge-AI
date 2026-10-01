@@ -1,102 +1,54 @@
 'use strict'
 
-const {
-  LocalAiError,
-  createLocalAiProvider,
-  failure,
-} = require('./local-ai-provider.cjs')
-
+const { LocalAiError, createLocalAiProvider, failure, validId } = require('./local-ai-provider.cjs')
 const RUNTIME_ERRORS = Object.freeze({
-  busy: ['busy', true],
-  unsupported_platform: ['unsupported_platform', false],
-  model_missing: ['model_missing', false],
-  invalid_runtime: ['runtime_invalid', false],
-  unexpected_files: ['runtime_invalid', false],
-  startup_failed: ['runtime_unavailable', true],
-  request_failed: ['runtime_unavailable', true],
-  shutdown_failed: ['runtime_unavailable', true],
-  response_too_large: ['invalid_response', false],
-  invalid_response: ['invalid_response', false],
-  request_too_large: ['invalid_request', false],
-  invalid_request: ['invalid_request', false],
+  busy: ['busy', true], unsupported_platform: ['unsupported_platform', false],
+  model_missing: ['model_missing', false], invalid_model: ['invalid_model', false],
+  invalid_runtime: ['runtime_invalid', false], unexpected_files: ['runtime_invalid', false],
+  unsafe_directory: ['runtime_invalid', false], invalid_directory: ['runtime_invalid', false],
+  invalid_manifest: ['runtime_invalid', false], startup_failed: ['runtime_unavailable', true],
+  request_failed: ['runtime_unavailable', true], shutdown_failed: ['runtime_unavailable', true],
+  response_too_large: ['invalid_response', false], invalid_response: ['invalid_response', false],
+  request_too_large: ['invalid_request', false], invalid_request: ['invalid_request', false],
 })
 
-function runtimeError(error, signal) {
-  if (error instanceof LocalAiError) return error
-  if (signal?.aborted || error?.name === 'AbortError') return failure('cancelled', { cause: error })
-  const mapped = RUNTIME_ERRORS[error?.code]
-  if (mapped) return failure(mapped[0], { retryable: mapped[1], cause: error })
-  return failure('runtime_unavailable', { retryable: true, cause: error })
+function runtimeError(error) {
+  if (error instanceof LocalAiError || ['AbortError', 'TimeoutError'].includes(error?.name)) return error
+  const mapped = Object.hasOwn(RUNTIME_ERRORS, error?.code) ? RUNTIME_ERRORS[error.code] : null
+  return mapped ? failure(mapped[0], { retryable: mapped[1] }) : failure('runtime_unavailable', { retryable: true })
 }
 
-function normalizeRuntimeUsage(value) {
-  if (!value || typeof value !== 'object') return null
-  const inputTokens = value.prompt_tokens
-  const outputTokens = value.completion_tokens
-  const totalTokens = value.total_tokens
-  const result = {}
-  if (Number.isSafeInteger(inputTokens) && inputTokens >= 0) result.inputTokens = inputTokens
-  if (Number.isSafeInteger(outputTokens) && outputTokens >= 0) result.outputTokens = outputTokens
-  if (Number.isSafeInteger(totalTokens) && totalTokens >= 0) result.totalTokens = totalTokens
-  return result
-}
-
-function createWindowsLocalAiProvider({
-  runtime,
-  modelStore,
-  modelId,
-  platform = process.platform,
-  arch = process.arch,
-}) {
-  if (!runtime || typeof runtime.complete !== 'function' ||
-      !modelStore || typeof modelStore.status !== 'function' ||
-      typeof modelId !== 'string' || modelId.length < 1 || modelId.length > 200) {
-    throw failure('invalid_provider')
-  }
-
+function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform = process.platform, arch = process.arch }) {
+  if (!runtime || typeof runtime.complete !== 'function' || !modelStore ||
+      typeof modelStore.status !== 'function' || !validId(modelId)) throw failure('invalid_provider')
+  const supported = () => platform === 'win32' && arch === 'x64'
   return createLocalAiProvider({
     id: 'windows-local',
-
     async capability({ signal }) {
-      if (platform !== 'win32' || arch !== 'x64') {
-        return { available: false, reason: 'unsupported_platform', modelId }
-      }
+      if (!supported()) return { available: false, reason: 'unsupported_platform', modelId }
       let status
-      try {
-        status = await modelStore.status({ signal })
-      } catch (error) {
-        throw runtimeError(error, signal)
-      }
-      return {
-        available: status?.ready === true,
-        reason: status?.ready === true ? null : 'model_missing',
-        modelId,
-      }
+      try { status = await modelStore.status({ signal }) } catch (error) { throw runtimeError(error) }
+      if (!status || typeof status.ready !== 'boolean') throw failure('invalid_capability')
+      return { available: status.ready, reason: status.ready ? null : 'model_missing', modelId }
     },
-
     async generate(request, { signal }) {
+      if (!supported()) throw failure('unsupported_platform')
       let response
       try {
-        response = await runtime.complete({
-          messages: request.messages,
-          max_tokens: request.maxTokens,
-        }, { signal })
-      } catch (error) {
-        throw runtimeError(error, signal)
+        response = await runtime.complete({ messages: request.messages, max_tokens: request.maxTokens }, { signal })
+      } catch (error) { throw runtimeError(error) }
+      if (!Array.isArray(response?.choices) || response.choices.length !== 1) throw failure('invalid_response')
+      const choice = response.choices[0]
+      if (choice?.message?.tool_calls != null || choice?.message?.function_call != null) throw failure('invalid_response')
+      let usage = null
+      if (response.usage != null) {
+        if (typeof response.usage !== 'object' || Array.isArray(response.usage)) throw failure('invalid_response')
+        usage = { inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
+          totalTokens: response.usage.total_tokens }
       }
-      const choice = response?.choices?.[0]
-      const text = choice?.message?.content
-      if (typeof text !== 'string' || text.length < 1) throw failure('invalid_response')
-      return {
-        text,
-        finishReason: typeof choice.finish_reason === 'string' ? choice.finish_reason : null,
-        usage: normalizeRuntimeUsage(response.usage),
-      }
+      return { text: choice?.message?.content, finishReason: choice?.finish_reason, usage }
     },
   })
 }
 
-module.exports = {
-  createWindowsLocalAiProvider,
-  runtimeError,
-}
+module.exports = { createWindowsLocalAiProvider }
