@@ -131,7 +131,8 @@ function createLocalRuntime({
       child.on('error', () => { launchError = true })
       childClosed = new Promise(resolve => child.once('close', resolve))
       processGuard = await guardProcess(child, { platform })
-      const startup = AbortSignal.any([bounded, AbortSignal.timeout(60000)])
+      const owned = AbortSignal.any([bounded, processGuard.signal])
+      const startup = AbortSignal.any([owned, AbortSignal.timeout(60000)])
       for (;;) {
         startup.throwIfAborted()
         if (launchError || child.exitCode !== null || child.signalCode !== null) throw fail('startup_failed')
@@ -144,7 +145,7 @@ function createLocalRuntime({
       }
       return await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
-        bounded)
+        owned)
     } finally {
       let cleanupError = null
       try {
