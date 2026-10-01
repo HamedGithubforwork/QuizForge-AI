@@ -311,16 +311,8 @@ class FakeRepository:
         ]
         return deck_detail(cards=values)
 
-    async def review_queue(self, deck_id, *, limit):
-        self.calls.append(("review_queue", deck_id, limit))
-        now = datetime(
-            2026,
-            9,
-            27,
-            14,
-            0,
-            tzinfo=timezone.utc,
-        )
+    async def review_queue_state(self, deck_id, *, limit):
+        self.calls.append(("review_queue_state", deck_id, limit))
         return {
             "deck_id": deck_id,
             "deck_name": "Biology Midterm",
@@ -329,26 +321,11 @@ class FakeRepository:
             "due_count": 1,
             "next_due_at": None,
             "cards": [
-                card_row(
-                    review_preview={
-                        "again": now.replace(
-                            minute=1
-                        ),
-                        "hard": now.replace(
-                            minute=5
-                        ),
-                        "good": now.replace(
-                            hour=15
-                        ),
-                        "easy": now.replace(
-                            day=28
-                        ),
-                    },
-                )
+                card_row()
             ],
         }
 
-    async def review_card(
+    async def apply_review(
         self,
         deck_id,
         *,
@@ -356,10 +333,12 @@ class FakeRepository:
         rating,
         review_duration_ms,
         offline=None,
+        prepare_review=None,
     ):
+        assert prepare_review is not None
         self.calls.append(
             (
-                "review_card",
+                "apply_review",
                 deck_id,
                 card_id,
                 rating,
@@ -652,7 +631,7 @@ def test_review_queue_returns_due_cards(api):
     }
     assert body["cards"][0]["fsrs_state"] == 1
     assert repository.calls == [
-        ("review_queue", DECK_ID, 10)
+        ("review_queue_state", DECK_ID, 10)
     ]
 
 
@@ -688,7 +667,7 @@ def test_review_rating_is_forwarded_without_owner_fields(api):
     assert body["remaining_due_count"] == 0
     assert repository.calls == [
         (
-            "review_card",
+            "apply_review",
             DECK_ID,
             CARD_ID,
             3,
