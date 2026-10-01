@@ -1285,8 +1285,8 @@ def test_offline_review_idempotency_conflicts_and_owner_boundary(api, owner, mon
                 assert rejected.status_code == status, rejected.text
             # Scheduling must hold the deck lock too, so intensity cannot change
             # between the stale-state check and commit.
-            import deck_postgres
-            schedule = deck_postgres.schedule_review
+            import review_service
+            schedule = review_service.schedule_review
             lock_checks = []
             def locked_schedule(*args, **kwargs):
                 with pytest.raises(psycopg.errors.LockNotAvailable):
@@ -1294,7 +1294,7 @@ def test_offline_review_idempotency_conflicts_and_owner_boundary(api, owner, mon
                         owner.execute("SELECT id FROM app.decks WHERE id=%s FOR UPDATE NOWAIT", (deck["id"],))
                 lock_checks.append(True)
                 return schedule(*args, **kwargs)
-            monkeypatch.setattr(deck_postgres, "schedule_review", locked_schedule)
+            monkeypatch.setattr(review_service, "schedule_review", locked_schedule)
             # Real separate pool connections exercise racing, identical retries.
             first, retry = await asyncio.gather(*[
                 client.post(url, headers=headers(), json=event) for _ in range(2)
