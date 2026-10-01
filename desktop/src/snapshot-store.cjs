@@ -64,7 +64,29 @@ function createSnapshotStore({ directory, encryption }) {
       await fs.rm(temporary, { force: true })
     }
   }
+  async function readEnvelope(file, ownerId) {
+    if (!await regularFile(file)) return null
+    let plaintext
+    try { plaintext = await encryption.decrypt(await fs.readFile(file)) }
+    catch { throw new Error('Could not unlock study snapshot.') }
+    if (typeof plaintext !== 'string' || Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) {
+      throw new Error('Invalid or oversized study snapshot.')
+    }
+    let envelope
+    try { envelope = JSON.parse(plaintext) }
+    catch { throw new Error('Invalid or incompatible study snapshot.') }
+    return validateEnvelope(envelope, ownerId)
+  }
   return {
+    importSnapshot(ownerId, value, assertCurrent = () => {}) {
+      const filename = ownerKey(ownerId)
+      const envelope = validateEnvelope(JSON.parse(JSON.stringify(value)), ownerId)
+      return serial(async () => {
+        assertCurrent(); await ready()
+        const file = path.join(directory, filename)
+        if (!await regularFile(file)) await writeEnvelope(file, envelope, assertCurrent)
+      })
+    },
     save(ownerId, decks, assertCurrent = () => {}, { offlineAccess = false } = {}) {
       const filename = ownerKey(ownerId)
       // Freeze caller-owned input before queued work; persist only the envelope.
@@ -76,7 +98,8 @@ function createSnapshotStore({ directory, encryption }) {
         assertCurrent()
         await ready()
         const file = path.join(directory, filename)
-        await regularFile(file)
+        const previous = await readEnvelope(file, ownerId)
+        if (previous?.reviews?.some(r => !r.synced)) throw new Error('Sync pending reviews before replacing this copy.')
         await writeEnvelope(file, envelope, assertCurrent)
       })
     },
@@ -109,16 +132,37 @@ function createSnapshotStore({ directory, encryption }) {
         await ready()
         const file = path.join(directory, filename)
         if (!await regularFile(file)) return null
-        let plaintext
-        try { plaintext = await encryption.decrypt(await fs.readFile(file)) }
-        catch { throw new Error('Could not unlock study snapshot.') }
-        if (typeof plaintext !== 'string' || Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) {
-          throw new Error('Invalid or oversized study snapshot.')
-        }
-        let envelope
-        try { envelope = JSON.parse(plaintext) }
-        catch { throw new Error('Invalid or incompatible study snapshot.') }
-        return validateEnvelope(envelope, ownerId)
+        return readEnvelope(file, ownerId)
+      })
+    },
+    recordReview(ownerId, cardId, rating, savedAt, assertCurrent = () => {}) {
+      const filename = ownerKey(ownerId)
+      if (![1, 2, 3, 4].includes(rating)) throw new Error('Invalid review rating.')
+      const reviewedAt = new Date().toISOString(), eventId = randomUUID()
+      return serial(async () => {
+        assertCurrent(); await ready()
+        const file = path.join(directory, filename), value = await readEnvelope(file, ownerId)
+        const deck = value?.decks.find(d => d.cards.some(c => c.id === cardId)), card = deck?.cards.find(c => c.id === cardId)
+        if (!value?.offlineAccess || value.savedAt !== savedAt || !card || card.suspended ||
+            Date.parse(card.due_at) > Date.parse(reviewedAt) || Date.parse(card.updated_at) > Date.parse(reviewedAt) ||
+            value.reviews?.some(r => r.card_id === cardId)) throw new Error('This saved card cannot be reviewed now.')
+        value.reviews ||= []
+        value.reviews.push({ deck_id: deck.id, card_id: card.id, event_id: eventId, rating, reviewed_at: reviewedAt,
+          expected_updated_at: card.updated_at, expected_study_intensity: deck.study_intensity, review_duration_ms: null, synced: false })
+        validateEnvelope(value, ownerId)
+        await writeEnvelope(file, value, assertCurrent)
+        return value
+      })
+    },
+    acknowledgeReview(ownerId, eventId, assertCurrent = () => {}) {
+      const filename = ownerKey(ownerId)
+      return serial(async () => {
+        assertCurrent(); await ready()
+        const file = path.join(directory, filename), value = await readEnvelope(file, ownerId)
+        const event = value?.reviews?.find(r => r.event_id === eventId)
+        if (!event) throw new Error('Local review no longer exists.')
+        event.synced = true
+        await writeEnvelope(file, value, assertCurrent)
       })
     },
     remove(ownerId, assertCurrent = () => {}) {

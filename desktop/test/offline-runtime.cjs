@@ -8,7 +8,7 @@ const { createWindowsSnapshotStore } = require('../src/windows-snapshot-store.cj
 const { createOfflineReader } = require('../src/offline-reader.cjs')
 const { snapshotDeck } = require('./snapshot-fixture.cjs')
 const mode = process.argv[2]
-if (!['save', 'read'].includes(mode) || !process.env.RUNNER_TEMP) throw Error('Runner-only offline test')
+if (!['save', 'read', 'verify'].includes(mode) || !process.env.RUNNER_TEMP) throw Error('Runner-only offline test')
 const directory = path.join(process.env.RUNNER_TEMP, 'qfn-offline-restart-test')
 app.enableSandbox()
 let stage = 'ready'
@@ -21,6 +21,14 @@ app.whenReady().then(async () => {
     await fs.rm(directory, { recursive: true, force: true })
     await store.save('synthetic-owner', [snapshotDeck()], () => {}, { offlineAccess: true })
     await store.save('online-only-owner', [snapshotDeck()])
+  } else if (mode === 'verify') {
+    const value = await store.load('synthetic-owner')
+    assert.equal(value.reviews.length, 1)
+    assert.equal(value.reviews[0].rating, 3)
+    assert.equal(value.reviews[0].synced, false)
+    await store.remove('synthetic-owner')
+    assert.deepEqual(await store.listOffline(), [])
+    await fs.rm(directory, { recursive: true, force: true })
   } else {
     try {
       stage = 'cold discovery'
@@ -30,7 +38,14 @@ app.whenReady().then(async () => {
       const value = await store.load(copies[0].ownerId)
       stage = 'offline window'
       const reader = createOfflineReader({ BrowserWindow, session })
-      await reader.open(value)
+      let recorded, recordFailed
+      const saved = new Promise((resolve, reject) => { recorded = resolve; recordFailed = reject })
+      void saved.catch(() => {})
+      await reader.open(value, { record: async (cardId, rating, guard) => {
+        const updated = await store.recordReview(value.ownerId, cardId, rating, value.savedAt, guard)
+        recorded(updated)
+        return updated
+      }, reportError: async () => { recordFailed(Error('Rating handler failed')) } })
       const window = BrowserWindow.getAllWindows()[0]
       assert.equal(window.webContents.getLastWebPreferences().javascript, false)
       assert.equal(window.webContents.getLastWebPreferences().preload, undefined)
@@ -52,11 +67,19 @@ app.whenReady().then(async () => {
         await dev.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
       }
       assert.notEqual((await query('.answer[open]')).nodeId, 0)
-      dev.detach()
+      stage = 'save rating through script-free reader'
+      const rating = await query('.ratings a:nth-child(3)')
+      await dev.sendCommand('DOM.scrollIntoViewIfNeeded', { nodeId: rating.nodeId })
+      const { model } = await dev.sendCommand('DOM.getBoxModel', { nodeId: rating.nodeId })
+      const x = model.content[0] + 5, y = model.content[1] + 5
+      const metrics = await dev.sendCommand('Page.getLayoutMetrics')
+      assert.ok(y >= 0 && y < metrics.cssVisualViewport.clientHeight, 'Rating must be visible before click')
+      await dev.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 })
+      await dev.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 })
+      const updated = await saved
+      assert.equal(updated.reviews[0].rating, 3)
       reader.close()
-      await store.remove('synthetic-owner')
-      assert.deepEqual(await store.listOffline(), [])
-    } finally { await fs.rm(directory, { recursive: true, force: true }) }
+    } catch (error) { await fs.rm(directory, { recursive: true, force: true }); throw error }
   }
   clearTimeout(timeout)
   console.log('PASS: offline ' + mode + ' in separate Windows process; encrypted opt-in only, no account/network dependency')

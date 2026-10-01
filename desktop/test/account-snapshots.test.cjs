@@ -133,3 +133,35 @@ test('native menu suppresses duplicate prompts and sanitizes storage errors', as
   assert.equal(messages.length, 2)
   assert.equal(JSON.stringify(messages).includes('private token'), false)
 })
+
+
+test('sync retries the same durable event and only acknowledges a matching success', async () => {
+  const f = fixture(), deck = snapshotDeck(), acknowledgments = [], requests = []
+  const event = { deck_id: deck.id, card_id: deck.cards[0].id, event_id: 'test-event', rating: 3,
+    reviewed_at: '2026-10-01T08:00:00Z', expected_updated_at: deck.cards[0].updated_at,
+    expected_study_intensity: 'balanced', review_duration_ms: null, synced: false }
+  f.store.load = async owner => { assert.equal(owner, 'verified-owner'); return { offlineAccess: true, reviews: [event] } }
+  f.store.acknowledgeReview = async (owner, id, guard) => { guard(); acknowledgments.push([owner, id]); event.synced = true }
+  f.account.request = async request => { requests.push(request); return { status: 503 } }
+  await assert.rejects(f.snapshots.sync(), /reconciliation/)
+  assert.deepEqual(acknowledgments, [])
+  f.account.request = async request => { requests.push(request); return { status: 200, body: JSON.stringify({ event_id: event.event_id, replayed: true, card: deck.cards[0] }) } }
+  assert.deepEqual(await f.snapshots.sync(), { synced: 1 })
+  assert.equal(requests[0].body, requests[1].body)
+  assert.equal(requests[1].path, `/api/decks/${deck.id}/offline-review`)
+  assert.equal(JSON.parse(requests[1].body).synced, undefined)
+  assert.deepEqual(acknowledgments, [['verified-owner', event.event_id]])
+  assert.deepEqual(await f.snapshots.sync(), { synced: 0 })
+})
+
+test('account replacement or mismatched acknowledgement never marks an event synced', async () => {
+  const f = fixture(), event = { deck_id: snapshotDeck().id, card_id: snapshotDeck().cards[0].id, event_id: 'event', synced: false }
+  f.store.load = async () => ({ offlineAccess: true, reviews: [event] })
+  let acknowledged = false
+  f.store.acknowledgeReview = async () => { acknowledged = true }
+  f.account.request = async () => ({ status: 200, body: '{}' })
+  await assert.rejects(f.snapshots.sync(), /Invalid sync/)
+  f.account.request = async () => { f.change(); return { status: 200, body: '{}' } }
+  await assert.rejects(f.snapshots.sync(), /changed/)
+  assert.equal(acknowledged, false)
+})

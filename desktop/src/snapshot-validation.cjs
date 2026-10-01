@@ -54,6 +54,7 @@ function cardValid(card, deckId, ids) {
 function validateEnvelope(value, ownerId) {
   const reject = () => { throw new Error('Invalid or incompatible study snapshot.') }
   const names = ['schema', 'ownerId', 'savedAt', 'decks']
+  if (record(value) && Object.hasOwn(value, 'reviews')) names.push('reviews')
   if (record(value) && Object.hasOwn(value, 'offlineAccess')) names.push('offlineAccess')
   if (!fields(value, names) || (Object.hasOwn(value, 'offlineAccess') && typeof value.offlineAccess !== 'boolean') || value.schema !== 1 || value.ownerId !== ownerId ||
       !timestamp(value.savedAt) || !Array.isArray(value.decks) || value.decks.length > 1000) reject()
@@ -67,6 +68,20 @@ function validateEnvelope(value, ownerId) {
         !nullable(deck.next_due_at, timestamp) || !timestamp(deck.created_at) || !timestamp(deck.updated_at) ||
         !deck.cards.every(card => cardValid(card, deck.id, cardIds))) reject()
     deckIds.add(deck.id.toLowerCase())
+  }
+  if (value.reviews !== undefined) {
+    if (value.offlineAccess !== true || !Array.isArray(value.reviews) || value.reviews.length > cardIds.size) reject()
+    const reviewed = new Set(), events = new Set()
+    for (const item of value.reviews) {
+      if (!fields(item, 'deck_id card_id event_id rating reviewed_at expected_updated_at expected_study_intensity review_duration_ms synced'.split(' '))) reject()
+      const deck = value.decks.find(d => d.id === item.deck_id), card = deck?.cards.find(c => c.id === item.card_id)
+      if (!card || reviewed.has(item.card_id) || events.has(item.event_id) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(item.event_id) ||
+          ![1, 2, 3, 4].includes(item.rating) || !timestamp(item.reviewed_at) ||
+          item.expected_updated_at !== card.updated_at || item.expected_study_intensity !== deck.study_intensity ||
+          item.review_duration_ms !== null || typeof item.synced !== 'boolean') reject()
+      reviewed.add(item.card_id); events.add(item.event_id)
+    }
   }
   return value
 }

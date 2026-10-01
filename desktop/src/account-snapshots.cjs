@@ -5,7 +5,7 @@ const { validateEnvelope } = require('./snapshot-validation.cjs')
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Main-process-only: identity, paths and content never come from renderer input.
-// No background persistence, authentication-token storage or review replay.
+// Explicit save/sync only; authentication tokens are never persisted.
 function createAccountSnapshots({ account, store, now = () => performance.now() }) {
   let busy = false
   async function run(operation) {
@@ -65,6 +65,26 @@ function createAccountSnapshots({ account, store, now = () => performance.now() 
       assertCurrent()
       await store.save(ownerId, decks, assertCurrent, { offlineAccess })
       return { deckCount: decks.length, cardCount: decks.reduce((sum, deck) => sum + deck.cards.length, 0) }
+    }),
+    sync: () => run(async (ownerId, assertCurrent) => {
+      const value = await store.load(ownerId)
+      assertCurrent()
+      if (!value?.offlineAccess) throw new Error('No offline library is enabled.')
+      let synced = 0
+      for (const event of value.reviews || []) {
+        if (event.synced) continue
+        const { deck_id, synced: _synced, ...payload } = event
+        assertCurrent()
+        const response = await account.request({ path: `/api/decks/${deck_id}/offline-review`, method: 'POST', body: JSON.stringify(payload) })
+        assertCurrent()
+        if (response.status !== 200) throw new Error('Some reviews need reconnection or reconciliation. Unsynced ratings remain on this computer.')
+        let result
+        try { result = JSON.parse(response.body) } catch { throw new Error('Invalid sync response.') }
+        if (result.event_id !== event.event_id || typeof result.replayed !== 'boolean' || result.card?.id !== event.card_id || result.card?.deck_id !== deck_id) throw new Error('Invalid sync response.')
+        await store.acknowledgeReview(ownerId, event.event_id, assertCurrent)
+        assertCurrent(); synced++
+      }
+      return { synced }
     }),
     remove: () => run(async (ownerId, assertCurrent) => { await store.remove(ownerId, assertCurrent) }),
   }

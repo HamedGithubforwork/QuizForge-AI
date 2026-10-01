@@ -41,6 +41,8 @@ jobs:
         run: npx --no-install electron test/offline-runtime.cjs save
       - name: Reopen and practice offline after process restart
         run: npx --no-install electron test/offline-runtime.cjs read
+      - name: Verify recorded offline review after another process restart
+        run: npx --no-install electron test/offline-runtime.cjs verify
       - name: Verify signed-out hosted sign-in
         run: npx --no-install electron test/hosted-login.cjs
       - name: Build internal preview installer

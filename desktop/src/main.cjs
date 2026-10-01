@@ -183,6 +183,7 @@ if (!app.requestSingleInstanceLock()) {
       { label: 'Quiz From Notes', submenu: [
         { label: 'Home', click: loadHome },
         { id: 'snapshot-save', label: 'Save for offline study…', enabled: false, click: () => { void snapshotMenu?.('save').catch(() => {}) } },
+        { id: 'snapshot-sync', label: 'Sync offline reviews…', enabled: false, click: () => { void snapshotMenu?.('sync').catch(() => {}) } },
         { id: 'snapshot-remove', label: 'Remove local study copy…', enabled: false, click: () => { void snapshotMenu?.('remove').catch(() => {}) } },
         { id: 'offline-open', label: 'Open offline study…', enabled: false, click: () => { void offlineMenu?.open().catch(() => {}) } },
         { role: 'quit' },
@@ -246,7 +247,7 @@ if (!app.requestSingleInstanceLock()) {
         snapshotMenu = createSnapshotMenu({ account: nativeAccount,
           snapshots: createAccountSnapshots({ account: nativeAccount, store: snapshotStore }),
           dialog, getWindow: () => mainWindow, changed: () => offlineMenu?.clear() })
-        for (const id of ['snapshot-save', 'snapshot-remove']) Menu.getApplicationMenu().getMenuItemById(id).enabled = true
+        for (const id of ['snapshot-save', 'snapshot-remove', 'snapshot-sync']) Menu.getApplicationMenu().getMenuItemById(id).enabled = true
         if (!storeManaged) app.setAppUserModelId('com.quizfromnotes.desktop.preview')
         reminders = createNativeReminders({ account: nativeAccount, supported: () => Notification.isSupported(),
           show: options => {
