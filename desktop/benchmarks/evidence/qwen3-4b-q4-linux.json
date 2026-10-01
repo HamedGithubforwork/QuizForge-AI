@@ -1,0 +1,299 @@
+{
+  "schema": 1,
+  "synthetic_only": true,
+  "paid_model_calls": 0,
+  "platform": "Linux",
+  "architecture": "x86_64",
+  "runtime_version": "b11317",
+  "model_sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+  "model_bytes": 2497280256,
+  "hardware_acceptance": "not_established",
+  "semantic_quality": "requires_human_review",
+  "median_seconds": 143.192,
+  "structurally_valid": 3,
+  "runs": [
+    {
+      "fixture": "facts",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Luma Observatory Facts",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "In which year did the fictional Luma Observatory open?",
+            "choices": [
+              "2022",
+              "2030",
+              "2042",
+              "2050"
+            ],
+            "correct_index": 2,
+            "explanation": "The Luma Observatory opened in 2042 according to the provided notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Who is the director of the fictional Luma Observatory?",
+            "choices": [
+              "Dr. Alan Smith",
+              "Mira Sen",
+              "Dr. Emily White",
+              "Dr. Robert Green"
+            ],
+            "correct_index": 1,
+            "explanation": "The director of the Luma Observatory is Mira Sen as stated in the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many telescopes does the fictional Luma Observatory have?",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ],
+            "correct_index": 2,
+            "explanation": "The Luma Observatory has three telescopes as mentioned in the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Which telescope at the Luma Observatory measures temperature?",
+            "choices": [
+              "Blue telescope",
+              "Red telescope",
+              "Green telescope",
+              "Yellow telescope"
+            ],
+            "correct_index": 0,
+            "explanation": "The blue telescope measures temperature according to the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Which telescope at the Luma Observatory measures distance?",
+            "choices": [
+              "Blue telescope",
+              "Red telescope",
+              "Green telescope",
+              "Yellow telescope"
+            ],
+            "correct_index": 1,
+            "explanation": "The red telescope measures distance as stated in the notes.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 454,
+        "prompt_tokens": 155,
+        "total_tokens": 609,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "elapsed_seconds": 143.192
+    },
+    {
+      "fixture": "multi_page",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Aster and Boreal Project Details",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the capacity of each container in the Aster project?",
+            "choices": [
+              "8 samples",
+              "12 samples",
+              "16 samples",
+              "20 samples"
+            ],
+            "correct_index": 1,
+            "explanation": "The Aster project uses copper containers, and each container holds 12 samples as stated in page 1 of the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How often are samples collected in the Boreal project?",
+            "choices": [
+              "Every 6 hours",
+              "Every 2 hours",
+              "Every 4 hours",
+              "Every 8 hours"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project uses glass containers, and samples are collected every two hours as stated in page 2 of the notes.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What material are the containers used in the Aster project made of?",
+            "choices": [
+              "Glass",
+              "Copper",
+              "Plastic",
+              "Steel"
+            ],
+            "correct_index": 1,
+            "explanation": "The Aster project uses copper containers as stated in page 1 of the notes.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many samples can a single container hold in the Boreal project?",
+            "choices": [
+              "6 samples",
+              "8 samples",
+              "10 samples",
+              "12 samples"
+            ],
+            "correct_index": 1,
+            "explanation": "The Boreal project uses glass containers, and each container holds 8 samples as stated in page 2 of the notes.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the primary difference between the Aster and Boreal projects in terms of container material?",
+            "choices": [
+              "Aster uses glass, Boreal uses copper",
+              "Aster uses copper, Boreal uses glass",
+              "Aster uses plastic, Boreal uses glass",
+              "Aster uses steel, Boreal uses copper"
+            ],
+            "correct_index": 1,
+            "explanation": "The Aster project uses copper containers and the Boreal project uses glass containers as stated in pages 1 and 2 of the notes.",
+            "source_pages": [
+              1,
+              2
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 586,
+        "prompt_tokens": 167,
+        "total_tokens": 753,
+        "prompt_tokens_details": {
+          "cached_tokens": 109
+        }
+      },
+      "elapsed_seconds": 167.226
+    },
+    {
+      "fixture": "instruction_in_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Tavi Rover Facts Quiz",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "How many wheels does the Tavi rover have?",
+            "choices": [
+              "Five",
+              "Six",
+              "Seven",
+              "Eight"
+            ],
+            "correct_index": 1,
+            "explanation": "The Tavi rover has six wheels, as stated in the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How long does the battery of the Tavi rover last?",
+            "choices": [
+              "Eight hours",
+              "Nine hours",
+              "Ten hours",
+              "Eleven hours"
+            ],
+            "correct_index": 1,
+            "explanation": "The battery of the Tavi rover lasts nine hours, as stated in the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many pictures does the Tavi rover's camera take per minute?",
+            "choices": [
+              "Three",
+              "Four",
+              "Five",
+              "Six"
+            ],
+            "correct_index": 1,
+            "explanation": "The Tavi rover's camera takes four pictures per minute, as stated in the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What color is the antenna of the Tavi rover?",
+            "choices": [
+              "Black",
+              "Silver",
+              "Red",
+              "Blue"
+            ],
+            "correct_index": 1,
+            "explanation": "The antenna of the Tavi rover is silver, as stated in the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "What is the mass of the Tavi rover in kilograms?",
+            "choices": [
+              "30",
+              "40",
+              "50",
+              "60"
+            ],
+            "correct_index": 1,
+            "explanation": "The mass of the Tavi rover is 40 kilograms, as stated in the study facts.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 458,
+        "prompt_tokens": 179,
+        "total_tokens": 637,
+        "prompt_tokens_details": {
+          "cached_tokens": 107
+        }
+      },
+      "elapsed_seconds": 139.616
+    }
+  ]
+}

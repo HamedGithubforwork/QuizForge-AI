@@ -91,3 +91,21 @@ The PR Windows CPU job evaluates the larger official Qwen3 4B Q4_K_M candidate
 SHA-256 `f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c`.
 It uploads only synthetic benchmark output, not runtime logs or model files. This
 is real Windows automated inference, not a user-device/GPU acceptance test.
+
+## Extended quality gate
+
+`--suite extended` tests French notes, longer notes with repeated layout noise,
+and an insufficient source. `--suite all` also repeats the original three cases.
+The prompt requires an empty questions array when there is not enough source
+material for five distinct factual questions. The harness knows which fixture
+should abstain, but never sends that expectation to the model. Unexpected
+abstention and invented questions from insufficient notes both fail the gate.
+
+The runtime runner defaults to all six cases and refuses an existing report path,
+so a failed launch cannot be mistaken for a previous successful report. New
+reports include the benchmark source hash and generation settings. Its 930-second
+whole-benchmark deadline and 300-second per-request timeout bound CPU evaluation.
+The saved basic-suite results use greedy decoding. Extended evaluation now uses
+the pinned model card’s recommended non-thinking settings: temperature 0.7,
+top-p 0.8, top-k 20, min-p 0 and presence penalty 1.5, with seed 42. Results remain
+a small development screen, not an optimized quality or launch-acceptance claim.

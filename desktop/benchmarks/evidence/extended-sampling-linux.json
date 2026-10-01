@@ -1,0 +1,241 @@
+{
+  "schema": 1,
+  "suite": "extended",
+  "synthetic_only": true,
+  "paid_model_calls": 0,
+  "platform": "Linux",
+  "architecture": "x86_64",
+  "runtime_version": "b11317",
+  "model_sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+  "benchmark_sha256": "db49aa3244d002f232146f94b28743710301aa116c0dede65b0dc2ba9dd8809d",
+  "generation_settings": {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "min_p": 0,
+    "presence_penalty": 1.5,
+    "seed": 42,
+    "max_tokens": 1800,
+    "timeout_seconds": 300
+  },
+  "model_bytes": 2497280256,
+  "hardware_acceptance": "not_established",
+  "semantic_quality": "requires_human_review",
+  "median_seconds": 190.479,
+  "structurally_valid": 3,
+  "runs": [
+    {
+      "fixture": "french_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Facts from the Fictional Notes",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "En quelle ann\u00e9e a ouvert la station Bor\u00e9ale ?",
+            "choices": [
+              "2036",
+              "2037",
+              "2038",
+              "2039"
+            ],
+            "correct_index": 1,
+            "explanation": "Selon les notes, la station Bor\u00e9ale a ouvert en 2037.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Qui est la directrice de la station Bor\u00e9ale ?",
+            "choices": [
+              "L\u00e9a Morel",
+              "Marie Dupont",
+              "Jean-Pierre Lemoine",
+              "Sophie Martin"
+            ],
+            "correct_index": 0,
+            "explanation": "Selon les notes, la directrice de la station Bor\u00e9ale est L\u00e9a Morel.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Combien de capteurs poss\u00e8de la station Bor\u00e9ale ?",
+            "choices": [
+              "cinq",
+              "six",
+              "sept",
+              "huit"
+            ],
+            "correct_index": 2,
+            "explanation": "Selon les notes, la station Bor\u00e9ale poss\u00e8de sept capteurs.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Quel capteur mesure la pression ?",
+            "choices": [
+              "le capteur vert",
+              "le capteur orange",
+              "le capteur bleu",
+              "le capteur rouge"
+            ],
+            "correct_index": 0,
+            "explanation": "Selon les notes, le capteur vert mesure la pression.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "Quel capteur mesure l'humidit\u00e9 ?",
+            "choices": [
+              "le capteur vert",
+              "le capteur orange",
+              "le capteur bleu",
+              "le capteur rouge"
+            ],
+            "correct_index": 1,
+            "explanation": "Selon les notes, le capteur orange mesure l'humidit\u00e9.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 523,
+        "prompt_tokens": 299,
+        "total_tokens": 822,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "elapsed_seconds": 190.479
+    },
+    {
+      "fixture": "long_notes",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Fictional Survey Facts Quiz",
+        "questions": [
+          {
+            "question_type": "multiple_choice",
+            "question": "What type of cases does the fictional Neral survey use?",
+            "choices": [
+              "Ceramic",
+              "Titanium",
+              "Glass",
+              "Plastic"
+            ],
+            "correct_index": 1,
+            "explanation": "The fictional Neral survey uses titanium cases according to the study facts.",
+            "source_pages": [
+              1
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How many samples does each case hold for the fictional Vesta survey?",
+            "choices": [
+              "23",
+              "17",
+              "15",
+              "19"
+            ],
+            "correct_index": 0,
+            "explanation": "The fictional Vesta survey uses ceramic cases, and each case holds 23 samples according to the study facts.",
+            "source_pages": [
+              2
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "At what temperature do samples in the Neral survey get stored?",
+            "choices": [
+              "4 degrees Celsius",
+              "9 degrees Celsius",
+              "12 degrees Celsius",
+              "6 degrees Celsius"
+            ],
+            "correct_index": 0,
+            "explanation": "The study facts state that Neral stores samples at 4 degrees Celsius.",
+            "source_pages": [
+              3
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "At what temperature do samples in the Vesta survey get stored?",
+            "choices": [
+              "4 degrees Celsius",
+              "9 degrees Celsius",
+              "12 degrees Celsius",
+              "6 degrees Celsius"
+            ],
+            "correct_index": 1,
+            "explanation": "The study facts state that Vesta stores samples at 9 degrees Celsius.",
+            "source_pages": [
+              3
+            ]
+          },
+          {
+            "question_type": "multiple_choice",
+            "question": "How often are measurements taken for the Neral survey?",
+            "choices": [
+              "Every five hours",
+              "Every seven hours",
+              "Every six hours",
+              "Every eight hours"
+            ],
+            "correct_index": 0,
+            "explanation": "The study facts state that measurements occur every five hours for the Neral survey.",
+            "source_pages": [
+              1
+            ]
+          }
+        ]
+      },
+      "usage": {
+        "completion_tokens": 482,
+        "prompt_tokens": 1093,
+        "total_tokens": 1575,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 206.691
+    },
+    {
+      "fixture": "insufficient_source",
+      "repeat": 0,
+      "errors": [],
+      "quiz": {
+        "title": "Insufficient source material",
+        "questions": []
+      },
+      "usage": {
+        "completion_tokens": 15,
+        "prompt_tokens": 234,
+        "total_tokens": 249,
+        "prompt_tokens_details": {
+          "cached_tokens": 208
+        }
+      },
+      "elapsed_seconds": 4.723
+    }
+  ],
+  "runtime_settings": {
+    "threads": 2,
+    "gpu_layers": 0,
+    "slots": 1,
+    "context": 4096
+  },
+  "peak_child_rss_kib": 5259436
+}

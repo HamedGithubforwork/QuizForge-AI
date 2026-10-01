@@ -38,12 +38,15 @@ def wait_ready(process, port, timeout=60):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--suite', choices=['basic', 'extended', 'all'], default='all')
     parser.add_argument('--runtime', type=Path, required=True)
     parser.add_argument('--model-file', type=Path, required=True)
     parser.add_argument('--model-sha256', required=True)
     parser.add_argument('--runtime-version', required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if args.output.exists():
+        parser.error('Choose a new output path; refusing to overwrite earlier evidence')
     verify_model(args.model_file, args.model_sha256)  # Before native model parsing.
     # Refuse to benchmark an unrelated listener already occupying the fixed port.
     import socket
@@ -61,7 +64,7 @@ def main():
                 sys.executable, str(Path(__file__).with_name('local_inference.py')),
                 '--model-file', str(args.model_file), '--model-sha256', args.model_sha256,
                 '--runtime-version', args.runtime_version, '--timeout', '300',
-                '--repeats', '1', '--output', str(args.output),
+                '--repeats', '1', '--suite', args.suite, '--output', str(args.output),
             ], timeout=930, check=False)
         finally:
             process.terminate()

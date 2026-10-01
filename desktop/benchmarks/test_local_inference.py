@@ -2,6 +2,10 @@ import copy
 import http.server
 import threading
 import unittest
+import tempfile
+from pathlib import Path
+from unittest.mock import Mock
+from run_cpu import verify_model, wait_ready
 from local_inference import validate_quiz, request, payload, FIXTURES, SCHEMA
 
 
@@ -19,6 +23,23 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(body["json_schema"], SCHEMA)
         self.assertFalse(body["stream"])
         self.assertNotIn("response_format", body)
+
+    def test_insufficient_source_requires_abstention(self):
+        empty = {"title": "Insufficient source material", "questions": []}
+        self.assertEqual(validate_quiz(empty, {1}, 0), [])
+        self.assertEqual(validate_quiz(empty, {1}), ["question_count"])
+        self.assertEqual(validate_quiz(valid_quiz(), {1}, 0), ["question_count"])
+
+    def test_model_integrity_and_startup_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "model.gguf"
+            path.write_bytes(b"not the reviewed model")
+            with self.assertRaisesRegex(ValueError, "checksum"):
+                verify_model(path, "0" * 64)
+        process = Mock()
+        process.poll.return_value = 1
+        with self.assertRaisesRegex(RuntimeError, "exited"):
+            wait_ready(process, 8089)
 
     def test_valid(self):
         self.assertEqual(validate_quiz(valid_quiz(), {1}), [])
