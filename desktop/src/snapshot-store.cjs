@@ -42,7 +42,7 @@ function createSnapshotStore({ directory, encryption }) {
       throw error
     }
   }
-  async function writeEnvelope(file, envelope) {
+  async function writeEnvelope(file, envelope, assertCurrent) {
     const plaintext = JSON.stringify(envelope)
     if (Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) throw new Error('Study snapshot is too large.')
     let ciphertext
@@ -57,6 +57,7 @@ function createSnapshotStore({ directory, encryption }) {
       await handle.sync()
       await handle.close()
       handle = undefined
+      assertCurrent()
       await fs.rename(temporary, file)
     } finally {
       if (handle) await handle.close()
@@ -64,17 +65,18 @@ function createSnapshotStore({ directory, encryption }) {
     }
   }
   return {
-    save(ownerId, decks) {
+    save(ownerId, decks, assertCurrent = () => {}) {
       const filename = ownerKey(ownerId)
       // Freeze caller-owned input before queued work; persist only the envelope.
       const json = JSON.stringify({ schema: 1, ownerId, savedAt: new Date().toISOString(), decks })
       if (Buffer.byteLength(json) > MAX_PLAINTEXT_BYTES) throw new Error('Study snapshot is too large.')
       const envelope = validateEnvelope(JSON.parse(json), ownerId)
       return serial(async () => {
+        assertCurrent()
         await ready()
         const file = path.join(directory, filename)
         await regularFile(file)
-        await writeEnvelope(file, envelope)
+        await writeEnvelope(file, envelope, assertCurrent)
       })
     },
     load(ownerId) {
@@ -95,12 +97,15 @@ function createSnapshotStore({ directory, encryption }) {
         return validateEnvelope(envelope, ownerId)
       })
     },
-    remove(ownerId) {
+    remove(ownerId, assertCurrent = () => {}) {
       const filename = ownerKey(ownerId)
       return serial(async () => {
         await ready()
         const file = path.join(directory, filename)
-        if (await regularFile(file)) await fs.unlink(file)
+        if (await regularFile(file)) {
+          assertCurrent()
+          await fs.unlink(file)
+        }
       })
     },
   }

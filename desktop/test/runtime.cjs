@@ -6,6 +6,9 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
 const { createWindowsSnapshotStore } = require('../src/windows-snapshot-store.cjs')
+const { createNativeAccount } = require('../src/native-account.cjs')
+const { createAccountSnapshots } = require('../src/account-snapshots.cjs')
+const { createSnapshotMenu } = require('../src/snapshot-menu.cjs')
 const { snapshotDeck } = require('./snapshot-fixture.cjs')
 const { windowOptions } = require('../src/policy.cjs')
 const { guardContents } = require('../src/guards.cjs')
@@ -48,19 +51,32 @@ app.whenReady().then(async () => {
       app: { isReady: () => app.isReady(), getPath: () => directory }, safeStorage,
     })
     const decks = [snapshotDeck()]
-    await store.save('synthetic-owner', decks)
+    const account = createNativeAccount({ session: {
+      generation: () => 1, status: () => ({ signedIn: true }),
+      session: async () => ({ userId: 'synthetic-owner', email: 'fixture@example.test', accessToken: 'synthetic-only' }),
+    }, fetch: async url => Response.json(url.endsWith('/identity/session')
+      ? { id: 'synthetic-owner', email: 'fixture@example.test', enrolled: true }
+      : url.endsWith('/api/decks') ? [{ id: decks[0].id }] : decks[0]) })
+    await account.verify()
+    const snapshots = createAccountSnapshots({ account, store })
+    const reports = []
+    const menu = createSnapshotMenu({ account, snapshots, getWindow: () => window,
+      dialog: { showMessageBox: async (_window, value) => { reports.push(value); return { response: 0 } } } })
+    await menu('save')
+    assert.match(reports[1].message, /Encrypted copy saved: 1 decks, 1 cards/)
     assert.deepEqual((await store.load('synthetic-owner')).decks, decks)
     const files = await fs.readdir(path.join(directory, 'study-snapshots-v1'))
     const encrypted = await fs.readFile(path.join(directory, 'study-snapshots-v1', files[0]))
     assert.equal(encrypted.includes(Buffer.from('Private study notes')), false)
-    await store.remove('synthetic-owner')
+    await menu('remove')
+    assert.equal(reports[3].message, 'Local study copy removed.')
     assert.equal(await store.load('synthetic-owner'), null)
   } finally {
     await fs.rm(directory, { recursive: true, force: true })
   }
   window.destroy()
   clearTimeout(timeout)
-  console.log('Real Electron smoke passed: isolated renderer, blocked popup/navigation, Windows encrypted snapshots, local diagnostics/clipboard')
+  console.log('Real Electron smoke passed: isolated renderer, blocked popup/navigation, verified-account Windows encrypted save/remove, local diagnostics/clipboard')
   app.exit(0)
 }).catch(error => {
   console.error(error.message)
