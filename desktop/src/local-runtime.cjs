@@ -9,6 +9,7 @@ const { createHash, randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
 const MANIFEST = require('./local-runtime-manifest.json')
+const { createWindowsProcessGuard } = require('./windows-process-guard.cjs')
 const fail = code => Object.assign(new Error('Local runtime: ' + code), { code })
 
 async function verifyRuntime(directory, manifest = MANIFEST, signal) {
@@ -101,13 +102,14 @@ function createLocalRuntime({
   randomBytesFn = randomBytes,
   platform = process.platform,
   arch = process.arch,
+  guardProcess = createWindowsProcessGuard,
 }) {
   let active = null
   let closed = false
   const ownerAbort = new AbortController()
 
   async function run(payload, signal) {
-    let child, childClosed
+    let child, childClosed, processGuard
     const bounded = AbortSignal.any([
       AbortSignal.timeout(6 * 60 * 1000),
       ownerAbort.signal,
@@ -128,6 +130,7 @@ function createLocalRuntime({
       let launchError
       child.on('error', () => { launchError = true })
       childClosed = new Promise(resolve => child.once('close', resolve))
+      processGuard = await guardProcess(child, { platform })
       const startup = AbortSignal.any([bounded, AbortSignal.timeout(60000)])
       for (;;) {
         startup.throwIfAborted()
@@ -143,7 +146,23 @@ function createLocalRuntime({
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
         bounded)
     } finally {
-      if (child && childClosed) await stop(child, childClosed)
+      let cleanupError = null
+      try {
+        if (child && childClosed) await stop(child, childClosed)
+      } catch (error) {
+        cleanupError = error
+      }
+      try {
+        await processGuard?.dispose()
+      } catch (error) {
+        cleanupError ||= error
+      }
+      if (child && childClosed &&
+          child.exitCode === null && child.signalCode === null &&
+          !await Promise.race([childClosed.then(() => true), delay(3000, false)])) {
+        cleanupError ||= fail('shutdown_failed')
+      }
+      if (cleanupError) throw cleanupError
     }
   }
 
