@@ -46,6 +46,25 @@ prove available RAM, runtime-binary readiness, supported GPU, sustained performa
 quiz quality or launch readiness. Real hardware evaluation and a fuller capability
 policy remain prerequisites before UI enablement. The model is not a chosen default.
 
+## Runtime lifecycle
+
+The runtime instance now has explicit `status()` and idempotent `shutdown()`
+ownership. One inference session may run at a time. Shutdown closes the instance,
+cancels any active operation through an owner signal, waits for the existing
+bounded child cleanup path, and prevents a later request from starting on the
+same instance. Success, caller cancellation, startup failure and explicit shutdown
+all converge on the same terminate-then-force-kill cleanup path.
+
+The real Windows runtime validation must exercise explicit shutdown in addition
+to success and caller cancellation. Runtime/model integrity is still reverified
+for each session, so app restart does not trust stale in-memory readiness.
+
+This does **not** yet prove cleanup after abrupt termination of the Electron main
+process itself. A directly spawned native child can outlive an unexpectedly killed
+parent on Windows. Until parent-death ownership is independently implemented and
+verified, this remains a release blocker and Local AI stays disabled for normal
+users.
+
 ## Model store
 
 `createModelStoreContract({id, store})` exposes `status`, `download`, and `remove`.
