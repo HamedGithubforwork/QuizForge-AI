@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { createRequire } from 'node:module'
+import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { currentTotp, readCanaryFixture, signInAndEnrollCanary } from './canary-fixture'
 
@@ -66,6 +67,23 @@ test('native PKCE identity, saved deck, review and sign-out without model calls'
     expect(queue.cards.length).toBe(1)
     const review = await request(`/api/decks/${deckId}/review`,'POST',{card_id:queue.cards[0].id,rating:3,review_duration_ms:1000})
     expect(review.remaining_due_count).toBe(0)
+    await request(`/api/decks/${deckId}/cards`,'POST',{cards:[{question_type:'short_answer',question:'Offline sync fixture?',answer:{correct_answer:'Idempotent'},choices:[],source_pages:[],tags:[]}]})
+    const offlineQueue = await request(`/api/decks/${deckId}/review?limit=20`)
+    expect(offlineQueue.cards.length).toBe(1)
+    const savedCard = offlineQueue.cards[0]
+    const event = { card_id: savedCard.id, rating: 3, review_duration_ms: 1000,
+      event_id: randomUUID(), reviewed_at: new Date().toISOString(),
+      expected_updated_at: savedCard.updated_at, expected_study_intensity: offlineQueue.study_intensity }
+    const offlinePath = `/api/decks/${deckId}/offline-review`
+    const applied = await request(offlinePath, 'POST', event)
+    const retry = await request(offlinePath, 'POST', event)
+    expect(applied.replayed).toBe(false)
+    expect(retry.replayed).toBe(true)
+    expect(applied.event_id).toBe(event.event_id)
+    expect(retry.card.review_count).toBe(1)
+    expect(retry.card.last_reviewed_at).toBe(applied.card.last_reviewed_at)
+    const conflict = await account.request({path: offlinePath, method:'POST', body: JSON.stringify({...event, event_id:randomUUID()})})
+    expect(conflict.status).toBe(409)
     await request('/api/study-notifications/preferences')
     await request('/api/study-analytics/summary')
     expect(Boolean(await session.session(true))).toBe(true)
