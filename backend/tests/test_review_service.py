@@ -52,14 +52,18 @@ def row(**overrides):
 
 
 def offline(**overrides):
-    return SimpleNamespace(
-        event_id=uuid4(),
-        reviewed_at=NOW - timedelta(hours=1),
-        expected_updated_at=
+    values = {
+        "event_id": uuid4(),
+        "reviewed_at":
+            NOW - timedelta(hours=1),
+        "expected_updated_at":
             NOW - timedelta(days=2),
-        expected_study_intensity=
+        "expected_study_intensity":
             "balanced",
-        **overrides,
+    }
+    values.update(overrides)
+    return SimpleNamespace(
+        **values
     )
 
 
