@@ -66,9 +66,13 @@ The frontend consumes backend-owned generated wire types from `frontend/src/type
 
 Prefer feature ownership. Page/router components should compose features rather than become the only home for their business behavior.
 
-Known pressure point:
+Deck feature ownership:
 
-- `frontend/src/components/decks/DecksPage.tsx` coordinates many deck-management behaviors. New substantial deck features should prefer coherent child components/hooks/services and behavior-preserving extraction rather than continuing to add unrelated responsibilities to this file.
+- `frontend/src/components/decks/DecksPage.tsx` owns deck-library and route-level composition.
+- `frontend/src/components/decks/DeckDetailView.tsx` owns deck-level detail/settings actions.
+- `frontend/src/components/decks/DeckCardManager.tsx` owns card CRUD, filtering, movement, suspend/resume, progress reset, and card-level interaction state.
+
+New substantial deck features should extend the narrowest owning module or introduce another coherent feature boundary rather than moving behavior back into `DecksPage.tsx`.
 
 Large file size is a signal to inspect cohesion, not an automatic CI failure.
 
