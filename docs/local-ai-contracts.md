@@ -59,11 +59,26 @@ The real Windows runtime validation must exercise explicit shutdown in addition
 to success and caller cancellation. Runtime/model integrity is still reverified
 for each session, so app restart does not trust stale in-memory readiness.
 
-This does **not** yet prove cleanup after abrupt termination of the Electron main
-process itself. A directly spawned native child can outlive an unexpectedly killed
-parent on Windows. Until parent-death ownership is independently implemented and
-verified, this remains a release blocker and Local AI stays disabled for normal
-users.
+Windows sessions now require a second ownership boundary before the runtime can
+be considered ready. `windows-process-guard.cjs` assigns the native runtime
+process to a Windows Job Object configured with KILL_ON_JOB_CLOSE. A separate
+minimal PowerShell watchdog owns the job handle and monitors the parent process.
+If the main process is hard-terminated, the watchdog exits and Windows closes the
+job handle, terminating the assigned runtime. If the watchdog itself dies, closing
+its handle provides the same fail-closed behavior. The watchdog receives only
+parent/child process IDs plus minimal system paths; it does not receive the local
+runtime API key, model path or provider credentials.
+
+The runtime does not send a health or generation request until the watchdog reports
+that assignment succeeded. If Job Object ownership cannot be established (for
+example because system policy blocks the watchdog), Local AI fails unavailable
+rather than running an unowned child. Normal success, cancellation and explicit
+shutdown still terminate the runtime directly and then dispose the watchdog.
+
+Release acceptance requires a real-Windows test that starts a guarded child, force-
+terminates its parent without graceful cleanup, and independently verifies that
+the child disappears. Local AI must remain disabled until that test and the real
+llama-server lifecycle test pass on the exact reviewed head.
 
 ## Model store
 
