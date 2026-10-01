@@ -77,3 +77,17 @@ Run deterministic transport/validation tests without a model:
 ```sh
 python -m unittest discover -s desktop/benchmarks -p 'test_*.py'
 ```
+
+`run_cpu.py` verifies the model before native parsing, starts a CPU-only runtime,
+waits for health, runs one sample per fixture, and terminates its child even if the
+benchmark fails. It refuses an occupied port. Use it with `--runtime`,
+`--model-file`, `--model-sha256`, `--runtime-version` and `--output`. Linux records
+peak child RSS; Windows leaves that metric null rather than fabricating a value.
+
+The PR Windows CPU job evaluates the larger official Qwen3 4B Q4_K_M candidate
+(revision `bc640142c66e1fdd12af0bd68f40445458f3869b`, model SHA-256
+`7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`,
+2,497,280,256 bytes). The b11317 Windows CPU archive is separately verified against
+SHA-256 `f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c`.
+It uploads only synthetic benchmark output, not runtime logs or model files. This
+is real Windows automated inference, not a user-device/GPU acceptance test.
