@@ -33,5 +33,7 @@ jobs:
           Move-Item "$env:RUNNER_TEMP/model.gguf" "$env:RUNNER_TEMP/models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf"
           node --test desktop/test/local-runtime.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node desktop/scripts/verify-parent-death.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node desktop/scripts/verify-local-runtime.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
