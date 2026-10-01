@@ -1,7 +1,8 @@
 # Initial CPU evidence — not product acceptance
 
 Environment: native Linux x86_64 shared execution host, Intel Xeon Platinum 8573C,
-9 visible logical CPUs, approximately 9.7 GiB RAM; llama.cpp b11317, two inference
+9 visible logical CPUs, approximately 9.7 GiB host RAM with an 8 GiB container
+memory limit and an eight-CPU quota; llama.cpp b11317, two inference
 threads, GPU layers zero, one slot, 4096 context tokens. Model and runtime digests
 are recorded in the benchmark README and raw JSON. These are automated inference
 runs with assistant review of their synthetic output, not a blinded quality study.
