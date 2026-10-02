@@ -22,8 +22,10 @@ export async function buildLocalQuizRequest(
     (
       documentSha256: string,
       pageNumber: number,
+      signal?: AbortSignal,
     ) => Promise<string> =
       loadSourcePageText,
+  signal?: AbortSignal,
 ): Promise<DesktopLocalQuizRequest> {
   if (
     !status.available ||
@@ -55,15 +57,18 @@ export async function buildLocalQuizRequest(
     )
   }
 
+  signal?.throwIfAborted()
   const pages = await Promise.all(
     document.pages.map(async page => ({
       pageNumber: page.page_number,
       text: await loadPage(
         document.pdf_sha256,
         page.page_number,
+        signal,
       ),
     })),
   )
+  signal?.throwIfAborted()
 
   const bytes = pages.reduce(
     (total, page) =>
