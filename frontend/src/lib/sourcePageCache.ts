@@ -153,11 +153,13 @@ async function getCurrentUserId() {
 async function fetchSourcePageText(
   documentSha256: string,
   pageNumber: number,
+  signal?: AbortSignal,
 ) {
   const response = await apiFetch(
     `/api/documents/${encodeURIComponent(
       documentSha256,
     )}/pages/${pageNumber}`,
+    signal ? { signal } : {},
   )
 
   const data =
@@ -187,6 +189,7 @@ async function fetchSourcePageText(
 export async function loadSourcePageText(
   documentSha256: string,
   pageNumber: number,
+  signal?: AbortSignal,
 ) {
   const userId = await getCurrentUserId()
   const cacheKey = buildSourcePageCacheKey(
@@ -201,6 +204,21 @@ export async function loadSourcePageText(
 
   if (cachedText !== null) {
     return cachedText
+  }
+
+  if (signal) {
+    signal.throwIfAborted()
+    const text = await fetchSourcePageText(
+      documentSha256,
+      pageNumber,
+      signal,
+    )
+    signal.throwIfAborted()
+    rememberSourcePage(
+      cacheKey,
+      text,
+    )
+    return text
   }
 
   const pendingRequest =
