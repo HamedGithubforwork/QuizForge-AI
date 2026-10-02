@@ -1,3 +1,21 @@
+export type DesktopLocalAiGenerationStatus = {
+  available: boolean
+  busy: boolean
+  reason: string | null
+  supportedQuestionCounts: number[]
+  supportedQuestionTypes: Array<'multiple_choice'>
+  serverPdfProcessingRequired: boolean
+}
+
+export type DesktopLocalQuizRequest = {
+  pages: Array<{ pageNumber: number; text: string }>
+  questionCount: number
+  difficulty: string
+  questionType: string
+  focusPages?: number[]
+  avoidQuestions?: string[]
+}
+
 export type DesktopLocalAiStatus = {
   initialized: boolean
   phase: 'idle' | 'checking' | 'downloading' | 'removing'
@@ -32,6 +50,9 @@ export type DesktopBridge = {
   startLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   cancelLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
+  localAiGenerationStatus?(): Promise<DesktopLocalAiGenerationStatus>
+  generateLocalQuiz?(request: DesktopLocalQuizRequest): Promise<unknown>
+  cancelLocalQuiz?(): Promise<DesktopLocalAiGenerationStatus>
   openAccountWebsite(): Promise<void>
 }
 declare global { interface Window { quizFromNotesDesktop?: DesktopBridge } }
@@ -80,4 +101,25 @@ export async function desktopFetch(bridge: DesktopBridge, path: string, init: Re
   init.signal?.throwIfAborted()
   return new Response([204, 205, 304].includes(result.status) || !result.body ? null : result.body,
     { status: result.status, headers: { 'Content-Type': result.contentType } })
+}
+
+
+export type DesktopLocalGenerationBridge = DesktopLocalAiBridge & {
+  localAiGenerationStatus(): Promise<DesktopLocalAiGenerationStatus>
+  generateLocalQuiz(request: DesktopLocalQuizRequest): Promise<unknown>
+  cancelLocalQuiz(): Promise<DesktopLocalAiGenerationStatus>
+}
+
+export function desktopLocalGenerationBridge(
+  bridge = desktopLocalAiBridge(),
+): DesktopLocalGenerationBridge | undefined {
+  if (!bridge) return undefined
+  const candidate = bridge as DesktopLocalGenerationBridge
+  return [
+    candidate.localAiGenerationStatus,
+    candidate.generateLocalQuiz,
+    candidate.cancelLocalQuiz,
+  ].every(method => typeof method === 'function')
+    ? candidate
+    : undefined
 }
