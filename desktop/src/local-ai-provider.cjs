@@ -7,13 +7,50 @@ const ERROR_CODES = new Set([
   'runtime_invalid', 'runtime_unavailable', 'capability_failed', 'generation_failed',
   'invalid_model_store', 'invalid_model_status', 'invalid_model_progress',
   'insufficient_disk', 'invalid_model', 'invalid_download', 'unapproved_download',
-  'unsafe_model', 'model_store_failed',
+  'unsafe_model', 'model_store_failed', 'unsupported_mode', 'source_too_large',
+  'invalid_quiz', 'insufficient_source', 'runtime_missing',
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
 const encoder = new TextEncoder()
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const validId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,199}$/.test(value)
+const FORBIDDEN_SCHEMA_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+function cloneSchemaValue(value, state = { nodes: 0 }, depth = 0) {
+  state.nodes += 1
+  if (state.nodes > 512 || depth > 10) throw failure('invalid_request')
+  if (value === null || typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw failure('invalid_request')
+    return value
+  }
+  if (typeof value === 'string') {
+    if (value.length > 4000) throw failure('invalid_request')
+    return value
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 128) throw failure('invalid_request')
+    return Object.freeze(value.map(item => cloneSchemaValue(item, state, depth + 1)))
+  }
+  if (!record(value)) throw failure('invalid_request')
+  const keys = Object.keys(value)
+  if (keys.length > 128 || keys.some(key => !key || key.length > 100 || FORBIDDEN_SCHEMA_KEYS.has(key))) {
+    throw failure('invalid_request')
+  }
+  const result = {}
+  for (const key of keys) result[key] = cloneSchemaValue(value[key], state, depth + 1)
+  return Object.freeze(result)
+}
+
+function normalizeResponseSchema(value) {
+  if (value === undefined) return undefined
+  const schema = cloneSchemaValue(value)
+  if (!record(schema) || encoder.encode(JSON.stringify(schema)).byteLength > 16000) {
+    throw failure('invalid_request')
+  }
+  return schema
+}
 
 class LocalAiError extends Error {
   constructor(code, { retryable = false } = {}) {
@@ -51,7 +88,7 @@ async function runOperation(operation, { signal, fallback, checkAfter = true }) 
 }
 
 function normalizeRequest(value) {
-  if (!record(value) || Object.keys(value).some(key => !['maxTokens', 'messages'].includes(key)) ||
+  if (!record(value) || Object.keys(value).some(key => !['maxTokens', 'messages', 'responseSchema'].includes(key)) ||
       !Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > 64) {
     throw failure('invalid_request')
   }
@@ -62,9 +99,14 @@ function normalizeRequest(value) {
     return Object.freeze({ role: message.role, content: message.content })
   })
   const maxTokens = value.maxTokens === undefined ? 1800 : value.maxTokens
+  const responseSchema = normalizeResponseSchema(value.responseSchema)
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 1800 ||
-      encoder.encode(JSON.stringify(messages)).byteLength > 60000) throw failure('invalid_request')
-  return Object.freeze({ messages: Object.freeze(messages), maxTokens })
+      encoder.encode(JSON.stringify({ messages, responseSchema })).byteLength > 60000) {
+    throw failure('invalid_request')
+  }
+  const request = { messages: Object.freeze(messages), maxTokens }
+  if (responseSchema !== undefined) request.responseSchema = responseSchema
+  return Object.freeze(request)
 }
 
 function normalizeCapability(value) {
