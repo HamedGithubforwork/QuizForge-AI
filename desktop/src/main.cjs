@@ -17,7 +17,7 @@ const { createNativeReminders } = require('./native-reminders.cjs')
 const { createNativeAccount } = require('./native-account.cjs')
 const { createAccountSnapshots } = require('./account-snapshots.cjs')
 const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
-const { createWindowsLocalAiManager } = require('./windows-local-ai-manager.cjs')
+const { createWindowsLocalAiServices } = require('./windows-local-ai-services.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { createOfflineReader } = require('./offline-reader.cjs')
 const { createOfflineMenu } = require('./offline-menu.cjs')
@@ -39,7 +39,7 @@ let offlineMenu = null
 let reminders = null
 let reminderTimer = null
 let nativeTest = null
-let localAiManager = null
+let localAiServices = null
 let shutdownPromise = null
 let shutdownComplete = false
 const receiveCallback = createCallbackReceiver({ getSession: () => nativeTest?.status().running ? testSession : nativeSession, focus: focusWindow })
@@ -77,7 +77,7 @@ async function disposeSessions() {
   clearInterval(reminderTimer)
   reminders?.dispose()
   nativeAccount?.clear()
-  await Promise.allSettled([nativeTest?.dispose(), nativeSession?.signOut(), localAiManager?.dispose()])
+  await Promise.allSettled([nativeTest?.dispose(), nativeSession?.signOut(), localAiServices?.dispose()])
 }
 
 function loadHome() {
@@ -240,7 +240,7 @@ if (!app.requestSingleInstanceLock()) {
     ]))
     installNativeBridge({ ipcMain, getWindow: () => mainWindow,
       getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
-      getLocalAi: () => localAiManager,
+      getLocalAi: () => localAiServices,
       confirmLocalAiDownload,
       confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
@@ -248,7 +248,12 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
       snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
-      localAiManager = createWindowsLocalAiManager({ userDataDirectory: app.getPath('userData') })
+      localAiServices = createWindowsLocalAiServices({
+        userDataDirectory: app.getPath('userData'),
+        // Runtime distribution is not approved yet. Generation stays unavailable
+        // in normal packaged builds until a reviewed runtime source is configured.
+        runtimeDirectory: null,
+      })
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })
       Menu.getApplicationMenu().getMenuItemById('offline-open').enabled = true
@@ -282,7 +287,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url), onChange: () => {
-            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear(); void localAiServices?.cancelDownload() }
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })
