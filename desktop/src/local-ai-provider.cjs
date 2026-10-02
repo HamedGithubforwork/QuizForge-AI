@@ -7,7 +7,8 @@ const ERROR_CODES = new Set([
   'runtime_invalid', 'runtime_unavailable', 'capability_failed', 'generation_failed',
   'invalid_model_store', 'invalid_model_status', 'invalid_model_progress',
   'insufficient_disk', 'invalid_model', 'invalid_download', 'unapproved_download',
-  'unsafe_model', 'model_store_failed',
+  'unsafe_model', 'model_store_failed', 'source_too_large', 'unsupported_quiz_mode',
+  'quiz_validation_failed',
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
