@@ -3,7 +3,8 @@ import App from './App'
 import DecksPage from './components/decks'
 import ProgressPage from './components/progress/ProgressPage'
 import StudyNotificationsSettings from './components/account/StudyNotificationsSettings'
-import { desktopBridge, type DesktopAccount } from './lib/desktop'
+import LocalAiSettings from './components/account/LocalAiSettings'
+import { desktopBridge, desktopLocalAiBridge, type DesktopAccount } from './lib/desktop'
 import './AuthGate.css'
 
 const bridge = desktopBridge()!
@@ -63,11 +64,18 @@ export default function DesktopAuthGate() {
     <button onClick={() => void run(() => bridge.openAccountWebsite())}>Open account setup</button>
     <button onClick={() => void run(signOut)}>Sign out</button>
   </section></main>
+  const localAiAvailable = desktopLocalAiBridge(bridge) !== undefined
   return <div key={account.userId}>
     <div className="account-bar"><div className="account-bar-inner">
       <span className="account-bar-email">Signed in as {account.email}</span>
       <nav className="account-bar-actions" aria-label="Account navigation">
-        {([['/', 'Quiz'], ['/decks', 'Decks'], ['/progress', 'Progress'], ['/settings/notifications', 'Reminders']] as const).map(([path, label]) =>
+        {([
+          ['/', 'Quiz'],
+          ['/decks', 'Decks'],
+          ['/progress', 'Progress'],
+          ['/settings/notifications', 'Reminders'],
+          ...(localAiAvailable ? [['/settings/local-ai', 'Local AI'] as const] : []),
+        ] as const).map(([path, label]) =>
           <button key={path} className="account-nav-button" aria-current={pathname === path ? 'page' : undefined}
             onClick={() => navigate(path)}>{label}</button>)}
         <button disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>Account security</button>
@@ -77,6 +85,7 @@ export default function DesktopAuthGate() {
     {error && <p role="alert">{error}</p>}
     {pathname.startsWith('/decks') ? <DecksPage pathname={pathname} onNavigate={navigate} />
       : pathname === '/progress' ? <ProgressPage onNavigate={navigate} />
+      : pathname === '/settings/local-ai' ? <main className="settings-page"><LocalAiSettings /></main>
       : pathname.startsWith('/settings') ? <main className="settings-page"><StudyNotificationsSettings /></main> : <App />}
   </div>
 }
