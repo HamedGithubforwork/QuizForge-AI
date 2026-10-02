@@ -1,3 +1,20 @@
+export type DesktopLocalAiStatus = {
+  initialized: boolean
+  phase: 'idle' | 'checking' | 'downloading' | 'removing'
+  progress: { receivedBytes: number; totalBytes: number } | null
+  error: string | null
+  capability: {
+    localEligible: boolean
+    recommendation: 'enhanced-local-preview' | 'lightweight-local-preview' | 'cloud-only'
+    modelId: string | null
+    acceleration: 'cpu' | 'gpu' | null
+    releaseReady: boolean
+    reasons: string[]
+    hardware: { gpuDetected: boolean; gpuAccelerationUsable: boolean }
+    requirements: { modelBytes: number; diskRequiredBytes: number } | null
+  } | null
+  model: { state: 'missing' | 'ready' | 'invalid'; ready: boolean; bytes: number | null }
+}
 export type DesktopAccount = { userId: string; email: string; enrolled: boolean }
 type DesktopRequest = { path: string; method: string; body?: string; form?: Array<
   { name: string; value: string } | { name: string; bytes: Uint8Array; filename: string }
@@ -11,12 +28,38 @@ export type DesktopBridge = {
   reminderStatus(): Promise<{ supported: boolean; enabled: boolean }>
   enableReminders(): Promise<void>
   disableReminders(): Promise<void>
+  localAiStatus?(): Promise<DesktopLocalAiStatus>
+  startLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
+  cancelLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
+  removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
   openAccountWebsite(): Promise<void>
 }
 declare global { interface Window { quizFromNotesDesktop?: DesktopBridge } }
 export function desktopBridge() {
   return typeof window !== 'undefined' && window.quizFromNotesDesktop?.version === 1
     ? window.quizFromNotesDesktop : undefined
+}
+
+export type DesktopLocalAiBridge = DesktopBridge & {
+  localAiStatus(): Promise<DesktopLocalAiStatus>
+  startLocalAiModelDownload(): Promise<DesktopLocalAiStatus>
+  cancelLocalAiModelDownload(): Promise<DesktopLocalAiStatus>
+  removeLocalAiModel(): Promise<DesktopLocalAiStatus>
+}
+
+export function desktopLocalAiBridge(
+  bridge = desktopBridge(),
+): DesktopLocalAiBridge | undefined {
+  if (!bridge) return undefined
+  const candidate = bridge as DesktopLocalAiBridge
+  return [
+    candidate.localAiStatus,
+    candidate.startLocalAiModelDownload,
+    candidate.cancelLocalAiModelDownload,
+    candidate.removeLocalAiModel,
+  ].every(method => typeof method === 'function')
+    ? candidate
+    : undefined
 }
 export async function desktopFetch(bridge: DesktopBridge, path: string, init: RequestInit): Promise<Response> {
   init.signal?.throwIfAborted()
