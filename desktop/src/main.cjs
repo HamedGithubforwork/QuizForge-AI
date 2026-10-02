@@ -17,6 +17,7 @@ const { createNativeReminders } = require('./native-reminders.cjs')
 const { createNativeAccount } = require('./native-account.cjs')
 const { createAccountSnapshots } = require('./account-snapshots.cjs')
 const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
+const { createWindowsLocalAiManager } = require('./windows-local-ai-manager.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { createOfflineReader } = require('./offline-reader.cjs')
 const { createOfflineMenu } = require('./offline-menu.cjs')
@@ -38,6 +39,7 @@ let offlineMenu = null
 let reminders = null
 let reminderTimer = null
 let nativeTest = null
+let localAiManager = null
 let shutdownPromise = null
 let shutdownComplete = false
 const receiveCallback = createCallbackReceiver({ getSession: () => nativeTest?.status().running ? testSession : nativeSession, focus: focusWindow })
@@ -75,7 +77,7 @@ async function disposeSessions() {
   clearInterval(reminderTimer)
   reminders?.dispose()
   nativeAccount?.clear()
-  await Promise.allSettled([nativeTest?.dispose(), nativeSession?.signOut()])
+  await Promise.allSettled([nativeTest?.dispose(), nativeSession?.signOut(), localAiManager?.dispose()])
 }
 
 function loadHome() {
@@ -119,6 +121,42 @@ async function updatePrompt(kind) {
     type: kind === 'error' ? 'warning' : 'info', message, detail, buttons,
     defaultId: kind === 'restart' ? 1 : 0, cancelId: kind === 'restart' ? 1 : 0 })
   return kind === 'restart' && result.response === 0
+}
+
+function formatLocalModelSize(value) {
+  if (!Number.isSafeInteger(value) || value < 1) return 'the local model'
+  return (value / 1024 ** 3).toFixed(1) + ' GB local model'
+}
+
+async function confirmLocalAiDownload(status) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const size = formatLocalModelSize(status?.capability?.requirements?.modelBytes)
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Download Local AI model',
+    message: `Download the experimental ${size}?`,
+    detail: 'This is an explicit optional download. It does not enable Local AI generation yet.',
+    buttons: ['Download', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  })
+  return response === 0
+}
+
+async function confirmLocalAiRemoval() {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: 'Remove Local AI model',
+    message: 'Remove the downloaded Local AI model from this Windows profile?',
+    detail: 'Study decks, offline reviews, and account data are not removed.',
+    buttons: ['Remove model', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  })
+  return response === 0
 }
 
 async function showStoreUpdates() {
@@ -202,11 +240,15 @@ if (!app.requestSingleInstanceLock()) {
     ]))
     installNativeBridge({ ipcMain, getWindow: () => mainWindow,
       getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
+      getLocalAi: () => localAiManager,
+      confirmLocalAiDownload,
+      confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
       openAccountWebsite: () => shell.openExternal(APP_ORIGIN + '/settings/security') })
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
       snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
+      localAiManager = createWindowsLocalAiManager({ userDataDirectory: app.getPath('userData') })
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })
       Menu.getApplicationMenu().getMenuItemById('offline-open').enabled = true
@@ -240,7 +282,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url), onChange: () => {
-            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear() }
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })
