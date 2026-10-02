@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { desktopFetch, desktopLocalAiBridge, desktopLocalQuizBridge, type DesktopBridge } from './desktop.ts'
+import { desktopFetch, desktopLocalAiBridge, desktopLocalQuizBridge, type DesktopBridge, type DesktopLocalAiBridge, type DesktopLocalQuizBridge } from './desktop.ts'
 test('desktop fetch serializes multipart files and never forwards authorization or arbitrary headers', async () => {
   let captured: unknown
   const bridge = { request: async (request: unknown) => { captured = request; return { status: 200, body: '{"ok":true}', contentType: 'application/json' } } } as DesktopBridge
@@ -42,7 +42,7 @@ test('Local quiz feature detection requires all fixed generation methods', () =>
     startLocalAiModelDownload: async () => ({}),
     cancelLocalAiModelDownload: async () => ({}),
     removeLocalAiModel: async () => ({}),
-  } as unknown as DesktopBridge
+  } as unknown as DesktopLocalAiBridge
   assert.equal(desktopLocalQuizBridge(modelBridge), undefined)
 
   const quizBridge = {
@@ -50,6 +50,6 @@ test('Local quiz feature detection requires all fixed generation methods', () =>
     localAiQuizStatus: async () => ({}),
     generateLocalAiQuiz: async () => ({ ok: false, error: 'generation_failed' }),
     cancelLocalAiQuiz: async () => {},
-  } as unknown as DesktopBridge
+  } as unknown as DesktopLocalQuizBridge
   assert.equal(desktopLocalQuizBridge(quizBridge), quizBridge)
 })
