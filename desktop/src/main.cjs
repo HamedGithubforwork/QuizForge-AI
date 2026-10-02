@@ -17,7 +17,7 @@ const { createNativeReminders } = require('./native-reminders.cjs')
 const { createNativeAccount } = require('./native-account.cjs')
 const { createAccountSnapshots } = require('./account-snapshots.cjs')
 const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
-const { createWindowsLocalAiManager } = require('./windows-local-ai-manager.cjs')
+const { createWindowsLocalAiStack } = require('./windows-local-ai-stack.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { createOfflineReader } = require('./offline-reader.cjs')
 const { createOfflineMenu } = require('./offline-menu.cjs')
@@ -248,7 +248,10 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
       snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
-      localAiManager = createWindowsLocalAiManager({ userDataDirectory: app.getPath('userData') })
+      localAiManager = createWindowsLocalAiStack({
+        userDataDirectory: app.getPath('userData'),
+        runtimeDirectory: path.join(process.resourcesPath, 'local-ai-runtime'),
+      })
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })
       Menu.getApplicationMenu().getMenuItemById('offline-open').enabled = true
