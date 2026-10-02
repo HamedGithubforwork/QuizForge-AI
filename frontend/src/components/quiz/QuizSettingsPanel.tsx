@@ -165,7 +165,10 @@ function QuizSettingsPanel({
             <span>Generation engine</span>
             <select
               value={generationMode}
-              disabled={settingsDisabled}
+              disabled={
+                settingsDisabled ||
+                hasQuiz
+              }
               onChange={(event) => {
                 const value =
                   event.target.value
