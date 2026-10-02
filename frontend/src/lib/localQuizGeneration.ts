@@ -6,10 +6,6 @@ import type {
 import type {
   UploadResult,
 } from '../types/quiz'
-import {
-  loadSourcePageText,
-} from './sourcePageCache.ts'
-
 export type QuizGenerationMode =
   | 'cloud'
   | 'local'
@@ -23,8 +19,7 @@ export async function buildLocalQuizRequest(
       documentSha256: string,
       pageNumber: number,
       signal?: AbortSignal,
-    ) => Promise<string> =
-      loadSourcePageText,
+    ) => Promise<string>,
   signal?: AbortSignal,
 ): Promise<DesktopLocalQuizRequest> {
   if (
