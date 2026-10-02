@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { desktopFetch, type DesktopBridge } from './desktop.ts'
+import { desktopFetch, desktopLocalAiBridge, type DesktopBridge } from './desktop.ts'
 test('desktop fetch serializes multipart files and never forwards authorization or arbitrary headers', async () => {
   let captured: unknown
   const bridge = { request: async (request: unknown) => { captured = request; return { status: 200, body: '{"ok":true}', contentType: 'application/json' } } } as DesktopBridge
@@ -18,4 +18,18 @@ test('desktop fetch preserves no-content responses and rejects unsupported or ca
   await assert.rejects(desktopFetch(bridge, '/api/decks', {body:new URLSearchParams()}))
   await assert.rejects(desktopFetch(bridge, '/api/decks', {signal:AbortSignal.abort()}))
   assert.equal(calls,1)
+})
+
+
+test('Local AI bridge feature detection preserves older desktop compatibility', () => {
+  const oldBridge = { version: 1 } as DesktopBridge
+  assert.equal(desktopLocalAiBridge(oldBridge), undefined)
+  const nextBridge = {
+    version: 1,
+    localAiStatus: async () => ({}),
+    startLocalAiModelDownload: async () => ({}),
+    cancelLocalAiModelDownload: async () => ({}),
+    removeLocalAiModel: async () => ({}),
+  } as unknown as DesktopBridge
+  assert.equal(desktopLocalAiBridge(nextBridge), nextBridge)
 })

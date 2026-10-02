@@ -5,7 +5,7 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
-const { createLocalModelStore, reviewedUrl } = require('../src/local-model-store.cjs')
+const { approvedHost, createLocalModelStore, reviewedUrl } = require('../src/local-model-store.cjs')
 const bytes = Buffer.from('GGUF synthetic model fixture')
 const digest = createHash('sha256').update(bytes).digest('hex')
 const spec = { bytes: bytes.length, sha256: digest, url: 'https://huggingface.co/test/model' }
@@ -98,4 +98,21 @@ test('symlink models cannot be used or removed', { skip: process.platform === 'w
 test('invalid registry entries fail before work', () => {
   assert.throws(() => reviewedUrl('https://huggingface.co/a#fragment'), /unapproved_download/)
   assert.throws(() => createLocalModelStore({ directory: 'relative' }), /invalid_configuration/)
+})
+
+
+test('reviewed Hugging Face storage hosts allow current CDN/Xet families but reject lookalikes', () => {
+  for (const host of [
+    'huggingface.co',
+    'cdn-lfs-us-1.hf.co',
+    'cas-server.xethub.hf.co',
+    'transfer.xethub-eu.hf.co',
+    'us.aws.cdn.hf.co',
+  ]) assert.equal(approvedHost(host), true)
+  for (const host of [
+    'hf.co.evil.example',
+    'huggingface.co.evil.example',
+    'evil-hf.co',
+    'example.com',
+  ]) assert.equal(approvedHost(host), false)
 })
