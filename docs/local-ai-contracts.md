@@ -105,6 +105,43 @@ consumer-device behavior remain unmeasured. Every current profile has
 `releaseReady: false` until representative Windows hardware acceptance is
 completed.
 
+## Local quiz generation
+
+`createLocalQuizService` is the portable product-level quiz-generation boundary.
+The initial preview intentionally supports only the behavior evaluated with the
+current candidate: exactly five multiple-choice questions at easy, medium, or hard
+difficulty. Source material is limited to 8,000 UTF-8 bytes and at most 20 source
+pages. Other question counts/types remain on Cloud AI until separately evaluated.
+
+The trusted quiz service, not the renderer, builds the model prompt and fixed JSON
+schema. Renderer IPC can send only page-number/text pairs plus the supported quiz
+settings; it cannot choose arbitrary prompts, schemas, tools, model options, paths,
+or runtime credentials. The Windows adapter passes the fixed schema to llama.cpp
+structured output. The returned JSON is still treated as untrusted and is
+deterministically checked for exact question count, four distinct choices, valid
+correct indexes, non-duplicate questions, bounded text, and source citations that
+refer only to supplied pages. Valid choice questions are expanded into the same
+`Quiz` wire shape used by cloud generation, including the fixed grading-v2
+metadata.
+
+The hosted desktop app exposes Local AI as a generation engine only when the native
+stack reports hardware eligibility, a verified installed model, and a checksum-
+verified runtime. Older desktop builds feature-detect the optional bridge and keep
+the cloud-only UI. Cancellation spans authenticated source-page retrieval and the
+native inference operation. Weak-area/history follow-up generation remains cloud-
+only in this first preview and is never silently switched from Local AI to cloud.
+
+Privacy scope is explicit: in this phase PDF processing and authenticated source-
+page retrieval still use the existing Quiz From Notes server workflow. Only the
+question-generation step runs on-device. Full local/offline PDF extraction is a
+later local-first phase and must not be implied by this integration.
+
+Normal packaged builds still do not ship a Local AI runtime. Their fixed resources
+runtime location therefore remains unavailable and the generation option stays
+hidden. CI provisions the checksum-pinned runtime and model only for acceptance;
+licensing/distribution review must be completed before runtime distribution or
+normal-user activation.
+
 ## Model management surface
 
 `createLocalAiManager` owns bounded user-facing model state: compatibility,
@@ -153,5 +190,8 @@ against a neutral fixture and the Windows adapter, including cancellation, retri
 malformed input/output, bounded UTF-8 payloads, redaction, and portability.
 `desktop/test/model-store-adapter.test.cjs` runs the actual disk adapter with tiny
 synthetic bytes, including cancellation, concurrent retry, corruption and deletion.
-No real model download or cloud call is required for these tests. Existing Windows
-runtime/installer acceptance remains separate from these contract tests.
+`desktop/test/local-quiz-service.test.cjs` covers the portable five-question MCQ
+request/output contract. The dedicated Windows runtime workflow downloads the
+pinned model through the concrete ModelStore, verifies parent-death/runtime
+lifecycle behavior, and then generates a real quiz through the Windows Local AI
+stack. Normal unit tests require no real model download or cloud call.
