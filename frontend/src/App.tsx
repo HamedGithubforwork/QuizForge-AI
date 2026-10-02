@@ -33,6 +33,9 @@ import {
   localQuizErrorMessage,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
+import {
+  loadSourcePageText,
+} from './lib/sourcePageCache.ts'
 import type {
   GeneratedSettings,
   MasteryContext,
@@ -349,7 +352,7 @@ function App() {
             documentResult,
             difficulty,
             localQuizStatus,
-            undefined,
+            loadSourcePageText,
             localController?.signal,
           )
 
