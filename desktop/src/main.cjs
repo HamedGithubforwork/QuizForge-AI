@@ -248,9 +248,13 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
       snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
+      const runtimeDirectory =
+        typeof process.resourcesPath === 'string'
+          ? path.join(process.resourcesPath, 'local-ai-runtime')
+          : undefined
       localAiManager = createWindowsLocalAiStack({
         userDataDirectory: app.getPath('userData'),
-        runtimeDirectory: path.join(process.resourcesPath, 'local-ai-runtime'),
+        ...(runtimeDirectory ? { runtimeDirectory } : {}),
       })
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })
