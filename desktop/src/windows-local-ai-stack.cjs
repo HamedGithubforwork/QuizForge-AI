@@ -1,6 +1,5 @@
 'use strict'
 
-const fs = require('node:fs/promises')
 const path = require('node:path')
 const {
   LocalAiError,
@@ -134,11 +133,9 @@ function createWindowsLocalAiStack({
   async function dispose() {
     if (disposed) return
     disposed = true
-    await Promise.allSettled([
-      cancelQuiz(),
-      manager.dispose(),
-      runtime?.shutdown(),
-    ])
+    await cancelQuiz().catch(() => {})
+    await runtime?.shutdown().catch(() => {})
+    await manager.dispose().catch(() => {})
   }
 
   return Object.freeze({
