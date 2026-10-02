@@ -9,6 +9,7 @@ const { createWindowsLocalAiProvider } = require('../src/windows-local-ai-provid
 const { createModelStoreContract } = require('../src/model-store-contract.cjs')
 
 const input = () => ({ messages: [{ role: 'user', content: 'Synthetic notes' }], maxTokens: 50 })
+const schema = () => ({ type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] })
 const result = () => ({ text: 'Synthetic result', finishReason: 'stop', usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } })
 const capability = () => ({ available: true, modelId: 'synthetic', reason: null, secret: 'must not escape' })
 const generic = generate => createLocalAiProvider({ id: 'synthetic', capability, generate })
@@ -24,6 +25,7 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
     const provider = factory(async request => {
       assert.equal(Object.isFrozen(request.messages), true)
       assert.equal(Object.isFrozen(request.messages[0]), true)
+      if (request.jsonSchema) assert.equal(Object.isFrozen(request.jsonSchema), true)
       return { ...result(), path: 'private-path' }
     })
     assert.deepEqual(await provider.generate(input()), result())
@@ -35,7 +37,8 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
     for (const value of [null, {}, [], { messages: [] }, { ...input(), tools: [] },
       { messages: [{ role: 'tool', content: 'bad' }] }, { messages: [{ role: 'user', content: ' ' }] },
       { messages: [{ role: 'user', content: 'é'.repeat(31000) }] }, { ...input(), maxTokens: NaN },
-      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 }]) {
+      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 },
+      { ...input(), jsonSchema: [] }, { ...input(), jsonSchema: { description: 'x'.repeat(17000) } }]) {
       await assert.rejects(provider.generate(value), { code: 'invalid_request' })
     }
     assert.equal(calls, 0)
@@ -89,6 +92,19 @@ test('capability failures, timeouts and cancellation have bounded public codes',
   await assert.rejects(make(async () => { throw new Error('secret') }).capability(), { code: 'capability_failed' })
   await assert.rejects(make(async () => { throw new DOMException('secret', 'TimeoutError') }).capability(), { code: 'timed_out' })
   assert.equal(new LocalAiError('secret/path').code, 'generation_failed')
+})
+
+test('structured output schemas are normalized and forwarded only through the trusted provider contract', async () => {
+  let neutralRequest
+  const neutral = generic(async request => { neutralRequest = request; return result() })
+  await neutral.generate({ ...input(), jsonSchema: schema() })
+  assert.deepEqual(neutralRequest.jsonSchema, schema())
+
+  let runtimeRequest
+  const provider = windows(async request => { runtimeRequest = request; return wire(result()) })
+  await provider.generate({ ...input(), jsonSchema: schema() })
+  assert.deepEqual(runtimeRequest.json_schema, schema())
+  assert.equal(runtimeRequest.max_tokens, 50)
 })
 
 test('Windows adapter preserves token limits, rejects unsupported platforms and protocol surprises', async () => {
