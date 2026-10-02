@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -23,6 +24,15 @@ import {
 import {
   apiFetch,
 } from './lib/api.ts'
+import {
+  desktopLocalQuizBridge,
+  type DesktopLocalAiQuizStatus,
+} from './lib/desktop.ts'
+import {
+  buildLocalQuizRequest,
+  localQuizErrorMessage,
+  type QuizGenerationMode,
+} from './lib/localQuizGeneration.ts'
 import type {
   GeneratedSettings,
   MasteryContext,
@@ -76,6 +86,42 @@ function App() {
     useState<PracticeFocus | null>(null)
   const [masteryContext, setMasteryContext] =
     useState<MasteryContext | null>(null)
+  const localQuizBridgeRef =
+    useRef(desktopLocalQuizBridge())
+  const localQuizBridge =
+    localQuizBridgeRef.current
+  const [
+    generationMode,
+    setGenerationMode,
+  ] = useState<QuizGenerationMode>('cloud')
+  const [
+    localQuizStatus,
+    setLocalQuizStatus,
+  ] = useState<DesktopLocalAiQuizStatus | null>(null)
+
+  useEffect(() => {
+    if (!localQuizBridge) {
+      return
+    }
+
+    let active = true
+    void localQuizBridge
+      .localAiQuizStatus()
+      .then((status) => {
+        if (active) {
+          setLocalQuizStatus(status)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLocalQuizStatus(null)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [localQuizBridge])
 
   const attempt = useQuizAttempt({
     quiz,
@@ -192,6 +238,30 @@ function App() {
     else if (selectedFile) formData.append('file', selectedFile)
   }
 
+  function handleGenerationModeChange(
+    mode: QuizGenerationMode,
+  ) {
+    setGenerationMode(mode)
+
+    if (mode === 'local') {
+      setQuestionCount(5)
+      setQuestionType('multiple_choice')
+    }
+  }
+
+  async function handleCancelLocalQuiz() {
+    if (!localQuizBridge) {
+      return
+    }
+
+    setGenerationStage(
+      'Cancelling local generation...',
+    )
+    await localQuizBridge
+      .cancelLocalAiQuiz()
+      .catch(() => {})
+  }
+
   async function handleGenerateQuiz() {
     if (!selectedFile && !documentResult) {
       setError('Please choose a PDF first.')
@@ -222,7 +292,9 @@ function App() {
 
     setIsGenerating(true)
     setGenerationStage(
-      'Analyzing document...',
+      generationMode === 'local'
+        ? 'Loading selected page text...'
+        : 'Analyzing document...',
     )
     setError('')
     attempt.resetAttempt()
@@ -230,22 +302,80 @@ function App() {
 
     const stageTimers: number[] = []
 
-    stageTimers.push(
-      window.setTimeout(() => {
-        setGenerationStage(
-          'Building questions...',
-        )
-      }, 1000),
-    )
-    stageTimers.push(
-      window.setTimeout(() => {
-        setGenerationStage(
-          'Validating quiz...',
-        )
-      }, 3500),
-    )
+    if (generationMode === 'cloud') {
+      stageTimers.push(
+        window.setTimeout(() => {
+          setGenerationStage(
+            'Building questions...',
+          )
+        }, 1000),
+      )
+      stageTimers.push(
+        window.setTimeout(() => {
+          setGenerationStage(
+            'Validating quiz...',
+          )
+        }, 3500),
+      )
+    }
 
     try {
+      if (generationMode === 'local') {
+        if (
+          !localQuizBridge ||
+          !localQuizStatus?.available
+        ) {
+          throw new Error(
+            'Local AI quiz generation is not ready on this desktop.',
+          )
+        }
+
+        const request =
+          await buildLocalQuizRequest(
+            documentResult,
+            difficulty,
+            localQuizStatus,
+          )
+
+        setGenerationStage(
+          'Generating and validating on this computer...',
+        )
+
+        const result =
+          await localQuizBridge
+            .generateLocalAiQuiz(request)
+
+        if (!result.ok) {
+          if (result.error === 'cancelled') {
+            setGenerationStage('')
+            return
+          }
+
+          throw new Error(
+            localQuizErrorMessage(result),
+          )
+        }
+
+        setGenerationStage('Quiz ready!')
+        setQuiz(result.quiz)
+        setGeneratedSettings({
+          questionCount: 5,
+          difficulty,
+          questionType:
+            'multiple_choice',
+        })
+
+        window.setTimeout(() => {
+          document
+            .getElementById('quiz-start')
+            ?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start',
+            })
+        }, 150)
+        return
+      }
+
       const formData = new FormData()
       appendDocument(formData)
       formData.append(
@@ -310,6 +440,13 @@ function App() {
   }
 
   async function handlePracticeWeakAreas() {
+    if (generationMode === 'local') {
+      setError(
+        'Local AI weak-area follow-up is not enabled yet. Generate a Cloud AI quiz to use targeted follow-up practice.',
+      )
+      return
+    }
+
     if (
       !quiz ||
       !documentResult ||
@@ -504,6 +641,13 @@ function App() {
   async function handleHistoryPracticeWeakAreas(
     focus: HistoryPracticeFocus,
   ) {
+    if (generationMode === 'local') {
+      setError(
+        'Local AI history-based follow-up is not enabled yet. Switch to Cloud AI for this practice mode.',
+      )
+      return
+    }
+
     if (!documentResult) {
       setError(
         'Upload and process this PDF before generating history-based practice.',
@@ -728,6 +872,11 @@ function App() {
               questionCount={questionCount}
               difficulty={difficulty}
               questionType={questionType}
+              generationMode={generationMode}
+              localAiAvailable={
+                localQuizStatus?.available ===
+                true
+              }
               hasQuiz={Boolean(quiz)}
               isGenerating={isGenerating}
               isWeakPracticeGenerating={
@@ -748,8 +897,14 @@ function App() {
               onQuestionTypeChange={
                 setQuestionType
               }
+              onGenerationModeChange={
+                handleGenerationModeChange
+              }
               onGenerateQuiz={
                 handleGenerateQuiz
+              }
+              onCancelLocalGeneration={
+                handleCancelLocalQuiz
               }
             />
 
