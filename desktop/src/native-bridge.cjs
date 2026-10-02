@@ -31,7 +31,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
-    signOut: async () => { await getLocalAi()?.cancelDownload?.(); getAccount()?.clear(); await getSession()?.signOut() },
+    signOut: async () => { await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelGeneration?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
       if (!account) throw new Error('Sign in to your desktop account first.')
@@ -51,14 +51,18 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     removeLocalAiModel: async () => {
       const manager = localAi()
       const status = await manager.load()
-      if (!status.model?.ready) return status
+      if (!status.model?.ready && status.model?.state !== 'invalid') return status
       return await confirmLocalAiRemoval(status) ? manager.removeModel() : status
     },
+    localAiGenerationStatus: () => localAi().generationStatus(),
+    generateLocalQuiz: value => localAi().generateQuiz(value),
+    cancelLocalQuiz: () => localAi().cancelGeneration(),
     openAccountWebsite: () => openAccountWebsite(),
   }
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('qfn:' + name, async (event, ...args) => {
-      if (!trusted(event) || args.length !== (name === 'request' ? 1 : 0)) throw new Error('Desktop command is not permitted.')
+      const expectedArguments = name === 'request' || name === 'generateLocalQuiz' ? 1 : 0
+      if (!trusted(event) || args.length !== expectedArguments) throw new Error('Desktop command is not permitted.')
       const frame = event.senderFrame
       const result = await handler(...args)
       if (!trusted(event) || event.senderFrame !== frame) throw new Error('Desktop page changed.')
