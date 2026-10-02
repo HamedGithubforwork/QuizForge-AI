@@ -10,9 +10,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const CODE = /\.(?:[cm]?js|tsx?)$/
 const DECKS = 'frontend/src/components/decks/'
 const DECK_ENTRIES = new Set([DECKS + 'index.ts', DECKS + 'DecksPage.tsx'])
-const CORE = new Set(['desktop/src/local-ai-provider.cjs', 'desktop/src/model-store-contract.cjs', 'desktop/src/local-ai.cjs'])
+const CORE = new Set(['desktop/src/local-ai-provider.cjs', 'desktop/src/model-store-contract.cjs', 'desktop/src/local-ai-capability.cjs', 'desktop/src/local-ai.cjs'])
 const LOCAL_AI_OWNER = new Set([...CORE, 'desktop/src/windows-local-ai-provider.cjs'])
-const PLATFORM = new Set(['desktop/src/local-runtime.cjs', 'desktop/src/local-model-store.cjs', 'desktop/src/windows-local-ai-provider.cjs', 'desktop/src/windows-process-guard.cjs'])
+const PLATFORM = new Set(['desktop/src/local-runtime.cjs', 'desktop/src/local-model-store.cjs', 'desktop/src/windows-local-ai-provider.cjs', 'desktop/src/windows-process-guard.cjs', 'desktop/src/windows-hardware-probe.cjs'])
 const ELECTRON_ENTRIES = new Set(['desktop/src/main.cjs', 'desktop/src/preload.cjs', 'desktop/src/native-bridge.cjs'])
 const normal = value => path.posix.normalize(value.replaceAll('\\', '/'))
 
