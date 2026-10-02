@@ -105,6 +105,33 @@ consumer-device behavior remain unmeasured. Every current profile has
 `releaseReady: false` until representative Windows hardware acceptance is
 completed.
 
+## Model management surface
+
+`createLocalAiManager` owns bounded user-facing model state: compatibility,
+verified model readiness, download progress, cancellation, removal, and safe public
+error codes. The Windows composition binds it to the verified disk ModelStore and
+the hardware capability probe. The hosted renderer receives no model path,
+download URL, raw RAM/disk values, runtime key, or adapter error cause.
+
+A model download is always explicit. The hosted settings page can request one, but
+the main process independently displays a native confirmation before dispatching
+the multi-gigabyte transfer. Removal has the same native confirmation boundary.
+Sign-out/app shutdown cancel an in-flight download. Older installed desktop builds
+remain compatible because the hosted frontend feature-detects the new bridge
+methods and hides the Local AI navigation when they are absent.
+
+A corrupted cached model is represented as a removable invalid state rather than
+making settings unusable. It cannot be used or overwritten in place; the user must
+explicitly remove it before downloading again.
+
+Hugging Face downloads remain HTTPS-only with no userinfo, custom port or fragment.
+Redirect destinations are limited to the `huggingface.co` or `hf.co` domain
+suffixes so current CDN/Xet storage endpoints work while lookalike domains remain
+rejected. Release evidence must download the pinned candidate through the concrete
+ModelStore, verify its digest and atomic publication, then reuse that exact file
+for the real Windows runtime test. Tiny synthetic store tests remain the fast
+failure/cancellation/corruption coverage.
+
 ## Model store
 
 `createModelStoreContract({id, store})` exposes `status`, `download`, and `remove`.
