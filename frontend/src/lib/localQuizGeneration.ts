@@ -8,7 +8,7 @@ import type {
 } from '../types/quiz'
 import {
   loadSourcePageText,
-} from './sourcePageCache'
+} from './sourcePageCache.ts'
 
 export type QuizGenerationMode =
   | 'cloud'
