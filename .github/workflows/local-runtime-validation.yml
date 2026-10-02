@@ -1,7 +1,7 @@
 name: Local runtime session validation
 on:
   pull_request:
-    paths: ['desktop/src/local-runtime*', 'desktop/src/local-model-store.cjs', 'desktop/src/windows-process-guard.cjs', 'desktop/test/local-runtime*', 'desktop/test/local-model-store.test.cjs', 'desktop/test/windows-process-guard.test.cjs', 'desktop/scripts/download-verified-model.cjs', 'desktop/scripts/verify-local-runtime.cjs', 'desktop/scripts/parent-death-worker.cjs', 'desktop/scripts/verify-parent-death.cjs', '.github/workflows/local-runtime-validation.yml']
+    paths: ['desktop/src/local-runtime*', 'desktop/src/local-model-store.cjs', 'desktop/src/local-ai-provider.cjs', 'desktop/src/local-quiz-service.cjs', 'desktop/src/windows-local-ai-provider.cjs', 'desktop/src/windows-local-ai-stack.cjs', 'desktop/src/windows-process-guard.cjs', 'desktop/test/local-runtime*', 'desktop/test/local-model-store.test.cjs', 'desktop/test/local-quiz-service.test.cjs', 'desktop/test/windows-process-guard.test.cjs', 'desktop/scripts/download-verified-model.cjs', 'desktop/scripts/verify-local-runtime.cjs', 'desktop/scripts/verify-local-quiz-service.cjs', 'desktop/scripts/parent-death-worker.cjs', 'desktop/scripts/verify-parent-death.cjs', '.github/workflows/local-runtime-validation.yml']
 permissions:
   contents: read
 jobs:
@@ -34,4 +34,6 @@ jobs:
           node desktop/scripts/verify-parent-death.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node desktop/scripts/verify-local-runtime.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node desktop/scripts/verify-local-quiz-service.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
