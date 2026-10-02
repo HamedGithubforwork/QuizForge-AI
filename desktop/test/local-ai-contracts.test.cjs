@@ -11,6 +11,12 @@ const { createModelStoreContract } = require('../src/model-store-contract.cjs')
 const input = () => ({ messages: [{ role: 'user', content: 'Synthetic notes' }], maxTokens: 50 })
 const result = () => ({ text: 'Synthetic result', finishReason: 'stop', usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 } })
 const capability = () => ({ available: true, modelId: 'synthetic', reason: null, secret: 'must not escape' })
+const responseSchema = () => ({
+  type: 'object',
+  additionalProperties: false,
+  required: ['ok'],
+  properties: { ok: { type: 'boolean' } },
+})
 const generic = generate => createLocalAiProvider({ id: 'synthetic', capability, generate })
 const windows = complete => createWindowsLocalAiProvider({ runtime: { complete }, modelStore: { status: async () => ({ ready: true }) },
   modelId: 'synthetic', platform: 'win32', arch: 'x64' })
@@ -35,7 +41,10 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
     for (const value of [null, {}, [], { messages: [] }, { ...input(), tools: [] },
       { messages: [{ role: 'tool', content: 'bad' }] }, { messages: [{ role: 'user', content: ' ' }] },
       { messages: [{ role: 'user', content: 'é'.repeat(31000) }] }, { ...input(), maxTokens: NaN },
-      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 }]) {
+      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 },
+      { ...input(), responseSchema: () => ({}) },
+      { ...input(), responseSchema: { constructor: {} } },
+      { ...input(), responseSchema: { description: 'x'.repeat(5000) } }]) {
       await assert.rejects(provider.generate(value), { code: 'invalid_request' })
     }
     assert.equal(calls, 0)
@@ -93,8 +102,23 @@ test('capability failures, timeouts and cancellation have bounded public codes',
 
 test('Windows adapter preserves token limits, rejects unsupported platforms and protocol surprises', async () => {
   let calls = 0
-  const provider = windows(async request => { calls++; assert.deepEqual(Object.keys(request).sort(), ['max_tokens', 'messages']);
-    assert.equal(request.max_tokens, 50); return wire(result()) })
+  const requests = []
+  const provider = windows(async request => {
+    calls++
+    requests.push(request)
+    assert.deepEqual(Object.keys(request).sort(),
+      ['chat_template_kwargs', 'max_tokens', 'messages', 'min_p', 'presence_penalty', 'seed',
+        'temperature', 'top_k', 'top_p'])
+    assert.equal(request.max_tokens, 50)
+    assert.equal(request.temperature, 0.7)
+    assert.equal(request.top_p, 0.8)
+    assert.equal(request.top_k, 20)
+    assert.equal(request.min_p, 0)
+    assert.equal(request.presence_penalty, 1.5)
+    assert.equal(request.seed, 42)
+    assert.deepEqual(request.chat_template_kwargs, { enable_thinking: false })
+    return wire(result())
+  })
   await provider.generate(input())
   assert.equal(calls, 1)
   const unavailable = createWindowsLocalAiProvider({ runtime: { complete: async () => { throw Error('must not call') } },
@@ -161,4 +185,37 @@ test('committed model removal reports completion even when cancellation arrives 
   const controller = new AbortController()
   const store = createModelStoreContract({ id: 'test', store: { ...memoryStore(), remove: async () => controller.abort() } })
   assert.deepEqual(await store.remove({ signal: controller.signal }), { removed: true })
+})
+
+
+test('portable provider freezes and bounds response schemas', async () => {
+  let captured
+  const provider = generic(async request => {
+    captured = request.responseSchema
+    return result()
+  })
+  const source = responseSchema()
+  await provider.generate({ ...input(), responseSchema: source })
+  assert.equal(Object.isFrozen(captured), true)
+  assert.equal(Object.isFrozen(captured.properties), true)
+  assert.equal(Object.isFrozen(captured.properties.ok), true)
+  source.properties.ok.type = 'string'
+  assert.equal(captured.properties.ok.type, 'boolean')
+  const tooMany = { type: 'object', properties: Object.fromEntries(
+    Array.from({ length: 129 }, (_, index) => ['p' + index, { type: 'string' }]),
+  ) }
+  await assert.rejects(provider.generate({ ...input(), responseSchema: tooMany }), { code: 'invalid_request' })
+})
+
+test('Windows adapter maps structured response schema to llama.cpp json_schema', async () => {
+  let captured
+  const provider = windows(async request => {
+    captured = request
+    return wire(result())
+  })
+  await provider.generate({ ...input(), responseSchema: responseSchema() })
+  assert.equal(Object.isFrozen(captured.json_schema), true)
+  assert.deepEqual(captured.json_schema, responseSchema())
+  assert.equal(captured.temperature, 0.7)
+  assert.deepEqual(captured.chat_template_kwargs, { enable_thinking: false })
 })
