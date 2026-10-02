@@ -11,10 +11,12 @@ function sources(overrides = {}) {
     'desktop/src/model-store-contract.cjs': "const api = require('./local-ai-provider.cjs')",
     'desktop/src/local-ai-capability.cjs': "const api = require('./local-ai-provider.cjs')",
     'desktop/src/local-ai-manager.cjs': "const api = require('./local-ai-provider.cjs')",
+    'desktop/src/local-quiz-service.cjs': "const api = require('./local-ai-provider.cjs')",
     'desktop/src/local-ai.cjs': "module.exports = require('./local-ai-provider.cjs')",
     'desktop/src/windows-local-ai-provider.cjs': "const core = require('./local-ai-provider.cjs')",
     'desktop/src/windows-hardware-probe.cjs': "const api = require('./local-ai.cjs'); const os = require('node:os')",
     'desktop/src/windows-local-ai-manager.cjs': "const api = require('./local-ai.cjs'); const path = require('node:path')",
+    'desktop/src/windows-local-ai-stack.cjs': "const api = require('./local-ai.cjs'); const path = require('node:path')",
     'desktop/src/windows-process-guard.cjs': "const path = require('node:path')",
     'desktop/src/local-runtime.cjs': "const http = require('node:http')",
     'desktop/src/local-model-store.cjs': "const fs = require('node:fs/promises')",
@@ -39,7 +41,7 @@ test('private deck imports are rejected through direct, re-export and normalized
   }
 })
 test('portable contracts reject Node, Windows adapters, globals and computed imports', () => {
-  for (const core of ['desktop/src/local-ai-provider.cjs', 'desktop/src/local-ai-capability.cjs', 'desktop/src/local-ai-manager.cjs']) for (const code of ["require('node:fs')", "import('./windows-local-ai-provider.cjs')", "process.platform", "Buffer.from('x')",
+  for (const core of ['desktop/src/local-ai-provider.cjs', 'desktop/src/local-ai-capability.cjs', 'desktop/src/local-ai-manager.cjs', 'desktop/src/local-quiz-service.cjs']) for (const code of ["require('node:fs')", "import('./windows-local-ai-provider.cjs')", "process.platform", "Buffer.from('x')",
     "globalThis['process'].platform", 'require(moduleName)']) {
     assert.ok(checkSources(sources({ [core]: code })).some(v => v.includes('portable core')))
   }
