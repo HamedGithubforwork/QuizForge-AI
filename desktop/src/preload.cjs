@@ -11,6 +11,10 @@ if (process.isMainFrame && location.origin === 'https://quizfromnotes.com') {
     reminderStatus: () => ipcRenderer.invoke('qfn:reminderStatus'),
     enableReminders: () => ipcRenderer.invoke('qfn:enableReminders'),
     disableReminders: () => ipcRenderer.invoke('qfn:disableReminders'),
+    localAiStatus: () => ipcRenderer.invoke('qfn:localAiStatus'),
+    startLocalAiModelDownload: () => ipcRenderer.invoke('qfn:startLocalAiModelDownload'),
+    cancelLocalAiModelDownload: () => ipcRenderer.invoke('qfn:cancelLocalAiModelDownload'),
+    removeLocalAiModel: () => ipcRenderer.invoke('qfn:removeLocalAiModel'),
     openAccountWebsite: () => ipcRenderer.invoke('qfn:openAccountWebsite'),
   }))
 }
