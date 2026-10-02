@@ -90,6 +90,8 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const localGenerationController =
+    useRef<AbortController | null>(null)
   const [
     generationMode,
     setGenerationMode,
@@ -250,6 +252,9 @@ function App() {
   }
 
   async function handleCancelLocalQuiz() {
+    localGenerationController
+      .current?.abort()
+
     if (!localQuizBridge) {
       return
     }
@@ -301,6 +306,15 @@ function App() {
     resetPracticeMode()
 
     const stageTimers: number[] = []
+    const localController =
+      generationMode === 'local'
+        ? new AbortController()
+        : null
+
+    if (localController) {
+      localGenerationController.current =
+        localController
+    }
 
     if (generationMode === 'cloud') {
       stageTimers.push(
@@ -335,7 +349,12 @@ function App() {
             documentResult,
             difficulty,
             localQuizStatus,
+            undefined,
+            localController?.signal,
           )
+
+        localController?.signal
+          .throwIfAborted()
 
         setGenerationStage(
           'Generating and validating on this computer...',
@@ -344,6 +363,9 @@ function App() {
         const result =
           await localQuizBridge
             .generateLocalAiQuiz(request)
+
+        localController?.signal
+          .throwIfAborted()
 
         if (!result.ok) {
           if (result.error === 'cancelled') {
@@ -423,15 +445,29 @@ function App() {
       }, 150)
     } catch (caughtError) {
       setGenerationStage('')
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Something went wrong while generating the quiz.',
-      )
+      if (
+        caughtError instanceof DOMException &&
+        caughtError.name === 'AbortError'
+      ) {
+        setError('')
+      } else {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Something went wrong while generating the quiz.',
+        )
+      }
     } finally {
       stageTimers.forEach((timer) =>
         window.clearTimeout(timer),
       )
+      if (
+        localGenerationController.current ===
+        localController
+      ) {
+        localGenerationController.current =
+          null
+      }
       setIsGenerating(false)
       window.setTimeout(() => {
         setGenerationStage('')
