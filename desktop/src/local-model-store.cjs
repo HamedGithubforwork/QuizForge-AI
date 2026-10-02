@@ -10,14 +10,18 @@ const CANDIDATE = Object.freeze({
   sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
   url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf',
 })
-const HOSTS = new Set(['huggingface.co', 'us.aws.cdn.hf.co'])
+function approvedHost(hostname) {
+  return hostname === 'huggingface.co' ||
+    hostname.endsWith('.huggingface.co') ||
+    hostname.endsWith('.hf.co')
+}
 const RESERVE = 512 * 1024 * 1024
 const failure = code => Object.assign(new Error('Local model operation failed: ' + code), { code })
 
 function reviewedUrl(value) {
   let url
   try { url = new URL(value) } catch { throw failure('unapproved_download') }
-  if (url.protocol !== 'https:' || !HOSTS.has(url.hostname) || url.port || url.username || url.password || url.hash) {
+  if (url.protocol !== 'https:' || !approvedHost(url.hostname) || url.port || url.username || url.password || url.hash) {
     throw failure('unapproved_download')
   }
   return url.href
@@ -132,4 +136,4 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
   }
 }
 
-module.exports = { CANDIDATE, createLocalModelStore, reviewedUrl }
+module.exports = { CANDIDATE, approvedHost, createLocalModelStore, reviewedUrl }
