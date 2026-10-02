@@ -4,10 +4,12 @@ const { LocalAiError, createLocalAiProvider } = require('./local-ai-provider.cjs
 const { createModelStoreContract } = require('./model-store-contract.cjs')
 const { evaluateLocalAiCapability } = require('./local-ai-capability.cjs')
 const { createLocalAiManager } = require('./local-ai-manager.cjs')
+const { createLocalQuizGenerator } = require('./local-quiz-generator.cjs')
 module.exports = Object.freeze({
   LocalAiError,
   createLocalAiProvider,
   createModelStoreContract,
   evaluateLocalAiCapability,
   createLocalAiManager,
+  createLocalQuizGenerator,
 })
