@@ -81,6 +81,30 @@ graceful cleanup, and independently verifies that the child disappears, plus the
 real llama-server lifecycle test on the exact reviewed head. Local AI remains
 disabled until both pass.
 
+## Hardware capability policy
+
+`evaluateLocalAiCapability(snapshot, profiles)` is a portable policy layer. It
+receives already-collected hardware facts and model profiles and returns a bounded
+recommendation: enhanced-local preview, lightweight-local preview, or cloud-only.
+It does not inspect the OS, start a runtime, download a model, or claim launch
+readiness. The policy already supports a future lightweight profile, but no
+lightweight model has been accepted yet.
+
+`windows-hardware-probe.cjs` owns Windows-specific collection: total RAM,
+logical CPU count, available bytes on the selected storage volume, and a bounded
+best-effort GPU-presence query. GPU presence is separate from GPU acceleration
+support. The currently pinned llama.cpp runtime is CPU-only, so detecting a GPU
+does not make GPU inference available.
+
+The current Qwen3 4B Q4_K_M preview profile uses an 8 GiB system-memory eligibility
+floor and the model size plus a 512 MiB disk reserve. This is deliberately NOT a
+published hardware requirement or a chosen product default. The threshold is a
+conservative development policy informed by roughly 4.8-5.0 GiB peak child RSS in
+the existing Linux benchmark plus OS/Electron headroom. Windows process memory and
+consumer-device behavior remain unmeasured. Every current profile has
+`releaseReady: false` until representative Windows hardware acceptance is
+completed.
+
 ## Model store
 
 `createModelStoreContract({id, store})` exposes `status`, `download`, and `remove`.
