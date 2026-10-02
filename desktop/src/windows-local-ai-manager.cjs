@@ -5,22 +5,39 @@ const { createLocalAiManager, createModelStoreContract } = require('./local-ai.c
 const { CANDIDATE, createLocalModelStore } = require('./local-model-store.cjs')
 const { probeWindowsLocalAiCapability } = require('./windows-hardware-probe.cjs')
 
-function createWindowsLocalAiManager({ userDataDirectory }) {
+function createWindowsLocalAiStorage({
+  userDataDirectory,
+  rawModelStore = null,
+  capabilityProbe = null,
+}) {
   if (typeof userDataDirectory !== 'string' || !path.isAbsolute(userDataDirectory)) {
     throw new Error('Local AI manager configuration is invalid.')
   }
+  const raw = rawModelStore ?? createLocalModelStore({
+    directory: path.join(userDataDirectory, 'local-ai', 'models'),
+  })
   const modelStore = createModelStoreContract({
     id: CANDIDATE.id,
-    store: createLocalModelStore({
-      directory: path.join(userDataDirectory, 'local-ai', 'models'),
-    }),
+    store: raw,
   })
-  return createLocalAiManager({
+  const manager = createLocalAiManager({
     modelStore,
-    capabilityProbe: () => probeWindowsLocalAiCapability({
+    capabilityProbe: capabilityProbe ?? (() => probeWindowsLocalAiCapability({
       storageDirectory: userDataDirectory,
-    }),
+    })),
+  })
+  return Object.freeze({
+    rawModelStore: raw,
+    modelStore,
+    manager,
   })
 }
 
-module.exports = { createWindowsLocalAiManager }
+function createWindowsLocalAiManager(options) {
+  return createWindowsLocalAiStorage(options).manager
+}
+
+module.exports = {
+  createWindowsLocalAiManager,
+  createWindowsLocalAiStorage,
+}
