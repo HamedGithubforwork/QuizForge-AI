@@ -24,7 +24,11 @@
         "license": "Apache-2.0 WITH LLVM-exception",
         "source": "bundled LICENSE-LLVM-OpenMP from pinned runtime archive"
       }
-    ]
+    ],
+    "package_manifest": "desktop/src/local-runtime-manifest.json",
+    "package_kind": "server-only",
+    "package_file_count": 25,
+    "internal_preview_only": true
   },
   "model": {
     "id": "qwen3-4b-q4-k-m",
