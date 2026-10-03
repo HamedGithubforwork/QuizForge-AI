@@ -27,9 +27,12 @@ The pinned revision contains the Apache License 2.0.
 
 **Runtime executable code:** project policy is **bundle before activation**.
 Do not add a post-install runtime executable downloader. The current verified
-archive contains many CLI/benchmark executables the product does not use, so the
-next packaging task must derive and validate a minimal runtime payload rather than
-shipping the whole archive blindly.
+archive contains many CLI/benchmark executables the product does not use. The
+current internal-preview candidate stages a 25-file server-only payload: the
+server/runtime libraries, all x64 CPU-dispatch variants needed for compatibility,
+and the three required notices. CLI, benchmark, quantization and RPC executables
+are excluded. This remains an internal preview payload until the real Windows
+packaging gate passes.
 
 Any bundled runtime payload must include the applicable llama.cpp MIT notice,
 the nlohmann/json MIT notice, and the LLVM OpenMP notice. The notices must be
@@ -63,10 +66,10 @@ owner-approval item and must not be purchased automatically.
 
 ## Remaining release blockers
 
-1. Derive a minimal llama-server runtime payload from the pinned archive and
-   validate it on real Windows, including CPU-dispatch compatibility strategy.
-2. Add the required third-party license/notice files to that payload and verify
-   them byte-for-byte in packaging CI.
+1. Validate the staged 25-file server-only runtime payload on real Windows,
+   including the full CPU-dispatch set and packaged-resource re-verification.
+2. Verify the llama.cpp, nlohmann/json and LLVM OpenMP notices byte-for-byte in
+   the staged and packaged runtime payload.
 3. Add a user-visible model identity/license disclosure before model download.
 4. Complete the broader product quality/performance acceptance gate.
 5. Keep the desktop moderate/high dependency audit green; do not replace an audit failure with an exception or severity downgrade.
