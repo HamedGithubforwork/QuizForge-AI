@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "reviewed_date": "2026-10-03",
+  "runtime": {
+    "project": "ggml-org/llama.cpp",
+    "version": "b11317",
+    "archive_sha256": "f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c",
+    "license": "MIT",
+    "delivery": "bundle_before_activation",
+    "automatic_download": false,
+    "required_notices": [
+      {
+        "name": "llama.cpp",
+        "license": "MIT",
+        "source": "https://github.com/ggml-org/llama.cpp/blob/b11317/LICENSE"
+      },
+      {
+        "name": "nlohmann/json",
+        "license": "MIT",
+        "source": "https://github.com/ggml-org/llama.cpp/blob/b11317/licenses/LICENSE-jsonhpp"
+      },
+      {
+        "name": "LLVM OpenMP",
+        "license": "Apache-2.0 WITH LLVM-exception",
+        "source": "bundled LICENSE-LLVM-OpenMP from pinned runtime archive"
+      }
+    ]
+  },
+  "model": {
+    "id": "qwen3-4b-q4-k-m",
+    "repository": "Qwen/Qwen3-4B-GGUF",
+    "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+    "filename": "Qwen3-4B-Q4_K_M.gguf",
+    "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "bytes": 2497280256,
+    "license": "Apache-2.0",
+    "license_source": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/blob/bc640142c66e1fdd12af0bd68f40445458f3869b/LICENSE",
+    "delivery": "explicit_user_download",
+    "automatic_download": false
+  },
+  "store_policy": {
+    "reviewed_policy_version": "7.20",
+    "source": "https://learn.microsoft.com/windows/apps/publish/store-policies",
+    "runtime_executable_download": "blocked_by_project_policy_pending_store_review",
+    "model_data_download": "allowed_by_project_policy_with_explicit_user_action_and_license_disclosure"
+  },
+  "activation_blockers": [
+    "validate_minimal_runtime_payload_on_real_windows",
+    "bundle_and_verify_required_runtime_notices",
+    "approve_code_signing_and_distribution_channel",
+    "complete_product_acceptance_gate",
+    "add_user_visible_model_license_disclosure",
+    "desktop_dependency_audit_must_pass"
+  ]
+}
