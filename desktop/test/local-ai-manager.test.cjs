@@ -43,7 +43,16 @@ function fixture({ download } = {}) {
     },
     async remove() { removed++; ready = false; return { removed: true } },
   }
-  const manager = createLocalAiManager({ modelStore: store, capabilityProbe: async () => capability })
+  const manager = createLocalAiManager({
+    modelStore: store,
+    capabilityProbe: async () => capability,
+    modelMetadata: {
+      id: 'qwen3-4b-q4-k-m',
+      displayName: 'Qwen3 4B Q4_K_M',
+      repository: 'Qwen/Qwen3-4B-GGUF',
+      license: 'Apache-2.0',
+    },
+  })
   return { manager, store, getRemoved: () => removed, setReady: value => { ready = value } }
 }
 
@@ -51,6 +60,14 @@ test('status strips raw hardware details and download is explicit', async () => 
   const { manager } = fixture()
   const loaded = await manager.load()
   assert.equal(loaded.model.ready, false)
+  assert.deepEqual(loaded.model.metadata, {
+    id: 'qwen3-4b-q4-k-m',
+    displayName: 'Qwen3 4B Q4_K_M',
+    repository: 'Qwen/Qwen3-4B-GGUF',
+    license: 'Apache-2.0',
+  })
+  assert.equal('url' in loaded.model.metadata, false)
+  assert.equal('sha256' in loaded.model.metadata, false)
   assert.equal(loaded.capability.hardware.gpuDetected, true)
   assert.equal('totalMemoryBytes' in loaded.capability.hardware, false)
   assert.equal(loaded.capability.requirements.modelBytes, 100)
@@ -173,4 +190,22 @@ test('corrupted cached model remains visible for explicit removal', async () => 
   assert.equal(removed, 1)
   assert.equal(removedStatus.model.state, 'missing')
   assert.equal(removedStatus.error, null)
+})
+
+
+test('invalid model disclosure metadata fails closed before status is exposed', () => {
+  assert.throws(() => createLocalAiManager({
+    modelStore: {
+      status: async () => ({ ready: false }),
+      download: async () => ({ ready: true, bytes: 100 }),
+      remove: async () => ({ removed: true }),
+    },
+    capabilityProbe: async () => capability,
+    modelMetadata: {
+      id: 'qwen3-4b-q4-k-m',
+      displayName: 'Qwen3 4B',
+      repository: 'not-a-repository',
+      license: 'Apache-2.0',
+    },
+  }), { code: 'invalid_model_store' })
 })
