@@ -1,7 +1,7 @@
 name: Local runtime session validation
 on:
   pull_request:
-    paths: ['desktop/src/local-runtime*', 'desktop/src/local-model-store.cjs', 'desktop/src/local-ai-provider.cjs', 'desktop/src/local-quiz-service.cjs', 'desktop/src/windows-local-ai-provider.cjs', 'desktop/src/windows-local-ai-stack.cjs', 'desktop/src/windows-process-guard.cjs', 'desktop/test/local-runtime*', 'desktop/test/local-model-store.test.cjs', 'desktop/test/local-quiz-service.test.cjs', 'desktop/test/windows-process-guard.test.cjs', 'desktop/scripts/download-verified-model.cjs', 'desktop/scripts/verify-local-runtime.cjs', 'desktop/scripts/verify-local-quiz-service.cjs', 'desktop/scripts/parent-death-worker.cjs', 'desktop/scripts/verify-parent-death.cjs', '.github/workflows/local-runtime-validation.yml']
+    paths: ['desktop/src/local-runtime*', 'desktop/src/local-model-store.cjs', 'desktop/src/local-ai-provider.cjs', 'desktop/src/local-quiz-service.cjs', 'desktop/src/windows-local-ai-provider.cjs', 'desktop/src/windows-local-ai-stack.cjs', 'desktop/src/windows-process-guard.cjs', 'desktop/third_party/local-ai/**', 'desktop/test/local-runtime*', 'desktop/test/local-model-store.test.cjs', 'desktop/test/local-quiz-service.test.cjs', 'desktop/test/runtime-staging.test.cjs', 'desktop/test/windows-process-guard.test.cjs', 'desktop/scripts/download-verified-model.cjs', 'desktop/scripts/stage-local-runtime.cjs', 'desktop/scripts/verify-local-runtime.cjs', 'desktop/scripts/verify-local-quiz-service.cjs', 'desktop/scripts/parent-death-worker.cjs', 'desktop/scripts/verify-parent-death.cjs', '.github/workflows/local-runtime-validation.yml']
 permissions:
   contents: read
 jobs:
@@ -22,12 +22,17 @@ jobs:
           curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
           if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
           if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') { throw 'Runtime checksum mismatch' }
-          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/llama"
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify real authenticated runtime lifecycle
         shell: pwsh
         run: |
           New-Item -ItemType Directory "$env:RUNNER_TEMP/models"
           node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test desktop/test/runtime-staging.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test desktop/test/local-runtime.test.cjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
