@@ -44,6 +44,7 @@ export type DesktopLocalQuizResult =
         | 'source_too_large'
         | 'unsupported_quiz_mode'
         | 'quiz_validation_failed'
+        | 'insufficient_source'
         | 'invalid_request'
         | 'invalid_response'
         | 'generation_failed'
