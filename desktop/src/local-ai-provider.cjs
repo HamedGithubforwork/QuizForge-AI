@@ -7,7 +7,8 @@ const ERROR_CODES = new Set([
   'runtime_invalid', 'runtime_unavailable', 'capability_failed', 'generation_failed',
   'invalid_model_store', 'invalid_model_status', 'invalid_model_progress',
   'insufficient_disk', 'invalid_model', 'invalid_download', 'unapproved_download',
-  'unsafe_model', 'model_store_failed',
+  'unsafe_model', 'model_store_failed', 'source_too_large', 'unsupported_quiz_mode',
+  'quiz_validation_failed',
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
@@ -51,7 +52,7 @@ async function runOperation(operation, { signal, fallback, checkAfter = true }) 
 }
 
 function normalizeRequest(value) {
-  if (!record(value) || Object.keys(value).some(key => !['maxTokens', 'messages'].includes(key)) ||
+  if (!record(value) || Object.keys(value).some(key => !['jsonSchema', 'maxTokens', 'messages'].includes(key)) ||
       !Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > 64) {
     throw failure('invalid_request')
   }
@@ -62,9 +63,21 @@ function normalizeRequest(value) {
     return Object.freeze({ role: message.role, content: message.content })
   })
   const maxTokens = value.maxTokens === undefined ? 1800 : value.maxTokens
+  let jsonSchema
+  if (value.jsonSchema !== undefined) {
+    if (!record(value.jsonSchema)) throw failure('invalid_request')
+    let serialized
+    try { serialized = JSON.stringify(value.jsonSchema) } catch { throw failure('invalid_request') }
+    if (!serialized || encoder.encode(serialized).byteLength > 16000) throw failure('invalid_request')
+    try { jsonSchema = JSON.parse(serialized) } catch { throw failure('invalid_request') }
+  }
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 1800 ||
-      encoder.encode(JSON.stringify(messages)).byteLength > 60000) throw failure('invalid_request')
-  return Object.freeze({ messages: Object.freeze(messages), maxTokens })
+      encoder.encode(JSON.stringify({ messages, jsonSchema })).byteLength > 60000) throw failure('invalid_request')
+  return Object.freeze({
+    messages: Object.freeze(messages),
+    maxTokens,
+    ...(jsonSchema === undefined ? {} : { jsonSchema: Object.freeze(jsonSchema) }),
+  })
 }
 
 function normalizeCapability(value) {

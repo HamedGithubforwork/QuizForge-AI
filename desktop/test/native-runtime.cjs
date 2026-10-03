@@ -31,6 +31,42 @@ app.whenReady().then(async () => {
     startDownload: async () => ({ phase: 'downloading' }),
     cancelDownload: async () => ({ phase: 'idle' }),
     removeModel: async () => ({ phase: 'idle' }),
+    quizStatus: async () => ({
+      available: true,
+      reason: null,
+      busy: false,
+      modelId: 'fixture',
+      execution: 'local',
+      constraints: { questionCount: 5, questionType: 'multiple_choice', maxSourceBytes: 8000 },
+    }),
+    generateQuiz: async request => {
+      assert.equal(request.questionCount, 5)
+      assert.equal(request.questionType, 'multiple_choice')
+      assert.deepEqual(request.pages, [{ pageNumber: 1, text: 'fixture source' }])
+      return {
+        title: 'Fixture local quiz',
+        questions: Array.from({ length: 5 }, (_, index) => ({
+          question_type: 'multiple_choice',
+          question: 'Question ' + (index + 1),
+          choices: ['A', 'B', 'C', 'D'],
+          correct_index: 0,
+          correct_answer: 'A',
+          accepted_answers: ['A'],
+          grading: {
+            grading_version: 2,
+            grading_mode: 'none',
+            answer_groups: [],
+            required_group_count: 0,
+            numeric_value: 0,
+            numeric_tolerance: 0,
+            numeric_unit: '',
+          },
+          explanation: 'Fixture explanation',
+          source_pages: [1],
+        })),
+      }
+    },
+    cancelQuiz: async () => {},
   }
   installNativeBridge({ ipcMain, getWindow: () => window, getSession: () => nativeSession,
     getAccount: () => account, getReminders: () => null, getLocalAi: () => localAi,
@@ -43,21 +79,33 @@ app.whenReady().then(async () => {
     const bridge = window.quizFromNotesDesktop;
     const before = await bridge.status();
     let localDenied = false;
+    let localQuizDenied = false;
     try { await bridge.localAiStatus() } catch { localDenied = true }
+    try { await bridge.localAiQuizStatus() } catch { localQuizDenied = true }
     const identity = await bridge.signIn();
     const localAi = await bridge.localAiStatus();
+    const localQuizStatus = await bridge.localAiQuizStatus();
+    const localQuiz = await bridge.generateLocalAiQuiz({
+      pages:[{pageNumber:1,text:'fixture source'}],
+      questionCount:5,difficulty:'medium',questionType:'multiple_choice'
+    });
+    await bridge.cancelLocalAiQuiz();
     const decks = await bridge.request({path:'/api/decks', method:'GET'});
     let denied = false;
     try { await bridge.request({path:'https://evil.test/'}) } catch { denied = true }
     await bridge.signOut();
     const after = await bridge.status();
-    return { before, localDenied, identity, localAi, decks, denied, after, node:typeof require, process:typeof process,
-      methods: Object.keys(bridge) };
+    return { before, localDenied, localQuizDenied, identity, localAi, localQuizStatus, localQuiz,
+      decks, denied, after, node:typeof require, process:typeof process, methods: Object.keys(bridge) };
   })()`)
   assert.equal(result.before.account, null)
   assert.equal(result.localDenied, true)
+  assert.equal(result.localQuizDenied, true)
   assert.equal(result.identity.userId, 'fixture-user')
   assert.equal(result.localAi.capability.modelId, 'fixture')
+  assert.equal(result.localQuizStatus.available, true)
+  assert.equal(result.localQuiz.ok, true)
+  assert.equal(result.localQuiz.quiz.questions.length, 5)
   assert.equal(JSON.parse(result.decks.body)[0].name, 'Fixture deck')
   assert.equal(result.denied, true); assert.equal(result.after.account, null)
   assert.equal(result.node, 'undefined'); assert.equal(result.process, 'undefined')
@@ -65,6 +113,9 @@ app.whenReady().then(async () => {
   assert.equal(result.methods.includes('invoke'), false)
   assert.equal(result.methods.includes('localAiStatus'), true)
   assert.equal(result.methods.includes('startLocalAiModelDownload'), true)
+  assert.equal(result.methods.includes('localAiQuizStatus'), true)
+  assert.equal(result.methods.includes('generateLocalAiQuiz'), true)
+  assert.equal(result.methods.includes('cancelLocalAiQuiz'), true)
   await window.loadURL('https://untrusted.example.test')
   assert.equal(await window.webContents.executeJavaScript('typeof window.quizFromNotesDesktop'), 'undefined')
   window.destroy(); clearTimeout(timeout)

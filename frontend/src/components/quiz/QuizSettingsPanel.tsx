@@ -1,11 +1,16 @@
 import type {
   QuestionMode,
 } from '../../types/quiz'
+import type {
+  QuizGenerationMode,
+} from '../../lib/localQuizGeneration'
 
 type QuizSettingsPanelProps = {
   questionCount: number
   difficulty: string
   questionType: QuestionMode
+  generationMode: QuizGenerationMode
+  localAiAvailable: boolean
   hasQuiz: boolean
   isGenerating: boolean
   isWeakPracticeGenerating: boolean
@@ -17,13 +22,18 @@ type QuizSettingsPanelProps = {
     (value: string) => void
   onQuestionTypeChange:
     (value: QuestionMode) => void
+  onGenerationModeChange:
+    (value: QuizGenerationMode) => void
   onGenerateQuiz: () => void
+  onCancelLocalGeneration: () => void
 }
 
 function QuizSettingsPanel({
   questionCount,
   difficulty,
   questionType,
+  generationMode,
+  localAiAvailable,
   hasQuiz,
   isGenerating,
   isWeakPracticeGenerating,
@@ -32,7 +42,9 @@ function QuizSettingsPanel({
   onQuestionCountChange,
   onDifficultyChange,
   onQuestionTypeChange,
+  onGenerationModeChange,
   onGenerateQuiz,
+  onCancelLocalGeneration,
 }: QuizSettingsPanelProps) {
   const settingsDisabled =
     isGenerating ||
@@ -66,7 +78,10 @@ function QuizSettingsPanel({
                 Number(event.target.value),
               )
             }}
-            disabled={settingsDisabled}
+            disabled={
+              settingsDisabled ||
+              generationMode === 'local'
+            }
           >
             <option value={5}>
               5 questions
@@ -123,7 +138,10 @@ function QuizSettingsPanel({
                 onQuestionTypeChange(value)
               }
             }}
-            disabled={settingsDisabled}
+            disabled={
+              settingsDisabled ||
+              generationMode === 'local'
+            }
           >
             <option value="multiple_choice">
               Multiple Choice
@@ -141,22 +159,82 @@ function QuizSettingsPanel({
         </label>
       </div>
 
+      {localAiAvailable && (
+        <div className="generation-provider">
+          <label className="setting-group">
+            <span>Generation engine</span>
+            <select
+              value={generationMode}
+              disabled={
+                settingsDisabled ||
+                hasQuiz
+              }
+              onChange={(event) => {
+                const value =
+                  event.target.value
+
+                if (
+                  value === 'cloud' ||
+                  value === 'local'
+                ) {
+                  onGenerationModeChange(
+                    value,
+                  )
+                }
+              }}
+            >
+              <option value="cloud">
+                Cloud AI
+              </option>
+              <option value="local">
+                Local AI preview
+              </option>
+            </select>
+          </label>
+
+          {generationMode === 'local' && (
+            <p className="generation-mode-note">
+              Local preview generates five
+              multiple-choice questions on this
+              computer. PDF processing and source
+              page retrieval still use your signed-in
+              Quiz From Notes account in this preview.
+            </p>
+          )}
+        </div>
+      )}
+
       {!hasQuiz && (
         <>
-          <button
-            className="button primary-button generate-button"
-            type="button"
-            onClick={onGenerateQuiz}
-            disabled={
-              isGenerating ||
-              isWeakPracticeGenerating ||
-              scannedLikely
-            }
-          >
-            {isGenerating
-              ? 'Generating...'
-              : 'Generate Quiz'}
-          </button>
+          {isGenerating &&
+          generationMode === 'local' ? (
+            <button
+              className="button secondary-button generate-button"
+              type="button"
+              onClick={
+                onCancelLocalGeneration
+              }
+            >
+              Cancel Local Generation
+            </button>
+          ) : (
+            <button
+              className="button primary-button generate-button"
+              type="button"
+              onClick={onGenerateQuiz}
+              disabled={
+                isGenerating ||
+                isWeakPracticeGenerating ||
+                scannedLikely
+              }
+            >
+              {isGenerating
+                ? 'Generating...'
+                : generationMode === 'local'
+                  ? 'Generate Locally'
+                  : 'Generate Quiz'}
+            </button>
+          )}
 
           {generationStage && (
             <div

@@ -37,7 +37,8 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
       if (!supported()) throw failure('unsupported_platform')
       let response
       try {
-        response = await runtime.complete({ messages: request.messages, max_tokens: request.maxTokens }, { signal })
+        response = await runtime.complete({ messages: request.messages, max_tokens: request.maxTokens,
+          ...(request.jsonSchema ? { json_schema: request.jsonSchema } : {}) }, { signal })
       } catch (error) { throw runtimeError(error) }
       if (!Array.isArray(response?.choices) || response.choices.length !== 1) throw failure('invalid_response')
       const choice = response.choices[0]

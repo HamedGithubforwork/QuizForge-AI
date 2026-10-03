@@ -1,3 +1,54 @@
+import type { Quiz } from '../types/api.generated.ts'
+export type DesktopLocalAiQuizStatus = {
+  available: boolean
+  reason:
+    | 'unsupported_platform'
+    | 'insufficient_memory'
+    | 'insufficient_disk'
+    | 'runtime_acceleration_unavailable'
+    | 'no_eligible_local_profile'
+    | 'model_missing'
+    | 'invalid_model'
+    | 'runtime_invalid'
+    | 'runtime_unavailable'
+    | null
+  busy: boolean
+  modelId?: string
+  execution?: 'local'
+  constraints?: {
+    questionCount: 5
+    questionType: 'multiple_choice'
+    maxSourceBytes: number
+  }
+}
+
+export type DesktopLocalQuizRequest = {
+  pages: Array<{ pageNumber: number; text: string }>
+  questionCount: 5
+  difficulty: 'easy' | 'medium' | 'hard'
+  questionType: 'multiple_choice'
+}
+
+export type DesktopLocalQuizResult =
+  | { ok: true; quiz: Quiz }
+  | {
+      ok: false
+      error:
+        | 'cancelled'
+        | 'timed_out'
+        | 'busy'
+        | 'model_missing'
+        | 'invalid_model'
+        | 'runtime_invalid'
+        | 'runtime_unavailable'
+        | 'source_too_large'
+        | 'unsupported_quiz_mode'
+        | 'quiz_validation_failed'
+        | 'invalid_request'
+        | 'invalid_response'
+        | 'generation_failed'
+    }
+
 export type DesktopLocalAiStatus = {
   initialized: boolean
   phase: 'idle' | 'checking' | 'downloading' | 'removing'
@@ -32,6 +83,9 @@ export type DesktopBridge = {
   startLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   cancelLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
+  localAiQuizStatus?(): Promise<DesktopLocalAiQuizStatus>
+  generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
+  cancelLocalAiQuiz?(): Promise<void>
   openAccountWebsite(): Promise<void>
 }
 declare global { interface Window { quizFromNotesDesktop?: DesktopBridge } }
@@ -61,6 +115,26 @@ export function desktopLocalAiBridge(
     ? candidate
     : undefined
 }
+export type DesktopLocalQuizBridge = DesktopLocalAiBridge & {
+  localAiQuizStatus(): Promise<DesktopLocalAiQuizStatus>
+  generateLocalAiQuiz(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
+  cancelLocalAiQuiz(): Promise<void>
+}
+
+export function desktopLocalQuizBridge(
+  bridge = desktopLocalAiBridge(),
+): DesktopLocalQuizBridge | undefined {
+  if (!bridge) return undefined
+  const candidate = bridge as DesktopLocalQuizBridge
+  return [
+    candidate.localAiQuizStatus,
+    candidate.generateLocalAiQuiz,
+    candidate.cancelLocalAiQuiz,
+  ].every(method => typeof method === 'function')
+    ? candidate
+    : undefined
+}
+
 export async function desktopFetch(bridge: DesktopBridge, path: string, init: RequestInit): Promise<Response> {
   init.signal?.throwIfAborted()
   const request: DesktopRequest = { path, method: init.method || 'GET' }
