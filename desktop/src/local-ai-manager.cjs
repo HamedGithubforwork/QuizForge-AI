@@ -17,6 +17,26 @@ const REASONS = new Set([
   'no_eligible_local_profile',
 ])
 
+
+function publicModelMetadata(value) {
+  if (value === undefined || value === null) return null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw failure('invalid_model_store')
+  const fields = ['id', 'displayName', 'repository', 'license']
+  if (Object.keys(value).some(key => !fields.includes(key)) ||
+      typeof value.id !== 'string' || !/^[a-z0-9][a-z0-9-]{0,199}$/.test(value.id) ||
+      typeof value.displayName !== 'string' || !value.displayName.trim() || value.displayName.length > 120 ||
+      typeof value.repository !== 'string' || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(value.repository) ||
+      typeof value.license !== 'string' || !/^[A-Za-z0-9.+-]{2,64}$/.test(value.license)) {
+    throw failure('invalid_model_store')
+  }
+  return Object.freeze({
+    id: value.id,
+    displayName: value.displayName,
+    repository: value.repository,
+    license: value.license,
+  })
+}
+
 function publicCapability(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) ||
       typeof value.localEligible !== 'boolean' ||
@@ -64,14 +84,22 @@ function publicCapability(value) {
   })
 }
 
-function createLocalAiManager({ modelStore, capabilityProbe }) {
+function createLocalAiManager({ modelStore, capabilityProbe, modelMetadata = null }) {
   if (!modelStore || typeof modelStore.status !== 'function' ||
       typeof modelStore.download !== 'function' || typeof modelStore.remove !== 'function' ||
       typeof capabilityProbe !== 'function') throw failure('invalid_model_store')
 
+  const metadata = publicModelMetadata(modelMetadata)
+  const modelState = (state, ready, bytes) => Object.freeze({
+    state,
+    ready,
+    bytes,
+    metadata,
+  })
+
   let initialized = false
   let capability = null
-  let model = Object.freeze({ state: 'missing', ready: false, bytes: null })
+  let model = modelState('missing', false, null)
   let phase = 'idle'
   let progress = null
   let error = null
@@ -101,14 +129,14 @@ function createLocalAiManager({ modelStore, capabilityProbe }) {
       const nextCapability = await capabilityProbe()
       try {
         const nextModel = await modelStore.status()
-        model = Object.freeze({
-          state: nextModel.ready === true ? 'ready' : 'missing',
-          ready: nextModel.ready === true,
-          bytes: nextModel.ready === true ? nextModel.bytes : null,
-        })
+        model = modelState(
+          nextModel.ready === true ? 'ready' : 'missing',
+          nextModel.ready === true,
+          nextModel.ready === true ? nextModel.bytes : null,
+        )
       } catch (caught) {
         if (safeError(caught) !== 'invalid_model') throw caught
-        model = Object.freeze({ state: 'invalid', ready: false, bytes: null })
+        model = modelState('invalid', false, null)
         error = 'invalid_model'
       }
       capability = publicCapability(nextCapability)
@@ -146,17 +174,17 @@ function createLocalAiManager({ modelStore, capabilityProbe }) {
             }
           },
         })
-        model = Object.freeze({ state: 'ready', ready: true, bytes: result.bytes })
+        model = modelState('ready', true, result.bytes)
       } catch (caught) {
         error = safeError(caught)
         if (error === 'cancelled' || error === 'timed_out') {
           try {
             const checked = await modelStore.status()
-            model = Object.freeze({
-              state: checked.ready === true ? 'ready' : 'missing',
-              ready: checked.ready === true,
-              bytes: checked.ready === true ? checked.bytes : null,
-            })
+            model = modelState(
+              checked.ready === true ? 'ready' : 'missing',
+              checked.ready === true,
+              checked.ready === true ? checked.bytes : null,
+            )
           } catch {
             // Keep the bounded cancellation result; a later load/generation rechecks integrity.
           }
@@ -188,7 +216,7 @@ function createLocalAiManager({ modelStore, capabilityProbe }) {
     error = null
     try {
       await modelStore.remove()
-      model = Object.freeze({ state: 'missing', ready: false, bytes: null })
+      model = modelState('missing', false, null)
     } catch (caught) {
       error = safeError(caught)
       throw caught
