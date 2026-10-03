@@ -10,7 +10,9 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "pack:windows": "electron-builder --win nsis --x64 --publish never",
-    "pack:store": "electron-builder --config build/store.cjs --win appx --x64 --publish never"
+    "pack:store": "electron-builder --config build/store.cjs --win appx --x64 --publish never",
+    "pack:local-ai-preview": "electron-builder --config build/local-ai-preview.cjs --win nsis --x64 --publish never",
+    "pack:local-ai-preview-dir": "electron-builder --config build/local-ai-preview.cjs --dir --win --x64 --publish never"
   },
   "devDependencies": {
     "electron": "44.5.0",
