@@ -38,7 +38,8 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
       { messages: [{ role: 'tool', content: 'bad' }] }, { messages: [{ role: 'user', content: ' ' }] },
       { messages: [{ role: 'user', content: 'é'.repeat(31000) }] }, { ...input(), maxTokens: NaN },
       { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 },
-      { ...input(), jsonSchema: [] }, { ...input(), jsonSchema: { description: 'x'.repeat(17000) } }]) {
+      { ...input(), jsonSchema: [] }, { ...input(), jsonSchema: { description: 'x'.repeat(17000) } },
+      { ...input(), generationProfile: 'arbitrary' }]) {
       await assert.rejects(provider.generate(value), { code: 'invalid_request' })
     }
     assert.equal(calls, 0)
@@ -94,17 +95,43 @@ test('capability failures, timeouts and cancellation have bounded public codes',
   assert.equal(new LocalAiError('secret/path').code, 'generation_failed')
 })
 
-test('structured output schemas are normalized and forwarded only through the trusted provider contract', async () => {
+test('structured output schemas and named generation profiles stay trusted and bounded', async () => {
   let neutralRequest
   const neutral = generic(async request => { neutralRequest = request; return result() })
-  await neutral.generate({ ...input(), jsonSchema: schema() })
+  await neutral.generate({
+    ...input(),
+    jsonSchema: schema(),
+    generationProfile: 'quiz-mcq-v1',
+  })
   assert.deepEqual(neutralRequest.jsonSchema, schema())
+  assert.equal(neutralRequest.generationProfile, 'quiz-mcq-v1')
 
   let runtimeRequest
   const provider = windows(async request => { runtimeRequest = request; return wire(result()) })
-  await provider.generate({ ...input(), jsonSchema: schema() })
+  await provider.generate({
+    ...input(),
+    jsonSchema: schema(),
+    generationProfile: 'quiz-mcq-v1',
+  })
   assert.deepEqual(runtimeRequest.json_schema, schema())
   assert.equal(runtimeRequest.max_tokens, 50)
+  assert.deepEqual({
+    temperature: runtimeRequest.temperature,
+    top_p: runtimeRequest.top_p,
+    top_k: runtimeRequest.top_k,
+    min_p: runtimeRequest.min_p,
+    presence_penalty: runtimeRequest.presence_penalty,
+    seed: runtimeRequest.seed,
+    chat_template_kwargs: runtimeRequest.chat_template_kwargs,
+  }, {
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    min_p: 0,
+    presence_penalty: 1.5,
+    seed: 42,
+    chat_template_kwargs: { enable_thinking: false },
+  })
 })
 
 test('Windows adapter preserves token limits, rejects unsupported platforms and protocol surprises', async () => {

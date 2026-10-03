@@ -165,6 +165,8 @@ Local AI model-management ownership is split: `desktop/src/local-ai-manager.cjs`
 
 Local AI quiz-generation ownership is split: `desktop/src/local-quiz-service.cjs` owns portable prompt/schema construction and deterministic MCQ result validation; `desktop/src/windows-local-ai-stack.cjs` composes the verified model, runtime, provider, cancellation and readiness checks; `native-bridge.cjs` exposes only fixed signed-in status/generate/cancel commands; and `frontend/src/lib/localQuizGeneration.ts` collects bounded authenticated source-page text and maps public errors. `App.tsx` chooses cloud versus local without changing the shared Quiz result contract. The renderer cannot submit arbitrary model prompts or runtime options.
 
+Local AI acceptance evidence is layered: fast contract tests validate portable behavior; the real runtime smoke validates one authenticated native generation and process lifecycle; and the separate Windows product-acceptance workflow validates semantic synthetic facts, source selection, multilingual/noisy/injection behavior, abstention, repeated sequential generations, and measured performance. Do not substitute one layer for another when assessing release readiness.
+
 The backend review feature's public service entry remains `backend/review_service.py`. Its statically declared local dependency graph must stay independent of HTTP/composition and persistence modules, not merely avoid direct driver imports. SQL locks and atomic updates remain the repository's responsibility.
 
 ## Enforced checks and their limits

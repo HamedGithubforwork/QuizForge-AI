@@ -118,3 +118,42 @@ test('model output cannot inject extra top-level or question fields', () => {
   assert.throws(() => parseGeneratedQuiz(JSON.stringify(item), new Set([2, 5])),
     { code: 'quiz_validation_failed' })
 })
+
+
+test('insufficient source abstention is preserved as a bounded product error', async () => {
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return {
+          text: JSON.stringify({
+            title: 'Insufficient source material',
+            questions: [],
+          }),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  await assert.rejects(
+    service.generate({
+      pages: [{ pageNumber: 1, text: 'Only one isolated fact is available.' }],
+      questionCount: 5,
+      difficulty: 'medium',
+      questionType: 'multiple_choice',
+    }),
+    { code: 'insufficient_source' },
+  )
+
+  assert.throws(
+    () => parseGeneratedQuiz(
+      JSON.stringify({
+        title: 'Looks valid',
+        questions: [],
+      }),
+      new Set([1]),
+    ),
+    { code: 'quiz_validation_failed' },
+  )
+})

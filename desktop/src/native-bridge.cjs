@@ -62,7 +62,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         const allowed = new Set([
           'cancelled', 'timed_out', 'busy', 'model_missing', 'invalid_model',
           'runtime_invalid', 'runtime_unavailable', 'source_too_large',
-          'unsupported_quiz_mode', 'quiz_validation_failed', 'invalid_request',
+          'unsupported_quiz_mode', 'quiz_validation_failed', 'insufficient_source', 'invalid_request',
           'invalid_response', 'generation_failed',
         ])
         return { ok: false, error: allowed.has(error?.code) ? error.code : 'generation_failed' }

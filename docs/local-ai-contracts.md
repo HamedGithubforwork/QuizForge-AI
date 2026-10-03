@@ -213,6 +213,50 @@ The concrete disk adapter retains integrity verification, exclusive publication,
 serialization, temporary-file cleanup and model-only deletion. Durable study data
 must never be deleted as a side effect of model operations.
 
+## Product acceptance gate
+
+The normal one-quiz Windows runtime smoke is not sufficient for product readiness.
+`.github/workflows/local-ai-product-acceptance.yml` is a separate, slower gate that
+downloads the same checksum-pinned runtime and model and then exercises the real
+`WindowsLocalAiStack` repeatedly.
+
+Its synthetic acceptance cases cover:
+
+- an explicit selected-page subset with unselected decoy terms excluded;
+- French study material;
+- a quoted prompt-injection instruction that must not become quiz content;
+- longer multi-page material with repeated layout noise;
+- insufficient material, which must abstain with `insufficient_source` instead of
+  inventing five questions;
+- another full generation after the other cases, to exercise sequential cleanup
+  and restart behavior.
+
+Generated questions are not accepted merely because they satisfy JSON structure.
+Each question must map to exactly one unique synthetic source fact by its question /
+explanation context, selected correct answer, and cited source page. Five distinct
+facts must be tested. Injection/noise/unselected decoy terms are separately
+forbidden in the accepted quiz output.
+
+The product quiz service uses the named `quiz-mcq-v1` generation profile. The
+Windows adapter maps that name to the previously evaluated Qwen non-thinking
+settings (temperature 0.7, top-p 0.8, top-k 20, min-p 0, presence penalty 1.5,
+seed 42, and thinking disabled). Renderer IPC cannot select or alter sampling
+parameters.
+
+The acceptance report records per-case elapsed time and requires Windows
+`llama-server` working-set / CPU samples plus host RAM/logical CPU count. The
+current hosted-runner development screen requires a generated-quiz median no worse
+than 150 seconds, no generated case above 210 seconds, and at least one valid native
+working-set and CPU-time sample during the run. These values are CI regression
+screens, not advertised user-device requirements. GPU presence still does not
+imply GPU inference: the accepted runtime path must report CPU acceleration until
+a separately validated GPU runtime exists.
+
+The JSON artifact contains synthetic fixture/output data only. It must never
+contain user notes, runtime credentials, model paths, or provider secrets. Passing
+this hosted Windows gate still does not establish consumer-device thermals,
+battery life, or broad real-world subject accuracy.
+
 ## Evidence
 
 `desktop/test/local-ai-contracts.test.cjs` exercises the same normalized behavior
@@ -221,7 +265,7 @@ malformed input/output, bounded UTF-8 payloads, redaction, and portability.
 `desktop/test/model-store-adapter.test.cjs` runs the actual disk adapter with tiny
 synthetic bytes, including cancellation, concurrent retry, corruption and deletion.
 `desktop/test/local-quiz-service.test.cjs` covers the portable five-question MCQ
-request/output contract. The dedicated Windows runtime workflow downloads the
+request/output contract, including insufficient-source abstention. The dedicated Windows runtime workflow downloads the
 pinned model through the concrete ModelStore, verifies parent-death/runtime
 lifecycle behavior, and then generates a real quiz through the Windows Local AI
 stack. Normal unit tests require no real model download or cloud call.

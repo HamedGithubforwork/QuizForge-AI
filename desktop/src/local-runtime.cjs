@@ -100,6 +100,7 @@ function createLocalRuntime({
   freePortFn = freePort,
   requestFn = request,
   randomBytesFn = randomBytes,
+  onProcessChange = () => {},
   platform = process.platform,
   arch = process.arch,
   guardProcess = createWindowsProcessGuard,
@@ -127,6 +128,9 @@ function createLocalRuntime({
         '-c', '4096', '-t', '2', '-ngl', '0', '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
       { cwd: directory, windowsHide: true, shell: false, stdio: 'ignore', env: runtimeEnvironment(key) })
+      try {
+        if (Number.isSafeInteger(child?.pid) && child.pid > 0) onProcessChange(child.pid)
+      } catch {}
       let launchError
       child.on('error', () => { launchError = true })
       childClosed = new Promise(resolve => child.once('close', resolve))
@@ -163,6 +167,7 @@ function createLocalRuntime({
           !await Promise.race([childClosed.then(() => true), delay(3000, false)])) {
         cleanupError ||= fail('shutdown_failed')
       }
+      try { onProcessChange(null) } catch {}
       if (cleanupError) throw cleanupError
     }
   }

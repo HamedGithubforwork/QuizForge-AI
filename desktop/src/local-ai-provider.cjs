@@ -8,10 +8,11 @@ const ERROR_CODES = new Set([
   'invalid_model_store', 'invalid_model_status', 'invalid_model_progress',
   'insufficient_disk', 'invalid_model', 'invalid_download', 'unapproved_download',
   'unsafe_model', 'model_store_failed', 'source_too_large', 'unsupported_quiz_mode',
-  'quiz_validation_failed',
+  'quiz_validation_failed', 'insufficient_source',
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
+const PROFILES = new Set(['quiz-mcq-v1'])
 const encoder = new TextEncoder()
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const validId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,199}$/.test(value)
@@ -52,7 +53,7 @@ async function runOperation(operation, { signal, fallback, checkAfter = true }) 
 }
 
 function normalizeRequest(value) {
-  if (!record(value) || Object.keys(value).some(key => !['jsonSchema', 'maxTokens', 'messages'].includes(key)) ||
+  if (!record(value) || Object.keys(value).some(key => !['generationProfile', 'jsonSchema', 'maxTokens', 'messages'].includes(key)) ||
       !Array.isArray(value.messages) || value.messages.length < 1 || value.messages.length > 64) {
     throw failure('invalid_request')
   }
@@ -73,10 +74,15 @@ function normalizeRequest(value) {
   }
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 1800 ||
       encoder.encode(JSON.stringify({ messages, jsonSchema })).byteLength > 60000) throw failure('invalid_request')
+  const generationProfile = value.generationProfile
+  if (generationProfile !== undefined && !PROFILES.has(generationProfile)) {
+    throw failure('invalid_request')
+  }
   return Object.freeze({
     messages: Object.freeze(messages),
     maxTokens,
     ...(jsonSchema === undefined ? {} : { jsonSchema: Object.freeze(jsonSchema) }),
+    ...(generationProfile === undefined ? {} : { generationProfile }),
   })
 }
 

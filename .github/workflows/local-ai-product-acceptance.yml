@@ -1,0 +1,82 @@
+name: Local AI product acceptance
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - desktop/src/local-ai-provider.cjs
+      - desktop/src/local-quiz-service.cjs
+      - desktop/src/local-runtime.cjs
+      - desktop/src/local-model-store.cjs
+      - desktop/src/windows-local-ai-provider.cjs
+      - desktop/src/windows-local-ai-stack.cjs
+      - desktop/src/windows-hardware-probe.cjs
+      - desktop/src/windows-process-guard.cjs
+      - desktop/src/local-runtime-manifest.json
+      - desktop/third_party/local-ai/**
+      - desktop/scripts/stage-local-runtime.cjs
+      - desktop/scripts/download-verified-model.cjs
+      - desktop/scripts/verify-local-product-acceptance.cjs
+      - .github/workflows/local-ai-product-acceptance.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-product-acceptance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-product-acceptance:
+    name: Windows Local AI product acceptance
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Download and verify pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') {
+            throw 'Runtime checksum mismatch'
+          }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download model through concrete verified store
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models"
+          node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+
+      - name: Run real application-stack quality and performance acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/verify-local-product-acceptance.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-product-acceptance.json"
+          exit $LASTEXITCODE
+
+      - name: Upload synthetic acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-product-acceptance-windows
+          path: ${{ runner.temp }}/local-ai-product-acceptance.json
+          if-no-files-found: warn
+          retention-days: 30
