@@ -98,6 +98,8 @@ The Windows local runtime is one implementation, not the product-level Local AI 
 
 Windows native runtime ownership is layered: `local-runtime.cjs` owns request/session cleanup and `windows-process-guard.cjs` owns abrupt-parent fail-closed behavior through a parent-owned pipe watchdog. Runtime readiness requires the watchdog handshake before loopback requests begin; parent pipe EOF terminates the verified child, while unexpected watchdog loss aborts the live runtime from the parent side. This is an OS adapter boundary and must not leak into the portable Local AI contracts or renderer IPC.
 
+Local AI runtime packaging is separate from runtime ownership: `stage-local-runtime.cjs` derives the exact server-only payload from the pinned upstream archive plus committed notices, and `build/local-ai-preview.cjs` is an internal-preview-only Electron packaging adapter. Normal desktop and Store builds remain runtime-free until release approval.
+
 Future platform seams should preserve common behavior for:
 
 - secure storage;
