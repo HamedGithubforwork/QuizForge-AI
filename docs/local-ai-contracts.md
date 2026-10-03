@@ -46,6 +46,28 @@ prove available RAM, runtime-binary readiness, supported GPU, sustained performa
 quiz quality or launch readiness. Real hardware evaluation and a fuller capability
 policy remain prerequisites before UI enablement. The model is not a chosen default.
 
+## Server-only runtime package
+
+The internal Local AI preview does not package the full upstream llama.cpp archive.
+`stage-local-runtime.cjs` constructs a fail-closed server-only directory whose
+contents must exactly match `local-runtime-manifest.json`. The current package
+contains 25 files: the llama server/runtime libraries, all pinned x64 CPU dispatch
+variants, and the llama.cpp, nlohmann/json, and LLVM OpenMP notices. Benchmark,
+CLI, quantization, tokenization, TTS, and RPC executables are excluded.
+
+The staging step verifies source size and SHA-256 before copying, uses an empty
+destination, re-verifies every copied file, and removes partial output after
+failure. The normal runtime verifier then requires the exact staged filename set
+and hashes again before launching `llama-server.exe`.
+
+Normal desktop and Store packages remain runtime-free. A separate
+`local-ai-preview.cjs` config can bundle a previously staged runtime only when
+`QFN_LOCAL_AI_RUNTIME_DIR` points to a real directory with exactly the pinned
+manifest names. CI builds that internal preview separately, re-verifies the
+runtime from the packaged resources directory, launches the unpacked preview, and
+only then produces an internal NSIS artifact. This is packaging evidence, not
+public activation or signing approval.
+
 ## Runtime lifecycle
 
 The runtime instance now has explicit `status()` and idempotent `shutdown()`
