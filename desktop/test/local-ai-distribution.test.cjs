@@ -16,6 +16,10 @@ test('distribution policy is pinned to the exact evaluated runtime and model', (
   assert.equal(policy.runtime.archive_sha256, runtime.archiveSha256)
   assert.equal(policy.runtime.delivery, 'bundle_before_activation')
   assert.equal(policy.runtime.automatic_download, false)
+  assert.equal(policy.runtime.package_kind, 'server-only')
+  assert.equal(policy.runtime.package_file_count, 25)
+  assert.equal(runtime.package, 'server-only')
+  assert.equal(Object.keys(runtime.files).length, 25)
 
   assert.equal(policy.model.id, CANDIDATE.id)
   assert.equal(policy.model.sha256, CANDIDATE.sha256)
@@ -31,7 +35,11 @@ test('runtime policy requires all known license notice families before activatio
   assert.equal(notices.get('llama.cpp'), 'MIT')
   assert.equal(notices.get('nlohmann/json'), 'MIT')
   assert.equal(notices.get('LLVM OpenMP'), 'Apache-2.0 WITH LLVM-exception')
+  assert.ok(Object.hasOwn(runtime.files, 'LICENSE-LLAMA-CPP'))
+  assert.ok(Object.hasOwn(runtime.files, 'LICENSE-JSONHPP'))
   assert.ok(Object.hasOwn(runtime.files, 'LICENSE-LLVM-OpenMP'))
+  assert.equal(Object.keys(runtime.files).some(name =>
+    /bench|quantize|perplexity|tokenize|rpc-server|llama-cli/.test(name)), false)
   assert.ok(policy.activation_blockers.includes('bundle_and_verify_required_runtime_notices'))
   assert.ok(policy.activation_blockers.includes('approve_code_signing_and_distribution_channel'))
   assert.ok(policy.activation_blockers.includes('complete_product_acceptance_gate'))
@@ -40,6 +48,7 @@ test('runtime policy requires all known license notice families before activatio
 
 test('current desktop packages still contain no bundled runtime payload', () => {
   assert.deepEqual(desktopPackage.build.files, ['src/**/*', 'package.json'])
+  assert.equal(desktopPackage.scripts['pack:local-ai-preview'].includes('local-ai-preview.cjs'), true)
   const root = path.resolve(__dirname, '..')
   for (const candidate of [
     path.join(root, 'local-ai-runtime'),
