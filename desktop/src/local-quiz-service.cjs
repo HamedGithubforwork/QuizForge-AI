@@ -15,7 +15,7 @@ const QUIZ_SCHEMA = Object.freeze({
     title: { type: 'string', minLength: 1, maxLength: 160 },
     questions: {
       type: 'array',
-      minItems: QUESTION_COUNT,
+      minItems: 0,
       maxItems: QUESTION_COUNT,
       items: {
         type: 'object',
@@ -93,6 +93,8 @@ function promptFor(request) {
     'Do not use outside knowledge. Every correct answer and explanation must be supported by cited source pages.',
     'Each question must have exactly four distinct choices and one correct_index from 0 to 3.',
     'Use source_pages only from the supplied PAGE markers. Avoid duplicate or lightly reworded questions.',
+    'Five explicit distinct source-supported facts are enough to generate the quiz, even when the notes are short, synthetic, or in French. Generate five questions whenever at least five such facts are present.',
+    'Only when fewer than five distinct source-supported factual questions are possible, return title "Insufficient source material" and an empty questions array. Never invent facts to reach five questions.',
     difficulty,
     'Return only the JSON object required by the response schema.',
   ].join('\n')
@@ -107,8 +109,17 @@ function parseGeneratedQuiz(text, allowedPages) {
   let parsed
   try { parsed = JSON.parse(text) } catch { throw failure('quiz_validation_failed') }
   if (!plain(parsed) || Object.keys(parsed).some(key => !['title', 'questions'].includes(key)) ||
-      !boundedString(parsed.title, 160) || !Array.isArray(parsed.questions) ||
-      parsed.questions.length !== QUESTION_COUNT) {
+      !boundedString(parsed.title, 160) || !Array.isArray(parsed.questions)) {
+    throw failure('quiz_validation_failed')
+  }
+
+  if (parsed.questions.length === 0) {
+    if (parsed.title.trim() !== 'Insufficient source material') {
+      throw failure('quiz_validation_failed')
+    }
+    throw failure('insufficient_source')
+  }
+  if (parsed.questions.length !== QUESTION_COUNT) {
     throw failure('quiz_validation_failed')
   }
 
@@ -173,6 +184,7 @@ function createLocalQuizService({ provider }) {
           ]),
           maxTokens: 1800,
           jsonSchema: QUIZ_SCHEMA,
+          generationProfile: 'quiz-mcq-v1',
         }, { signal })
       } catch (error) {
         if (error instanceof LocalAiError) throw error
