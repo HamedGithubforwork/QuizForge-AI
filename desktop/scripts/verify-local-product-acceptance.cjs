@@ -166,7 +166,16 @@ function safeWindowsEnvironment(source = process.env) {
     const found = Object.keys(source).find(name => name.toLowerCase() === expected.toLowerCase())
     if (found && typeof source[found] === 'string') env[expected] = source[found]
   }
-  if (env.SystemRoot) env.PATH = path.join(env.SystemRoot, 'System32')
+  if (env.SystemRoot) {
+    env.PATH = path.join(env.SystemRoot, 'System32')
+    env.PSModulePath = path.join(
+      env.SystemRoot,
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'Modules',
+    )
+  }
   return env
 }
 
@@ -175,6 +184,8 @@ async function readRuntimeMetrics() {
   if (!env.SystemRoot) return []
   const executable = path.join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
   const command = [
+    "$ErrorActionPreference='Stop'",
+    "Import-Module Microsoft.PowerShell.Management -ErrorAction Stop",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new()",
     "$p=@(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {",
     "  [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
@@ -184,12 +195,19 @@ async function readRuntimeMetrics() {
   return await new Promise(resolve => {
     execFile(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
       { windowsHide: true, timeout: 4000, maxBuffer: 16384, env, encoding: 'utf8' }, (error, stdout) => {
-        if (error) { resolve([]); return }
+        if (error) {
+          console.log('METRIC SAMPLE ERROR:', error.code || error.name || 'unknown')
+          resolve([])
+          return
+        }
         try {
           const cleaned = String(stdout).replace(/^\uFEFF/, '').trim()
           const parsed = JSON.parse(cleaned || '[]')
           resolve(Array.isArray(parsed) ? parsed : [parsed])
-        } catch { resolve([]) }
+        } catch {
+          console.log('METRIC SAMPLE PARSE ERROR')
+          resolve([])
+        }
       })
   })
 }
