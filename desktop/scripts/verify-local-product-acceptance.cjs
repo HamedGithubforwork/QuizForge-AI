@@ -195,9 +195,16 @@ async function readRuntimeMetrics(pid) {
   ].join('; ')
   return await new Promise(resolve => {
     execFile(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
-      { windowsHide: true, timeout: 4000, maxBuffer: 16384, env, encoding: 'utf8' }, (error, stdout) => {
+      { windowsHide: true, timeout: 12000, maxBuffer: 16384, env, encoding: 'utf8' }, (error, stdout) => {
         if (error) {
-          console.log('METRIC SAMPLE ERROR:', error.code || error.name || 'unknown')
+          console.log(
+            'METRIC SAMPLE ERROR:',
+            error.killed
+              ? 'timeout'
+              : error.code ||
+                error.name ||
+                'unknown',
+          )
           resolve([])
           return
         }
