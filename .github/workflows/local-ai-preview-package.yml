@@ -1,0 +1,107 @@
+name: Local AI internal preview package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - desktop/src/local-runtime-manifest.json
+      - desktop/third_party/local-ai/**
+      - desktop/scripts/stage-local-runtime.cjs
+      - desktop/scripts/verify-packaged-runtime.cjs
+      - desktop/build/local-ai-preview.cjs
+      - desktop/package.json
+      - desktop/package-lock.json
+      - .github/workflows/local-ai-preview-package.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-preview-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-package:
+    name: Windows Local AI internal preview
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install and audit desktop dependencies
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm audit --audit-level=moderate
+          exit $LASTEXITCODE
+
+      - name: Download and stage pinned server-only runtime
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/local-ai-runtime"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/local-ai-runtime"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node desktop/scripts/verify-packaged-runtime.cjs "$env:RUNNER_TEMP/local-ai-runtime"
+          exit $LASTEXITCODE
+
+      - name: Build unpacked Local AI preview
+        run: npm run pack:local-ai-preview-dir
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
+
+      - name: Reverify runtime inside packaged resources
+        run: node scripts/verify-packaged-runtime.cjs "dist/local-ai-preview/win-unpacked/resources/local-ai-runtime"
+
+      - name: Launch and close unpacked preview
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path $PWD 'dist/local-ai-preview/win-unpacked/Quiz From Notes Local AI Preview.exe'
+          if (-not (Test-Path $exe)) { throw 'Local AI preview executable is missing.' }
+          $process = Start-Process -FilePath $exe -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(45)
+            do {
+              Start-Sleep -Milliseconds 500
+              $process.Refresh()
+              if ($process.HasExited) { throw 'Local AI preview exited before displaying a window.' }
+            } while ($process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
+            if ($process.MainWindowHandle -eq 0) { throw 'Local AI preview did not display a window.' }
+            if ($process.MainWindowTitle -notlike 'Quiz From Notes*') { throw 'Unexpected preview window title.' }
+            if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) { throw 'Local AI preview did not close cleanly.' }
+          } finally {
+            if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit(10000) | Out-Null }
+          }
+
+      - name: Build internal NSIS Local AI preview
+        run: npm run pack:local-ai-preview
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
+
+      - name: Retain internal Local AI preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: quiz-from-notes-local-ai-internal-preview
+          path: desktop/dist/local-ai-preview/*.exe
+          if-no-files-found: error
+          retention-days: 7
