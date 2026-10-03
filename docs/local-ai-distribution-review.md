@@ -58,7 +58,10 @@ Because the local runtime is native executable code, Quiz From Notes will not
 depend on a runtime executable downloaded after install unless a later,
 channel-specific Store review explicitly approves that design. Bundling the
 reviewed runtime is the conservative common path for Store/direct packages.
-The model remains a separately downloaded data asset.
+The model remains a separately downloaded data asset. The Local AI settings page
+and the native download confirmation disclose the pinned model name,
+Qwen/Qwen3-4B-GGUF source repository, Apache-2.0 license, and download size from
+the same candidate metadata used by the downloader.
 
 The existing Store build can rely on Microsoft Store package signing after
 acceptance. Direct-distribution signing or any paid certificate/service remains an
@@ -70,12 +73,11 @@ owner-approval item and must not be purchased automatically.
    including the full CPU-dispatch set and packaged-resource re-verification.
 2. Verify the llama.cpp, nlohmann/json and LLVM OpenMP notices byte-for-byte in
    the staged and packaged runtime payload.
-3. Add a user-visible model identity/license disclosure before model download.
-4. Complete the broader product quality/performance acceptance gate.
-5. Keep the desktop moderate/high dependency audit green; do not replace an audit failure with an exception or severity downgrade.
-6. Choose/approve the actual signing and distribution channel. No paid signing
+3. Complete the broader product quality/performance acceptance gate.
+4. Keep the desktop moderate/high dependency audit green; do not replace an audit failure with an exception or severity downgrade.
+5. Choose/approve the actual signing and distribution channel. No paid signing
    service or certificate may be purchased without owner approval.
-7. Only after these pass may a preview release candidate bundle a runtime and make
+6. Only after these pass may a preview release candidate bundle a runtime and make
    Local AI generation visible on compatible hardware.
 
 ## Sources reviewed

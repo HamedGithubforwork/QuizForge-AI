@@ -124,18 +124,22 @@ async function updatePrompt(kind) {
 }
 
 function formatLocalModelSize(value) {
-  if (!Number.isSafeInteger(value) || value < 1) return 'the local model'
-  return (value / 1024 ** 3).toFixed(1) + ' GB local model'
+  if (!Number.isSafeInteger(value) || value < 1) return null
+  return (value / 1024 ** 3).toFixed(1) + ' GB'
 }
 
 async function confirmLocalAiDownload(status) {
   if (!mainWindow || mainWindow.isDestroyed()) return false
   const size = formatLocalModelSize(status?.capability?.requirements?.modelBytes)
+  const metadata = status?.model?.metadata
+  const label = metadata?.displayName ?? 'experimental Local AI model'
+  const license = metadata?.license ? ` under ${metadata.license}` : ''
+  const source = metadata?.repository ? ` Source: ${metadata.repository}.` : ''
   const { response } = await dialog.showMessageBox(mainWindow, {
     type: 'info',
     title: 'Download Local AI model',
-    message: `Download the experimental ${size}?`,
-    detail: 'This is an explicit optional download. It does not enable Local AI generation yet.',
+    message: `Download ${label}${size ? ` (${size})` : ''}?`,
+    detail: `This optional model is distributed${license}.${source} Downloading it does not by itself enable Local AI generation.`,
     buttons: ['Download', 'Cancel'],
     defaultId: 1,
     cancelId: 1,

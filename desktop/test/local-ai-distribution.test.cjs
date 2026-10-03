@@ -22,12 +22,18 @@ test('distribution policy is pinned to the exact evaluated runtime and model', (
   assert.equal(Object.keys(runtime.files).length, 25)
 
   assert.equal(policy.model.id, CANDIDATE.id)
+  assert.equal(policy.model.display_name, CANDIDATE.displayName)
+  assert.equal(policy.model.repository, CANDIDATE.repository)
+  assert.equal(policy.model.revision, CANDIDATE.revision)
+  assert.equal(policy.model.license, CANDIDATE.license)
+  assert.equal(policy.model.user_disclosure, 'settings_and_native_confirmation')
   assert.equal(policy.model.sha256, CANDIDATE.sha256)
   assert.equal(policy.model.bytes, CANDIDATE.bytes)
   assert.match(CANDIDATE.url, new RegExp('/resolve/' + policy.model.revision + '/'))
   assert.match(CANDIDATE.url, new RegExp('/' + policy.model.filename.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&') + '$'))
   assert.equal(policy.model.delivery, 'explicit_user_download')
   assert.equal(policy.model.automatic_download, false)
+  assert.equal(policy.activation_blockers.includes('add_user_visible_model_license_disclosure'), false)
 })
 
 test('runtime policy requires all known license notice families before activation', () => {

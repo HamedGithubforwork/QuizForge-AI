@@ -40,7 +40,9 @@
     "license": "Apache-2.0",
     "license_source": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/blob/bc640142c66e1fdd12af0bd68f40445458f3869b/LICENSE",
     "delivery": "explicit_user_download",
-    "automatic_download": false
+    "automatic_download": false,
+    "display_name": "Qwen3 4B Q4_K_M",
+    "user_disclosure": "settings_and_native_confirmation"
   },
   "store_policy": {
     "reviewed_policy_version": "7.20",
@@ -53,7 +55,6 @@
     "bundle_and_verify_required_runtime_notices",
     "approve_code_signing_and_distribution_channel",
     "complete_product_acceptance_gate",
-    "add_user_visible_model_license_disclosure",
     "desktop_dependency_audit_must_pass"
   ]
 }

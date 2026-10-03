@@ -183,6 +183,14 @@ A corrupted cached model is represented as a removable invalid state rather than
 making settings unusable. It cannot be used or overwritten in place; the user must
 explicitly remove it before downloading again.
 
+
+The Windows composition also provides a sanitized public model identity
+(`id`, display name, source repository, and SPDX-style license identifier).
+Download URL, revision hash, model SHA-256, filesystem path, and other internal
+integrity fields do not cross the manager/renderer boundary. Settings and the
+native confirmation dialog consume this same metadata so the disclosure cannot
+drift from the pinned downloader candidate.
+
 Hugging Face downloads remain HTTPS-only with no userinfo, custom port or fragment.
 Redirect destinations are limited to the `huggingface.co` or `hf.co` domain
 suffixes so current CDN/Xet storage endpoints work while lookalike domains remain

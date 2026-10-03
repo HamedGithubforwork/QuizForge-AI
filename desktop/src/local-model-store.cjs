@@ -6,7 +6,12 @@ const { createHash, randomUUID } = require('node:crypto')
 
 // Experimental evaluation candidate, not an enabled feature or a chosen default.
 const CANDIDATE = Object.freeze({
-  id: 'qwen3-4b-q4-k-m', bytes: 2497280256,
+  id: 'qwen3-4b-q4-k-m',
+  displayName: 'Qwen3 4B Q4_K_M',
+  repository: 'Qwen/Qwen3-4B-GGUF',
+  revision: 'bc640142c66e1fdd12af0bd68f40445458f3869b',
+  license: 'Apache-2.0',
+  bytes: 2497280256,
   sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
   url: 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf',
 })

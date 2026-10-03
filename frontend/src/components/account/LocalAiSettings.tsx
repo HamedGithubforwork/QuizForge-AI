@@ -223,6 +223,20 @@ export default function LocalAiSettings() {
           </span>
         </div>
 
+        {status.model.metadata && (
+          <div className="settings-method-note">
+            <p>
+              <strong>
+                {status.model.metadata.displayName}
+              </strong>
+            </p>
+            <p>
+              Source: {status.model.metadata.repository}
+              {' · '}License: {status.model.metadata.license}
+            </p>
+          </div>
+        )}
+
         <p>
           Model size: {bytes(
             status.model.bytes ??
@@ -250,7 +264,7 @@ export default function LocalAiSettings() {
                 () => bridge.startLocalAiModelDownload(),
               )}
             >
-              Download experimental model
+              Download {status.model.metadata?.displayName ?? 'experimental model'}
             </button>
           )}
 
@@ -305,9 +319,12 @@ export default function LocalAiSettings() {
         )}
 
         <p className="settings-method-note">
-          Downloading the model does not enable Local AI generation.
-          Runtime distribution, parent-process cleanup, licensing,
-          performance and output-quality acceptance are still required.
+          {status.model.metadata
+            ? `The model download is distributed under ${status.model.metadata.license}. `
+            : ''}
+          Downloading the model does not by itself enable Local AI generation.
+          This desktop build must also include the verified runtime and satisfy
+          the current release gates.
         </p>
       </section>
     </>

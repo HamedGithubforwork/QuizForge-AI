@@ -64,7 +64,17 @@ export type DesktopLocalAiStatus = {
     hardware: { gpuDetected: boolean; gpuAccelerationUsable: boolean }
     requirements: { modelBytes: number; diskRequiredBytes: number } | null
   } | null
-  model: { state: 'missing' | 'ready' | 'invalid'; ready: boolean; bytes: number | null }
+  model: {
+    state: 'missing' | 'ready' | 'invalid'
+    ready: boolean
+    bytes: number | null
+    metadata?: {
+      id: string
+      displayName: string
+      repository: string
+      license: string
+    } | null
+  }
 }
 export type DesktopAccount = { userId: string; email: string; enrolled: boolean }
 type DesktopRequest = { path: string; method: string; body?: string; form?: Array<

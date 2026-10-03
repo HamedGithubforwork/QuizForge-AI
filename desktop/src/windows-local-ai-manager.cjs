@@ -20,6 +20,12 @@ function createWindowsLocalAiResources({
   })
   const manager = createLocalAiManager({
     modelStore,
+    modelMetadata: {
+      id: CANDIDATE.id,
+      displayName: CANDIDATE.displayName,
+      repository: CANDIDATE.repository,
+      license: CANDIDATE.license,
+    },
     capabilityProbe: () => probeWindowsLocalAiCapability({
       storageDirectory: modelDirectory,
     }),
