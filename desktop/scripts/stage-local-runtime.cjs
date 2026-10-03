@@ -1,6 +1,7 @@
 'use strict'
 
 const fs = require('node:fs/promises')
+const { constants } = require('node:fs')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
 const MANIFEST = require('../src/local-runtime-manifest.json')
@@ -54,9 +55,9 @@ async function stageLocalRuntime({
       const source = noticeSources[name] ?? path.join(sourceDirectory, name)
       const destination = path.join(destinationDirectory, name)
       await validateFile(source, spec)
-      await fs.copyFile(source, destination, fs.constants.COPYFILE_EXCL)
-      await validateFile(destination, spec)
+      await fs.copyFile(source, destination, constants.COPYFILE_EXCL)
       copied.push(destination)
+      await validateFile(destination, spec)
     }
 
     const names = (await fs.readdir(destinationDirectory)).sort()
@@ -73,8 +74,9 @@ async function stageLocalRuntime({
 }
 
 async function main() {
-  const sourceDirectory = path.resolve(process.argv[2] ?? '')
-  const destinationDirectory = path.resolve(process.argv[3] ?? '')
+  if (!process.argv[2] || !process.argv[3]) throw failure('invalid_directory')
+  const sourceDirectory = path.resolve(process.argv[2])
+  const destinationDirectory = path.resolve(process.argv[3])
   const result = await stageLocalRuntime({ sourceDirectory, destinationDirectory })
   console.log('PASS: staged verified server-only Local AI runtime', result.files.length, result.bytes)
 }
