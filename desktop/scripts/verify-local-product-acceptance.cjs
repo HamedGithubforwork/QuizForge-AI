@@ -4,7 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
-const { execFile } = require('node:child_process')
+const { spawn } = require('node:child_process')
 const { performance } = require('node:perf_hooks')
 const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs')
 
@@ -179,75 +179,157 @@ function safeWindowsEnvironment(source = process.env) {
   return env
 }
 
-async function readRuntimeMetrics(pid) {
-  if (!Number.isSafeInteger(pid) || pid < 1) return []
+function createRuntimeMetricMonitor() {
   const env = safeWindowsEnvironment()
-  if (!env.SystemRoot) return []
-  const executable = path.join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  if (!env.SystemRoot) throw new Error('Windows metric environment is unavailable.')
+  const executable = path.join(
+    env.SystemRoot,
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  )
   const command = [
     "$ErrorActionPreference='Stop'",
     "Import-Module Microsoft.PowerShell.Management -ErrorAction Stop",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new()",
-    "$p=@(Get-Process -Id " + pid + " -ErrorAction SilentlyContinue | ForEach-Object {",
-    "  [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
-    "})",
-    "if($p.Count -eq 0){Write-Output '[]'}else{@($p)|ConvertTo-Json -Compress}",
+    "Write-Output 'READY'",
+    "while($true){",
+    "  $p=@(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {",
+    "    [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
+    "  })",
+    "  if($p.Count -gt 0){@($p)|ConvertTo-Json -Compress}",
+    "  Start-Sleep -Milliseconds 500",
+    "}",
   ].join('; ')
-  return await new Promise(resolve => {
-    execFile(executable, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
-      { windowsHide: true, timeout: 12000, maxBuffer: 16384, env, encoding: 'utf8' }, (error, stdout) => {
-        if (error) {
-          console.log(
-            'METRIC SAMPLE ERROR:',
-            error.killed
-              ? 'timeout'
-              : error.code ||
-                error.name ||
-                'unknown',
-          )
-          resolve([])
-          return
-        }
-        try {
-          const cleaned = String(stdout).replace(/^\uFEFF/, '').trim()
-          const parsed = JSON.parse(cleaned || '[]')
-          resolve(Array.isArray(parsed) ? parsed : [parsed])
-        } catch {
-          console.log('METRIC SAMPLE PARSE ERROR')
-          resolve([])
-        }
-      })
+
+  const child = spawn(
+    executable,
+    ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
+    {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+    },
+  )
+  const samples = []
+  let buffer = ''
+  let readyResolve
+  let readyReject
+  const ready = new Promise((resolve, reject) => {
+    readyResolve = resolve
+    readyReject = reject
   })
+  let readySeen = false
+  let stderr = ''
+
+  function consume(line) {
+    const value = line.replace(/^\uFEFF/, '').trim()
+    if (!value) return
+    if (value === 'READY') {
+      readySeen = true
+      readyResolve()
+      return
+    }
+    try {
+      const parsed = JSON.parse(value)
+      const rows = Array.isArray(parsed) ? parsed : [parsed]
+      for (const item of rows) {
+        const id = Number(item.Id)
+        const workingSetBytes = Number(item.WorkingSet64)
+        const cpuSeconds = Number(item.CPU)
+        if (
+          Number.isSafeInteger(id) &&
+          id > 0 &&
+          Number.isFinite(workingSetBytes) &&
+          workingSetBytes > 0 &&
+          Number.isFinite(cpuSeconds) &&
+          cpuSeconds >= 0
+        ) {
+          samples.push({ id, workingSetBytes, cpuSeconds })
+        }
+      }
+    } catch {
+      // Ignore non-JSON host noise. Missing metrics still fail the acceptance gate.
+    }
+  }
+
+  child.stdout.setEncoding('utf8')
+  child.stdout.on('data', chunk => {
+    buffer += chunk
+    const lines = buffer.split(/\r?\n/)
+    buffer = lines.pop() ?? ''
+    for (const line of lines) consume(line)
+  })
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => {
+    stderr = (stderr + chunk).slice(-4096)
+  })
+  child.once('error', error => {
+    if (!readySeen) readyReject(error)
+  })
+  child.once('exit', code => {
+    if (!readySeen) {
+      readyReject(new Error(
+        'Windows metric monitor exited before readiness: ' +
+        String(code) + (stderr ? ' ' + stderr : ''),
+      ))
+    }
+  })
+
+  async function start() {
+    await Promise.race([
+      ready,
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error('Windows metric monitor readiness timed out.')),
+        20000,
+      )),
+    ])
+  }
+
+  function marker() {
+    return samples.length
+  }
+
+  function metricsSince(index, pid) {
+    const rows = samples.slice(index).filter(item => item.id === pid)
+    return {
+      peakWorkingSetBytes:
+        Math.max(0, ...rows.map(item => item.workingSetBytes)) || null,
+      peakCpuSeconds:
+        Math.max(0, ...rows.map(item => item.cpuSeconds)) || null,
+      sampleCount: rows.length,
+    }
+  }
+
+  async function stop() {
+    if (child.exitCode !== null || child.signalCode !== null) return
+    child.kill()
+    await Promise.race([
+      new Promise(resolve => child.once('exit', resolve)),
+      new Promise(resolve => setTimeout(resolve, 5000)),
+    ])
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }
+
+  return Object.freeze({ start, marker, metricsSince, stop })
 }
 
-async function measured(operation, runtimePid) {
-  let running = true
-  let peakWorkingSetBytes = 0
-  let peakCpuSeconds = 0
-  const monitor = (async () => {
-    while (running) {
-      for (const item of await readRuntimeMetrics(runtimePid())) {
-        const memory = Number(item.WorkingSet64)
-        const cpu = Number(item.CPU)
-        if (Number.isFinite(memory)) peakWorkingSetBytes = Math.max(peakWorkingSetBytes, memory)
-        if (Number.isFinite(cpu)) peakCpuSeconds = Math.max(peakCpuSeconds, cpu)
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000))
-    }
-  })()
-
+async function measured(operation, monitor, runtimePidState) {
+  runtimePidState.value = null
+  const marker = monitor.marker()
   const started = performance.now()
-  try {
-    const value = await operation()
-    return {
-      value,
-      elapsedSeconds: Number(((performance.now() - started) / 1000).toFixed(3)),
-      peakWorkingSetBytes,
-      peakCpuSeconds: Number(peakCpuSeconds.toFixed(3)),
-    }
-  } finally {
-    running = false
-    await monitor
+  const value = await operation()
+  await new Promise(resolve => setTimeout(resolve, 750))
+  const pid = runtimePidState.value
+  const metrics = Number.isSafeInteger(pid) && pid > 0
+    ? monitor.metricsSince(marker, pid)
+    : { peakWorkingSetBytes: null, peakCpuSeconds: null, sampleCount: 0 }
+
+  return {
+    value,
+    elapsedSeconds: Number(((performance.now() - started) / 1000).toFixed(3)),
+    ...metrics,
   }
 }
 
@@ -256,13 +338,17 @@ async function main() {
   const runtimeDirectory = path.resolve(process.argv[2])
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
-  let activeRuntimePid = null
+  const runtimePidState = { value: null }
+  const metricMonitor = createRuntimeMetricMonitor()
+  await metricMonitor.start()
   const stack = createWindowsLocalAiStack({
     userDataDirectory: path.dirname(modelDirectory),
     modelDirectory,
     runtimeDirectory,
     onRuntimeProcess(pid) {
-      activeRuntimePid = pid
+      if (Number.isSafeInteger(pid) && pid > 0) {
+        runtimePidState.value = pid
+      }
     },
   })
 
@@ -307,7 +393,7 @@ async function main() {
         questionCount: 5,
         difficulty: fixture.difficulty,
         questionType: 'multiple_choice',
-      }), () => activeRuntimePid)
+      }), metricMonitor, runtimePidState)
       validateSemanticQuiz(measuredRun.value, fixture)
       report.runs.push({
         fixture: fixture.id,
@@ -316,6 +402,7 @@ async function main() {
         elapsedSeconds: measuredRun.elapsedSeconds,
         peakWorkingSetBytes: measuredRun.peakWorkingSetBytes || null,
         peakCpuSeconds: measuredRun.peakCpuSeconds || null,
+        metricSampleCount: measuredRun.sampleCount,
         title: measuredRun.value.title,
         questions: measuredRun.value.questions,
       })
@@ -337,7 +424,7 @@ async function main() {
         return error.code
       }
       throw new Error('Insufficient source unexpectedly produced a quiz')
-    }, () => activeRuntimePid)
+    }, metricMonitor, runtimePidState)
     report.runs.push({
       fixture: INSUFFICIENT.id,
       repeat: false,
@@ -345,6 +432,7 @@ async function main() {
       elapsedSeconds: abstention.elapsedSeconds,
       peakWorkingSetBytes: abstention.peakWorkingSetBytes || null,
       peakCpuSeconds: abstention.peakCpuSeconds || null,
+      metricSampleCount: abstention.sampleCount,
     })
     await persistReport()
     console.log('CASE PASS:', INSUFFICIENT.id, abstention.elapsedSeconds)
@@ -380,6 +468,7 @@ async function main() {
     console.log(JSON.stringify(report.summary))
   } finally {
     await stack.dispose()
+    await metricMonitor.stop()
   }
 }
 
