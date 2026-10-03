@@ -179,7 +179,8 @@ function safeWindowsEnvironment(source = process.env) {
   return env
 }
 
-async function readRuntimeMetrics() {
+async function readRuntimeMetrics(pid) {
+  if (!Number.isSafeInteger(pid) || pid < 1) return []
   const env = safeWindowsEnvironment()
   if (!env.SystemRoot) return []
   const executable = path.join(env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
@@ -187,7 +188,7 @@ async function readRuntimeMetrics() {
     "$ErrorActionPreference='Stop'",
     "Import-Module Microsoft.PowerShell.Management -ErrorAction Stop",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new()",
-    "$p=@(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {",
+    "$p=@(Get-Process -Id " + pid + " -ErrorAction SilentlyContinue | ForEach-Object {",
     "  [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
     "})",
     "if($p.Count -eq 0){Write-Output '[]'}else{@($p)|ConvertTo-Json -Compress}",
@@ -212,13 +213,13 @@ async function readRuntimeMetrics() {
   })
 }
 
-async function measured(operation) {
+async function measured(operation, runtimePid) {
   let running = true
   let peakWorkingSetBytes = 0
   let peakCpuSeconds = 0
   const monitor = (async () => {
     while (running) {
-      for (const item of await readRuntimeMetrics()) {
+      for (const item of await readRuntimeMetrics(runtimePid())) {
         const memory = Number(item.WorkingSet64)
         const cpu = Number(item.CPU)
         if (Number.isFinite(memory)) peakWorkingSetBytes = Math.max(peakWorkingSetBytes, memory)
@@ -248,10 +249,14 @@ async function main() {
   const runtimeDirectory = path.resolve(process.argv[2])
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
+  let activeRuntimePid = null
   const stack = createWindowsLocalAiStack({
     userDataDirectory: path.dirname(modelDirectory),
     modelDirectory,
     runtimeDirectory,
+    onRuntimeProcess(pid) {
+      activeRuntimePid = pid
+    },
   })
 
   const report = {
@@ -295,7 +300,7 @@ async function main() {
         questionCount: 5,
         difficulty: fixture.difficulty,
         questionType: 'multiple_choice',
-      }))
+      }), () => activeRuntimePid)
       validateSemanticQuiz(measuredRun.value, fixture)
       report.runs.push({
         fixture: fixture.id,
@@ -325,7 +330,7 @@ async function main() {
         return error.code
       }
       throw new Error('Insufficient source unexpectedly produced a quiz')
-    })
+    }, () => activeRuntimePid)
     report.runs.push({
       fixture: INSUFFICIENT.id,
       repeat: false,
