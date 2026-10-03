@@ -29,6 +29,7 @@ function createWindowsLocalAiStack({
   userDataDirectory,
   modelDirectory,
   runtimeDirectory,
+  onRuntimeProcess = () => {},
 } = {}) {
   const resources = createWindowsLocalAiResources({
     userDataDirectory,
@@ -45,6 +46,7 @@ function createWindowsLocalAiStack({
     runtime = createLocalRuntime({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
+      onProcessChange: onRuntimeProcess,
     })
     const provider = createWindowsLocalAiProvider({
       runtime,
