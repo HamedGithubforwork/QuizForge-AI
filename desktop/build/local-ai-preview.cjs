@@ -1,0 +1,39 @@
+'use strict'
+
+const fs = require('node:fs')
+const path = require('node:path')
+const { build } = require('../package.json')
+const manifest = require('../src/local-runtime-manifest.json')
+
+const runtime = process.env.QFN_LOCAL_AI_RUNTIME_DIR
+if (!runtime || !path.isAbsolute(runtime)) {
+  throw new Error('Set QFN_LOCAL_AI_RUNTIME_DIR to the verified staged runtime directory.')
+}
+const info = fs.lstatSync(runtime)
+if (!info.isDirectory() || info.isSymbolicLink()) {
+  throw new Error('QFN_LOCAL_AI_RUNTIME_DIR must be a real directory.')
+}
+const actual = fs.readdirSync(runtime).sort()
+const expected = Object.keys(manifest.files).sort()
+if (actual.join('\n') !== expected.join('\n')) {
+  throw new Error('Local AI preview runtime directory does not match the pinned manifest.')
+}
+
+module.exports = {
+  ...build,
+  appId: 'com.quizfromnotes.desktop.local-ai-preview',
+  productName: 'Quiz From Notes Local AI Preview',
+  artifactName: 'Quiz-From-Notes-Local-AI-Preview-${version}-${arch}.${ext}',
+  directories: {
+    ...build.directories,
+    output: 'dist/local-ai-preview',
+  },
+  extraResources: [
+    {
+      from: runtime,
+      to: 'local-ai-runtime',
+      filter: ['**/*'],
+    },
+  ],
+  publish: null,
+}
