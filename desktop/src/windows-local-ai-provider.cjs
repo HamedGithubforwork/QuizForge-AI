@@ -1,6 +1,18 @@
 'use strict'
 
 const { LocalAiError, createLocalAiProvider, failure, validId } = require('./local-ai-provider.cjs')
+const GENERATION_PROFILES = Object.freeze({
+  'quiz-mcq-v1': Object.freeze({
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    min_p: 0,
+    presence_penalty: 1.5,
+    seed: 42,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
+})
+
 const RUNTIME_ERRORS = Object.freeze({
   busy: ['busy', true], unsupported_platform: ['unsupported_platform', false],
   model_missing: ['model_missing', false], invalid_model: ['invalid_model', false],
@@ -37,8 +49,15 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
       if (!supported()) throw failure('unsupported_platform')
       let response
       try {
-        response = await runtime.complete({ messages: request.messages, max_tokens: request.maxTokens,
-          ...(request.jsonSchema ? { json_schema: request.jsonSchema } : {}) }, { signal })
+        const generation = request.generationProfile
+          ? GENERATION_PROFILES[request.generationProfile]
+          : null
+        response = await runtime.complete({
+          messages: request.messages,
+          max_tokens: request.maxTokens,
+          ...(request.jsonSchema ? { json_schema: request.jsonSchema } : {}),
+          ...(generation ?? {}),
+        }, { signal })
       } catch (error) { throw runtimeError(error) }
       if (!Array.isArray(response?.choices) || response.choices.length !== 1) throw failure('invalid_response')
       const choice = response.choices[0]
