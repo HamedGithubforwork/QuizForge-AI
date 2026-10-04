@@ -96,6 +96,8 @@ function App() {
     localQuizBridgeRef.current
   const localGenerationController =
     useRef<AbortController | null>(null)
+  const explicitGenerationMode =
+    useRef<QuizGenerationMode | null>(null)
   const [
     generationMode,
     setGenerationMode,
@@ -116,11 +118,31 @@ function App() {
       .then((status) => {
         if (active) {
           setLocalQuizStatus(status)
+          const nextMode =
+            resolveQuizGenerationMode({
+              explicitMode:
+                explicitGenerationMode.current,
+              localAvailable:
+                status.available,
+            })
+          setGenerationMode(nextMode)
+          if (nextMode === 'local') {
+            setQuestionCount(5)
+            setQuestionType(
+              'multiple_choice',
+            )
+          }
         }
       })
       .catch(() => {
         if (active) {
           setLocalQuizStatus(null)
+          if (
+            explicitGenerationMode.current ===
+            null
+          ) {
+            setGenerationMode('cloud')
+          }
         }
       })
 
@@ -247,6 +269,7 @@ function App() {
   function handleGenerationModeChange(
     mode: QuizGenerationMode,
   ) {
+    explicitGenerationMode.current = mode
     setGenerationMode(mode)
 
     if (mode === 'local') {
