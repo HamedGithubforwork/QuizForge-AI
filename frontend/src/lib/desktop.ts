@@ -27,6 +27,9 @@ export type DesktopLocalQuizRequest = {
   questionCount: 5
   difficulty: 'easy' | 'medium' | 'hard'
   questionType: 'multiple_choice'
+  practice?: {
+    avoidQuestions: string[]
+  }
 }
 
 export type DesktopLocalQuizResult =

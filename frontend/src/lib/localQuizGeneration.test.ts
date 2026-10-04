@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
 } from './localQuizGeneration.ts'
@@ -155,6 +156,98 @@ test(
           'runtime_unavailable',
       }),
       /not available/,
+    )
+  },
+)
+
+
+test(
+  'builds targeted-practice requests from only the selected weak pages',
+  async () => {
+    const calls: number[] = []
+    const request =
+      await buildLocalPracticeRequest(
+        document,
+        'medium',
+        status,
+        [7],
+        [
+          'What did you miss?',
+          'Which fact was confusing?',
+        ],
+        async (
+          _sha,
+          pageNumber,
+        ) => {
+          calls.push(pageNumber)
+          return 'focused text ' +
+            pageNumber
+        },
+      )
+
+    assert.deepEqual(
+      calls,
+      [7],
+    )
+    assert.deepEqual(
+      request.pages.map(
+        page => page.pageNumber,
+      ),
+      [7],
+    )
+    assert.deepEqual(
+      request.practice,
+      {
+        avoidQuestions: [
+          'What did you miss?',
+          'Which fact was confusing?',
+        ],
+      },
+    )
+  },
+)
+
+test(
+  'targeted-practice request rejects pages that are not in the processed selection',
+  async () => {
+    await assert.rejects(
+      buildLocalPracticeRequest(
+        document,
+        'medium',
+        status,
+        [99],
+        ['Prior question?'],
+        async () => 'text',
+      ),
+      /Reprocess or select/,
+    )
+  },
+)
+
+
+test(
+  'targeted practice can focus pages without prior question text',
+  async () => {
+    const request =
+      await buildLocalPracticeRequest(
+        document,
+        'easy',
+        status,
+        [2],
+        [],
+        async () =>
+          'focused source text',
+      )
+
+    assert.deepEqual(
+      request.practice,
+      { avoidQuestions: [] },
+    )
+    assert.deepEqual(
+      request.pages.map(
+        page => page.pageNumber,
+      ),
+      [2],
     )
   },
 )
