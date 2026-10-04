@@ -157,3 +157,76 @@ test('insufficient source abstention is preserved as a bounded product error', a
     { code: 'quiz_validation_failed' },
   )
 })
+
+
+test('targeted practice keeps prior questions bounded, separate from source, and non-repeatable', async () => {
+  let captured
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        captured = request
+        const quiz = rawQuiz()
+        quiz.questions[0].question = 'A different follow-up question?'
+        quiz.questions[1].question = 'Another distinct follow-up question?'
+        return {
+          text: JSON.stringify(quiz),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+    practice: {
+      avoidQuestions: ['Question 1?', 'Question 2?'],
+    },
+  })
+
+  assert.equal(result.questions.length, 5)
+  assert.equal(captured.messages.length, 3)
+  assert.match(captured.messages[0].content, /targeted follow-up/)
+  assert.match(captured.messages[2].content, /PRIOR QUESTIONS TO AVOID/)
+  assert.match(captured.messages[2].content, /Question 1\?/)
+  assert.equal(captured.messages[1].content.includes('Question 1?'), false)
+
+  assert.throws(
+    () => parseGeneratedQuiz(
+      JSON.stringify(rawQuiz()),
+      new Set([2, 5]),
+      ['Question 1?'],
+    ),
+    { code: 'quiz_validation_failed' },
+  )
+})
+
+test('targeted-practice input rejects duplicate, oversized and malformed prior-question lists', () => {
+  const base = {
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  }
+
+  assert.doesNotThrow(
+    () => normalizeRequest({
+      ...base,
+      practice: { avoidQuestions: [] },
+    }),
+  )
+
+  for (const practice of [
+    { avoidQuestions: ['Same?', 'Same?'] },
+    { avoidQuestions: ['x'.repeat(501)] },
+    { avoidQuestions: ['valid'], extra: true },
+  ]) {
+    assert.throws(
+      () => normalizeRequest({ ...base, practice }),
+      { code: 'invalid_request' },
+    )
+  }
+})
