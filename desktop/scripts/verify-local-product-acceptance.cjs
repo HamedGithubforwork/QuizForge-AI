@@ -33,12 +33,32 @@ const FIXTURES = Object.freeze([
     ]),
     excludedTerms: Object.freeze(['decoyium', 'page three']),
     facts: Object.freeze([
-      { id: 'aster_material', page: 2, routes: [{ tokens: ['aster', 'casing'], answers: aliases('cobalt') }] },
-      { id: 'aster_capacity', page: 2, routes: [{ tokens: ['aster', 'capacity'], answers: aliases('17', '17 samples', 'seventeen', 'seventeen samples') }] },
-      { id: 'aster_interval', page: 2, routes: [{ tokens: ['aster', 'interval'], answers: aliases('5', '5 hours', 'five', 'five hours') }] },
-      { id: 'boreal_material', page: 4, routes: [{ tokens: ['boreal', 'casing'], answers: aliases('glass') }] },
-      { id: 'boreal_capacity', page: 4, routes: [{ tokens: ['boreal', 'capacity'], answers: aliases('23', '23 samples', 'twenty three', 'twenty three samples') }] },
-      { id: 'boreal_interval', page: 4, routes: [{ tokens: ['boreal', 'interval'], answers: aliases('7', '7 hours', 'seven', 'seven hours') }] },
+      { id: 'aster_material', page: 2, routes: [
+        { tokens: ['aster', 'casing'], answers: aliases('cobalt') },
+        { tokens: ['cobalt', 'casing'], answers: aliases('aster') },
+      ] },
+      { id: 'aster_capacity', page: 2, routes: [
+        { tokens: ['aster', 'capacity'], answers: aliases('17', '17 samples', 'seventeen', 'seventeen samples') },
+        { tokens: ['17', 'capacity'], answers: aliases('aster') },
+      ] },
+      { id: 'aster_interval', page: 2, routes: [
+        { tokens: ['aster', 'interval'], answers: aliases('5', '5 hours', 'five', 'five hours') },
+        { tokens: ['five', 'interval'], answers: aliases('aster') },
+        { tokens: ['5', 'interval'], answers: aliases('aster') },
+      ] },
+      { id: 'boreal_material', page: 4, routes: [
+        { tokens: ['boreal', 'casing'], answers: aliases('glass') },
+        { tokens: ['glass', 'casing'], answers: aliases('boreal') },
+      ] },
+      { id: 'boreal_capacity', page: 4, routes: [
+        { tokens: ['boreal', 'capacity'], answers: aliases('23', '23 samples', 'twenty three', 'twenty three samples') },
+        { tokens: ['23', 'capacity'], answers: aliases('boreal') },
+      ] },
+      { id: 'boreal_interval', page: 4, routes: [
+        { tokens: ['boreal', 'interval'], answers: aliases('7', '7 hours', 'seven', 'seven hours') },
+        { tokens: ['seven', 'interval'], answers: aliases('boreal') },
+        { tokens: ['7', 'interval'], answers: aliases('boreal') },
+      ] },
     ]),
   }),
   Object.freeze({
@@ -457,6 +477,29 @@ async function main() {
       metricMonitor,
       runtimePidState,
     )
+    const targetedEvidence = {
+      fixture:
+        'selected_pages_targeted_practice',
+      repeat: false,
+      targetedPractice: true,
+      outcome: 'generated_pending_validation',
+      elapsedSeconds:
+        targeted.elapsedSeconds,
+      peakWorkingSetBytes:
+        targeted.peakWorkingSetBytes ||
+        null,
+      peakCpuSeconds:
+        targeted.peakCpuSeconds ||
+        null,
+      metricSampleCount:
+        targeted.sampleCount,
+      title: targeted.value.title,
+      questions:
+        targeted.value.questions,
+    }
+    report.runs.push(targetedEvidence)
+    await persistReport()
+
     validateSemanticQuiz(
       targeted.value,
       targetedFixture,
@@ -474,26 +517,7 @@ async function main() {
       false,
       'targeted practice must not repeat prior questions',
     )
-    report.runs.push({
-      fixture:
-        'selected_pages_targeted_practice',
-      repeat: false,
-      targetedPractice: true,
-      outcome: 'quiz',
-      elapsedSeconds:
-        targeted.elapsedSeconds,
-      peakWorkingSetBytes:
-        targeted.peakWorkingSetBytes ||
-        null,
-      peakCpuSeconds:
-        targeted.peakCpuSeconds ||
-        null,
-      metricSampleCount:
-        targeted.sampleCount,
-      title: targeted.value.title,
-      questions:
-        targeted.value.questions,
-    })
+    targetedEvidence.outcome = 'quiz'
     await persistReport()
     console.log(
       'CASE PASS:',
@@ -566,7 +590,7 @@ async function main() {
 main().catch(error => {
   console.error(
     'Local AI product acceptance failed:',
-    error?.code || error?.message || error?.name || 'unknown',
+    error?.message || error?.code || error?.name || 'unknown',
   )
   process.exitCode = 1
 })
