@@ -1,0 +1,145 @@
+name: QuizForge autonomy bridge
+
+on:
+  pull_request_target:
+    branches:
+      - main
+      - application/production
+    types:
+      - closed
+  workflow_run:
+    workflows:
+      - CI
+      - Mutation testing
+      - Desktop preview
+      - Security
+    types:
+      - completed
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: autonomy-bridge-${{ github.event.workflow_run.id || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  retry-once:
+    name: Retry failed PR automation once
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      (github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'timed_out')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR scope and retry failed jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PR_NUMBER:-}" ]]; then
+            echo "Workflow run is not associated with a pull request; skipping."
+            exit 0
+          fi
+
+          base_ref="$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json baseRefName --jq '.baseRefName')"
+          if [[ "${base_ref}" != "main" && "${base_ref}" != "application/production" ]]; then
+            echo "PR #${PR_NUMBER} targets ${base_ref}; outside the autonomy bridge scope."
+            exit 0
+          fi
+
+          echo "Retrying failed jobs once for run ${RUN_ID} on PR #${PR_NUMBER}."
+          if ! gh run rerun "${RUN_ID}" --repo "${REPOSITORY}" --failed; then
+            echo "Failed-job retry was unavailable; retrying the full workflow once."
+            gh run rerun "${RUN_ID}" --repo "${REPOSITORY}"
+          fi
+
+          gh pr comment "${PR_NUMBER}" --repo "${REPOSITORY}"             --body "QuizForge autonomy bridge: this failed/timed-out workflow was retried once automatically. If the retry fails again, it will be added to the continuation queue for investigation."
+
+  queue-merged-pr:
+    name: Queue merged PR continuation
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record merge for autonomous continuation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          issue_number="$(
+            gh issue list --repo "${REPOSITORY}" --state open               --search '"QuizForge autonomous continuation queue" in:title'               --json number,title               --jq '[.[] | select(.title == "QuizForge autonomous continuation queue")][0].number // empty'
+          )"
+
+          if [[ -z "${issue_number}" ]]; then
+            issue_url="$(
+              gh issue create --repo "${REPOSITORY}"                 --title "QuizForge autonomous continuation queue"                 --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Close this issue only after all queued entries have been reconciled against the current repository state."
+            )"
+            issue_number="${issue_url##*/}"
+          fi
+
+          body="$(printf 'MERGED: PR #%s — %s\nBase: `%s`\nMerge SHA: `%s`\n\nNext action: recover the latest repository/CI/deployment state, reconcile any other open PRs or stacked work, then continue the highest-priority unfinished roadmap task.' "${PR_NUMBER}" "${PR_TITLE}" "${BASE_REF}" "${MERGE_SHA}")"
+          gh issue comment "${issue_number}" --repo "${REPOSITORY}" --body "${body}"
+
+  queue-repeat-failure:
+    name: Queue repeated workflow failure
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.run_attempt > 1 &&
+      (github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'timed_out')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record persistent failure for investigation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${PR_NUMBER:-}" ]]; then
+            echo "Repeated failure is not associated with a pull request; skipping queue update."
+            exit 0
+          fi
+
+          base_ref="$(gh pr view "${PR_NUMBER}" --repo "${REPOSITORY}" --json baseRefName --jq '.baseRefName')"
+          if [[ "${base_ref}" != "main" && "${base_ref}" != "application/production" ]]; then
+            echo "PR #${PR_NUMBER} targets ${base_ref}; outside the autonomy bridge scope."
+            exit 0
+          fi
+
+          issue_number="$(
+            gh issue list --repo "${REPOSITORY}" --state open               --search '"QuizForge autonomous continuation queue" in:title'               --json number,title               --jq '[.[] | select(.title == "QuizForge autonomous continuation queue")][0].number // empty'
+          )"
+
+          if [[ -z "${issue_number}" ]]; then
+            issue_url="$(
+              gh issue create --repo "${REPOSITORY}"                 --title "QuizForge autonomous continuation queue"                 --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Close this issue only after all queued entries have been reconciled against the current repository state."
+            )"
+            issue_number="${issue_url##*/}"
+          fi
+
+          body="$(printf 'BLOCKER: `%s` failed again after the automatic retry on PR #%s.\nRun: %s\nRun ID: `%s`\n\nNext action: inspect the failed jobs/logs, fix the underlying problem, rerun verification, and do not advance the roadmap until this blocker is resolved.' "${WORKFLOW_NAME}" "${PR_NUMBER}" "${RUN_URL}" "${RUN_ID}")"
+          gh issue comment "${issue_number}" --repo "${REPOSITORY}" --body "${body}"
