@@ -8,6 +8,36 @@ on:
 permissions:
   contents: read
 jobs:
+  benchmark-core-change:
+    name: Detect core benchmark changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.detect.outputs.core }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect runtime benchmark changes
+        id: detect
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          core=false
+          while IFS= read -r file; do
+            case "${file}" in
+              desktop/benchmarks/local_inference.py|desktop/benchmarks/run_cpu.py)
+                core=true
+                ;;
+            esac
+          done < <(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}")
+          echo "core=${core}" >> "${GITHUB_OUTPUT}"
+          echo "Core runtime benchmark changed: ${core}"
+
   validate:
     strategy:
       matrix:
@@ -23,7 +53,8 @@ jobs:
           python-version: '3.12'
       - run: python -m unittest discover -s desktop/benchmarks -p 'test_*.py'
   windows-cpu:
-    if: github.event_name == 'pull_request'
+    needs: benchmark-core-change
+    if: github.event_name == 'pull_request' && needs.benchmark-core-change.outputs.core == 'true'
     runs-on: windows-2025
     timeout-minutes: 18
     steps:
