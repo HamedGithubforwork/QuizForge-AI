@@ -10,10 +10,70 @@ const {
   parseGeneratedQuiz,
 } = require('../src/local-quiz-service.cjs')
 
+const RETRY_FACTS = Object.freeze([
+  Object.freeze({
+    page: 2,
+    text: 'Mitochondria generate ATP through cellular respiration.',
+  }),
+  Object.freeze({
+    page: 5,
+    text: 'Ribosomes synthesize proteins from messenger RNA.',
+  }),
+  Object.freeze({
+    page: 2,
+    text: 'Mitochondria have an inner membrane.',
+  }),
+  Object.freeze({
+    page: 5,
+    text: 'Ribosomes contain ribosomal RNA.',
+  }),
+  Object.freeze({
+    page: 2,
+    text: 'Cells use glucose during respiration.',
+  }),
+  Object.freeze({
+    page: 5,
+    text: 'Messenger RNA carries coding information.',
+  }),
+  Object.freeze({
+    page: 5,
+    text: 'Proteins are chains of amino acids.',
+  }),
+])
+
 const pages = () => [
-  { pageNumber: 2, text: 'Mitochondria generate ATP through cellular respiration.' },
-  { pageNumber: 5, text: 'Ribosomes synthesize proteins from messenger RNA.' },
+  {
+    pageNumber: 2,
+    text: RETRY_FACTS
+      .filter(fact => fact.page === 2)
+      .map(fact => fact.text)
+      .join(' '),
+  },
+  {
+    pageNumber: 5,
+    text: RETRY_FACTS
+      .filter(fact => fact.page === 5)
+      .map(fact => fact.text)
+      .join(' '),
+  },
 ]
+
+const withRetrySourceFacts = quiz => ({
+  ...quiz,
+  questions: quiz.questions.map(
+    (question, index) => {
+      const fact =
+        RETRY_FACTS[
+          index % RETRY_FACTS.length
+        ]
+      return {
+        ...question,
+        source_pages: [fact.page],
+        source_fact: fact.text,
+      }
+    },
+  ),
+})
 
 const rawQuiz = () => ({
   title: 'Cell Biology',
@@ -269,7 +329,11 @@ test('targeted practice retries once when the model repeats an avoided question'
           )
         }
         return {
-          text: JSON.stringify(calls === 1 ? first : second),
+          text: JSON.stringify(
+            calls === 1
+              ? first
+              : withRetrySourceFacts(second),
+          ),
           finishReason: 'stop',
           usage: null,
         }
@@ -320,15 +384,31 @@ test('targeted retry filters exact prior questions from a seven-question candida
             request.jsonSchema.properties.questions.maxItems,
             7,
           )
+          assert.equal(
+            request.jsonSchema.properties.questions.items.required.includes(
+              'source_fact',
+            ),
+            true,
+          )
           assert.equal(request.maxTokens, 1800)
           assert.match(
             request.messages.at(-1).content,
             /candidate pool of exactly seven/i,
           )
+          assert.match(
+            request.messages.at(-1).content,
+            /source_fact.*verbatim/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /source_fact.*verbatim/i,
+          )
         }
         return {
           text: JSON.stringify(
-            calls === 1 ? first : pool,
+            calls === 1
+              ? first
+              : withRetrySourceFacts(pool),
           ),
           finishReason: 'stop',
           usage: null,
@@ -365,6 +445,96 @@ test('targeted retry filters exact prior questions from a seven-question candida
   assert.equal(
     result.questions.at(-1).question,
     'Pool backup question 6?',
+  )
+})
+
+test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
+  const first = rawQuiz()
+  first.questions[0].question =
+    'Question to avoid?'
+
+  const pool = withRetrySourceFacts(
+    rawQuiz(),
+  )
+  pool.questions[0].question =
+    'Question to avoid?'
+  pool.questions.push({
+    ...pool.questions[0],
+    question: 'Backup fact six?',
+    source_pages: [
+      RETRY_FACTS[5].page,
+    ],
+    source_fact:
+      RETRY_FACTS[5].text,
+  })
+  pool.questions.push({
+    ...pool.questions[1],
+    question: 'Backup fact seven?',
+    source_pages: [
+      RETRY_FACTS[6].page,
+    ],
+    source_fact:
+      RETRY_FACTS[6].text,
+  })
+
+  // Candidate 2 and candidate 3 intentionally
+  // point to the same underlying source fact.
+  pool.questions[1].source_pages = [
+    RETRY_FACTS[2].page,
+  ]
+  pool.questions[1].source_fact =
+    RETRY_FACTS[2].text
+  pool.questions[2].source_pages = [
+    RETRY_FACTS[2].page,
+  ]
+  pool.questions[2].source_fact =
+    RETRY_FACTS[2].text
+
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(
+            calls === 1 ? first : pool,
+          ),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: {
+      avoidQuestions: [
+        'Question to avoid?',
+      ],
+    },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question ===
+        'Question to avoid?',
+    ),
+    false,
+  )
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question ===
+        'Question 3?',
+    ),
+    false,
   )
 })
 
@@ -409,10 +579,20 @@ test('targeted practice retries one strict validation failure and then succeeds'
             request.jsonSchema.properties.questions.maxItems,
             7,
           )
+          assert.equal(
+            request.jsonSchema.properties.questions.items.required.includes(
+              'source_fact',
+            ),
+            true,
+          )
           assert.equal(request.maxTokens, 1800)
         }
         return {
-          text: JSON.stringify(calls === 1 ? invalid : recovered),
+          text: JSON.stringify(
+            calls === 1
+              ? invalid
+              : withRetrySourceFacts(recovered),
+          ),
           finishReason: 'stop',
           usage: null,
         }
@@ -450,7 +630,7 @@ test('targeted practice retries one false insufficient-source abstention', async
                   title: 'Insufficient source material',
                   questions: [],
                 }
-              : recovered,
+              : withRetrySourceFacts(recovered),
           ),
           finishReason: 'stop',
           usage: null,

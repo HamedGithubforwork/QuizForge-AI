@@ -47,6 +47,21 @@ const QUIZ_SCHEMA = Object.freeze({
     },
   },
 })
+const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
+  ...QUIZ_SCHEMA.properties.questions.items,
+  required: Object.freeze([
+    ...QUIZ_SCHEMA.properties.questions.items.required,
+    'source_fact',
+  ]),
+  properties: Object.freeze({
+    ...QUIZ_SCHEMA.properties.questions.items.properties,
+    source_fact: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 300,
+    },
+  }),
+})
 const TARGETED_RETRY_SCHEMA = Object.freeze({
   ...QUIZ_SCHEMA,
   properties: Object.freeze({
@@ -54,6 +69,7 @@ const TARGETED_RETRY_SCHEMA = Object.freeze({
     questions: Object.freeze({
       ...QUIZ_SCHEMA.properties.questions,
       maxItems: TARGETED_RETRY_CANDIDATES,
+      items: TARGETED_RETRY_QUESTION_SCHEMA,
     }),
   }),
 })
@@ -187,7 +203,10 @@ function parseGeneratedQuizDetailed(
   text,
   allowedPages,
   avoidQuestions = [],
-  { filterAvoided = false } = {},
+  {
+    filterAvoided = false,
+    sourceTextByPage = null,
+  } = {},
 ) {
   let parsed
   try { parsed = JSON.parse(text) } catch { invalidQuiz('json') }
@@ -214,15 +233,33 @@ function parseGeneratedQuizDetailed(
   }
 
   const seenQuestions = new Set()
+  const seenSourceFacts = new Set()
   const avoidedQuestions = new Set(
     avoidQuestions.map(question =>
       question.trim().replace(/\s+/g, ' ').toLocaleLowerCase()),
   )
   const questions = []
   for (const item of parsed.questions) {
+    const allowedQuestionKeys =
+      filterAvoided
+        ? [
+            'question',
+            'choices',
+            'correct_index',
+            'explanation',
+            'source_pages',
+            'source_fact',
+          ]
+        : [
+            'question',
+            'choices',
+            'correct_index',
+            'explanation',
+            'source_pages',
+          ]
     if (!plain(item) ||
         Object.keys(item).some(key =>
-          !['question', 'choices', 'correct_index', 'explanation', 'source_pages'].includes(key)) ||
+          !allowedQuestionKeys.includes(key)) ||
         !boundedString(item.question, 500) ||
         !Array.isArray(item.choices) || item.choices.length !== 4 ||
         item.choices.some(choice => !boundedString(choice, 300)) ||
@@ -230,7 +267,8 @@ function parseGeneratedQuizDetailed(
         !boundedString(item.explanation, 800) ||
         !Array.isArray(item.source_pages) || item.source_pages.length < 1 || item.source_pages.length > 8 ||
         item.source_pages.some(page => !Number.isSafeInteger(page) || !allowedPages.has(page)) ||
-        new Set(item.source_pages).size !== item.source_pages.length) {
+        new Set(item.source_pages).size !== item.source_pages.length ||
+        (filterAvoided && !boundedString(item.source_fact, 300))) {
       invalidQuiz('question_shape')
     }
 
@@ -257,6 +295,38 @@ function parseGeneratedQuizDetailed(
     if (avoidedQuestions.has(normalizedQuestion)) {
       if (filterAvoided) continue
       invalidQuiz('avoided_question')
+    }
+
+    if (filterAvoided) {
+      const normalizedSourceFact =
+        item.source_fact
+          .trim()
+          .replace(/\s+/g, ' ')
+          .toLocaleLowerCase()
+      const sourceFactSupported =
+        sourceTextByPage instanceof Map &&
+        item.source_pages.some(page => {
+          const sourceText =
+            sourceTextByPage.get(page)
+          return (
+            typeof sourceText === 'string' &&
+            sourceText
+              .replace(/\s+/g, ' ')
+              .toLocaleLowerCase()
+              .includes(normalizedSourceFact)
+          )
+        })
+      if (!sourceFactSupported) continue
+      if (
+        seenSourceFacts.has(
+          normalizedSourceFact,
+        )
+      ) {
+        continue
+      }
+      seenSourceFacts.add(
+        normalizedSourceFact,
+      )
     }
 
     const correctAnswer =
@@ -328,6 +398,12 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
       )
       const avoidQuestions =
         request.practice?.avoidQuestions ?? []
+      const sourceTextByPage = new Map(
+        request.pages.map(page => [
+          page.pageNumber,
+          page.text,
+        ]),
+      )
 
       async function generateAttempt(retryReason = null) {
         let result
@@ -353,7 +429,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 'Do not reuse any prior-question wording exactly and do not duplicate a question within the new quiz.',
                 'Compare every proposed question against PRIOR QUESTIONS TO AVOID before returning JSON. If any question is identical after ignoring capitalization and whitespace, replace it. When reusing that fact, reverse the question-answer direction (for example property-to-item instead of item-to-property).',
                 'Across the seven candidates, cover as many different underlying source facts as possible.',
-                'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID and exact duplicates must test five different underlying source facts.',
+                'For every candidate, set source_fact to one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
+                'Use the same source_fact value for alternate questions that test the same underlying fact, even if the question-answer direction is reversed.',
+                'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must test five different underlying source facts.',
                 'Use the two backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return the Insufficient source material abstention instead of inventing facts.',
               ].join('\n'),
@@ -421,7 +499,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           result.text,
           allowedPages,
           avoidQuestions,
-          { filterAvoided: true },
+          {
+            filterAvoided: true,
+            sourceTextByPage,
+          },
         )
       } catch (error) {
         const validationReason =
