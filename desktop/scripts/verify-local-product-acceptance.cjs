@@ -191,15 +191,16 @@ function createRuntimeMetricMonitor() {
   )
   const command = [
     "$ErrorActionPreference='Stop'",
-    "Import-Module Microsoft.PowerShell.Management -ErrorAction Stop",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new()",
-    "Write-Output 'READY'",
+    "[Console]::Out.WriteLine('READY')",
     "while($true){",
-    "  $p=@(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {",
-    "    [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
-    "  })",
-    "  if($p.Count -gt 0){@($p)|ConvertTo-Json -Compress}",
-    "  Start-Sleep -Milliseconds 500",
+    "  foreach($proc in [System.Diagnostics.Process]::GetProcessesByName('llama-server')){",
+    "    try {",
+    "      $cpu=$proc.TotalProcessorTime.TotalSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture)",
+    "      [Console]::Out.WriteLine(('SAMPLE|{0}|{1}|{2}' -f $proc.Id,[Int64]$proc.WorkingSet64,$cpu))",
+    "    } catch {}",
+    "  }",
+    "  [System.Threading.Thread]::Sleep(500)",
     "}",
   ].join('; ')
 
@@ -231,26 +232,25 @@ function createRuntimeMetricMonitor() {
       readyResolve()
       return
     }
-    try {
-      const parsed = JSON.parse(value)
-      const rows = Array.isArray(parsed) ? parsed : [parsed]
-      for (const item of rows) {
-        const id = Number(item.Id)
-        const workingSetBytes = Number(item.WorkingSet64)
-        const cpuSeconds = Number(item.CPU)
-        if (
-          Number.isSafeInteger(id) &&
-          id > 0 &&
-          Number.isFinite(workingSetBytes) &&
-          workingSetBytes > 0 &&
-          Number.isFinite(cpuSeconds) &&
-          cpuSeconds >= 0
-        ) {
-          samples.push({ id, workingSetBytes, cpuSeconds })
-        }
-      }
-    } catch {
-      // Ignore non-JSON host noise. Missing metrics still fail the acceptance gate.
+    if (!value.startsWith('SAMPLE|')) return
+    const [
+      ,
+      rawId,
+      rawWorkingSetBytes,
+      rawCpuSeconds,
+    ] = value.split('|')
+    const id = Number(rawId)
+    const workingSetBytes = Number(rawWorkingSetBytes)
+    const cpuSeconds = Number(rawCpuSeconds)
+    if (
+      Number.isSafeInteger(id) &&
+      id > 0 &&
+      Number.isFinite(workingSetBytes) &&
+      workingSetBytes > 0 &&
+      Number.isFinite(cpuSeconds) &&
+      cpuSeconds >= 0
+    ) {
+      samples.push({ id, workingSetBytes, cpuSeconds })
     }
   }
 
