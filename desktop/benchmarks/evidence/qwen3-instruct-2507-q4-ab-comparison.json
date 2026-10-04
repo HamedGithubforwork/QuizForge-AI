@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "run_id": 37199584137,
+  "decision": "retain_current_qwen3_4b_q4_k_m",
+  "candidate_source_revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "same_runner_job": true,
+  "same_generation_settings": true,
+  "same_runtime_version": true,
+  "baseline": {
+    "model_sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+    "model_bytes": 2497280256,
+    "median_seconds": 64.4895,
+    "structurally_valid": 6
+  },
+  "candidate": {
+    "model_sha256": "9657e9d21175ed290fa4ec3662fffb61a001463ac4ec1abd62deaa509b440710",
+    "model_bytes": 2497279072,
+    "median_seconds": 79.279,
+    "structurally_valid": 6
+  },
+  "candidate_vs_baseline": {
+    "median_latency_ratio": 1.2293,
+    "model_size_ratio": 1.0,
+    "automated_gate": "pass",
+    "manual_quality_result": "no_clear_candidate_advantage",
+    "noted_candidate_issue": "malformed_french_distractor"
+  },
+  "q5_follow_up": "deferred_no_q4_quality_advantage"
+}
