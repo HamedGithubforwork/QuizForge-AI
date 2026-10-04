@@ -14,7 +14,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PURE_BACKEND_MODULES = tuple(Path("backend") / name for name in (
-    "spaced_repetition.py", "quiz_validation.py", "review_service.py",
+    "spaced_repetition.py",
+    "quiz_validation.py",
+    "review_service.py",
+    "lifetime_entitlement_fulfillment.py",
 ))
 FORBIDDEN_BACKEND_IMPORT_ROOTS = {
     "fastapi", "starlette", "psycopg", "psycopg_pool", "redis", "boto3", "botocore",
