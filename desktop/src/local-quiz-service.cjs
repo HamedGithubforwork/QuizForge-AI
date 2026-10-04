@@ -129,7 +129,8 @@ function promptFor(request) {
   if (request.practice) {
     lines.push(
       'This is targeted follow-up practice on the supplied pages.',
-      'Do not repeat or lightly rephrase any question in the separate PRIOR QUESTIONS TO AVOID list. Test the same source material from different valid angles when possible.',
+      'Do not repeat or lightly rephrase any question in the separate PRIOR QUESTIONS TO AVOID list.',
+      'You may test the same underlying source fact from a genuinely different direction, such as asking which item has a stated property instead of asking for that property value. Keep every new question independently answerable from the supplied pages.',
     )
   }
   lines.push('Return only the JSON object required by the response schema.')
