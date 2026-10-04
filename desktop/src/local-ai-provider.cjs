@@ -12,7 +12,7 @@ const ERROR_CODES = new Set([
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
-const PROFILES = new Set(['quiz-mcq-v1'])
+const PROFILES = new Set(['quiz-mcq-v1', 'quiz-mcq-retry-v1'])
 const encoder = new TextEncoder()
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const validId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,199}$/.test(value)

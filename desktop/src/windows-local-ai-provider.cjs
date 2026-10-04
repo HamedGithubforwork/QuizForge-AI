@@ -11,6 +11,15 @@ const GENERATION_PROFILES = Object.freeze({
     seed: 42,
     chat_template_kwargs: Object.freeze({ enable_thinking: false }),
   }),
+  'quiz-mcq-retry-v1': Object.freeze({
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    min_p: 0,
+    presence_penalty: 1.5,
+    seed: 137,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
 })
 
 const RUNTIME_ERRORS = Object.freeze({

@@ -75,6 +75,13 @@ test('service sends a fixed structured-output schema and expands into the shared
   assert.deepEqual(captured.jsonSchema, QUIZ_SCHEMA)
   assert.equal(captured.messages.length, 2)
   assert.match(captured.messages[0].content, /untrusted content/)
+  assert.match(captured.messages[0].content, /choices\[correct_index\].*supported/i)
+  assert.match(captured.messages[0].content, /contradicts your own explanation/i)
+  assert.match(captured.messages[0].content, /exactly one source-supported correct answer/i)
+  assert.match(captured.messages[0].content, /directly support the question and selected correct answer/i)
+  assert.match(captured.messages[0].content, /natural language of the supplied study material/i)
+  assert.match(captured.messages[0].content, /Count repeated copies of the same fact as one fact/i)
+  assert.match(captured.messages[0].content, /Headers, footers, page labels, OCR\/layout artifacts/i)
   assert.match(captured.messages[1].content, /--- PAGE 2 ---/)
   assert.equal(result.questions.length, 5)
   assert.equal(result.questions[0].question_type, 'multiple_choice')
@@ -191,6 +198,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
   assert.equal(captured.messages.length, 3)
   assert.match(captured.messages[0].content, /targeted follow-up/)
   assert.match(captured.messages[2].content, /PRIOR QUESTIONS TO AVOID/)
+  assert.match(captured.messages[0].content, /each question must test a different underlying source fact/i)
   assert.match(captured.messages[2].content, /Question 1\?/)
   assert.equal(captured.messages[1].content.includes('Question 1?'), false)
 
@@ -244,10 +252,20 @@ test('targeted practice retries once when the model repeats an avoided question'
     provider: {
       async generate(request) {
         calls++
+        if (calls === 1) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-v1',
+          )
+        }
         if (calls === 2) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-retry-v1',
+          )
           assert.match(
             request.messages.at(-1).content,
-            /previous draft was rejected/i,
+            /failed strict quiz validation/i,
           )
         }
         return {
@@ -269,7 +287,189 @@ test('targeted practice retries once when the model repeats an avoided question'
   assert.equal(result.questions[0].question, 'Replacement question 1?')
 })
 
-test('targeted practice does not retry malformed output unrelated to repetition', async () => {
+test('targeted retry filters exact prior questions from a seven-question candidate pool', async () => {
+  const first = rawQuiz()
+  first.questions[0].question = 'Question to avoid?'
+
+  const pool = rawQuiz()
+  pool.questions[0].question = 'Question to avoid?'
+  pool.questions[1].question = 'Pool question 2?'
+  pool.questions[2].question = 'Pool question 3?'
+  pool.questions[3].question = 'Pool question 4?'
+  pool.questions[4].question = 'Pool question 5?'
+  pool.questions.push({
+    ...pool.questions[0],
+    question: 'Pool backup question 6?',
+  })
+  pool.questions.push({
+    ...pool.questions[1],
+    question: 'Pool backup question 7?',
+  })
+
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-retry-v1',
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.maxItems,
+            7,
+          )
+          assert.equal(request.maxTokens, 1800)
+          assert.match(
+            request.messages.at(-1).content,
+            /candidate pool of exactly seven/i,
+          )
+        }
+        return {
+          text: JSON.stringify(
+            calls === 1 ? first : pool,
+          ),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: {
+      avoidQuestions: [
+        'Question to avoid?',
+      ],
+    },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(
+    result.questions.length,
+    5,
+  )
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question ===
+        'Question to avoid?',
+    ),
+    false,
+  )
+  assert.equal(
+    result.questions.at(-1).question,
+    'Pool backup question 6?',
+  )
+})
+
+test('targeted practice retries one strict validation failure and then succeeds', async () => {
+  let calls = 0
+  const validationIssues = []
+  const invalid = rawQuiz()
+  invalid.questions[0].source_pages = [99]
+  const recovered = rawQuiz()
+  recovered.questions.forEach((item, index) => {
+    item.question = 'Recovered targeted question ' + (index + 1) + '?'
+  })
+  const service = createLocalQuizService({
+    onValidationIssue(issue) {
+      validationIssues.push(issue)
+    },
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.match(
+            request.messages.at(-1).content,
+            /failed strict quiz validation/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /choices\[correct_index\].*source-supported/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /instead of inventing facts/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /five different underlying source facts/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /candidate pool of exactly seven/i,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.maxItems,
+            7,
+          )
+          assert.equal(request.maxTokens, 1800)
+        }
+        return {
+          text: JSON.stringify(calls === 1 ? invalid : recovered),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Old question?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(calls, 2)
+  assert.equal(result.questions[0].question, 'Recovered targeted question 1?')
+  assert.deepEqual(validationIssues, [
+    { attempt: 'primary', reason: 'question_shape' },
+  ])
+})
+
+test('targeted practice retries one false insufficient-source abstention', async () => {
+  let calls = 0
+  const recovered = rawQuiz()
+  recovered.questions.forEach((item, index) => {
+    item.question = 'Abstention recovery question ' + (index + 1) + '?'
+  })
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(
+            calls === 1
+              ? {
+                  title: 'Insufficient source material',
+                  questions: [],
+                }
+              : recovered,
+          ),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Old question?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(calls, 2)
+  assert.equal(result.questions[0].question, 'Abstention recovery question 1?')
+})
+
+test('targeted practice retries validation at most once', async () => {
   let calls = 0
   const invalid = rawQuiz()
   invalid.questions[0].source_pages = [99]
@@ -292,7 +492,7 @@ test('targeted practice does not retry malformed output unrelated to repetition'
     difficulty: 'medium',
     questionType: 'multiple_choice',
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 1)
+  assert.equal(calls, 2)
 })
 
 test('structured schema requires four unique choices before post-validation', () => {

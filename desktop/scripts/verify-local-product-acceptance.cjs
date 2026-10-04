@@ -378,6 +378,7 @@ async function main() {
     modelId: null,
     acceleration: null,
     runs: [],
+    validationIssues: [],
   }
 
   async function persistReport() {
@@ -410,6 +411,10 @@ async function main() {
         if (Number.isSafeInteger(pid) && pid > 0) {
           runtimePidState.value = pid
         }
+      },
+      onQuizValidationIssue(issue) {
+        report.validationIssues.push({ ...issue })
+        console.log('VALIDATION ISSUE:', issue.attempt, issue.reason)
       },
     })
 
@@ -582,6 +587,7 @@ async function main() {
     await persistReport()
     console.log(JSON.stringify(report.summary))
   } finally {
+    await persistReport().catch(() => {})
     if (stack) await stack.dispose()
     await metricMonitor.stop()
   }
