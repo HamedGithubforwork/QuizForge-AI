@@ -172,6 +172,8 @@ Local AI acceptance evidence is layered: fast contract tests validate portable b
 
 Local-first generation policy: when the desktop bridge reports that the verified local runtime/model stack is actually available, the quiz UI automatically selects Local AI only if the user has not already chosen a provider. An explicit user provider choice wins for the rest of that mounted session. If Local AI later becomes unavailable, the UI preserves the local selection and exposes Cloud AI as an explicit alternative rather than silently sending the request to the server. Browser/non-ready desktop flows retain their existing cloud path until entitlement work is implemented.
 
+Cloud generation access is server-authoritative. `backend/cloud_generation_access.py` is the single policy seam checked before rate limiting, cache/source work, or any cloud model call. Phase 18 keeps `legacy_open` as the default to preserve the currently launched product, and provides an explicit `allowlist_preview` mode for end-to-end entitlement-denial testing without a database migration. Unknown modes fail closed and are validated at backend startup. Phase 20 must replace the preview allowlist with account/billing entitlement state behind this seam rather than adding entitlement checks to route handlers or clients. The desktop/browser selector is never a security boundary.
+
 The backend review feature's public service entry remains `backend/review_service.py`. Its statically declared local dependency graph must stay independent of HTTP/composition and persistence modules, not merely avoid direct driver imports. SQL locks and atomic updates remain the repository's responsibility.
 
 ## Enforced checks and their limits

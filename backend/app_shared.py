@@ -274,7 +274,9 @@ async def get_current_user(
 @asynccontextmanager
 async def app_lifespan(_app: FastAPI):
     from cognito_auth import validate_auth_configuration
+    from cloud_generation_access import cloud_generation_access_mode
     validate_auth_configuration()
+    cloud_generation_access_mode()
     await start_outbound_clients()
     from history_database import start_history_database, close_history_database
     from pdf_jobs import start_pdf_jobs, close_pdf_jobs

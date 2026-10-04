@@ -24,6 +24,9 @@ from document_api import (
     build_upload_response_from_sha,
 )
 from document_retrieval import build_generation_pages
+from cloud_generation_access import (
+    require_cloud_generation_access,
+)
 from observability import (
     elapsed_ms,
     log_event,
@@ -531,6 +534,10 @@ async def generate_quiz(
         "bypass"
         if generate_new_quiz_instead_of_using_cache
         else "miss"
+    )
+
+    await require_cloud_generation_access(
+        current_user
     )
 
     # Redis is the shared rate limiter across backend instances.
