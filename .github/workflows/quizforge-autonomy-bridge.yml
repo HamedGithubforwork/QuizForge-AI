@@ -12,7 +12,7 @@ on:
       - CI
       - Mutation testing
       - Desktop preview
-      - Security
+      - Security checks
     types:
       - completed
 
