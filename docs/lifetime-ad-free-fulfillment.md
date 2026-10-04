@@ -38,36 +38,41 @@ within the provider namespace.
 A provider event is either:
 
 1. already processed, in which case fulfillment is a strict no-op; or
-2. applied to the account entitlement and marked processed in the same database
-   transaction.
+2. applied to the account purchase-source state and marked processed in the same
+   database transaction.
 
 Never mark an event processed in a separate successful transaction before the
-entitlement update.
+purchase-source/entitlement update.
 
 Never grant from a browser callback, redirect query parameter, renderer message,
 or unverified webhook.
 
-## Grant behavior
+## Multi-source ownership
 
-A verified completed purchase for a currently free account grants lifetime
-Ad-Free and records the provider + transaction as the ownership source.
+Lifetime Ad-Free is derived from the set of active verified purchase sources for
+the account rather than trusting one mutable "current transaction" field.
 
-A repeated completed event for the same transaction is idempotent.
+This matters for cross-platform and duplicate-purchase safety:
 
-A different completed transaction received after lifetime ownership already
-exists does not silently replace the original ownership source. Support/reconcile
-the duplicate commerce transaction separately.
+- the first active completed purchase transitions the account from free to
+  entitled;
+- another independently paid transaction is recorded as an additional active
+  source without double-granting the semantic entitlement;
+- refunding/reversing one source removes only that source;
+- lifetime Ad-Free is revoked only when no active verified purchase source
+  remains.
+
+This prevents a refund of one transaction from incorrectly removing access that
+is still backed by another valid purchase.
 
 ## Refund and reversal behavior
 
-A refund or reversal revokes lifetime Ad-Free only when both provider and
-transaction match the transaction that granted the current entitlement.
+A refund or reversal affects only the matching provider + transaction source.
 
-A refund for another provider/transaction cannot revoke the user's current
-ownership.
+An unrelated provider/transaction cannot revoke the user's current ownership.
 
-A refund/reversal for an already-free account is a safe no-op but should still be
-recorded as processed.
+A refund/reversal for a source that is already inactive is a safe retain/no-op
+for entitlement but should still be recorded as processed.
 
 ## Account isolation
 
@@ -78,15 +83,19 @@ The provider adapter must bind checkout creation to an authenticated QuizForge
 account using server-controlled metadata/reference fields. Client-provided user
 identifiers are never trusted as entitlement authority.
 
+Identifiers are expected to arrive already normalized. Whitespace-mutated or
+empty identifiers fail closed.
+
 ## Persistence still required before activation
 
 The current pure decision contract deliberately does not choose a database
 schema. Before real purchases are enabled, persistence must provide:
 
-- account-level lifetime Ad-Free state;
-- source provider and transaction identifier;
-- a unique processed-event ledger;
-- atomic event-ledger + entitlement updates;
+- account-scoped active purchase sources keyed by provider + transaction;
+- a semantic lifetime Ad-Free read path derived from those sources or updated
+  atomically with them;
+- a unique processed-event ledger keyed by provider + event identifier;
+- atomic event-ledger + purchase-source/entitlement updates;
 - reconciliation lookup by provider transaction;
 - migration/equivalence tests;
 - backup/restore behavior.
