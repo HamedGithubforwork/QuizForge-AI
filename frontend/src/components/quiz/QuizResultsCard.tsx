@@ -31,11 +31,13 @@ type QuizResultsCardProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  canCancelWeakPractice: boolean
   isGenerating: boolean
   saveMessage: string
   onSaveResult: () => void
   onRetryIncorrect: () => void
   onPracticeWeakAreas: () => void
+  onCancelWeakPractice: () => void
   onTryAgain: () => void
   onGenerateNewQuiz: () => void
   onUploadNewPdf: () => void
@@ -56,11 +58,13 @@ function QuizResultsCard({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  canCancelWeakPractice,
   isGenerating,
   saveMessage,
   onSaveResult,
   onRetryIncorrect,
   onPracticeWeakAreas,
+  onCancelWeakPractice,
   onTryAgain,
   onGenerateNewQuiz,
   onUploadNewPdf,
@@ -290,6 +294,19 @@ function QuizResultsCard({
               : 'Practice Weak Areas'}
           </button>
         )}
+
+        {isWeakPracticeGenerating &&
+          canCancelWeakPractice && (
+            <button
+              className="button secondary-button"
+              type="button"
+              onClick={
+                onCancelWeakPractice
+              }
+            >
+              Cancel Local Practice
+            </button>
+          )}
 
         <button
           className="button secondary-button"
