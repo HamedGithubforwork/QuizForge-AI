@@ -35,6 +35,9 @@ import {
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
 import {
+  resolveQuizGenerationMode,
+} from './lib/generationProviderPolicy.ts'
+import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
 import type {
