@@ -189,3 +189,25 @@ After Phase 18 closes:
 - No Store enrollment/submission is resumed.
 - No signing purchase or other paid service is authorized.
 - No GPT Cloud subscription behavior is changed.
+
+
+## Entitlement read boundary implementation contract
+
+The first Phase 19 engineering step may expose a server-authoritative read-only
+account entitlement snapshot before any billing provider is selected. The safe
+pre-billing contract is intentionally narrow:
+
+- public clients may learn only whether the current authenticated account owns
+  lifetime Ad-Free;
+- the default is not entitled;
+- an optional exact-user allowlist may be used only for bounded preview testing;
+- invalid policy configuration fails startup rather than silently granting
+  ownership;
+- preview configuration is not returned to clients;
+- no client-side state can mint ownership;
+- no purchase, database persistence, refund, restoration, pricing, ad SDK, or
+  provider selection is implied by this read boundary.
+
+When real purchasing is implemented, replace the preview source behind the same
+semantic account-entitlement contract with durable, reconciled purchase state
+rather than distributing provider-specific checks through route handlers or UI.

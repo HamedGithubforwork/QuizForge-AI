@@ -14,6 +14,10 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 
 from admin_metrics import get_metric_snapshot
+from account_entitlements import (
+    AccountEntitlements,
+    get_account_entitlements,
+)
 from app_shared import (
     AuthenticatedUser,
     create_app,
@@ -470,6 +474,20 @@ async def admin_metrics(
 ):
     return await get_metric_snapshot(
         redis_client,
+    )
+
+
+@app.get(
+    "/api/account/entitlements",
+    response_model=AccountEntitlements,
+)
+async def get_account_entitlements_route(
+    current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
+):
+    return get_account_entitlements(
+        current_user
     )
 
 
