@@ -64,7 +64,7 @@ ANSWER_REVIEW_RATE_WINDOW_SECONDS = get_positive_int_env(
 
 QUIZ_CACHE_TTL_SECONDS = get_positive_int_env(
     "QUIZ_CACHE_TTL_SECONDS",
-    3600,
+    86400,
 )
 
 QUIZ_CACHE_VERSION = (

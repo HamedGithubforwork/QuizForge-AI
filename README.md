@@ -195,7 +195,7 @@ Default document and quiz cache TTLs are:
 
 ```text
 Document cache: 86400 seconds (24 hours)
-Quiz cache:      3600 seconds (1 hour)
+Quiz cache:      86400 seconds (24 hours)
 ```
 
 Default quiz-generation rate limit:
@@ -504,7 +504,7 @@ QUIZ_RATE_LIMIT=10
 QUIZ_RATE_WINDOW_SECONDS=600
 ANSWER_REVIEW_RATE_LIMIT=20
 ANSWER_REVIEW_RATE_WINDOW_SECONDS=600
-QUIZ_CACHE_TTL_SECONDS=3600
+QUIZ_CACHE_TTL_SECONDS=86400
 QUIZ_CACHE_VERSION=v1
 QUIZ_GENERATION_LOCK_TTL_SECONDS=120
 QUIZ_GENERATION_WAIT_SECONDS=30
