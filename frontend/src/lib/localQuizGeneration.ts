@@ -92,6 +92,109 @@ export async function buildLocalQuizRequest(
   }
 }
 
+export async function buildLocalPracticeRequest(
+  document: UploadResult,
+  difficulty: string,
+  status: DesktopLocalAiQuizStatus,
+  focusPages: number[],
+  avoidQuestions: string[],
+  loadPage:
+    (
+      documentSha256: string,
+      pageNumber: number,
+      signal?: AbortSignal,
+    ) => Promise<string>,
+  signal?: AbortSignal,
+): Promise<DesktopLocalQuizRequest> {
+  if (
+    !Array.isArray(focusPages) ||
+    focusPages.length < 1 ||
+    focusPages.length > 20 ||
+    new Set(focusPages).size !==
+      focusPages.length ||
+    focusPages.some(
+      page =>
+        !Number.isSafeInteger(page) ||
+        page < 1,
+    )
+  ) {
+    throw new Error(
+      'Choose valid source pages for Local AI practice.',
+    )
+  }
+
+  if (
+    !Array.isArray(avoidQuestions) ||
+    avoidQuestions.length > 20
+  ) {
+    throw new Error(
+      'Local AI practice has too many prior questions to avoid.',
+    )
+  }
+
+  const availablePages =
+    new Set(
+      document.pages.map(
+        page => page.page_number,
+      ),
+    )
+
+  if (
+    focusPages.some(
+      page =>
+        !availablePages.has(page),
+    )
+  ) {
+    throw new Error(
+      'Reprocess or select the weak-area pages before using Local AI practice.',
+    )
+  }
+
+  const focusedDocument: UploadResult = {
+    ...document,
+    pages: document.pages.filter(
+      page =>
+        focusPages.includes(
+          page.page_number,
+        ),
+    ),
+    character_count:
+      document.pages
+        .filter(
+          page =>
+            focusPages.includes(
+              page.page_number,
+            ),
+        )
+        .reduce(
+          (sum, page) =>
+            sum +
+            page.character_count,
+          0,
+        ),
+  }
+
+  const request =
+    await buildLocalQuizRequest(
+      focusedDocument,
+      difficulty,
+      status,
+      loadPage,
+      signal,
+    )
+
+  return {
+    ...request,
+    practice: {
+      avoidQuestions:
+        avoidQuestions.map(
+          question =>
+            question.trim(),
+        ),
+    },
+  }
+}
+
 export function localQuizErrorMessage(
   result: Extract<
     DesktopLocalQuizResult,
