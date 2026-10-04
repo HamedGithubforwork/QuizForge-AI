@@ -11,16 +11,25 @@ PurchaseEventKind = Literal[
 FulfillmentAction = Literal[
     "grant",
     "revoke",
+    "retain",
     "noop",
 ]
 
 
 @dataclass(frozen=True)
+class PurchaseSource:
+    provider: str
+    transaction_id: str
+
+
+@dataclass(frozen=True)
 class LifetimeAdFreeRecord:
     user_id: str
-    entitled: bool
-    source_provider: str | None = None
-    source_transaction_id: str | None = None
+    active_sources: frozenset[PurchaseSource] = frozenset()
+
+    @property
+    def entitled(self) -> bool:
+        return bool(self.active_sources)
 
 
 @dataclass(frozen=True)
@@ -49,6 +58,10 @@ def _require_identifier(
         raise ValueError(
             f"{label} must not be empty."
         )
+    if normalized != value:
+        raise ValueError(
+            f"{label} must already be normalized."
+        )
     return normalized
 
 
@@ -60,26 +73,14 @@ def _validate_record(
         "record user_id",
     )
 
-    has_source = (
-        record.source_provider is not None
-        or record.source_transaction_id is not None
-    )
-
-    if record.entitled:
-        if (
-            not record.source_provider
-            or not record.source_transaction_id
-        ):
-            raise ValueError(
-                "An entitled record requires a source provider "
-                "and transaction."
-            )
-        return
-
-    if has_source:
-        raise ValueError(
-            "A non-entitled record must not retain a source "
-            "provider or transaction."
+    for source in record.active_sources:
+        _require_identifier(
+            source.provider,
+            "source provider",
+        )
+        _require_identifier(
+            source.transaction_id,
+            "source transaction_id",
         )
 
 
@@ -122,68 +123,78 @@ def decide_lifetime_ad_free_fulfillment(
             reason="duplicate_event",
         )
 
+    source = PurchaseSource(
+        provider=provider,
+        transaction_id=transaction_id,
+    )
+
     if event.kind == "completed":
-        if record.entitled:
-            same_source = (
-                record.source_provider == provider
-                and record.source_transaction_id
-                == transaction_id
-            )
+        if source in record.active_sources:
             return FulfillmentDecision(
-                action="noop",
+                action="retain",
                 next_record=record,
                 mark_event_processed=True,
-                reason=(
-                    "already_entitled_same_transaction"
-                    if same_source
-                    else "already_entitled"
-                ),
+                reason="source_already_active",
             )
 
-        return FulfillmentDecision(
-            action="grant",
-            next_record=LifetimeAdFreeRecord(
-                user_id=record.user_id,
-                entitled=True,
-                source_provider=provider,
-                source_transaction_id=transaction_id,
+        next_record = LifetimeAdFreeRecord(
+            user_id=record.user_id,
+            active_sources=(
+                record.active_sources
+                | frozenset({source})
             ),
+        )
+
+        return FulfillmentDecision(
+            action=(
+                "retain"
+                if record.entitled
+                else "grant"
+            ),
+            next_record=next_record,
             mark_event_processed=True,
-            reason="purchase_completed",
+            reason=(
+                "additional_purchase"
+                if record.entitled
+                else "purchase_completed"
+            ),
         )
 
     if event.kind in {
         "refunded",
         "reversed",
     }:
-        if not record.entitled:
+        if source not in record.active_sources:
             return FulfillmentDecision(
-                action="noop",
+                action="retain",
                 next_record=record,
                 mark_event_processed=True,
-                reason="not_entitled",
+                reason="source_not_active",
             )
 
-        matching_source = (
-            record.source_provider == provider
-            and record.source_transaction_id
-            == transaction_id
+        next_record = LifetimeAdFreeRecord(
+            user_id=record.user_id,
+            active_sources=(
+                record.active_sources
+                - frozenset({source})
+            ),
         )
 
-        if not matching_source:
+        if next_record.entitled:
             return FulfillmentDecision(
-                action="noop",
-                next_record=record,
+                action="retain",
+                next_record=next_record,
                 mark_event_processed=True,
-                reason="unrelated_transaction",
+                reason=(
+                    "purchase_refunded_entitlement_retained"
+                    if event.kind == "refunded"
+                    else "purchase_reversed_entitlement_retained"
+                ),
             )
 
         return FulfillmentDecision(
             action="revoke",
-            next_record=LifetimeAdFreeRecord(
-                user_id=record.user_id,
-                entitled=False,
-            ),
+            next_record=next_record,
             mark_event_processed=True,
             reason=(
                 "purchase_refunded"
