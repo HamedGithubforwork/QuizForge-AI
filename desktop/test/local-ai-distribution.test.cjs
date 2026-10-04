@@ -46,10 +46,18 @@ test('runtime policy requires all known license notice families before activatio
   assert.ok(Object.hasOwn(runtime.files, 'LICENSE-LLVM-OpenMP'))
   assert.equal(Object.keys(runtime.files).some(name =>
     /bench|quantize|perplexity|tokenize|rpc-server|llama-cli/.test(name)), false)
-  assert.ok(policy.activation_blockers.includes('bundle_and_verify_required_runtime_notices'))
-  assert.ok(policy.activation_blockers.includes('approve_code_signing_and_distribution_channel'))
-  assert.ok(policy.activation_blockers.includes('complete_product_acceptance_gate'))
-  assert.ok(policy.activation_blockers.includes('desktop_dependency_audit_must_pass'))
+  assert.deepEqual(policy.activation_blockers, [
+    'approve_code_signing_and_distribution_channel',
+  ])
+  assert.equal(policy.readiness.internal_preview_technical_ready, true)
+  assert.equal(policy.readiness.public_distribution_approved, false)
+  assert.deepEqual(new Set(policy.readiness.completed_evidence), new Set([
+    'minimal_runtime_payload_real_windows',
+    'runtime_notices_packaged_and_verified',
+    'product_quality_performance_acceptance',
+    'user_visible_model_license_disclosure',
+    'desktop_dependency_audit',
+  ]))
 })
 
 test('current desktop packages still contain no bundled runtime payload', () => {
