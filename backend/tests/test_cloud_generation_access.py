@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app_shared import AuthenticatedUser
+import application
 from cloud_generation_access import (
     cloud_generation_access_mode,
     get_cloud_generation_access,
@@ -122,3 +123,54 @@ def test_invalid_access_mode_fails_closed(
         )
 
     assert error.value.status_code == 503
+
+
+def test_generation_route_checks_cloud_access_before_rate_limit_or_source_work(
+    monkeypatch,
+):
+    calls = []
+
+    async def deny(_user):
+        calls.append("access")
+        raise HTTPException(
+            status_code=403,
+            detail="GPT Cloud access is not enabled for this account.",
+        )
+
+    async def rate_limit(_user_id):
+        calls.append("rate_limit")
+        raise AssertionError(
+            "denied users must not consume cloud rate-limit work"
+        )
+
+    monkeypatch.setattr(
+        application,
+        "require_cloud_generation_access",
+        deny,
+    )
+    monkeypatch.setattr(
+        application,
+        "enforce_quiz_rate_limit",
+        rate_limit,
+    )
+
+    with pytest.raises(
+        HTTPException
+    ) as error:
+        asyncio.run(
+            application.generate_quiz(
+                file=None,
+                document_sha256="a" * 64,
+                question_count=5,
+                difficulty="medium",
+                question_type="multiple_choice",
+                focus_pages="",
+                focus_question_types="",
+                avoid_questions="[]",
+                generate_new_quiz_instead_of_using_cache=False,
+                current_user=USER,
+            )
+        )
+
+    assert error.value.status_code == 403
+    assert calls == ["access"]
