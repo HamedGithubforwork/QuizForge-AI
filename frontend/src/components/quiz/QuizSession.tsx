@@ -55,6 +55,7 @@ type QuizSessionProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  canCancelWeakPractice: boolean
   isGenerating: boolean
   saveMessage: string
   isQuestionCorrect:
@@ -77,6 +78,7 @@ type QuizSessionProps = {
   onSaveResult: () => void
   onRetryIncorrect: () => void
   onPracticeWeakAreas: () => void
+  onCancelWeakPractice: () => void
   onTryAgain: () => void
   onGenerateNewQuiz: () => void
   onUploadNewPdf: () => void
@@ -106,6 +108,7 @@ function QuizSession({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  canCancelWeakPractice,
   isGenerating,
   saveMessage,
   isQuestionCorrect,
@@ -116,6 +119,7 @@ function QuizSession({
   onSaveResult,
   onRetryIncorrect,
   onPracticeWeakAreas,
+  onCancelWeakPractice,
   onTryAgain,
   onGenerateNewQuiz,
   onUploadNewPdf,
@@ -396,6 +400,9 @@ function QuizSession({
           isWeakPracticeGenerating={
             isWeakPracticeGenerating
           }
+          canCancelWeakPractice={
+            canCancelWeakPractice
+          }
           isGenerating={isGenerating}
           saveMessage={saveMessage}
           onSaveResult={onSaveResult}
@@ -404,6 +411,9 @@ function QuizSession({
           }
           onPracticeWeakAreas={
             onPracticeWeakAreas
+          }
+          onCancelWeakPractice={
+            onCancelWeakPractice
           }
           onTryAgain={onTryAgain}
           onGenerateNewQuiz={
