@@ -238,3 +238,22 @@ Current product policy:
 
 This policy contains no ad SDK, provider endpoint, account identifier, study
 content, price, payment logic, or tracking implementation.
+
+
+## Provider-call gate implementation contract
+
+Before any real ad SDK is introduced, the product has one provider-neutral call
+gate. The gate must:
+
+- resolve the authenticated semantic lifetime Ad-Free entitlement before an
+  eligible provider call;
+- apply the interaction-surface and exact-runtime policy;
+- pass only the semantic surface identifier to the ad adapter;
+- never pass account identifiers, PDF/note text, prompts, questions, answers,
+  deck contents, review history, model metadata, or auth tokens;
+- avoid calling the provider for Ad-Free, unknown entitlement, focus-critical,
+  ineligible-surface, or cross-runtime cases;
+- catch provider failure so ad availability cannot break the study experience.
+
+A future provider adapter plugs in behind this gate. The gate itself does not
+select a network, render an ad, create tracking identifiers, or activate billing.
