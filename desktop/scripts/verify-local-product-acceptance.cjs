@@ -191,15 +191,16 @@ function createRuntimeMetricMonitor() {
   )
   const command = [
     "$ErrorActionPreference='Stop'",
-    "Import-Module Microsoft.PowerShell.Management -ErrorAction Stop",
     "[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new()",
-    "Write-Output 'READY'",
+    "[Console]::Out.WriteLine('READY')",
     "while($true){",
-    "  $p=@(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue | ForEach-Object {",
-    "    [pscustomobject]@{ Id=$_.Id; WorkingSet64=[Int64]$_.WorkingSet64; CPU=[double]$_.CPU }",
-    "  })",
-    "  if($p.Count -gt 0){@($p)|ConvertTo-Json -Compress}",
-    "  Start-Sleep -Milliseconds 500",
+    "  foreach($proc in [System.Diagnostics.Process]::GetProcessesByName('llama-server')){",
+    "    try {",
+    "      $cpu=$proc.TotalProcessorTime.TotalSeconds.ToString([System.Globalization.CultureInfo]::InvariantCulture)",
+    "      [Console]::Out.WriteLine(('SAMPLE|{0}|{1}|{2}' -f $proc.Id,[Int64]$proc.WorkingSet64,$cpu))",
+    "    } catch {}",
+    "  }",
+    "  [System.Threading.Thread]::Sleep(500)",
     "}",
   ].join('; ')
 
@@ -231,26 +232,25 @@ function createRuntimeMetricMonitor() {
       readyResolve()
       return
     }
-    try {
-      const parsed = JSON.parse(value)
-      const rows = Array.isArray(parsed) ? parsed : [parsed]
-      for (const item of rows) {
-        const id = Number(item.Id)
-        const workingSetBytes = Number(item.WorkingSet64)
-        const cpuSeconds = Number(item.CPU)
-        if (
-          Number.isSafeInteger(id) &&
-          id > 0 &&
-          Number.isFinite(workingSetBytes) &&
-          workingSetBytes > 0 &&
-          Number.isFinite(cpuSeconds) &&
-          cpuSeconds >= 0
-        ) {
-          samples.push({ id, workingSetBytes, cpuSeconds })
-        }
-      }
-    } catch {
-      // Ignore non-JSON host noise. Missing metrics still fail the acceptance gate.
+    if (!value.startsWith('SAMPLE|')) return
+    const [
+      ,
+      rawId,
+      rawWorkingSetBytes,
+      rawCpuSeconds,
+    ] = value.split('|')
+    const id = Number(rawId)
+    const workingSetBytes = Number(rawWorkingSetBytes)
+    const cpuSeconds = Number(rawCpuSeconds)
+    if (
+      Number.isSafeInteger(id) &&
+      id > 0 &&
+      Number.isFinite(workingSetBytes) &&
+      workingSetBytes > 0 &&
+      Number.isFinite(cpuSeconds) &&
+      cpuSeconds >= 0
+    ) {
+      samples.push({ id, workingSetBytes, cpuSeconds })
     }
   }
 
@@ -278,13 +278,18 @@ function createRuntimeMetricMonitor() {
   })
 
   async function start() {
-    await Promise.race([
-      ready,
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error('Windows metric monitor readiness timed out.')),
-        20000,
-      )),
-    ])
+    try {
+      await Promise.race([
+        ready,
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error('Windows metric monitor readiness timed out.')),
+          20000,
+        )),
+      ])
+    } catch (error) {
+      await stop()
+      throw error
+    }
   }
 
   function marker() {
@@ -339,18 +344,8 @@ async function main() {
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
   const runtimePidState = { value: null }
-  const metricMonitor = createRuntimeMetricMonitor()
-  await metricMonitor.start()
-  const stack = createWindowsLocalAiStack({
-    userDataDirectory: path.dirname(modelDirectory),
-    modelDirectory,
-    runtimeDirectory,
-    onRuntimeProcess(pid) {
-      if (Number.isSafeInteger(pid) && pid > 0) {
-        runtimePidState.value = pid
-      }
-    },
-  })
+  let metricMonitor = createRuntimeMetricMonitor()
+  let stack = null
 
   const report = {
     schema: 1,
@@ -376,6 +371,28 @@ async function main() {
   await persistReport()
 
   try {
+    try {
+      await metricMonitor.start()
+    } catch (error) {
+      console.warn(
+        'METRIC MONITOR START RETRY:',
+        error?.message || error?.name || 'unknown',
+      )
+      metricMonitor = createRuntimeMetricMonitor()
+      await metricMonitor.start()
+    }
+
+    stack = createWindowsLocalAiStack({
+      userDataDirectory: path.dirname(modelDirectory),
+      modelDirectory,
+      runtimeDirectory,
+      onRuntimeProcess(pid) {
+        if (Number.isSafeInteger(pid) && pid > 0) {
+          runtimePidState.value = pid
+        }
+      },
+    })
+
     const managerStatus = await stack.load()
     const status = await stack.quizStatus()
     assert.equal(status.available, true)
@@ -409,6 +426,80 @@ async function main() {
       await persistReport()
       console.log('CASE PASS:', fixture.id, measuredRun.elapsedSeconds)
     }
+
+    const targetedFixture = FIXTURES.find(
+      fixture => fixture.id === 'selected_pages',
+    )
+    const targetedBase = report.runs.find(
+      row =>
+        row.fixture === 'selected_pages' &&
+        row.repeat === false,
+    )
+    assert.ok(targetedFixture)
+    assert.ok(targetedBase?.questions?.length >= 2)
+    const avoidQuestions = targetedBase.questions
+      .slice(0, 2)
+      .map(question => question.question)
+
+    console.log(
+      'CASE START:',
+      'selected_pages_targeted_practice',
+      'primary',
+    )
+    const targeted = await measured(
+      () => stack.generateQuiz({
+        pages: targetedFixture.selectedPages,
+        questionCount: 5,
+        difficulty: 'medium',
+        questionType: 'multiple_choice',
+        practice: { avoidQuestions },
+      }),
+      metricMonitor,
+      runtimePidState,
+    )
+    validateSemanticQuiz(
+      targeted.value,
+      targetedFixture,
+    )
+    const avoided = new Set(
+      avoidQuestions.map(normalize),
+    )
+    assert.equal(
+      targeted.value.questions.some(
+        question =>
+          avoided.has(
+            normalize(question.question),
+          ),
+      ),
+      false,
+      'targeted practice must not repeat prior questions',
+    )
+    report.runs.push({
+      fixture:
+        'selected_pages_targeted_practice',
+      repeat: false,
+      targetedPractice: true,
+      outcome: 'quiz',
+      elapsedSeconds:
+        targeted.elapsedSeconds,
+      peakWorkingSetBytes:
+        targeted.peakWorkingSetBytes ||
+        null,
+      peakCpuSeconds:
+        targeted.peakCpuSeconds ||
+        null,
+      metricSampleCount:
+        targeted.sampleCount,
+      title: targeted.value.title,
+      questions:
+        targeted.value.questions,
+    })
+    await persistReport()
+    console.log(
+      'CASE PASS:',
+      'selected_pages_targeted_practice',
+      targeted.elapsedSeconds,
+    )
 
     console.log('CASE START:', INSUFFICIENT.id, 'primary')
     const abstention = await measured(async () => {
@@ -467,12 +558,15 @@ async function main() {
     await persistReport()
     console.log(JSON.stringify(report.summary))
   } finally {
-    await stack.dispose()
+    if (stack) await stack.dispose()
     await metricMonitor.stop()
   }
 }
 
 main().catch(error => {
-  console.error('Local AI product acceptance failed:', error?.code || error?.name || 'unknown')
+  console.error(
+    'Local AI product acceptance failed:',
+    error?.code || error?.message || error?.name || 'unknown',
+  )
   process.exitCode = 1
 })
