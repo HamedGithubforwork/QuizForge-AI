@@ -122,3 +122,31 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
   account = null
   await assert.rejects(handlers['qfn:localAiQuizStatus'](event), /Sign in/)
 })
+
+
+test('source-page cache IPC is fixed, single-argument and does not expose a write primitive', async () => {
+  const handlers = {}
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let received
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => ({}),
+    getAccount: () => ({}),
+    getSourceTextCache: () => ({
+      load: async value => {
+        received = value
+        return 'cached source'
+      },
+    }),
+    openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  const value = { documentSha256: 'a'.repeat(64), pageNumber: 2 }
+  assert.equal(await handlers['qfn:loadSourcePageText'](event, value), 'cached source')
+  assert.deepEqual(received, value)
+  await assert.rejects(handlers['qfn:loadSourcePageText'](event), /not permitted/)
+  await assert.rejects(handlers['qfn:loadSourcePageText'](event, value, value), /not permitted/)
+  assert.equal(handlers['qfn:saveSourcePageText'], undefined)
+})

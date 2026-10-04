@@ -5,6 +5,9 @@ import {
   apiFetch,
 } from './api'
 import { authSession } from './authSession'
+import {
+  desktopSourceTextBridge,
+} from './desktop'
 
 
 type SourcePageCacheEntry = {
@@ -155,6 +158,19 @@ async function fetchSourcePageText(
   pageNumber: number,
   signal?: AbortSignal,
 ) {
+  const desktop = desktopSourceTextBridge()
+
+  if (desktop) {
+    signal?.throwIfAborted()
+    const text =
+      await desktop.loadSourcePageText({
+        documentSha256,
+        pageNumber,
+      })
+    signal?.throwIfAborted()
+    return text
+  }
+
   const response = await apiFetch(
     `/api/documents/${encodeURIComponent(
       documentSha256,

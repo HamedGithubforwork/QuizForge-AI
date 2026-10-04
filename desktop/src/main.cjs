@@ -17,6 +17,8 @@ const { createNativeReminders } = require('./native-reminders.cjs')
 const { createNativeAccount } = require('./native-account.cjs')
 const { createAccountSnapshots } = require('./account-snapshots.cjs')
 const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
+const { createWindowsSourceTextStore } = require('./windows-source-text-store.cjs')
+const { createAccountSourceTextCache } = require('./account-source-text-cache.cjs')
 const { createWindowsLocalAiStack } = require('./windows-local-ai-stack.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { createOfflineReader } = require('./offline-reader.cjs')
@@ -35,6 +37,8 @@ let testSession = null
 let nativeAccount = null
 let snapshotMenu = null
 let snapshotStore = null
+let sourceTextStore = null
+let sourceTextCache = null
 let offlineMenu = null
 let reminders = null
 let reminderTimer = null
@@ -245,6 +249,7 @@ if (!app.requestSingleInstanceLock()) {
     installNativeBridge({ ipcMain, getWindow: () => mainWindow,
       getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
       getLocalAi: () => localAiManager,
+      getSourceTextCache: () => sourceTextCache,
       confirmLocalAiDownload,
       confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
@@ -252,6 +257,7 @@ if (!app.requestSingleInstanceLock()) {
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
       snapshotStore = createWindowsSnapshotStore({ app, safeStorage, platform: process.platform })
+      sourceTextStore = createWindowsSourceTextStore({ app, safeStorage, platform: process.platform })
       const runtimeDirectory =
         typeof process.resourcesPath === 'string'
           ? path.join(process.resourcesPath, 'local-ai-runtime')
@@ -297,6 +303,10 @@ if (!app.requestSingleInstanceLock()) {
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })
+        sourceTextCache = createAccountSourceTextCache({
+          account: nativeAccount,
+          store: sourceTextStore,
+        })
         snapshotMenu = createSnapshotMenu({ account: nativeAccount,
           snapshots: createAccountSnapshots({ account: nativeAccount, store: snapshotStore }),
           dialog, getWindow: () => mainWindow, changed: () => offlineMenu?.clear() })

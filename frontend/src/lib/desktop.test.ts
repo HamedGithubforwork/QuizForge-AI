@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { desktopFetch, desktopLocalAiBridge, desktopLocalQuizBridge, type DesktopBridge, type DesktopLocalAiBridge, type DesktopLocalQuizBridge } from './desktop.ts'
+import { desktopFetch, desktopLocalAiBridge, desktopLocalQuizBridge, desktopSourceTextBridge, type DesktopBridge, type DesktopLocalAiBridge, type DesktopLocalQuizBridge } from './desktop.ts'
 test('desktop fetch serializes multipart files and never forwards authorization or arbitrary headers', async () => {
   let captured: unknown
   const bridge = { request: async (request: unknown) => { captured = request; return { status: 200, body: '{"ok":true}', contentType: 'application/json' } } } as DesktopBridge
@@ -52,4 +52,17 @@ test('Local quiz feature detection requires all fixed generation methods', () =>
     cancelLocalAiQuiz: async () => {},
   } as unknown as DesktopLocalQuizBridge
   assert.equal(desktopLocalQuizBridge(quizBridge), quizBridge)
+})
+
+
+test('source-text bridge is optional for older desktop builds', () => {
+  const oldBridge = { version: 1 } as DesktopBridge
+  assert.equal(desktopSourceTextBridge(oldBridge), undefined)
+
+  const sourceBridge = {
+    version: 1,
+    loadSourcePageText: async () => 'cached source',
+  } as unknown as DesktopBridge
+
+  assert.equal(desktopSourceTextBridge(sourceBridge), sourceBridge)
 })
