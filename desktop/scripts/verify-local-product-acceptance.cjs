@@ -410,6 +410,80 @@ async function main() {
       console.log('CASE PASS:', fixture.id, measuredRun.elapsedSeconds)
     }
 
+    const targetedFixture = FIXTURES.find(
+      fixture => fixture.id === 'selected_pages',
+    )
+    const targetedBase = report.runs.find(
+      row =>
+        row.fixture === 'selected_pages' &&
+        row.repeat === false,
+    )
+    assert.ok(targetedFixture)
+    assert.ok(targetedBase?.questions?.length >= 2)
+    const avoidQuestions = targetedBase.questions
+      .slice(0, 2)
+      .map(question => question.question)
+
+    console.log(
+      'CASE START:',
+      'selected_pages_targeted_practice',
+      'primary',
+    )
+    const targeted = await measured(
+      () => stack.generateQuiz({
+        pages: targetedFixture.selectedPages,
+        questionCount: 5,
+        difficulty: 'medium',
+        questionType: 'multiple_choice',
+        practice: { avoidQuestions },
+      }),
+      metricMonitor,
+      runtimePidState,
+    )
+    validateSemanticQuiz(
+      targeted.value,
+      targetedFixture,
+    )
+    const avoided = new Set(
+      avoidQuestions.map(normalize),
+    )
+    assert.equal(
+      targeted.value.questions.some(
+        question =>
+          avoided.has(
+            normalize(question.question),
+          ),
+      ),
+      false,
+      'targeted practice must not repeat prior questions',
+    )
+    report.runs.push({
+      fixture:
+        'selected_pages_targeted_practice',
+      repeat: false,
+      targetedPractice: true,
+      outcome: 'quiz',
+      elapsedSeconds:
+        targeted.elapsedSeconds,
+      peakWorkingSetBytes:
+        targeted.peakWorkingSetBytes ||
+        null,
+      peakCpuSeconds:
+        targeted.peakCpuSeconds ||
+        null,
+      metricSampleCount:
+        targeted.sampleCount,
+      title: targeted.value.title,
+      questions:
+        targeted.value.questions,
+    })
+    await persistReport()
+    console.log(
+      'CASE PASS:',
+      'selected_pages_targeted_practice',
+      targeted.elapsedSeconds,
+    )
+
     console.log('CASE START:', INSUFFICIENT.id, 'primary')
     const abstention = await measured(async () => {
       try {
