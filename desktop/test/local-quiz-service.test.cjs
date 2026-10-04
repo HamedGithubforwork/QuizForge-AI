@@ -167,6 +167,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         captured = request
         const quiz = rawQuiz()
         quiz.questions[0].question = 'A different follow-up question?'
+        quiz.questions[1].question = 'Another distinct follow-up question?'
         return {
           text: JSON.stringify(quiz),
           finishReason: 'stop',
