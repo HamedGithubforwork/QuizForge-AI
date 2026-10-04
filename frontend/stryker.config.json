@@ -7,6 +7,8 @@
   "coverageAnalysis": "off",
   "mutate": [
     "src/lib/answerFallback.ts",
+    "src/lib/adPresentationPolicy.ts",
+    "src/lib/accountEntitlements.ts",
     "src/lib/documentIdentity.ts",
     "src/lib/historyQuestionGrader.ts",
     "src/lib/masteryAnalytics.ts",
