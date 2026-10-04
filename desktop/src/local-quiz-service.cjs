@@ -29,6 +29,7 @@ const QUIZ_SCHEMA = Object.freeze({
             type: 'array',
             minItems: 4,
             maxItems: 4,
+            uniqueItems: true,
             items: { type: 'string', minLength: 1, maxLength: 300 },
           },
           correct_index: { type: 'integer', minimum: 0, maximum: 3 },
@@ -151,22 +152,34 @@ function priorQuestions(request) {
   ].join('\n')
 }
 
-function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
+class QuizValidationIssue extends Error {
+  constructor(reason) {
+    super('quiz_validation_failed')
+    this.name = 'QuizValidationIssue'
+    this.reason = reason
+  }
+}
+
+const invalidQuiz = reason => {
+  throw new QuizValidationIssue(reason)
+}
+
+function parseGeneratedQuizDetailed(text, allowedPages, avoidQuestions = []) {
   let parsed
-  try { parsed = JSON.parse(text) } catch { throw failure('quiz_validation_failed') }
+  try { parsed = JSON.parse(text) } catch { invalidQuiz('json') }
   if (!plain(parsed) || Object.keys(parsed).some(key => !['title', 'questions'].includes(key)) ||
       !boundedString(parsed.title, 160) || !Array.isArray(parsed.questions)) {
-    throw failure('quiz_validation_failed')
+    invalidQuiz('top_level_shape')
   }
 
   if (parsed.questions.length === 0) {
     if (parsed.title.trim() !== 'Insufficient source material') {
-      throw failure('quiz_validation_failed')
+      invalidQuiz('invalid_abstention')
     }
     throw failure('insufficient_source')
   }
   if (parsed.questions.length !== QUESTION_COUNT) {
-    throw failure('quiz_validation_failed')
+    invalidQuiz('question_count')
   }
 
   const seenQuestions = new Set()
@@ -186,14 +199,16 @@ function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
         !Array.isArray(item.source_pages) || item.source_pages.length < 1 || item.source_pages.length > 8 ||
         item.source_pages.some(page => !Number.isSafeInteger(page) || !allowedPages.has(page)) ||
         new Set(item.source_pages).size !== item.source_pages.length) {
-      throw failure('quiz_validation_failed')
+      invalidQuiz('question_shape')
     }
     const distinctChoices = new Set(item.choices.map(choice => choice.trim().toLocaleLowerCase()))
-    if (distinctChoices.size !== 4) throw failure('quiz_validation_failed')
+    if (distinctChoices.size !== 4) invalidQuiz('duplicate_choices')
     const normalizedQuestion = item.question.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
-    if (seenQuestions.has(normalizedQuestion) ||
-        avoidedQuestions.has(normalizedQuestion)) {
-      throw failure('quiz_validation_failed')
+    if (seenQuestions.has(normalizedQuestion)) {
+      invalidQuiz('duplicate_question')
+    }
+    if (avoidedQuestions.has(normalizedQuestion)) {
+      invalidQuiz('avoided_question')
     }
     seenQuestions.add(normalizedQuestion)
 
@@ -222,38 +237,94 @@ function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
+function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
+  try {
+    return parseGeneratedQuizDetailed(text, allowedPages, avoidQuestions)
+  } catch (error) {
+    if (error instanceof LocalAiError) throw error
+    if (error instanceof QuizValidationIssue) throw failure('quiz_validation_failed')
+    throw error
+  }
+}
+
 function createLocalQuizService({ provider }) {
   if (!provider || typeof provider.generate !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
     async generate(value, { signal } = {}) {
       const request = normalizeRequest(value)
-      let result
-      try {
-        const messages = [
-          Object.freeze({ role: 'system', content: promptFor(request) }),
-          Object.freeze({ role: 'user', content: studyMaterial(request) }),
-        ]
-        const avoid = priorQuestions(request)
-        if (avoid) {
-          messages.push(Object.freeze({ role: 'user', content: avoid }))
+      const allowedPages = new Set(
+        request.pages.map(page => page.pageNumber),
+      )
+      const avoidQuestions =
+        request.practice?.avoidQuestions ?? []
+
+      async function generateAttempt(retryReason = null) {
+        let result
+        try {
+          const messages = [
+            Object.freeze({ role: 'system', content: promptFor(request) }),
+            Object.freeze({ role: 'user', content: studyMaterial(request) }),
+          ]
+          const avoid = priorQuestions(request)
+          if (avoid) {
+            messages.push(Object.freeze({ role: 'user', content: avoid }))
+          }
+          if (retryReason) {
+            messages.push(Object.freeze({
+              role: 'user',
+              content: [
+                'The previous draft was rejected because it repeated a prior or current question.',
+                'Regenerate all five questions from the supplied pages.',
+                'Do not reuse any prior-question wording exactly and do not duplicate a question within the new quiz.',
+              ].join('\n'),
+            }))
+          }
+          result = await provider.generate({
+            messages: Object.freeze(messages),
+            maxTokens: 1800,
+            jsonSchema: QUIZ_SCHEMA,
+            generationProfile: 'quiz-mcq-v1',
+          }, { signal })
+        } catch (error) {
+          if (error instanceof LocalAiError) throw error
+          throw failure('generation_failed', { retryable: true })
         }
-        result = await provider.generate({
-          messages: Object.freeze(messages),
-          maxTokens: 1800,
-          jsonSchema: QUIZ_SCHEMA,
-          generationProfile: 'quiz-mcq-v1',
-        }, { signal })
+        if (result.finishReason !== 'stop') {
+          throw failure('quiz_validation_failed')
+        }
+        return result
+      }
+
+      let result = await generateAttempt()
+      try {
+        return parseGeneratedQuizDetailed(
+          result.text,
+          allowedPages,
+          avoidQuestions,
+        )
       } catch (error) {
         if (error instanceof LocalAiError) throw error
-        throw failure('generation_failed', { retryable: true })
+        const retryableRepeat =
+          request.practice &&
+          error instanceof QuizValidationIssue &&
+          ['avoided_question', 'duplicate_question'].includes(error.reason)
+        if (!retryableRepeat) {
+          throw failure('quiz_validation_failed')
+        }
       }
-      if (result.finishReason !== 'stop') throw failure('quiz_validation_failed')
-      return parseGeneratedQuiz(
-        result.text,
-        new Set(request.pages.map(page => page.pageNumber)),
-        request.practice?.avoidQuestions ?? [],
-      )
+
+      result = await generateAttempt('repeat')
+      try {
+        return parseGeneratedQuizDetailed(
+          result.text,
+          allowedPages,
+          avoidQuestions,
+        )
+      } catch (error) {
+        if (error instanceof LocalAiError) throw error
+        throw failure('quiz_validation_failed')
+      }
     },
   })
 }
