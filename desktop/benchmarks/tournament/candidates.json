@@ -1,0 +1,157 @@
+{
+  "schema": 1,
+  "reviewed_date": "2026-10-04",
+  "runtime_source_revision": "7dad6db8586958a1cd3cd465b9c9e10f802daf3a",
+  "candidates": [
+    {
+      "id": "qwen3-4b",
+      "repository": "Qwen/Qwen3-4B-GGUF",
+      "revision": "bc640142c66e1fdd12af0bd68f40445458f3869b",
+      "filename": "Qwen3-4B-Q4_K_M.gguf",
+      "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+      "bytes": 2497280256,
+      "license": "apache-2.0",
+      "quantization": "Q4_K_M",
+      "chat_template": "embedded Qwen3",
+      "thinking": "enable_thinking=false",
+      "delivery": "official_owner_gguf"
+    },
+    {
+      "id": "ministral3-3b",
+      "repository": "mistralai/Ministral-3-3B-Instruct-2512-GGUF",
+      "revision": "eb599d408350ea2bb60452cb86be7c7b2fc28227",
+      "filename": "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+      "sha256": "9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8",
+      "bytes": 2147023008,
+      "license": "apache-2.0",
+      "quantization": "Q4_K_M",
+      "chat_template": "embedded owner template",
+      "thinking": "disabled where supported",
+      "delivery": "official_owner_gguf"
+    },
+    {
+      "id": "phi4-mini",
+      "repository": "microsoft/Phi-4-mini-instruct",
+      "revision": "cfbefacb99257ffa30c83adab238a50856ac3083",
+      "license": "mit",
+      "quantization": "Q4_K_M",
+      "delivery": "self_conversion",
+      "source_files": [
+        {
+          "rfilename": "LICENSE",
+          "blobId": "8ab7b4964d147858b89544e8ca33203237161edc",
+          "size": 1084
+        },
+        {
+          "rfilename": "README.md",
+          "blobId": "0bcd41c7c7bdded52ee8c7f28d9ba636d56ea448",
+          "size": 29246
+        },
+        {
+          "rfilename": "added_tokens.json",
+          "blobId": "af52cde61cc39aca58f7b7f04116b317116e75dd",
+          "size": 249
+        },
+        {
+          "rfilename": "config.json",
+          "blobId": "679e70defca5b399ae9e8ad53ff1176c9d7c6f93",
+          "size": 2504
+        },
+        {
+          "rfilename": "generation_config.json",
+          "blobId": "43b32d0bc199571e0818489fa01c1002d7a40452",
+          "size": 168
+        },
+        {
+          "rfilename": "model-00001-of-00002.safetensors",
+          "blobId": "9d6db2779a8baf5e59d7cd2666aaa1367cd8060b",
+          "size": 4903637712,
+          "lfs": {
+            "sha256": "bc703090b63eda16f639fa4de7ac54635c23105ab1da2f6ec4d3403151d38ee6",
+            "size": 4903637712,
+            "pointerSize": 135
+          }
+        },
+        {
+          "rfilename": "model-00002-of-00002.safetensors",
+          "blobId": "2ac7bf9c62addb7df0a338ddf7e0f3a60c826bc1",
+          "size": 2768428504,
+          "lfs": {
+            "sha256": "7ff79b9d2d31076bac2663393451f6530f4fc8ca49b09002116c92c373dba983",
+            "size": 2768428504,
+            "pointerSize": 135
+          }
+        },
+        {
+          "rfilename": "model.safetensors.index.json",
+          "blobId": "d87cc3650f8e8dec46fc6871826ef30b941d0c94",
+          "size": 16273
+        },
+        {
+          "rfilename": "special_tokens_map.json",
+          "blobId": "156262f7d61a27706bdcad9d117c579e88e2fa27",
+          "size": 587
+        },
+        {
+          "rfilename": "tokenizer.json",
+          "blobId": "3a12dacd8e86802d0229d810d3cc69ab548adf0a",
+          "size": 15524095,
+          "lfs": {
+            "sha256": "382cc235b56c725945e149cc25f191da667c836655efd0857b004320e90e91ea",
+            "size": 15524095,
+            "pointerSize": 133
+          }
+        },
+        {
+          "rfilename": "tokenizer_config.json",
+          "blobId": "f5958080514e266176052f86c80aa53f91ce4ba0",
+          "size": 2932
+        },
+        {
+          "rfilename": "vocab.json",
+          "blobId": "ea953a43348cdb3776cb7fd9ea02e3784febde34",
+          "size": 3910310
+        }
+      ],
+      "sha256": null,
+      "bytes": null,
+      "chat_template": "embedded Phi3 from official tokenizer_config",
+      "thinking": "instruct, not reasoning edition"
+    },
+    {
+      "id": "gemma4-e2b",
+      "repository": "google/gemma-4-E2B-it-qat-q4_0-gguf",
+      "revision": "675cff42a74c774d6cb76f76d8eacb49b48c9b93",
+      "filename": "gemma-4-E2B_q4_0-it.gguf",
+      "sha256": "fa401b55b07ee70a54c6dae3903c783a6e65064312529ea57175cb5f8dec6634",
+      "bytes": 3349516256,
+      "license": "apache-2.0",
+      "quantization": "Q4_0 QAT",
+      "chat_template": "embedded owner template",
+      "thinking": "disabled where supported",
+      "delivery": "official_owner_gguf"
+    },
+    {
+      "id": "qwen3-8b",
+      "repository": "Qwen/Qwen3-8B-GGUF",
+      "revision": "7c41481f57cb95916b40956ab2f0b139b296d974",
+      "filename": "Qwen3-8B-Q4_K_M.gguf",
+      "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+      "bytes": 5027783488,
+      "license": "apache-2.0",
+      "quantization": "Q4_K_M",
+      "chat_template": "embedded owner template",
+      "thinking": "disabled where supported",
+      "delivery": "official_owner_gguf"
+    }
+  ],
+  "blocked": [
+    {
+      "id": "gemma3-4b",
+      "repository": "google/gemma-3-4b-it",
+      "revision": "093f9f388b31de276ce2de164bdc2081324b9767",
+      "license": "gemma",
+      "reason": "Official weights require account-holder access and Gemma terms; no mirror bypass"
+    }
+  ]
+}
