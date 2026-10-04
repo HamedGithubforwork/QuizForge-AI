@@ -23,8 +23,9 @@ jobs:
   frontend-mutation:
     name: Frontend StrykerJS
     runs-on: ubuntu-24.04
-    # The full mutation suite takes about 35 minutes on this runner.
-    timeout-minutes: 45
+    # The full suite is now near the previous 45-minute ceiling; keep a bounded
+    # margin so added protected modules can finish instead of being cancelled.
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
