@@ -278,13 +278,18 @@ function createRuntimeMetricMonitor() {
   })
 
   async function start() {
-    await Promise.race([
-      ready,
-      new Promise((_, reject) => setTimeout(
-        () => reject(new Error('Windows metric monitor readiness timed out.')),
-        20000,
-      )),
-    ])
+    try {
+      await Promise.race([
+        ready,
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error('Windows metric monitor readiness timed out.')),
+          20000,
+        )),
+      ])
+    } catch (error) {
+      await stop()
+      throw error
+    }
   }
 
   function marker() {
@@ -339,18 +344,8 @@ async function main() {
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
   const runtimePidState = { value: null }
-  const metricMonitor = createRuntimeMetricMonitor()
-  await metricMonitor.start()
-  const stack = createWindowsLocalAiStack({
-    userDataDirectory: path.dirname(modelDirectory),
-    modelDirectory,
-    runtimeDirectory,
-    onRuntimeProcess(pid) {
-      if (Number.isSafeInteger(pid) && pid > 0) {
-        runtimePidState.value = pid
-      }
-    },
-  })
+  let metricMonitor = createRuntimeMetricMonitor()
+  let stack = null
 
   const report = {
     schema: 1,
@@ -376,6 +371,28 @@ async function main() {
   await persistReport()
 
   try {
+    try {
+      await metricMonitor.start()
+    } catch (error) {
+      console.warn(
+        'METRIC MONITOR START RETRY:',
+        error?.message || error?.name || 'unknown',
+      )
+      metricMonitor = createRuntimeMetricMonitor()
+      await metricMonitor.start()
+    }
+
+    stack = createWindowsLocalAiStack({
+      userDataDirectory: path.dirname(modelDirectory),
+      modelDirectory,
+      runtimeDirectory,
+      onRuntimeProcess(pid) {
+        if (Number.isSafeInteger(pid) && pid > 0) {
+          runtimePidState.value = pid
+        }
+      },
+    })
+
     const managerStatus = await stack.load()
     const status = await stack.quizStatus()
     assert.equal(status.available, true)
@@ -541,12 +558,15 @@ async function main() {
     await persistReport()
     console.log(JSON.stringify(report.summary))
   } finally {
-    await stack.dispose()
+    if (stack) await stack.dispose()
     await metricMonitor.stop()
   }
 }
 
 main().catch(error => {
-  console.error('Local AI product acceptance failed:', error?.code || error?.name || 'unknown')
+  console.error(
+    'Local AI product acceptance failed:',
+    error?.code || error?.message || error?.name || 'unknown',
+  )
   process.exitCode = 1
 })
