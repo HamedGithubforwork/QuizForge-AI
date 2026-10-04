@@ -35,6 +35,9 @@ import {
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
 import {
+  automaticGenerationMode,
+} from './lib/generationModePolicy.ts'
+import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
 import type {
@@ -96,6 +99,8 @@ function App() {
     localQuizBridgeRef.current
   const localGenerationController =
     useRef<AbortController | null>(null)
+  const generationModeUserSelected =
+    useRef(false)
   const [
     generationMode,
     setGenerationMode,
@@ -116,6 +121,27 @@ function App() {
       .then((status) => {
         if (active) {
           setLocalQuizStatus(status)
+          setGenerationMode(current => {
+            const next =
+              automaticGenerationMode(
+                current,
+                status,
+                generationModeUserSelected
+                  .current,
+              )
+
+            if (
+              next === 'local' &&
+              current !== 'local'
+            ) {
+              setQuestionCount(5)
+              setQuestionType(
+                'multiple_choice',
+              )
+            }
+
+            return next
+          })
         }
       })
       .catch(() => {
@@ -247,6 +273,8 @@ function App() {
   function handleGenerationModeChange(
     mode: QuizGenerationMode,
   ) {
+    generationModeUserSelected.current =
+      true
     setGenerationMode(mode)
 
     if (mode === 'local') {
