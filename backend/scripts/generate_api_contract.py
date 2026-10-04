@@ -33,6 +33,7 @@ OUTPUT_PATH = (
 )
 
 PUBLIC_SCHEMA_NAMES = (
+    "AccountEntitlements",
     "AnswerReviewCase",
     "AnswerReviewDecision",
     "AnswerReviewRequest",
