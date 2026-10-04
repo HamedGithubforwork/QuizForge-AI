@@ -13,6 +13,7 @@ import QuizHistory, {
 import ChangePagesPanel from './components/quiz/ChangePagesPanel.tsx'
 import DocumentPanel from './components/quiz/DocumentPanel.tsx'
 import PagePreviews from './components/quiz/PagePreviews.tsx'
+import WebAdSlot from './components/ads/WebAdSlot.tsx'
 import QuizSession from './components/quiz/QuizSession.tsx'
 import QuizSettingsPanel from './components/quiz/QuizSettingsPanel.tsx'
 import UploadPanel from './components/quiz/UploadPanel.tsx'
@@ -1017,6 +1018,14 @@ function App() {
           hidePageSelection={Boolean(documentResult && pdfUpload.supportsPageReuse && pdfUpload.sourceSha256)}
           isChangingPages={isChangingPages}
         />
+
+        {!quiz
+          && !documentBusy
+          && !isChangingPages && (
+            <WebAdSlot
+              surface="home"
+            />
+          )}
 
         {error && (
           <div
