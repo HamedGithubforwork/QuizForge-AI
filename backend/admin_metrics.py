@@ -27,6 +27,10 @@ METRIC_NAMES = (
     "document_cache_hits_total",
     "document_cache_misses_total",
     "quiz_generation_errors_total",
+    "cloud_generation_requests_total",
+    "cloud_generation_model_calls_total",
+    "local_quiz_generations_total",
+    "local_targeted_practice_generations_total",
 )
 
 TIMING_DISPLAY_NAMES = {
@@ -148,6 +152,10 @@ def build_metric_snapshot(
         "average_http_latency_ms": round(average_http_latency, 2),
         "quiz_requests_total": quiz_requests,
         "quiz_generation_errors_total": values["quiz_generation_errors_total"],
+        "cloud_generation_requests_total": values["cloud_generation_requests_total"],
+        "cloud_generation_model_calls_total": values["cloud_generation_model_calls_total"],
+        "local_quiz_generations_total": values["local_quiz_generations_total"],
+        "local_targeted_practice_generations_total": values["local_targeted_practice_generations_total"],
         "average_quiz_latency_ms": round(average_quiz_latency, 2),
         "cache_hits_total": cache_hits,
         "cache_misses_total": cache_misses,
