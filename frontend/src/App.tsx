@@ -38,6 +38,9 @@ import {
   automaticGenerationMode,
 } from './lib/generationModePolicy.ts'
 import {
+  reportLocalGenerationUsage,
+} from './lib/generationUsage.ts'
+import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
 import type {
@@ -346,6 +349,11 @@ function App() {
         )
       }
 
+      void reportLocalGenerationUsage(
+        apiFetch,
+        'targeted_practice',
+      )
+
       return result.quiz
     } finally {
       if (
@@ -471,6 +479,10 @@ function App() {
 
         setGenerationStage('Quiz ready!')
         setQuiz(result.quiz)
+        void reportLocalGenerationUsage(
+          apiFetch,
+          'quiz',
+        )
         setGeneratedSettings({
           questionCount: 5,
           difficulty,
