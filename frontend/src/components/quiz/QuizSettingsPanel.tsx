@@ -4,6 +4,9 @@ import type {
 import type {
   QuizGenerationMode,
 } from '../../lib/localQuizGeneration'
+import {
+  showGenerationModeSelector,
+} from '../../lib/generationModePolicy'
 
 type QuizSettingsPanelProps = {
   questionCount: number
@@ -159,7 +162,10 @@ function QuizSettingsPanel({
         </label>
       </div>
 
-      {localAiAvailable && (
+      {showGenerationModeSelector(
+        generationMode,
+        localAiAvailable,
+      ) && (
         <div className="generation-provider">
           <label className="setting-group">
             <span>Generation engine</span>
@@ -186,19 +192,41 @@ function QuizSettingsPanel({
               <option value="cloud">
                 Cloud AI
               </option>
-              <option value="local">
-                Local AI preview
+              <option
+                value="local"
+                disabled={!localAiAvailable}
+              >
+                {localAiAvailable
+                  ? 'Local AI preview'
+                  : 'Local AI unavailable'}
               </option>
             </select>
           </label>
 
           {generationMode === 'local' && (
             <p className="generation-mode-note">
-              Local preview generates five
-              multiple-choice questions on this
-              computer. PDF processing and source
-              page retrieval still use your signed-in
-              Quiz From Notes account in this preview.
+              {localAiAvailable
+                ? (
+                  <>
+                    Local preview is the
+                    default no-recurring-AI-cost
+                    engine on this desktop. It
+                    generates five multiple-choice
+                    questions on this computer. PDF
+                    processing and source page
+                    retrieval still use your
+                    signed-in Quiz From Notes
+                    account in this preview.
+                  </>
+                )
+                : (
+                  <>
+                    Local AI is currently
+                    unavailable. Choose Cloud AI
+                    explicitly if you want to use
+                    server generation instead.
+                  </>
+                )}
             </p>
           )}
         </div>

@@ -169,6 +169,9 @@ Targeted Local AI practice reuses the same portable quiz service and shared Quiz
 
 Local AI acceptance evidence is layered: fast contract tests validate portable behavior; the real runtime smoke validates one authenticated native generation and process lifecycle; and the separate Windows product-acceptance workflow validates semantic synthetic facts, source selection, multilingual/noisy/injection behavior, abstention, repeated sequential generations, and measured performance. Do not substitute one layer for another when assessing release readiness.
 
+
+Local-first generation policy: when the desktop bridge reports that the verified local runtime/model stack is actually available, the quiz UI automatically selects Local AI only if the user has not already chosen a provider. An explicit user provider choice wins for the rest of that mounted session. If Local AI later becomes unavailable, the UI preserves the local selection and exposes Cloud AI as an explicit alternative rather than silently sending the request to the server. Browser/non-ready desktop flows retain their existing cloud path until entitlement work is implemented.
+
 The backend review feature's public service entry remains `backend/review_service.py`. Its statically declared local dependency graph must stay independent of HTTP/composition and persistence modules, not merely avoid direct driver imports. SQL locks and atomic updates remain the repository's responsibility.
 
 ## Enforced checks and their limits
