@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "run_id": 37214506279,
+  "artifact_id": 11310906174,
+  "artifact_digest": "sha256:b48011e215e7d971e44236dac47c7fff98142eb428fbba9525e95ad7548c8865",
+  "reviewer": "assisting_model_not_independent_human",
+  "decision": "do_not_expose_enhanced_qwen3_8b_yet",
+  "baseline": {
+    "candidate": "qwen3-4b",
+    "structurally_valid_cases": 28,
+    "expected_cases": 32,
+    "correct_insufficient_abstentions": 2,
+    "expected_insufficient_abstentions": 4,
+    "median_generation_seconds": 101.4555,
+    "p95_seconds": 152.71,
+    "model_bytes": 2497280256,
+    "peak_server_rss_bytes": 5150928896,
+    "load_seconds": 3.426
+  },
+  "enhanced_candidate": {
+    "candidate": "qwen3-8b",
+    "structurally_valid_cases": 30,
+    "expected_cases": 32,
+    "correct_insufficient_abstentions": 2,
+    "expected_insufficient_abstentions": 4,
+    "median_generation_seconds": 133.715,
+    "p95_seconds": 186.846,
+    "model_bytes": 5027783488,
+    "peak_server_rss_bytes": 8772206592,
+    "load_seconds": 13.702,
+    "material_failures": [
+      "history_sources selected answer contradicts explanation",
+      "injection_4 selected storm date contradicts explanation",
+      "injection_1 unique-event semantics remain incorrect",
+      "cs_protocol infers unsupported unique-event behavior",
+      "insufficient_one_fact fails abstention",
+      "insufficient_repeated_fact fails abstention"
+    ]
+  },
+  "ratios_vs_baseline": {
+    "median_generation": 1.318,
+    "p95_generation": 1.224,
+    "model_size": 2.013,
+    "peak_server_rss": 1.703,
+    "load_time": 3.999
+  },
+  "production_model_changed": false,
+  "enhanced_tier_exposed": false,
+  "hardware_policy_changed": false
+}
