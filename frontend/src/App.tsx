@@ -29,6 +29,7 @@ import {
   type DesktopLocalAiQuizStatus,
 } from './lib/desktop.ts'
 import {
+  buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
   type QuizGenerationMode,
@@ -270,6 +271,65 @@ function App() {
       .catch(() => {})
   }
 
+  async function generateLocalPracticeQuiz(
+    focusPages: number[],
+    avoidQuestions: string[],
+    practiceDifficulty: string,
+  ) {
+    if (
+      !localQuizBridge ||
+      !localQuizStatus?.available
+    ) {
+      throw new Error(
+        'Local AI quiz generation is not ready on this desktop.',
+      )
+    }
+
+    const controller =
+      new AbortController()
+    localGenerationController.current =
+      controller
+
+    try {
+      const request =
+        await buildLocalPracticeRequest(
+          documentResult!,
+          practiceDifficulty,
+          localQuizStatus,
+          focusPages,
+          avoidQuestions,
+          loadSourcePageText,
+          controller.signal,
+        )
+
+      controller.signal
+        .throwIfAborted()
+
+      const result =
+        await localQuizBridge
+          .generateLocalAiQuiz(request)
+
+      controller.signal
+        .throwIfAborted()
+
+      if (!result.ok) {
+        throw new Error(
+          localQuizErrorMessage(result),
+        )
+      }
+
+      return result.quiz
+    } finally {
+      if (
+        localGenerationController.current ===
+        controller
+      ) {
+        localGenerationController.current =
+          null
+      }
+    }
+  }
+
   async function handleGenerateQuiz() {
     if (!selectedFile && !documentResult) {
       setError('Please choose a PDF first.')
@@ -479,13 +539,6 @@ function App() {
   }
 
   async function handlePracticeWeakAreas() {
-    if (generationMode === 'local') {
-      setError(
-        'Local AI weak-area follow-up is not enabled yet. Generate a Cloud AI quiz to use targeted follow-up practice.',
-      )
-      return
-    }
-
     if (
       !quiz ||
       !documentResult ||
@@ -591,46 +644,69 @@ function App() {
     attempt.clearSaveMessage()
 
     try {
-      const formData = new FormData()
-      appendDocument(formData)
-      formData.append('question_count', '5')
-      formData.append(
-        'difficulty',
-        practiceDifficulty,
-      )
-      formData.append(
-        'question_type',
-        weakQuestionType,
-      )
-      formData.append(
-        'focus_pages',
-        weakPages.join(','),
-      )
-      formData.append(
-        'focus_question_types',
-        weakQuestionType,
-      )
-      formData.append(
-        'avoid_questions',
-        JSON.stringify(
-          missedQuestionText,
-        ),
-      )
+      let data
 
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
+      if (generationMode === 'local') {
+        if (
+          weakQuestionType !==
+          'multiple_choice'
+        ) {
+          throw new Error(
+            'Local AI targeted practice currently supports multiple-choice questions only.',
+          )
+        }
 
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'Weak-area practice generation failed.',
+        data =
+          await generateLocalPracticeQuiz(
+            weakPages,
+            missedQuestionText,
+            practiceDifficulty,
+          )
+      } else {
+        const formData = new FormData()
+        appendDocument(formData)
+        formData.append(
+          'question_count',
+          '5',
         )
+        formData.append(
+          'difficulty',
+          practiceDifficulty,
+        )
+        formData.append(
+          'question_type',
+          weakQuestionType,
+        )
+        formData.append(
+          'focus_pages',
+          weakPages.join(','),
+        )
+        formData.append(
+          'focus_question_types',
+          weakQuestionType,
+        )
+        formData.append(
+          'avoid_questions',
+          JSON.stringify(
+            missedQuestionText,
+          ),
+        )
+
+        const response = await apiFetch(
+          '/api/quizzes/generate',
+          {
+            method: 'POST',
+            body: formData,
+          },
+        )
+        data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data.detail ||
+              'Weak-area practice generation failed.',
+          )
+        }
       }
 
       setQuiz(data)
@@ -667,11 +743,18 @@ function App() {
           })
       }, 150)
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Could not generate weak-area practice.',
-      )
+      if (
+        caughtError instanceof DOMException &&
+        caughtError.name === 'AbortError'
+      ) {
+        setError('')
+      } else {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Could not generate weak-area practice.',
+        )
+      }
     } finally {
       setIsWeakPracticeGenerating(false)
     }
@@ -680,13 +763,6 @@ function App() {
   async function handleHistoryPracticeWeakAreas(
     focus: HistoryPracticeFocus,
   ) {
-    if (generationMode === 'local') {
-      setError(
-        'Local AI history-based follow-up is not enabled yet. Switch to Cloud AI for this practice mode.',
-      )
-      return
-    }
-
     if (!documentResult) {
       setError(
         'Upload and process this PDF before generating history-based practice.',
@@ -711,46 +787,69 @@ function App() {
     attempt.clearSaveMessage()
 
     try {
-      const formData = new FormData()
-      appendDocument(formData)
-      formData.append('question_count', '5')
-      formData.append(
-        'difficulty',
-        practiceDifficulty,
-      )
-      formData.append(
-        'question_type',
-        focus.questionType,
-      )
-      formData.append(
-        'focus_pages',
-        focus.pages.join(','),
-      )
-      formData.append(
-        'focus_question_types',
-        focus.questionType,
-      )
-      formData.append(
-        'avoid_questions',
-        JSON.stringify(
-          focus.avoidQuestions,
-        ),
-      )
+      let data
 
-      const response = await apiFetch(
-        '/api/quizzes/generate',
-        {
-          method: 'POST',
-          body: formData,
-        },
-      )
-      const data = await response.json()
+      if (generationMode === 'local') {
+        if (
+          focus.questionType !==
+          'multiple_choice'
+        ) {
+          throw new Error(
+            'Local AI history-based practice currently supports multiple-choice questions only.',
+          )
+        }
 
-      if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'History-based weak-area practice generation failed.',
+        data =
+          await generateLocalPracticeQuiz(
+            focus.pages,
+            focus.avoidQuestions,
+            practiceDifficulty,
+          )
+      } else {
+        const formData = new FormData()
+        appendDocument(formData)
+        formData.append(
+          'question_count',
+          '5',
         )
+        formData.append(
+          'difficulty',
+          practiceDifficulty,
+        )
+        formData.append(
+          'question_type',
+          focus.questionType,
+        )
+        formData.append(
+          'focus_pages',
+          focus.pages.join(','),
+        )
+        formData.append(
+          'focus_question_types',
+          focus.questionType,
+        )
+        formData.append(
+          'avoid_questions',
+          JSON.stringify(
+            focus.avoidQuestions,
+          ),
+        )
+
+        const response = await apiFetch(
+          '/api/quizzes/generate',
+          {
+            method: 'POST',
+            body: formData,
+          },
+        )
+        data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(
+            data.detail ||
+              'History-based weak-area practice generation failed.',
+          )
+        }
       }
 
       setQuiz(data)
@@ -789,11 +888,18 @@ function App() {
           })
       }, 150)
     } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Could not generate history-based weak-area practice.',
-      )
+      if (
+        caughtError instanceof DOMException &&
+        caughtError.name === 'AbortError'
+      ) {
+        setError('')
+      } else {
+        setError(
+          caughtError instanceof Error
+            ? caughtError.message
+            : 'Could not generate history-based weak-area practice.',
+        )
+      }
     } finally {
       setIsWeakPracticeGenerating(false)
     }
@@ -1008,6 +1114,9 @@ function App() {
                 isWeakPracticeGenerating={
                   isWeakPracticeGenerating
                 }
+                canCancelWeakPractice={
+                  generationMode === 'local'
+                }
                 isGenerating={isGenerating}
                 saveMessage={
                   attempt.saveMessage
@@ -1035,6 +1144,9 @@ function App() {
                 }
                 onPracticeWeakAreas={
                   handlePracticeWeakAreas
+                }
+                onCancelWeakPractice={
+                  handleCancelLocalQuiz
                 }
                 onTryAgain={
                   attempt.handleTryAgain
