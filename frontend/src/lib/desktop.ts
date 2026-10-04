@@ -90,6 +90,7 @@ export type DesktopBridge = {
   signIn(): Promise<DesktopAccount>
   signOut(): Promise<void>
   request(request: DesktopRequest): Promise<{ status: number; body: string; contentType: string }>
+  loadSourcePageText?(request: { documentSha256: string; pageNumber: number }): Promise<string>
   reminderStatus(): Promise<{ supported: boolean; enabled: boolean }>
   enableReminders(): Promise<void>
   disableReminders(): Promise<void>
@@ -106,6 +107,23 @@ declare global { interface Window { quizFromNotesDesktop?: DesktopBridge } }
 export function desktopBridge() {
   return typeof window !== 'undefined' && window.quizFromNotesDesktop?.version === 1
     ? window.quizFromNotesDesktop : undefined
+}
+
+export type DesktopSourceTextBridge = DesktopBridge & {
+  loadSourcePageText(request: {
+    documentSha256: string
+    pageNumber: number
+  }): Promise<string>
+}
+
+export function desktopSourceTextBridge(
+  bridge = desktopBridge(),
+): DesktopSourceTextBridge | undefined {
+  if (!bridge) return undefined
+  const candidate = bridge as DesktopSourceTextBridge
+  return typeof candidate.loadSourcePageText === 'function'
+    ? candidate
+    : undefined
 }
 
 export type DesktopLocalAiBridge = DesktopBridge & {

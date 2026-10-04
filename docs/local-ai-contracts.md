@@ -219,6 +219,39 @@ The concrete disk adapter retains integrity verification, exclusive publication,
 serialization, temporary-file cleanup and model-only deletion. Durable study data
 must never be deleted as a side effect of model operations.
 
+## Encrypted desktop source-text cache
+
+The Local AI renderer keeps its small in-memory source-page LRU, but current Windows
+desktop builds also provide a main-process read-through cache for successfully
+retrieved source-page text. This reduces repeated authenticated source-page
+requests across renderer reloads and desktop sessions without changing the server
+document contract.
+
+The persistent cache is deliberately separate from study snapshots and offline
+review data. It is encrypted with the same Windows safeStorage capability but has
+its own schema and lifecycle:
+
+- cache files are keyed by the verified native account identity, never by renderer
+  paths or filenames;
+- page lookup accepts only a normalized 64-character document SHA-256 and bounded
+  positive page number;
+- server responses must repeat the requested document SHA and page number before
+  text can be cached;
+- at most 64 entries are retained per account file, individual cached pages are
+  capped at 256 KiB, and the encrypted envelope is capped at 4 MiB plaintext;
+- entries expire after seven days and expired text is physically removed on later
+  access;
+- corruption is self-healing because this is disposable cache data, not canonical
+  user data;
+- cache read/write failures never block the canonical authenticated server fetch;
+- signed-out or different accounts cannot read a retained cache entry;
+- the hosted renderer receives a fixed read method only and has no generic source
+  cache write primitive.
+
+This does not make PDF extraction fully local. The first uncached source-page read
+still comes from the authenticated Quiz From Notes API. Full local PDF
+processing/extraction remains a separate future capability.
+
 ## Product acceptance gate
 
 The normal one-quiz Windows runtime smoke is not sufficient for product readiness.

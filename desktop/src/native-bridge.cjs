@@ -1,7 +1,7 @@
 'use strict'
 const { APP_ORIGIN } = require('./policy.cjs')
 
-function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, openAccountWebsite }) {
+function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, openAccountWebsite }) {
   function trusted(event) {
     const contents = getWindow()?.webContents
     const frame = event.senderFrame
@@ -14,6 +14,11 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     const manager = getLocalAi()
     if (!manager) throw new Error('Local AI is not available in this desktop build.')
     return manager
+  }
+  function sourceTextCache() {
+    const cache = getSourceTextCache()
+    if (!cache) throw new Error('Desktop source-text cache is not available.')
+    return cache
   }
   const handlers = {
     status: async () => ({ available: !!getSession(), account: getAccount()?.current() ?? null }),
@@ -37,6 +42,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       if (!account) throw new Error('Sign in to your desktop account first.')
       return account.request(value)
     },
+    loadSourcePageText: value => sourceTextCache().load(value),
     reminderStatus: () => getReminders()?.status() ?? { supported: false, enabled: false },
     enableReminders: () => getReminders()?.enable(),
     disableReminders: () => getReminders()?.disable(),
@@ -71,7 +77,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),
   }
-  const argumentCounts = Object.freeze({ request: 1, generateLocalAiQuiz: 1 })
+  const argumentCounts = Object.freeze({ request: 1, loadSourcePageText: 1, generateLocalAiQuiz: 1 })
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('qfn:' + name, async (event, ...args) => {
       if (!trusted(event) || args.length !== (argumentCounts[name] ?? 0)) throw new Error('Desktop command is not permitted.')

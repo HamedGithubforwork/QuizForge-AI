@@ -8,6 +8,7 @@ if (process.isMainFrame && location.origin === 'https://quizfromnotes.com') {
     signIn: () => ipcRenderer.invoke('qfn:signIn'),
     signOut: () => ipcRenderer.invoke('qfn:signOut'),
     request: value => ipcRenderer.invoke('qfn:request', value),
+    loadSourcePageText: value => ipcRenderer.invoke('qfn:loadSourcePageText', value),
     reminderStatus: () => ipcRenderer.invoke('qfn:reminderStatus'),
     enableReminders: () => ipcRenderer.invoke('qfn:enableReminders'),
     disableReminders: () => ipcRenderer.invoke('qfn:disableReminders'),
