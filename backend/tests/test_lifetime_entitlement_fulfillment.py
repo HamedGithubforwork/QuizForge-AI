@@ -3,22 +3,38 @@ import pytest
 from lifetime_entitlement_fulfillment import (
     LifetimeAdFreeRecord,
     NormalizedPurchaseEvent,
+    PurchaseSource,
     decide_lifetime_ad_free_fulfillment,
 )
 
 
 USER_ID = "cognito:pool:user-1"
+SOURCE_1 = PurchaseSource(
+    provider="provider-a",
+    transaction_id="transaction-1",
+)
+SOURCE_2 = PurchaseSource(
+    provider="provider-a",
+    transaction_id="transaction-2",
+)
 
 
 def free_record():
     return LifetimeAdFreeRecord(
         user_id=USER_ID,
-        entitled=False,
     )
 
 
-def completed_event(
+def record_with(*sources):
+    return LifetimeAdFreeRecord(
+        user_id=USER_ID,
+        active_sources=frozenset(sources),
+    )
+
+
+def event(
     *,
+    kind="completed",
     provider="provider-a",
     event_id="event-1",
     transaction_id="transaction-1",
@@ -29,43 +45,34 @@ def completed_event(
         event_id=event_id,
         transaction_id=transaction_id,
         user_id=user_id,
-        kind="completed",
-    )
-
-
-def entitled_record():
-    return LifetimeAdFreeRecord(
-        user_id=USER_ID,
-        entitled=True,
-        source_provider="provider-a",
-        source_transaction_id="transaction-1",
+        kind=kind,
     )
 
 
 def test_completed_purchase_grants_lifetime_ad_free():
     decision = decide_lifetime_ad_free_fulfillment(
         free_record(),
-        completed_event(),
+        event(),
         event_already_processed=False,
     )
 
     assert decision.action == "grant"
     assert decision.mark_event_processed is True
     assert decision.reason == "purchase_completed"
-    assert decision.next_record == LifetimeAdFreeRecord(
-        user_id=USER_ID,
-        entitled=True,
-        source_provider="provider-a",
-        source_transaction_id="transaction-1",
+    assert decision.next_record == record_with(
+        SOURCE_1
     )
+    assert decision.next_record.entitled is True
 
 
-def test_duplicate_event_is_idempotent():
-    record = entitled_record()
+def test_duplicate_provider_event_is_strict_idempotent_noop():
+    record = record_with(
+        SOURCE_1
+    )
 
     decision = decide_lifetime_ad_free_fulfillment(
         record,
-        completed_event(),
+        event(),
         event_already_processed=True,
     )
 
@@ -75,40 +82,46 @@ def test_duplicate_event_is_idempotent():
     assert decision.reason == "duplicate_event"
 
 
-def test_repeated_completed_transaction_does_not_regrant():
-    record = entitled_record()
+def test_repeated_completed_transaction_is_safe_retain():
+    record = record_with(
+        SOURCE_1
+    )
 
     decision = decide_lifetime_ad_free_fulfillment(
         record,
-        completed_event(
+        event(
             event_id="event-2",
         ),
         event_already_processed=False,
     )
 
-    assert decision.action == "noop"
+    assert decision.action == "retain"
     assert decision.next_record is record
     assert decision.mark_event_processed is True
-    assert decision.reason == (
-        "already_entitled_same_transaction"
+    assert decision.reason == "source_already_active"
+
+
+def test_second_completed_transaction_is_recorded_without_double_grant():
+    record = record_with(
+        SOURCE_1
     )
-
-
-def test_second_transaction_does_not_replace_existing_ownership_source():
-    record = entitled_record()
 
     decision = decide_lifetime_ad_free_fulfillment(
         record,
-        completed_event(
+        event(
             event_id="event-2",
             transaction_id="transaction-2",
         ),
         event_already_processed=False,
     )
 
-    assert decision.action == "noop"
-    assert decision.next_record is record
-    assert decision.reason == "already_entitled"
+    assert decision.action == "retain"
+    assert decision.reason == "additional_purchase"
+    assert decision.next_record == record_with(
+        SOURCE_1,
+        SOURCE_2,
+    )
+    assert decision.next_record.entitled is True
 
 
 @pytest.mark.parametrize(
@@ -118,18 +131,17 @@ def test_second_transaction_does_not_replace_existing_ownership_source():
         ("reversed", "purchase_reversed"),
     ],
 )
-def test_matching_refund_or_reversal_revokes_entitlement(
+def test_last_active_source_refund_or_reversal_revokes_entitlement(
     kind,
     reason,
 ):
     decision = decide_lifetime_ad_free_fulfillment(
-        entitled_record(),
-        NormalizedPurchaseEvent(
-            provider="provider-a",
-            event_id=f"{kind}-event",
-            transaction_id="transaction-1",
-            user_id=USER_ID,
+        record_with(
+            SOURCE_1
+        ),
+        event(
             kind=kind,
+            event_id=f"{kind}-event",
         ),
         event_already_processed=False,
     )
@@ -138,6 +150,47 @@ def test_matching_refund_or_reversal_revokes_entitlement(
     assert decision.mark_event_processed is True
     assert decision.reason == reason
     assert decision.next_record == free_record()
+    assert decision.next_record.entitled is False
+
+
+@pytest.mark.parametrize(
+    (
+        "kind",
+        "reason",
+    ),
+    [
+        (
+            "refunded",
+            "purchase_refunded_entitlement_retained",
+        ),
+        (
+            "reversed",
+            "purchase_reversed_entitlement_retained",
+        ),
+    ],
+)
+def test_one_refund_cannot_remove_entitlement_backed_by_another_active_purchase(
+    kind,
+    reason,
+):
+    decision = decide_lifetime_ad_free_fulfillment(
+        record_with(
+            SOURCE_1,
+            SOURCE_2,
+        ),
+        event(
+            kind=kind,
+            event_id=f"{kind}-event",
+        ),
+        event_already_processed=False,
+    )
+
+    assert decision.action == "retain"
+    assert decision.reason == reason
+    assert decision.next_record == record_with(
+        SOURCE_2
+    )
+    assert decision.next_record.entitled is True
 
 
 @pytest.mark.parametrize(
@@ -156,48 +209,46 @@ def test_matching_refund_or_reversal_revokes_entitlement(
         ),
     ],
 )
-def test_unrelated_refund_cannot_revoke_another_purchase(
+def test_unrelated_refund_cannot_revoke_current_entitlement(
     provider,
     transaction_id,
 ):
-    record = entitled_record()
+    record = record_with(
+        SOURCE_1
+    )
 
     decision = decide_lifetime_ad_free_fulfillment(
         record,
-        NormalizedPurchaseEvent(
+        event(
+            kind="refunded",
             provider=provider,
             event_id="refund-2",
             transaction_id=transaction_id,
-            user_id=USER_ID,
-            kind="refunded",
         ),
         event_already_processed=False,
     )
 
-    assert decision.action == "noop"
+    assert decision.action == "retain"
     assert decision.next_record is record
     assert decision.mark_event_processed is True
-    assert decision.reason == "unrelated_transaction"
+    assert decision.reason == "source_not_active"
 
 
-def test_refund_for_free_account_is_safe_noop():
+def test_refund_for_free_account_is_safe_retain():
     record = free_record()
 
     decision = decide_lifetime_ad_free_fulfillment(
         record,
-        NormalizedPurchaseEvent(
-            provider="provider-a",
-            event_id="refund-1",
-            transaction_id="transaction-1",
-            user_id=USER_ID,
+        event(
             kind="refunded",
+            event_id="refund-1",
         ),
         event_already_processed=False,
     )
 
-    assert decision.action == "noop"
+    assert decision.action == "retain"
     assert decision.next_record is record
-    assert decision.reason == "not_entitled"
+    assert decision.reason == "source_not_active"
 
 
 def test_cross_account_event_is_rejected():
@@ -207,7 +258,7 @@ def test_cross_account_event_is_rejected():
     ):
         decide_lifetime_ad_free_fulfillment(
             free_record(),
-            completed_event(
+            event(
                 user_id="cognito:pool:user-2",
             ),
             event_already_processed=False,
@@ -217,35 +268,34 @@ def test_cross_account_event_is_rejected():
 @pytest.mark.parametrize(
     (
         "record",
-        "event",
+        "purchase_event",
         "message",
     ),
     [
         (
             LifetimeAdFreeRecord(
                 user_id="",
-                entitled=False,
             ),
-            completed_event(),
+            event(),
             "record user_id",
         ),
         (
             free_record(),
-            completed_event(
+            event(
                 provider="  ",
             ),
             "event provider",
         ),
         (
             free_record(),
-            completed_event(
+            event(
                 event_id="",
             ),
             "event_id",
         ),
         (
             free_record(),
-            completed_event(
+            event(
                 transaction_id=" ",
             ),
             "transaction_id",
@@ -253,16 +303,21 @@ def test_cross_account_event_is_rejected():
         (
             LifetimeAdFreeRecord(
                 user_id=USER_ID,
-                entitled=True,
+                active_sources=frozenset({
+                    PurchaseSource(
+                        provider=" provider-a",
+                        transaction_id="transaction-1",
+                    )
+                }),
             ),
-            completed_event(),
-            "requires a source",
+            event(),
+            "source provider",
         ),
     ],
 )
 def test_malformed_fulfillment_state_fails_closed(
     record,
-    event,
+    purchase_event,
     message,
 ):
     with pytest.raises(
@@ -271,6 +326,26 @@ def test_malformed_fulfillment_state_fails_closed(
     ):
         decide_lifetime_ad_free_fulfillment(
             record,
-            event,
+            purchase_event,
+            event_already_processed=False,
+        )
+
+
+def test_unsupported_event_kind_fails_closed():
+    malformed = NormalizedPurchaseEvent(
+        provider="provider-a",
+        event_id="event-unsupported",
+        transaction_id="transaction-1",
+        user_id=USER_ID,
+        kind="chargeback",  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported",
+    ):
+        decide_lifetime_ad_free_fulfillment(
+            free_record(),
+            malformed,
             event_already_processed=False,
         )
