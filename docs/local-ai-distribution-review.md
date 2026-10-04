@@ -1,6 +1,6 @@
 # Local AI licensing and distribution review
 
-Status: **engineering review complete; public distribution not approved yet**.
+Status: **internal preview technical gates complete; public distribution not approved yet**.
 
 This document records the release constraints for the pinned Windows Local AI
 candidate. It is an engineering compliance checklist, not legal advice.
@@ -67,18 +67,36 @@ The existing Store build can rely on Microsoft Store package signing after
 acceptance. Direct-distribution signing or any paid certificate/service remains an
 owner-approval item and must not be purchased automatically.
 
-## Remaining release blockers
+## Readiness state
 
-1. Validate the staged 25-file server-only runtime payload on real Windows,
-   including the full CPU-dispatch set and packaged-resource re-verification.
-2. Verify the llama.cpp, nlohmann/json and LLVM OpenMP notices byte-for-byte in
-   the staged and packaged runtime payload.
-3. Complete the broader product quality/performance acceptance gate.
-4. Keep the desktop moderate/high dependency audit green; do not replace an audit failure with an exception or severity downgrade.
-5. Choose/approve the actual signing and distribution channel. No paid signing
-   service or certificate may be purchased without owner approval.
-6. Only after these pass may a preview release candidate bundle a runtime and make
-   Local AI generation visible on compatible hardware.
+The internal Windows Local AI preview has completed its technical release gates:
+the staged 25-file server-only runtime and notices are verified in packaged
+resources on real Windows; the desktop moderate/high dependency audit is clean;
+the model identity/license disclosure is user-visible; and the real application
+stack passes the semantic, multilingual, injection/noise, abstention, repeated-use,
+latency, and native process-metrics acceptance gate.
+
+This does **not** approve public distribution. Normal desktop and Store packages
+remain runtime-free, automatic model/runtime downloads remain disabled, and the
+runtime-bundled build remains an internal preview.
+
+
+Final hosted Windows acceptance evidence for the reviewed candidate is workflow
+run **37133690971** on the exact #490 head. It passed five generated synthetic
+quiz cases plus one insufficient-source abstention. The generated-quiz median was
+**40.151 seconds**, the maximum was **52.277 seconds**, and the measured peak
+`llama-server` working set was **5,026,988,032 bytes (~4.68 GiB)**. The runner
+reported 4 logical CPUs, about 16 GiB host RAM, CPU-only inference, and valid
+native CPU-time samples. These are development acceptance measurements, not
+published consumer-device requirements.
+
+## Remaining public-distribution blocker
+
+Choose and approve the signing/distribution channel. No paid signing service,
+certificate, Store submission, or other paid distribution step may be purchased
+or initiated automatically. After that owner decision, create a reviewed,
+channel-specific release candidate from the already validated internal-preview
+payload rather than changing the runtime/model candidate.
 
 ## Sources reviewed
 
