@@ -9,13 +9,16 @@ from check_architecture import check_repository
 
 class ArchitectureCheckTests(unittest.TestCase):
     def make_repo(self, *, spaced="from datetime import datetime\n", validation="import math\n",
-                  review="from spaced_repetition import schedule_review\n", store="require('node:fs')\n",
+                  review="from spaced_repetition import schedule_review\n",
+                  fulfillment="from dataclasses import dataclass\n",
+                  store="require('node:fs')\n",
                   runtime="require('node:http')\n", extra=None):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         files = {"ARCHITECTURE.md": "# Architecture\n", "backend/spaced_repetition.py": spaced,
                  "backend/quiz_validation.py": validation, "backend/review_service.py": review,
+                 "backend/lifetime_entitlement_fulfillment.py": fulfillment,
                  "desktop/src/local-model-store.cjs": store, "desktop/src/local-runtime.cjs": runtime}
         files.update(extra or {})
         for name, source in files.items():
@@ -33,6 +36,26 @@ class ArchitectureCheckTests(unittest.TestCase):
                                ("from . import decks", "decks")]:
             with self.subTest(source=source):
                 self.assertTrue(any(target in item for item in check_repository(self.make_repo(review=source))))
+
+    def test_fulfillment_domain_cannot_import_delivery_or_persistence(self):
+        for source, target in [
+            ("from fastapi import Request", "fastapi"),
+            ("import psycopg", "psycopg"),
+            ("import redis", "redis"),
+        ]:
+            with self.subTest(source=source):
+                violations = check_repository(
+                    self.make_repo(
+                        fulfillment=source,
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        "lifetime_entitlement_fulfillment.py" in item
+                        and target in item
+                        for item in violations
+                    )
+                )
 
     def test_new_helper_cannot_hide_a_database_dependency(self):
         root = self.make_repo(review="from helper import decide", extra={"backend/helper.py": "import psycopg"})
