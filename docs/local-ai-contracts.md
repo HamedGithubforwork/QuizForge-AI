@@ -151,10 +151,11 @@ stack reports hardware eligibility, a verified installed model, and a checksum-
 verified runtime. Older desktop builds feature-detect the optional bridge and keep
 the cloud-only UI. Cancellation spans authenticated source-page retrieval and the
 native inference operation. Weak-area and history follow-up practice may use Local
-AI only when the focus is multiple-choice, the focused pages are already in the
-processed selection, and at least one bounded prior question is supplied to avoid.
-The prior-question list is a separate untrusted message; it is not treated as
-source material, and exact normalized repeats are rejected after generation.
+AI only when the focus is multiple-choice and the focused pages are already in
+the processed selection. The optional prior-question list is bounded to 20 entries
+and 8,000 UTF-8 bytes total. It is sent as a separate untrusted message, is not
+treated as source material, and exact normalized repeats are rejected after
+generation.
 Unsupported history question types remain explicitly unavailable locally and are
 never silently switched to cloud.
 
