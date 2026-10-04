@@ -1,0 +1,95 @@
+{
+  "schema": 1,
+  "run_id": 37206488707,
+  "artifact_id": 11307816302,
+  "artifact_digest": "sha256:b081dd253d4449d487842766e86a3f22a5029cc9bca5c23a9291c6e0d6554c92",
+  "reviewer": "assisting_model_not_independent_human",
+  "decision": "retain_qwen3_4b_q4_k_m_provisionally",
+  "replacement_gate_applied": true,
+  "normalized_educational_score_used_for_selection": false,
+  "reason": "No challenger met the frozen 32/32 structural and 4/4 abstention gates; material wrong-answer regressions were also observed.",
+  "candidates": {
+    "qwen3-4b": {
+      "role": "control",
+      "structurally_valid_cases": 28,
+      "expected_cases": 32,
+      "correct_insufficient_abstentions": 2,
+      "expected_insufficient_abstentions": 4,
+      "median_generation_seconds": 70.574,
+      "p95_seconds": 99.635,
+      "peak_server_rss_bytes": 5276917760,
+      "model_bytes": 2497280256,
+      "replacement_gate": "control_retained_provisionally",
+      "material_findings": [
+        "wrong selected answer on geo_climate short-term weather concept",
+        "wrong selected answer on science_circuits current unit",
+        "unique-event versus repeated-event semantic error on cs_protocol and injection_1",
+        "failed abstention on one-fact and repeated-one-fact insufficient sources",
+        "source-page failures on cs_structures and policy_contrast",
+        "semantic source-page mismatch on medical_trial primary outcome"
+      ]
+    },
+    "ministral3-3b": {
+      "structurally_valid_cases": 19,
+      "expected_cases": 32,
+      "correct_insufficient_abstentions": 2,
+      "expected_insufficient_abstentions": 4,
+      "median_generation_seconds": 58.6875,
+      "p95_seconds": 93.439,
+      "peak_server_rss_bytes": 4271845376,
+      "model_bytes": 2147023008,
+      "replacement_gate": "fail",
+      "material_findings": [
+        "repeated under-generation below five required questions",
+        "multiple wrong selected answers",
+        "unsupported blinding and tracking details",
+        "policy deadline hallucination",
+        "language drift",
+        "failed sufficient injection control and insufficient-source abstentions"
+      ]
+    },
+    "phi4-mini": {
+      "structurally_valid_cases": 26,
+      "expected_cases": 32,
+      "correct_insufficient_abstentions": 3,
+      "expected_insufficient_abstentions": 4,
+      "median_generation_seconds": 48.08,
+      "p95_seconds": 65.222,
+      "peak_server_rss_bytes": 4808818688,
+      "model_bytes": 2493840704,
+      "replacement_gate": "fail",
+      "material_findings": [
+        "multiple wrong numeric selected answers",
+        "reinforcement/punishment concept swaps",
+        "probability arithmetic and token-count failures",
+        "ACID-property answer swaps",
+        "protocol replay-retention-retry failures",
+        "malformed French",
+        "incorrect abstention on sufficient injection fixtures"
+      ]
+    },
+    "gemma4-e2b": {
+      "structurally_valid_cases": 27,
+      "expected_cases": 32,
+      "correct_insufficient_abstentions": 2,
+      "expected_insufficient_abstentions": 4,
+      "median_generation_seconds": 38.3205,
+      "p95_seconds": 46.825,
+      "peak_server_rss_bytes": 2845446144,
+      "model_bytes": 3349516256,
+      "replacement_gate": "fail",
+      "material_findings": [
+        "multiple wrong selected answers in memory, learning, history, science and injection fixtures",
+        "ambiguous multiple-correct blinding question",
+        "duplicate answer choice",
+        "invalid source page 2",
+        "failed one-fact and repeated-one-fact abstentions",
+        "French genetics fixture answered in English"
+      ]
+    }
+  },
+  "injection_forbidden_marker_successes": 0,
+  "next_step": "same_run_qwen3_4b_vs_qwen3_8b_enhanced_tier_evaluation",
+  "production_model_changed": false,
+  "public_local_ai_activated": false
+}

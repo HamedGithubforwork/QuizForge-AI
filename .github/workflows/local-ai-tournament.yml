@@ -1,0 +1,78 @@
+name: Local AI held-out tournament
+on:
+  workflow_dispatch:
+    inputs:
+      candidates:
+        description: 'Comma-separated reviewed candidate IDs (enhanced run: finalist,qwen3-8b)'
+        default: 'qwen3-4b,ministral3-3b,phi4-mini,gemma4-e2b'
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: local-ai-tournament-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows-tournament:
+    runs-on: windows-2025
+    timeout-minutes: 240
+    env:
+      RUNTIME_SHA256: f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c
+      CANDIDATES: ${{ inputs.candidates || 'qwen3-4b,ministral3-3b,phi4-mini,gemma4-e2b' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Validate evaluation contract
+        run: python -m unittest discover -s desktop/benchmarks -p 'test_*.py'
+      - name: Download verified runtime and pinned conversion source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 300 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne $env:RUNTIME_SHA256) { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime"
+          git clone --depth 1 --branch b11317 https://github.com/ggml-org/llama.cpp "$env:RUNNER_TEMP/llama-src"
+          if ($LASTEXITCODE -ne 0) { throw 'Conversion tooling download failed' }
+          $revision = git -C "$env:RUNNER_TEMP/llama-src" rev-parse HEAD
+          if ($revision -ne '7dad6db8586958a1cd3cd465b9c9e10f802daf3a') { throw 'Conversion tooling pin mismatch' }
+          python -m pip install --disable-pip-version-check -r "$env:RUNNER_TEMP/llama-src/requirements/requirements-convert_hf_to_gguf.txt"
+          if ($LASTEXITCODE -ne 0) { throw 'Conversion dependencies failed' }
+      - name: Same-run sequential candidate evaluation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = @(Get-ChildItem "$env:RUNNER_TEMP/runtime" -Recurse -Filter llama-server.exe)
+          $quantize = @(Get-ChildItem "$env:RUNNER_TEMP/runtime" -Recurse -Filter llama-quantize.exe)
+          if ($server.Count -ne 1 -or $quantize.Count -ne 1) { throw 'Expected exactly one server and quantizer' }
+          $known = @('qwen3-4b','ministral3-3b','phi4-mini','gemma4-e2b','qwen3-8b')
+          $candidates = $env:CANDIDATES.Split(',')
+          if ($candidates.Count -lt 2 -or $candidates.Count -gt 4) { throw 'Choose 2 to 4 candidates' }
+          if (@($candidates | Select-Object -Unique).Count -ne $candidates.Count) { throw 'Duplicate candidate' }
+          foreach ($candidate in $candidates) { if ($candidate -notin $known) { throw 'Unreviewed candidate' } }
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/evidence" | Out-Null
+          $failed = $false
+          foreach ($candidate in $candidates) {
+            python desktop/benchmarks/tournament/prepare.py --candidate $candidate --directory "$env:RUNNER_TEMP/models" --llama-source "$env:RUNNER_TEMP/llama-src" --quantize $quantize[0].FullName
+            if ($LASTEXITCODE -ne 0) {
+              @{candidate=$candidate; status='preparation_failed'; inference_tested=$false} | ConvertTo-Json | Set-Content "$env:RUNNER_TEMP/evidence/$candidate-preparation-failure.json"
+              $failed = $true
+            } else {
+              $meta = Get-Content "$env:RUNNER_TEMP/models/$candidate/provenance.json" | ConvertFrom-Json
+              Copy-Item "$env:RUNNER_TEMP/models/$candidate/provenance.json" "$env:RUNNER_TEMP/evidence/$candidate-provenance.json"
+              python desktop/benchmarks/tournament/run.py --candidate $candidate --runtime $server[0].FullName --model-file "$env:RUNNER_TEMP/models/$candidate/model.gguf" --model-sha256 $meta.sha256 --runtime-sha256 $env:RUNTIME_SHA256 --output "$env:RUNNER_TEMP/evidence/$candidate-report.json"
+              if ($LASTEXITCODE -ne 0) { $failed = $true }
+            }
+            if (Test-Path "$env:RUNNER_TEMP/models/$candidate") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/models/$candidate" }
+          }
+          if ($failed) { throw 'At least one candidate had an infrastructure failure; inspect preserved evidence' }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: local-ai-tournament-windows
+          path: ${{ runner.temp }}/evidence/*.json
+          if-no-files-found: warn
+          retention-days: 30
