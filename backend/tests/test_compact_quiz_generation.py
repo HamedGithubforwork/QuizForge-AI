@@ -60,7 +60,7 @@ def fixtures(mode):
     return service.Quiz(title='Synthetic quiz', questions=questions)
 
 
-def generate(monkeypatch, outputs, mode):
+def generate(monkeypatch, outputs, mode, on_model_call=None):
     requests = []
     async def scenario():
         def handler(request):
@@ -78,7 +78,8 @@ def generate(monkeypatch, outputs, mode):
             monkeypatch.setattr(service, 'get_openai_client', get_client)
             result = await service.generate_quiz_from_pages(pages=[{'page_number': 7,
                 'text': 'Photosynthesis stores chemical energy. TCP provides reliable delivery. The mass is 2 g. ' * 20}],
-                question_count=5, difficulty='medium', question_type=mode)
+                question_count=5, difficulty='medium', question_type=mode,
+                on_model_call=on_model_call)
             return result, requests
     return asyncio.run(scenario())
 
@@ -135,3 +136,24 @@ def test_choice_output_is_smaller_for_the_same_content():
     assert smaller < full
     print(json.dumps({'synthetic_questions': 5, 'full_response_bytes': full,
                       'compact_response_bytes': smaller, 'reduction_percent': round(100 * (1 - smaller / full), 1)}))
+
+
+def test_model_call_callback_counts_each_paid_retry_attempt(monkeypatch):
+    expected = fixtures('multiple_choice')
+    bad = compact(expected)
+    bad['questions'][0]['choices'] = ['A', 'B', 'C']
+    calls = []
+
+    async def record_call():
+        calls.append('model_call')
+
+    result, requests = generate(
+        monkeypatch,
+        [bad, compact(expected)],
+        'multiple_choice',
+        on_model_call=record_call,
+    )
+
+    assert result == expected
+    assert len(requests) == 2
+    assert calls == ['model_call', 'model_call']
