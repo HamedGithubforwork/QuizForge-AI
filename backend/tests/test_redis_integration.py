@@ -6,7 +6,9 @@ import main
 from starlette.datastructures import Headers, UploadFile
 
 from redis_integration import (
+    QUIZ_CACHE_TTL_SECONDS,
     build_quiz_cache_key,
+    cache_quiz,
     enforce_quiz_rate_limit,
 )
 
@@ -33,6 +35,42 @@ class FakeRedis:
 
         return [1, window_seconds]
 
+
+
+
+class FakeQuizCacheRedis:
+    def __init__(self):
+        self.set_calls = []
+
+    async def set(self, key, value, ex=None):
+        self.set_calls.append(
+            (key, value, ex)
+        )
+        return True
+
+
+def test_quiz_cache_default_retains_generated_output_for_24_hours():
+    assert QUIZ_CACHE_TTL_SECONDS == 24 * 60 * 60
+
+    fake_redis = FakeQuizCacheRedis()
+    quiz = application.Quiz(
+        title="Cached quiz",
+        questions=[],
+    )
+
+    asyncio.run(
+        cache_quiz(
+            "quiz-key",
+            quiz,
+            client=fake_redis,
+        )
+    )
+
+    assert len(fake_redis.set_calls) == 1
+    key, payload, ttl = fake_redis.set_calls[0]
+    assert key == "quiz-key"
+    assert '"title":"Cached quiz"' in payload
+    assert ttl == 24 * 60 * 60
 
 def make_upload():
     return UploadFile(
