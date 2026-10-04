@@ -1,0 +1,159 @@
+name: Local AI model A/B
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - desktop/benchmarks/compare_ab.py
+      - desktop/benchmarks/qwen3-instruct-2507-ab.md
+      - desktop/benchmarks/local_inference.py
+      - desktop/benchmarks/run_cpu.py
+      - .github/workflows/local-ai-model-ab.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-model-ab-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-q4-ab:
+    name: Windows Qwen3 4B vs Instruct-2507 Q4_K_M
+    runs-on: windows-2025
+    timeout-minutes: 55
+
+    env:
+      RUNTIME_VERSION: b11317
+      RUNTIME_SHA256: f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c
+      CURRENT_MODEL_SHA256: 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      CANDIDATE_REPO: Qwen/Qwen3-4B-Instruct-2507
+      CANDIDATE_REVISION: cdbee75f17c01a7cc42f958dc650907174af0554
+
+    steps:
+      - name: Check out QuizForge
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Verify candidate upstream revision
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $model = Invoke-RestMethod 'https://huggingface.co/api/models/Qwen/Qwen3-4B-Instruct-2507'
+          if ($model.sha -ne $env:CANDIDATE_REVISION) {
+            throw "Candidate repository moved: $($model.sha)"
+          }
+
+      - name: Download and verify pinned llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          $digest = (Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower()
+          if ($digest -ne $env:RUNTIME_SHA256) { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime"
+          $server = @(Get-ChildItem "$env:RUNNER_TEMP/runtime" -Recurse -Filter llama-server.exe)
+          $quantize = @(Get-ChildItem "$env:RUNNER_TEMP/runtime" -Recurse -Filter llama-quantize.exe)
+          if ($server.Count -ne 1) { throw 'Expected one llama-server.exe' }
+          if ($quantize.Count -ne 1) { throw 'Expected one llama-quantize.exe' }
+          "LLAMA_SERVER=$($server[0].FullName)" >> $env:GITHUB_ENV
+          "LLAMA_QUANTIZE=$($quantize[0].FullName)" >> $env:GITHUB_ENV
+
+      - name: Benchmark current pinned Qwen3 4B Q4_K_M
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $current = "$env:RUNNER_TEMP/current-q4.gguf"
+          curl.exe -fL --max-time 300 -o $current 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf'
+          if ($LASTEXITCODE -ne 0) { throw 'Current model download failed' }
+          $digest = (Get-FileHash $current -Algorithm SHA256).Hash.ToLower()
+          if ($digest -ne $env:CURRENT_MODEL_SHA256) { throw 'Current model checksum mismatch' }
+          python desktop/benchmarks/run_cpu.py --suite all --runtime "$env:LLAMA_SERVER" --model-file $current --model-sha256 $env:CURRENT_MODEL_SHA256 --runtime-version $env:RUNTIME_VERSION --output "$env:RUNNER_TEMP/current-report.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item -Force $current
+
+      - name: Prepare pinned llama.cpp conversion tooling
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git clone --depth 1 --branch b11317 https://github.com/ggml-org/llama.cpp "$env:RUNNER_TEMP/llama-src"
+          if ($LASTEXITCODE -ne 0) { throw 'llama.cpp source checkout failed' }
+          python -m pip install --disable-pip-version-check -r "$env:RUNNER_TEMP/llama-src/requirements/requirements-convert_hf_to_gguf.txt" huggingface_hub
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Convert official Instruct-2507 source and self-quantize Q4_K_M
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bf16 = "$env:RUNNER_TEMP/qwen3-4b-instruct-2507-bf16.gguf"
+          $q4 = "$env:RUNNER_TEMP/qwen3-4b-instruct-2507-q4_k_m.gguf"
+
+          $drive = Get-PSDrive -Name ([System.IO.Path]::GetPathRoot($env:RUNNER_TEMP).TrimEnd(':','\'))
+          Write-Host "Free bytes before conversion: $($drive.Free)"
+
+          python "$env:RUNNER_TEMP/llama-src/convert_hf_to_gguf.py" $env:CANDIDATE_REPO --remote --outtype bf16 --outfile $bf16
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          & "$env:LLAMA_QUANTIZE" $bf16 $q4 Q4_K_M
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          Remove-Item -Force $bf16
+          $digest = (Get-FileHash $q4 -Algorithm SHA256).Hash.ToLower()
+          if (-not ($digest -match '^[0-9a-f]{64}$')) { throw 'Candidate digest invalid' }
+          "CANDIDATE_MODEL=$q4" >> $env:GITHUB_ENV
+          "CANDIDATE_SHA256=$digest" >> $env:GITHUB_ENV
+          Write-Host "Candidate SHA-256: $digest"
+
+      - name: Reverify candidate upstream revision
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $model = Invoke-RestMethod 'https://huggingface.co/api/models/Qwen/Qwen3-4B-Instruct-2507'
+          if ($model.sha -ne $env:CANDIDATE_REVISION) {
+            throw "Candidate repository moved during conversion: $($model.sha)"
+          }
+
+      - name: Benchmark self-quantized Instruct-2507 Q4_K_M
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python desktop/benchmarks/run_cpu.py --suite all --runtime "$env:LLAMA_SERVER" --model-file "$env:CANDIDATE_MODEL" --model-sha256 "$env:CANDIDATE_SHA256" --runtime-version $env:RUNTIME_VERSION --output "$env:RUNNER_TEMP/candidate-report.json"
+          exit $LASTEXITCODE
+
+      - name: Compare same-run evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python desktop/benchmarks/compare_ab.py --baseline "$env:RUNNER_TEMP/current-report.json" --candidate "$env:RUNNER_TEMP/candidate-report.json" --candidate-source-revision $env:CANDIDATE_REVISION --output "$env:RUNNER_TEMP/comparison.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $comparison = Get-Content "$env:RUNNER_TEMP/comparison.json" -Raw | ConvertFrom-Json
+          @"
+          ## Local AI Q4 A/B
+          - Automated gate: **$($comparison.automated_gate)**
+          - Current median: **$($comparison.baseline.median_seconds) s**
+          - Instruct-2507 median: **$($comparison.candidate.median_seconds) s**
+          - Latency ratio: **$($comparison.candidate_vs_baseline.median_latency_ratio)x**
+          - Current size: **$($comparison.baseline.model_bytes) bytes**
+          - Instruct-2507 size: **$($comparison.candidate.model_bytes) bytes**
+          - Candidate SHA-256: `$($comparison.candidate.model_sha256)`
+          - Decision: **manual semantic review required before any product-model change**
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload A/B evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen3-instruct-2507-q4-ab-windows
+          path: |
+            ${{ runner.temp }}/current-report.json
+            ${{ runner.temp }}/candidate-report.json
+            ${{ runner.temp }}/comparison.json
+          if-no-files-found: warn
+          retention-days: 30

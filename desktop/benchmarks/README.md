@@ -109,3 +109,21 @@ The saved basic-suite results use greedy decoding. Extended evaluation now uses
 the pinned model card’s recommended non-thinking settings: temperature 0.7,
 top-p 0.8, top-k 20, min-p 0 and presence penalty 1.5, with seed 42. Results remain
 a small development screen, not an optimized quality or launch-acceptance claim.
+
+## Qwen3-4B-Instruct-2507 A/B
+
+The repository now has a dedicated same-run Windows Q4_K_M comparison in
+`.github/workflows/local-ai-model-ab.yml`. It benchmarks the currently pinned
+Qwen3-4B Q4_K_M and a **self-quantized** Qwen3-4B-Instruct-2507 Q4_K_M on the
+same hosted Windows runner using the same runtime, prompt, sampling settings and
+six-case synthetic suite.
+
+The Instruct-2507 candidate comes from the official Qwen safetensors repository
+at reviewed revision `cdbee75f17c01a7cc42f958dc650907174af0554`; the workflow
+verifies that upstream HEAD before and after conversion, uses pinned llama.cpp
+`b11317` tooling, records the generated GGUF SHA-256, and never commits weights
+to the repository. See `qwen3-instruct-2507-ab.md` for the decision gates.
+
+A passing workflow does not change the product default. Raw quiz output still
+requires semantic review before replacing the pinned model.
+
