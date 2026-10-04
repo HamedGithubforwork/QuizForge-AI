@@ -164,6 +164,27 @@ async def record_document_cache_metric(client, cache_result: str):
     )
 
 
+
+async def record_generation_provider_metric(
+    client,
+    *,
+    provider: str,
+    event: str,
+):
+    allowed = {
+        ("cloud", "request"): "cloud_generation_requests_total",
+        ("cloud", "model_call"): "cloud_generation_model_calls_total",
+        ("local", "quiz_completed"): "local_quiz_generations_total",
+        ("local", "targeted_practice_completed"): "local_targeted_practice_generations_total",
+    }
+    metric_name = allowed.get((provider, event))
+    if metric_name is None:
+        raise ValueError("Unsupported generation provider metric.")
+    await increment_metric(
+        client,
+        metric_name,
+    )
+
 async def record_quiz_metrics(
     client,
     *,
