@@ -51,10 +51,17 @@
     "model_data_download": "allowed_by_project_policy_with_explicit_user_action_and_license_disclosure"
   },
   "activation_blockers": [
-    "validate_minimal_runtime_payload_on_real_windows",
-    "bundle_and_verify_required_runtime_notices",
-    "approve_code_signing_and_distribution_channel",
-    "complete_product_acceptance_gate",
-    "desktop_dependency_audit_must_pass"
-  ]
+    "approve_code_signing_and_distribution_channel"
+  ],
+  "readiness": {
+    "internal_preview_technical_ready": true,
+    "public_distribution_approved": false,
+    "completed_evidence": [
+      "minimal_runtime_payload_real_windows",
+      "runtime_notices_packaged_and_verified",
+      "product_quality_performance_acceptance",
+      "user_visible_model_license_disclosure",
+      "desktop_dependency_audit"
+    ]
+  }
 }
