@@ -150,8 +150,13 @@ The hosted desktop app exposes Local AI as a generation engine only when the nat
 stack reports hardware eligibility, a verified installed model, and a checksum-
 verified runtime. Older desktop builds feature-detect the optional bridge and keep
 the cloud-only UI. Cancellation spans authenticated source-page retrieval and the
-native inference operation. Weak-area/history follow-up generation remains cloud-
-only in this first preview and is never silently switched from Local AI to cloud.
+native inference operation. Weak-area and history follow-up practice may use Local
+AI only when the focus is multiple-choice, the focused pages are already in the
+processed selection, and at least one bounded prior question is supplied to avoid.
+The prior-question list is a separate untrusted message; it is not treated as
+source material, and exact normalized repeats are rejected after generation.
+Unsupported history question types remain explicitly unavailable locally and are
+never silently switched to cloud.
 
 Privacy scope is explicit: in this phase PDF processing and authenticated source-
 page retrieval still use the existing Quiz From Notes server workflow. Only the
@@ -229,7 +234,9 @@ Its synthetic acceptance cases cover:
 - insufficient material, which must abstain with `insufficient_source` instead of
   inventing five questions;
 - another full generation after the other cases, to exercise sequential cleanup
-  and restart behavior.
+  and restart behavior;
+- a targeted-practice generation on focused pages with prior questions that must
+  not be repeated.
 
 Generated questions are not accepted merely because they satisfy JSON structure.
 Each question must map to exactly one unique synthetic source fact by its question /
