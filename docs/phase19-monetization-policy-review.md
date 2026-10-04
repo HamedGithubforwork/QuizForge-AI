@@ -211,3 +211,49 @@ pre-billing contract is intentionally narrow:
 When real purchasing is implemented, replace the preview source behind the same
 semantic account-entitlement contract with durable, reconciled purchase state
 rather than distributing provider-specific checks through route handlers or UI.
+
+
+## Ad-presentation policy implementation contract
+
+The second Phase 19 engineering step is a pure provider-neutral decision layer.
+It must run before any ad SDK/provider request and must not itself load a provider.
+
+Current product policy:
+
+- lifetime Ad-Free ownership suppresses every ad-provider request;
+- unknown/unavailable entitlement state also suppresses provider requests until the
+  account entitlement can be verified, avoiding ads for a purchaser during API failure;
+- active quiz, review session, answer reveal, and timed exam surfaces are always
+  focus-critical and cannot request ads;
+- home, deck library, post-review results summary, and progress are the only
+  initially eligible surfaces; callers must classify by actual interaction state rather
+  than pathname, so an answer-reveal view on the home/quiz route remains excluded;
+- settings are not an initial ad surface;
+- runtime identity does not imply provider approval;
+- an otherwise eligible surface can request a provider only when the
+  runtime-specific provider adapter has separately been reviewed and declared
+  available;
+- browser, desktop, and future mobile provider approval remain independent so a
+  web provider cannot accidentally become authorized inside the native shell.
+
+This policy contains no ad SDK, provider endpoint, account identifier, study
+content, price, payment logic, or tracking implementation.
+
+
+## Provider-call gate implementation contract
+
+Before any real ad SDK is introduced, the product has one provider-neutral call
+gate. The gate must:
+
+- resolve the authenticated semantic lifetime Ad-Free entitlement before an
+  eligible provider call;
+- apply the interaction-surface and exact-runtime policy;
+- pass only the semantic surface identifier to the ad adapter;
+- never pass account identifiers, PDF/note text, prompts, questions, answers,
+  deck contents, review history, model metadata, or auth tokens;
+- avoid calling the provider for Ad-Free, unknown entitlement, focus-critical,
+  ineligible-surface, or cross-runtime cases;
+- catch provider failure so ad availability cannot break the study experience.
+
+A future provider adapter plugs in behind this gate. The gate itself does not
+select a network, render an ad, create tracking identifiers, or activate billing.
