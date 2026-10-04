@@ -27,11 +27,16 @@ from document_retrieval import build_generation_pages
 from cloud_generation_access import (
     require_cloud_generation_access,
 )
+from generation_usage import (
+    LocalGenerationEvent,
+    record_local_generation_event,
+)
 from observability import (
     elapsed_ms,
     log_event,
     observe_http_request,
     record_document_cache_metric,
+    record_generation_provider_metric,
     record_quiz_metrics,
 )
 from processed_documents import (
@@ -469,6 +474,23 @@ async def admin_metrics(
 
 
 @app.post(
+    "/api/generation-usage/local",
+    status_code=204,
+)
+async def record_local_generation_usage(
+    event: LocalGenerationEvent,
+    _current_user: AuthenticatedUser = Depends(
+        get_current_user
+    ),
+):
+    await record_local_generation_event(
+        redis_client,
+        event,
+    )
+    return None
+
+
+@app.post(
     "/api/documents/upload",
     response_model=UploadResponse,
     responses={202: {'model': PdfJobResponse}},
@@ -538,6 +560,11 @@ async def generate_quiz(
 
     await require_cloud_generation_access(
         current_user
+    )
+    await record_generation_provider_metric(
+        redis_client,
+        provider="cloud",
+        event="request",
     )
 
     # Redis is the shared rate limiter across backend instances.
@@ -701,6 +728,13 @@ async def generate_quiz(
                     focus_question_types
                 ),
                 avoid_questions=avoid_questions,
+                on_model_call=(
+                    lambda: record_generation_provider_metric(
+                        redis_client,
+                        provider="cloud",
+                        event="model_call",
+                    )
+                ),
             )
 
             cited_pages = {

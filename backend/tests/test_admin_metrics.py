@@ -77,6 +77,10 @@ def test_metric_snapshot_calculates_rates_averages_and_percentiles():
         document_cache_hits_total="8",
         document_cache_misses_total="2",
         quiz_generation_errors_total="1",
+        cloud_generation_requests_total="7",
+        cloud_generation_model_calls_total="3",
+        local_quiz_generations_total="11",
+        local_targeted_practice_generations_total="4",
     )
     values.update(
         {
@@ -113,6 +117,10 @@ def test_metric_snapshot_calculates_rates_averages_and_percentiles():
     assert snapshot["document_cache_misses_total"] == 2
     assert snapshot["document_cache_hit_rate_percent"] == 80.0
     assert snapshot["quiz_generation_errors_total"] == 1
+    assert snapshot["cloud_generation_requests_total"] == 7
+    assert snapshot["cloud_generation_model_calls_total"] == 3
+    assert snapshot["local_quiz_generations_total"] == 11
+    assert snapshot["local_targeted_practice_generations_total"] == 4
 
     http_latency = snapshot[
         "latency_percentiles_ms"

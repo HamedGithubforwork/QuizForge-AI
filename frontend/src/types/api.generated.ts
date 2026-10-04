@@ -463,6 +463,7 @@ export const API_ROUTES = [
   "POST /api/decks/{deck_id}/review",
   "POST /api/documents/jobs/reuse",
   "POST /api/documents/upload",
+  "POST /api/generation-usage/local",
   "POST /api/quiz-history",
   "POST /api/quizzes/generate",
   "POST /api/study-notifications/push/subscriptions",

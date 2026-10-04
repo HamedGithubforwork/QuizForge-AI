@@ -440,6 +440,7 @@ async def generate_quiz_from_pages(
     focus_pages: str = "",
     focus_question_types: str = "",
     avoid_questions: str = "[]",
+    on_model_call=None,
 ):
     analysis = analyze_extracted_text(
         pages,
@@ -632,6 +633,8 @@ Do not mention the retry or validation process in the quiz.
 """
 
         try:
+            if on_model_call is not None:
+                await on_model_call()
             response = await client.responses.parse(
                 model="gpt-5.6-luna",
                 input=[

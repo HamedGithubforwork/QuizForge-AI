@@ -76,6 +76,34 @@ def test_health_endpoint():
     }
 
 
+def test_local_generation_usage_requires_authentication():
+    response = client.post(
+        "/api/generation-usage/local",
+        json={
+            "kind": "quiz",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == (
+        "Authentication is required."
+    )
+
+
+def test_local_generation_usage_accepts_bounded_event(
+    authenticated_client,
+):
+    response = authenticated_client.post(
+        "/api/generation-usage/local",
+        json={
+            "kind": "targeted_practice",
+        },
+    )
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
 def test_upload_requires_authentication():
     response = client.post(
         "/api/documents/upload",
