@@ -425,10 +425,6 @@ test('targeted retry filters exact prior questions from an eight-question candid
             request.messages.at(-1).content,
             /source_fact.*verbatim/i,
           )
-          assert.match(
-            request.messages.at(-1).content,
-            /source_fact.*verbatim/i,
-          )
         }
         return {
           text: JSON.stringify(
