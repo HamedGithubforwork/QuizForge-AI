@@ -232,9 +232,27 @@ test('targeted practice keeps prior questions bounded, separate from source, and
     provider: {
       async generate(request) {
         captured = request
-        const quiz = rawQuiz()
+        const quiz = withRetrySourceFacts(rawQuiz())
         quiz.questions[0].question = 'A different follow-up question?'
         quiz.questions[1].question = 'Another distinct follow-up question?'
+        assert.equal(
+          request.jsonSchema.properties.questions.minItems,
+          0,
+        )
+        assert.equal(
+          request.jsonSchema.properties.questions.maxItems,
+          8,
+        )
+        assert.equal(
+          request.jsonSchema.properties.questions.items.required.includes(
+            'source_fact',
+          ),
+          true,
+        )
+        assert.match(
+          request.messages.at(-1).content,
+          /exactly eight candidate questions/i,
+        )
         return {
           text: JSON.stringify(quiz),
           finishReason: 'stop',
@@ -301,7 +319,7 @@ test('targeted-practice input rejects duplicate, oversized and malformed prior-q
 
 
 test('targeted practice retries once when the model repeats an avoided question', async () => {
-  const first = rawQuiz()
+  const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
   const second = rawQuiz()
   second.questions.forEach((item, index) => {
@@ -351,7 +369,7 @@ test('targeted practice retries once when the model repeats an avoided question'
   assert.equal(result.questions[0].question, 'Replacement question 1?')
 })
 
-test('targeted retry filters exact prior questions from a seven-question candidate pool', async () => {
+test('targeted retry filters exact prior questions from an eight-question candidate pool', async () => {
   const first = rawQuiz()
   first.questions[0].question = 'Question to avoid?'
 
@@ -369,6 +387,10 @@ test('targeted retry filters exact prior questions from a seven-question candida
     ...pool.questions[1],
     question: 'Pool backup question 7?',
   })
+  pool.questions.push({
+    ...pool.questions[2],
+    question: 'Pool backup question 8?',
+  })
 
   let calls = 0
   const service = createLocalQuizService({
@@ -382,15 +404,19 @@ test('targeted retry filters exact prior questions from a seven-question candida
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            7,
+            0,
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            7,
+            0,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.minItems,
+            0,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            7,
+            8,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -401,7 +427,7 @@ test('targeted retry filters exact prior questions from a seven-question candida
           assert.equal(request.maxTokens, 1800)
           assert.match(
             request.messages.at(-1).content,
-            /candidate pool of exactly seven/i,
+            /candidate pool of exactly eight/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -478,6 +504,15 @@ test('targeted retry filters duplicate underlying source facts using verbatim so
   pool.questions.push({
     ...pool.questions[1],
     question: 'Backup fact seven?',
+    source_pages: [
+      RETRY_FACTS[6].page,
+    ],
+    source_fact:
+      RETRY_FACTS[6].text,
+  })
+  pool.questions.push({
+    ...pool.questions[1],
+    question: 'Backup fact eight?',
     source_pages: [
       RETRY_FACTS[6].page,
     ],
@@ -581,11 +616,11 @@ test('targeted practice retries one strict validation failure and then succeeds'
           )
           assert.match(
             request.messages.at(-1).content,
-            /candidate pool of exactly seven/i,
+            /candidate pool of exactly eight/i,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            7,
+            8,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -686,7 +721,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   first.questions[0].question = 'Question to avoid?'
 
   const pool = rawQuiz()
-  while (pool.questions.length < 7) {
+  while (pool.questions.length < 8) {
     pool.questions.push({
       ...pool.questions[0],
       question:
@@ -758,11 +793,11 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   assert.deepEqual(
     validationIssues.at(-1).details,
     {
-      inputCandidates: 7,
+      inputCandidates: 8,
       avoidedQuestions: 1,
       duplicateQuestions: 0,
       unsupportedSourceFacts: 0,
-      duplicateSourceFacts: 5,
+      duplicateSourceFacts: 6,
       survivors: 1,
     },
   )
