@@ -68,6 +68,7 @@ const TARGETED_RETRY_SCHEMA = Object.freeze({
     ...QUIZ_SCHEMA.properties,
     questions: Object.freeze({
       ...QUIZ_SCHEMA.properties.questions,
+      minItems: TARGETED_RETRY_CANDIDATES,
       maxItems: TARGETED_RETRY_CANDIDATES,
       items: TARGETED_RETRY_QUESTION_SCHEMA,
     }),
@@ -188,15 +189,19 @@ function priorQuestions(request) {
 }
 
 class QuizValidationIssue extends Error {
-  constructor(reason) {
+  constructor(reason, details = null) {
     super('quiz_validation_failed')
     this.name = 'QuizValidationIssue'
     this.reason = reason
+    this.details =
+      details && plain(details)
+        ? Object.freeze({ ...details })
+        : null
   }
 }
 
-const invalidQuiz = reason => {
-  throw new QuizValidationIssue(reason)
+const invalidQuiz = (reason, details) => {
+  throw new QuizValidationIssue(reason, details)
 }
 
 function parseGeneratedQuizDetailed(
@@ -234,6 +239,14 @@ function parseGeneratedQuizDetailed(
 
   const seenQuestions = new Set()
   const seenSourceFacts = new Set()
+  const filterStats = {
+    inputCandidates: parsed.questions.length,
+    avoidedQuestions: 0,
+    duplicateQuestions: 0,
+    unsupportedSourceFacts: 0,
+    duplicateSourceFacts: 0,
+    survivors: 0,
+  }
   const avoidedQuestions = new Set(
     avoidQuestions.map(question =>
       question.trim().replace(/\s+/g, ' ').toLocaleLowerCase()),
@@ -287,13 +300,19 @@ function parseGeneratedQuizDetailed(
         .toLocaleLowerCase()
 
     if (seenQuestions.has(normalizedQuestion)) {
-      if (filterAvoided) continue
+      if (filterAvoided) {
+        filterStats.duplicateQuestions++
+        continue
+      }
       invalidQuiz('duplicate_question')
     }
     seenQuestions.add(normalizedQuestion)
 
     if (avoidedQuestions.has(normalizedQuestion)) {
-      if (filterAvoided) continue
+      if (filterAvoided) {
+        filterStats.avoidedQuestions++
+        continue
+      }
       invalidQuiz('avoided_question')
     }
 
@@ -316,12 +335,16 @@ function parseGeneratedQuizDetailed(
               .includes(normalizedSourceFact)
           )
         })
-      if (!sourceFactSupported) continue
+      if (!sourceFactSupported) {
+        filterStats.unsupportedSourceFacts++
+        continue
+      }
       if (
         seenSourceFacts.has(
           normalizedSourceFact,
         )
       ) {
+        filterStats.duplicateSourceFacts++
         continue
       }
       seenSourceFacts.add(
@@ -360,13 +383,19 @@ function parseGeneratedQuizDetailed(
         ...item.source_pages,
       ]),
     }))
+    if (filterAvoided) {
+      filterStats.survivors++
+    }
   }
 
   if (
     filterAvoided &&
     questions.length < QUESTION_COUNT
   ) {
-    invalidQuiz('candidate_pool_exhausted')
+    invalidQuiz(
+      'candidate_pool_exhausted',
+      filterStats,
+    )
   }
 
   return Object.freeze({
@@ -481,6 +510,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             onValidationIssue(Object.freeze({
               attempt: 'primary',
               reason: validationReason,
+              ...(error instanceof QuizValidationIssue && error.details
+                ? { details: error.details }
+                : {}),
             }))
           } catch {}
         }
@@ -519,6 +551,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             onValidationIssue(Object.freeze({
               attempt: 'retry',
               reason: validationReason,
+              ...(error instanceof QuizValidationIssue && error.details
+                ? { details: error.details }
+                : {}),
             }))
           } catch {}
         }
