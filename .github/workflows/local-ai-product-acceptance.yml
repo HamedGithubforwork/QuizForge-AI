@@ -17,7 +17,6 @@ on:
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/download-verified-model.cjs
       - desktop/scripts/verify-local-product-acceptance.cjs
-      - .github/workflows/local-ai-product-acceptance.yml
 
 permissions:
   contents: read
@@ -27,7 +26,82 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-prompt-v3-comparison:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref_name == 'benchmark/local-ai-prompt-v3' }}
+    name: Windows production-prompt v3 model comparison
+    runs-on: windows-2025
+    timeout-minutes: 240
+    env:
+      RUNTIME_SHA256: f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Validate production prompt parity and fixtures
+        run: node --test desktop/benchmarks/prompt-v3/contract.test.cjs
+
+      - name: Download and verify pinned llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = "$env:RUNNER_TEMP/runtime-v3.zip"
+          curl.exe -fL --max-time 300 -o $archive 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $env:RUNTIME_SHA256) { throw 'Runtime checksum mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/runtime-v3"
+          $server = @(Get-ChildItem "$env:RUNNER_TEMP/runtime-v3" -Recurse -Filter llama-server.exe)
+          if ($server.Count -ne 1) { throw 'Expected exactly one pinned llama-server.exe' }
+          "LLAMA_SERVER_V3=$($server[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Evaluate both official candidates sequentially
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $models = "$env:RUNNER_TEMP/models-v3"
+          $evidence = "$env:RUNNER_TEMP/evidence-v3"
+          New-Item -ItemType Directory $models,$evidence | Out-Null
+          $failed = $false
+          foreach ($candidate in @('qwen3-4b','gemma4-e4b')) {
+            try {
+              python desktop/benchmarks/prompt-v3/prepare.py --candidate $candidate --directory $models
+              if ($LASTEXITCODE -ne 0) { throw 'Verified model download failed' }
+              $model = @(Get-ChildItem "$models/$candidate" -Filter *.gguf)
+              if ($model.Count -ne 1) { throw 'Expected one verified GGUF file' }
+              node desktop/benchmarks/prompt-v3/evaluate.cjs --candidate $candidate --runtime $env:LLAMA_SERVER_V3 --model $model[0].FullName --output "$evidence/$candidate-report.json"
+              if ($LASTEXITCODE -ne 0) { throw 'Evaluation had an infrastructure failure' }
+            } catch {
+              @{candidate=$candidate; status='infrastructure_failure'; inference_may_be_incomplete=$true} | ConvertTo-Json | Set-Content "$evidence/$candidate-failure.json"
+              $failed = $true
+            } finally {
+              if (Test-Path "$models/$candidate") { Remove-Item -Recurse -Force "$models/$candidate" }
+            }
+          }
+          if ($failed) { throw 'At least one candidate had an infrastructure failure; inspect preserved evidence' }
+
+      - name: Upload prompt v3 synthetic evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-production-prompt-v3
+          path: ${{ runner.temp }}/evidence-v3/*.json
+          if-no-files-found: warn
+          retention-days: 30
+
   windows-product-acceptance:
+    if: ${{ (github.event_name == 'pull_request' && github.head_ref != 'benchmark/local-ai-prompt-v3') || (github.event_name == 'workflow_dispatch' && github.ref_name != 'benchmark/local-ai-prompt-v3') }}
     name: Windows Local AI product acceptance
     runs-on: windows-2025
     timeout-minutes: 30
