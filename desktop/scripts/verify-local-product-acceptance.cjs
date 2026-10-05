@@ -126,12 +126,44 @@ const FIXTURES = Object.freeze([
     ]),
     excludedTerms: Object.freeze(['archive header', 'layout marker']),
     facts: Object.freeze([
-      { id: 'neral_material', page: 6, routes: [{ tokens: ['neral', 'casing'], answers: aliases('titanium') }] },
-      { id: 'neral_capacity', page: 6, routes: [{ tokens: ['neral', 'capacity'], answers: aliases('17', '17 samples', 'seventeen') }] },
-      { id: 'neral_interval', page: 6, routes: [{ tokens: ['neral', 'interval'], answers: aliases('5', '5 hours', 'five hours') }] },
-      { id: 'vesta_material', page: 9, routes: [{ tokens: ['vesta', 'casing'], answers: aliases('ceramic') }] },
-      { id: 'vesta_capacity', page: 9, routes: [{ tokens: ['vesta', 'capacity'], answers: aliases('23', '23 samples', 'twenty three') }] },
-      { id: 'vesta_interval', page: 9, routes: [{ tokens: ['vesta', 'interval'], answers: aliases('7', '7 hours', 'seven hours') }] },
+      { id: 'neral_material', page: 6, routes: [
+        { tokens: ['neral', 'casing'], answers: aliases('titanium') },
+        { tokens: ['titanium', 'casing'], answers: aliases('neral') },
+      ] },
+      { id: 'neral_capacity', page: 6, routes: [
+        { tokens: ['neral', 'capacity'], answers: aliases('17', '17 samples', 'seventeen', 'seventeen samples') },
+        { tokens: ['17', 'capacity'], answers: aliases('neral') },
+      ] },
+      { id: 'neral_interval', page: 6, routes: [
+        { tokens: ['neral', 'interval'], answers: aliases('5', '5 hours', 'five', 'five hours') },
+        { tokens: ['five', 'interval'], answers: aliases('neral') },
+        { tokens: ['5', 'interval'], answers: aliases('neral') },
+      ] },
+      { id: 'vesta_material', page: 9, routes: [
+        { tokens: ['vesta', 'casing'], answers: aliases('ceramic') },
+        { tokens: ['ceramic', 'casing'], answers: aliases('vesta') },
+      ] },
+      { id: 'vesta_capacity', page: 9, routes: [
+        { tokens: ['vesta', 'capacity'], answers: aliases('23', '23 samples', 'twenty three', 'twenty three samples') },
+        { tokens: ['23', 'capacity'], answers: aliases('vesta') },
+      ] },
+      { id: 'vesta_interval', page: 9, routes: [
+        { tokens: ['vesta', 'interval'], answers: aliases('7', '7 hours', 'seven', 'seven hours') },
+        { tokens: ['seven', 'interval'], answers: aliases('vesta') },
+        { tokens: ['7', 'interval'], answers: aliases('vesta') },
+      ] },
+      { id: 'capacity_comparison', pages: [6, 9], routes: [
+        { tokens: ['difference', 'capacity'], answers: aliases('6', '6 samples', 'six', 'six samples') },
+        { tokens: ['larger', 'capacity'], answers: aliases('vesta') },
+        { tokens: ['higher', 'capacity'], answers: aliases('vesta') },
+        { tokens: ['smaller', 'capacity'], answers: aliases('neral') },
+        { tokens: ['lower', 'capacity'], answers: aliases('neral') },
+      ] },
+      { id: 'interval_comparison', pages: [6, 9], routes: [
+        { tokens: ['difference', 'interval'], answers: aliases('2', '2 hours', 'two', 'two hours') },
+        { tokens: ['longer', 'interval'], answers: aliases('vesta') },
+        { tokens: ['shorter', 'interval'], answers: aliases('neral') },
+      ] },
     ]),
   }),
 ])
@@ -161,12 +193,24 @@ function validateSemanticQuiz(quiz, fixture) {
 
   for (const question of quiz.questions) {
     const context = normalize(question.question + ' ' + question.explanation)
-    const candidates = fixture.facts.filter(fact =>
-      !matched.has(fact.id) &&
-      fact.routes.some(route =>
-        route.tokens.every(token => context.includes(normalize(token))) &&
-        answerMatches(question.correct_answer, route.answers)) &&
-      question.source_pages.includes(fact.page))
+    const candidates = fixture.facts.filter(fact => {
+      if (matched.has(fact.id)) return false
+      const requiredPages =
+        Array.isArray(fact.pages)
+          ? fact.pages
+          : [fact.page]
+      return (
+        fact.routes.some(route =>
+          route.tokens.every(token =>
+            context.includes(normalize(token))) &&
+          answerMatches(
+            question.correct_answer,
+            route.answers,
+          )) &&
+        requiredPages.every(page =>
+          question.source_pages.includes(page))
+      )
+    })
     assert.equal(candidates.length, 1,
       fixture.id + ': each question must map to one unique source-supported synthetic fact')
     matched.add(candidates[0].id)
