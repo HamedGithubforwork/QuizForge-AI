@@ -547,7 +547,7 @@ test('targeted retry filters exact prior questions from an eight-question candid
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            0,
+            8,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
@@ -750,6 +750,10 @@ test('targeted practice retries one strict validation failure and then succeeds'
           assert.match(
             request.messages.at(-1).content,
             /candidate pool of exactly eight/i,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.minItems,
+            8,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
