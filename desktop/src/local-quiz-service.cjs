@@ -9,6 +9,7 @@ const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_RETRY_CANDIDATES = 8
+const MAX_COMBINED_TARGETED_CANDIDATES = TARGETED_RETRY_CANDIDATES * 2
 
 const QUIZ_SCHEMA = Object.freeze({
   type: 'object',
@@ -207,6 +208,35 @@ const invalidQuiz = (reason, details) => {
   throw new QuizValidationIssue(reason, details)
 }
 
+function mergeTargetedCandidatePoolTexts(primaryText, retryText) {
+  try {
+    const primary = JSON.parse(primaryText)
+    const retry = JSON.parse(retryText)
+    if (
+      !plain(primary) ||
+      !plain(retry) ||
+      !Array.isArray(primary.questions) ||
+      !Array.isArray(retry.questions) ||
+      primary.questions.length === 0 ||
+      retry.questions.length === 0
+    ) {
+      return retryText
+    }
+    return JSON.stringify({
+      title:
+        boundedString(retry.title, 160)
+          ? retry.title
+          : primary.title,
+      questions: [
+        ...primary.questions,
+        ...retry.questions,
+      ],
+    })
+  } catch {
+    return retryText
+  }
+}
+
 function parseGeneratedQuizDetailed(
   text,
   allowedPages,
@@ -231,7 +261,7 @@ function parseGeneratedQuizDetailed(
   }
   const maximumQuestions =
     filterAvoided
-      ? TARGETED_RETRY_CANDIDATES
+      ? MAX_COMBINED_TARGETED_CANDIDATES
       : QUESTION_COUNT
   if (
     parsed.questions.length < QUESTION_COUNT ||
@@ -520,6 +550,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
       }
 
       let retryValidationReason = null
+      let primaryCandidatePoolText = null
       let result = await generateAttempt()
       try {
         return parseGeneratedQuizDetailed(
@@ -560,6 +591,13 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         if (retryableTargetedValidation) {
           retryValidationReason =
             validationReason
+          if (
+            validationReason ===
+              'candidate_pool_exhausted'
+          ) {
+            primaryCandidatePoolText =
+              result.text
+          }
         }
         if (!retryableTargetedValidation) {
           if (error instanceof LocalAiError) throw error
@@ -570,9 +608,18 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
       result = await generateAttempt(
         retryValidationReason,
       )
+      const retryResultText =
+        retryValidationReason ===
+          'candidate_pool_exhausted' &&
+        primaryCandidatePoolText
+          ? mergeTargetedCandidatePoolTexts(
+              primaryCandidatePoolText,
+              result.text,
+            )
+          : result.text
       try {
         return parseGeneratedQuizDetailed(
-          result.text,
+          retryResultText,
           allowedPages,
           avoidQuestions,
           retryValidationReason ===
