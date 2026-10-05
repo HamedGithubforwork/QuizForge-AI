@@ -75,6 +75,16 @@ const TARGETED_RETRY_SCHEMA = Object.freeze({
     }),
   }),
 })
+const TARGETED_STRICT_RETRY_SCHEMA = Object.freeze({
+  ...TARGETED_RETRY_SCHEMA,
+  properties: Object.freeze({
+    ...TARGETED_RETRY_SCHEMA.properties,
+    questions: Object.freeze({
+      ...TARGETED_RETRY_SCHEMA.properties.questions,
+      minItems: TARGETED_RETRY_CANDIDATES,
+    }),
+  }),
+})
 
 
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -649,7 +659,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             maxTokens: 1800,
             jsonSchema:
               targetedCandidatePool
-                ? TARGETED_RETRY_SCHEMA
+                ? retryReason
+                  ? TARGETED_STRICT_RETRY_SCHEMA
+                  : TARGETED_RETRY_SCHEMA
                 : QUIZ_SCHEMA,
             generationProfile:
               retryReason
