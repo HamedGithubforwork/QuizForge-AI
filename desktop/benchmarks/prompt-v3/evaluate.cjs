@@ -165,6 +165,7 @@ async function main() {
         forbidden_markers: fixture.forbidden || [],
         quiz: outcome || null,
       }
+      row.expected_outcome_pass = row.actual_outcome === row.expected_outcome
       report.generated_cases.push(row)
       save()
       console.log(JSON.stringify({ candidate: candidate.id, fixture: fixture.id, outcome: row.actual_outcome, elapsed_seconds: row.elapsed_seconds, provider_calls: requests.length }))
@@ -178,6 +179,17 @@ async function main() {
   report.server_peak_cpu_seconds = metricSamples.length ? Math.max(...metricSamples.map(row => row.cpuSeconds)) : null
   report.metric_samples = metricSamples.length
   report.completed_cases = report.generated_cases.length
+  const quizTimes = report.generated_cases.filter(row => row.expected_outcome === 'quiz' && row.actual_outcome === 'quiz').map(row => row.elapsed_seconds).sort((a, b) => a - b)
+  const middle = Math.floor(quizTimes.length / 2)
+  const median = quizTimes.length ? (quizTimes.length % 2 ? quizTimes[middle] : Number(((quizTimes[middle - 1] + quizTimes[middle]) / 2).toFixed(3))) : null
+  report.summary = {
+    expected_cases: FIXTURES.length,
+    completed_cases: report.completed_cases,
+    expected_outcome_passes: report.generated_cases.filter(row => row.expected_outcome_pass).length,
+    cases_with_errors: report.generated_cases.filter(row => row.actual_outcome === 'error').length,
+    median_sufficient_quiz_seconds: median,
+    max_sufficient_quiz_seconds: quizTimes.length ? quizTimes.at(-1) : null,
+  }
   save()
   if (report.completed_cases !== FIXTURES.length) process.exitCode = 1
 }
