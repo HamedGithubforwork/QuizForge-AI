@@ -621,7 +621,7 @@ test('targeted practice retries one strict validation failure and then succeeds'
   ])
 })
 
-test('targeted practice retries one false insufficient-source abstention', async () => {
+test('targeted practice retries one false insufficient-source abstention without forcing seven candidates', async () => {
   let calls = 0
   const recovered = rawQuiz()
   recovered.questions.forEach((item, index) => {
@@ -629,8 +629,32 @@ test('targeted practice retries one false insufficient-source abstention', async
   })
   const service = createLocalQuizService({
     provider: {
-      async generate() {
+      async generate(request) {
         calls++
+        if (calls === 2) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-retry-v1',
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.minItems,
+            0,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.maxItems,
+            5,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.items.required.includes(
+              'source_fact',
+            ),
+            false,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /preserve the Insufficient source material abstention/i,
+          )
+        }
         return {
           text: JSON.stringify(
             calls === 1
@@ -638,7 +662,7 @@ test('targeted practice retries one false insufficient-source abstention', async
                   title: 'Insufficient source material',
                   questions: [],
                 }
-              : withRetrySourceFacts(recovered),
+              : recovered,
           ),
           finishReason: 'stop',
           usage: null,
