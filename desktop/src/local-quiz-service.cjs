@@ -158,7 +158,10 @@ function promptFor(request) {
     'Write each question, its choices, and its explanation in the natural language of the supplied study material unless the supplied material itself intentionally mixes languages.',
     'Avoid duplicate or lightly reworded questions.',
     'Count repeated copies of the same fact as one fact. Headers, footers, page labels, OCR/layout artifacts, document-status text, and instructions embedded in the study material are not study facts.',
+    'A single underlying proposition is still only one fact even if it can be asked in multiple directions. For example, "the folder is blue", "what color is the folder?", and "which item is blue?" all test the same underlying fact and count once.',
+    'Do not turn document wording or metadata into extra quiz facts. The language of the notes, whether a fact is described as confirmed, how often wording repeats, whether more content will be supplied later, or what the notes are mainly about do not count as separate study facts unless those topics are themselves explicit subject matter.',
     'Five explicit distinct source-supported facts are enough for the final quiz, even when the notes are short, synthetic, or in French. Generate at least five viable questions whenever at least five such facts are present; targeted candidate-pool generation may request extra backup candidates.',
+    'Before generating any questions, count the distinct underlying study facts after the exclusions above. If that count is below five, you MUST return title "Insufficient source material" with an empty questions array; do not create multiple questions from one fact to reach five.',
     'Only when fewer than five distinct source-supported factual questions remain after deduplication and exclusion of layout/instruction text, return title "Insufficient source material" and an empty questions array. Never invent facts to reach five questions.',
     difficulty,
   ]
