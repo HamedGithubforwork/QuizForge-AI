@@ -322,7 +322,7 @@ test('targeted-practice input rejects duplicate, oversized and malformed prior-q
 })
 
 
-test('targeted practice retries once when the model repeats an avoided question', async () => {
+test('targeted practice accumulates valid candidates across the bounded retry', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
   const second = rawQuiz()
@@ -370,7 +370,23 @@ test('targeted practice retries once when the model repeats an avoided question'
     questionType: 'multiple_choice',
   })
   assert.equal(calls, 2)
-  assert.equal(result.questions[0].question, 'Replacement question 1?')
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question ===
+        'Question to avoid?',
+    ),
+    false,
+  )
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question ===
+        'Replacement question 1?',
+    ),
+    true,
+  )
 })
 
 test('targeted retry filters exact prior questions from an eight-question candidate pool', async () => {
@@ -710,7 +726,21 @@ test('targeted practice retries one false insufficient-source abstention without
 
 test('candidate-pool exhaustion reports counts without source text', async () => {
   const first = withRetrySourceFacts(rawQuiz())
-  first.questions[0].question = 'Question to avoid?'
+  const repeatedFact =
+    RETRY_FACTS[0]
+  first.questions.forEach((question, index) => {
+    question.question =
+      index === 0
+        ? 'Question to avoid?'
+        : 'Primary repeated fact ' +
+          (index + 1) +
+          '?'
+    question.source_pages = [
+      repeatedFact.page,
+    ]
+    question.source_fact =
+      repeatedFact.text
+  })
 
   const pool = rawQuiz()
   while (pool.questions.length < 8) {
@@ -722,8 +752,6 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
         '?',
     })
   }
-  const repeatedFact =
-    RETRY_FACTS[0]
   for (const [index, question] of
     pool.questions.entries()) {
     question.question =
@@ -785,11 +813,11 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   assert.deepEqual(
     validationIssues.at(-1).details,
     {
-      inputCandidates: 8,
+      inputCandidates: 13,
       avoidedQuestions: 1,
-      duplicateQuestions: 0,
+      duplicateQuestions: 1,
       unsupportedSourceFacts: 0,
-      duplicateSourceFacts: 6,
+      duplicateSourceFacts: 10,
       survivors: 1,
     },
   )
