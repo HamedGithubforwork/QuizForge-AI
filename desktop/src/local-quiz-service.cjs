@@ -81,6 +81,72 @@ const plain = value => value !== null && typeof value === 'object' && !Array.isA
 const boundedString = (value, maximum) =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= maximum
 
+const normalizeEvidenceText = value =>
+  String(value)
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+
+const containsEvidencePhrase = (text, phrase) => {
+  const normalizedText =
+    normalizeEvidenceText(text)
+  const normalizedPhrase =
+    normalizeEvidenceText(phrase)
+  if (
+    !normalizedText ||
+    !normalizedPhrase
+  ) {
+    return false
+  }
+  return (
+    (' ' + normalizedText + ' ')
+      .includes(
+        ' ' + normalizedPhrase + ' ',
+      )
+  )
+}
+
+function uniquelyGroundedChoiceIndex(
+  item,
+  sourceTextByPage,
+) {
+  if (!(sourceTextByPage instanceof Map)) {
+    return null
+  }
+
+  const sourceText =
+    item.source_pages
+      .map(page =>
+        sourceTextByPage.get(page) ?? '')
+      .join(' ')
+  const matches = []
+
+  for (
+    let index = 0;
+    index < item.choices.length;
+    index++
+  ) {
+    const choice = item.choices[index]
+    if (
+      containsEvidencePhrase(
+        sourceText,
+        choice,
+      ) &&
+      containsEvidencePhrase(
+        item.explanation,
+        choice,
+      )
+    ) {
+      matches.push(index)
+    }
+  }
+
+  return matches.length === 1
+    ? matches[0]
+    : null
+}
+
 function normalizeRequest(value) {
   if (!plain(value) || Object.keys(value).some(key =>
     !['pages', 'practice', 'questionCount', 'difficulty', 'questionType'].includes(key)) ||
@@ -385,8 +451,17 @@ function parseGeneratedQuizDetailed(
       )
     }
 
+    const groundedChoiceIndex =
+      uniquelyGroundedChoiceIndex(
+        item,
+        sourceTextByPage,
+      )
+    const correctIndex =
+      groundedChoiceIndex === null
+        ? item.correct_index
+        : groundedChoiceIndex
     const correctAnswer =
-      item.choices[item.correct_index]
+      item.choices[correctIndex]
 
     questions.push(Object.freeze({
       question_type: 'multiple_choice',
@@ -395,7 +470,7 @@ function parseGeneratedQuizDetailed(
         item.choices.map(choice =>
           choice.trim()),
       ),
-      correct_index: item.correct_index,
+      correct_index: correctIndex,
       correct_answer:
         correctAnswer.trim(),
       accepted_answers: Object.freeze([
@@ -562,7 +637,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 filterAvoided: true,
                 sourceTextByPage,
               }
-            : {},
+            : {
+                sourceTextByPage,
+              },
         )
       } catch (error) {
         const validationReason =

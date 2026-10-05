@@ -156,6 +156,54 @@ test('service sends a fixed structured-output schema and expands into the shared
   })
 })
 
+test('service repairs a selected index only when cited source and explanation uniquely ground another choice', async () => {
+  const quiz = rawQuiz()
+  quiz.questions[0] = {
+    ...quiz.questions[0],
+    question:
+      'Which organelle generates ATP?',
+    choices: [
+      'Chloroplast',
+      'Nucleus',
+      'Mitochondria',
+      'Ribosome',
+    ],
+    correct_index: 0,
+    explanation:
+      'Mitochondria generate ATP through cellular respiration.',
+    source_pages: [2],
+  }
+
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return {
+          text: JSON.stringify(quiz),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType:
+      'multiple_choice',
+  })
+
+  assert.equal(
+    result.questions[0].correct_index,
+    2,
+  )
+  assert.equal(
+    result.questions[0].correct_answer,
+    'Mitochondria',
+  )
+})
+
 test('validator rejects wrong citations, duplicate questions/choices and truncated generation', async () => {
   const invalidPage = rawQuiz()
   invalidPage.questions[0].source_pages = [99]
