@@ -492,8 +492,10 @@ test('targeted retry filters exact prior questions from an eight-question candid
 
 test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
   const first = withRetrySourceFacts(rawQuiz())
-  first.questions[0].question =
-    'Question to avoid?'
+  first.questions.slice(0, 4).forEach(question => {
+    question.question =
+      'Question to avoid?'
+  })
 
   const pool = withRetrySourceFacts(
     rawQuiz(),
