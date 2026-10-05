@@ -87,6 +87,26 @@ const TARGETED_STRICT_RETRY_SCHEMA = Object.freeze({
 })
 
 
+const TARGETED_INSUFFICIENT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: Object.freeze(['title', 'questions']),
+  properties: Object.freeze({
+    title: Object.freeze({ const: 'Insufficient source material' }),
+    questions: Object.freeze({
+      ...QUIZ_SCHEMA.properties.questions,
+      minItems: 0,
+      maxItems: 0,
+    }),
+  }),
+})
+const TARGETED_PRIMARY_SCHEMA = Object.freeze({
+  oneOf: Object.freeze([
+    TARGETED_INSUFFICIENT_SCHEMA,
+    TARGETED_STRICT_RETRY_SCHEMA,
+  ]),
+})
+
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const boundedString = (value, maximum) =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= maximum
@@ -659,7 +679,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               targetedCandidatePool
                 ? retryReason
                   ? TARGETED_STRICT_RETRY_SCHEMA
-                  : TARGETED_RETRY_SCHEMA
+                  : TARGETED_PRIMARY_SCHEMA
                 : QUIZ_SCHEMA,
             generationProfile:
               retryReason
