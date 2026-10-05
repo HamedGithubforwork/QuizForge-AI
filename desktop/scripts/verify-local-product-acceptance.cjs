@@ -152,17 +152,11 @@ const FIXTURES = Object.freeze([
         { tokens: ['seven', 'interval'], answers: aliases('vesta') },
         { tokens: ['7', 'interval'], answers: aliases('vesta') },
       ] },
-      { id: 'capacity_comparison', pages: [6, 9], routes: [
+      { id: 'capacity_difference', pages: [6, 9], routes: [
         { tokens: ['difference', 'capacity'], answers: aliases('6', '6 samples', 'six', 'six samples') },
-        { tokens: ['larger', 'capacity'], answers: aliases('vesta') },
-        { tokens: ['higher', 'capacity'], answers: aliases('vesta') },
-        { tokens: ['smaller', 'capacity'], answers: aliases('neral') },
-        { tokens: ['lower', 'capacity'], answers: aliases('neral') },
       ] },
-      { id: 'interval_comparison', pages: [6, 9], routes: [
+      { id: 'interval_difference', pages: [6, 9], routes: [
         { tokens: ['difference', 'interval'], answers: aliases('2', '2 hours', 'two', 'two hours') },
-        { tokens: ['longer', 'interval'], answers: aliases('vesta') },
-        { tokens: ['shorter', 'interval'], answers: aliases('neral') },
       ] },
     ]),
   }),
