@@ -436,18 +436,21 @@ async function main() {
         difficulty: fixture.difficulty,
         questionType: 'multiple_choice',
       }), metricMonitor, runtimePidState)
-      validateSemanticQuiz(measuredRun.value, fixture)
-      report.runs.push({
+      const evidence = {
         fixture: fixture.id,
         repeat: index === sequence.length - 1,
-        outcome: 'quiz',
+        outcome: 'generated_pending_validation',
         elapsedSeconds: measuredRun.elapsedSeconds,
         peakWorkingSetBytes: measuredRun.peakWorkingSetBytes || null,
         peakCpuSeconds: measuredRun.peakCpuSeconds || null,
         metricSampleCount: measuredRun.sampleCount,
         title: measuredRun.value.title,
         questions: measuredRun.value.questions,
-      })
+      }
+      report.runs.push(evidence)
+      await persistReport()
+      validateSemanticQuiz(measuredRun.value, fixture)
+      evidence.outcome = 'quiz'
       await persistReport()
       console.log('CASE PASS:', fixture.id, measuredRun.elapsedSeconds)
     }
