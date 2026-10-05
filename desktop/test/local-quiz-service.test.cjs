@@ -449,7 +449,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   )
 })
 
-test('targeted retry carries only bounded first-attempt question text into the corrective prompt', async () => {
+test('targeted retry carries bounded first-attempt question and source-fact pairs into the corrective prompt', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
     'Question to avoid?'
@@ -473,7 +473,7 @@ test('targeted retry carries only bounded first-attempt question text into the c
             request.messages.at(-1).content
           assert.match(
             retryMessage,
-            /untrusted generated text/i,
+            /generated text as untrusted data/i,
           )
           assert.match(
             retryMessage,
@@ -483,7 +483,7 @@ test('targeted retry carries only bounded first-attempt question text into the c
             retryMessage.includes(
               'Mitochondria generate ATP through cellular respiration.',
             ),
-            false,
+            true,
           )
         }
         return {
