@@ -381,6 +381,14 @@ test('targeted retry filters exact prior questions from a seven-question candida
             'quiz-mcq-retry-v1',
           )
           assert.equal(
+            request.jsonSchema.properties.questions.minItems,
+            7,
+          )
+          assert.equal(
+            request.jsonSchema.properties.questions.minItems,
+            7,
+          )
+          assert.equal(
             request.jsonSchema.properties.questions.maxItems,
             7,
           )
@@ -647,6 +655,99 @@ test('targeted practice retries one false insufficient-source abstention', async
   })
   assert.equal(calls, 2)
   assert.equal(result.questions[0].question, 'Abstention recovery question 1?')
+})
+
+test('candidate-pool exhaustion reports counts without source text', async () => {
+  const first = rawQuiz()
+  first.questions[0].question = 'Question to avoid?'
+
+  const pool = rawQuiz()
+  while (pool.questions.length < 7) {
+    pool.questions.push({
+      ...pool.questions[0],
+      question:
+        'Extra pool question ' +
+        (pool.questions.length + 1) +
+        '?',
+    })
+  }
+  const repeatedFact =
+    RETRY_FACTS[0]
+  for (const [index, question] of
+    pool.questions.entries()) {
+    question.question =
+      index === 0
+        ? 'Question to avoid?'
+        : 'Distinct wording ' +
+          (index + 1) +
+          '?'
+    question.source_pages = [
+      repeatedFact.page,
+    ]
+    question.source_fact =
+      repeatedFact.text
+  }
+
+  const validationIssues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) {
+      validationIssues.push(issue)
+    },
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(
+            calls === 1
+              ? first
+              : pool,
+          ),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  await assert.rejects(
+    service.generate({
+      pages: pages(),
+      practice: {
+        avoidQuestions: [
+          'Question to avoid?',
+        ],
+      },
+      questionCount: 5,
+      difficulty: 'medium',
+      questionType:
+        'multiple_choice',
+    }),
+    { code: 'quiz_validation_failed' },
+  )
+
+  assert.equal(calls, 2)
+  assert.equal(
+    validationIssues.at(-1).reason,
+    'candidate_pool_exhausted',
+  )
+  assert.deepEqual(
+    validationIssues.at(-1).details,
+    {
+      inputCandidates: 7,
+      avoidedQuestions: 1,
+      duplicateQuestions: 0,
+      unsupportedSourceFacts: 0,
+      duplicateSourceFacts: 5,
+      survivors: 1,
+    },
+  )
+  assert.equal(
+    JSON.stringify(
+      validationIssues.at(-1),
+    ).includes(repeatedFact.text),
+    false,
+  )
 })
 
 test('targeted practice retries validation at most once', async () => {
