@@ -397,6 +397,14 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
             request.messages.at(-1).content,
             /failed strict quiz validation/i,
           )
+          assert.match(
+            request.messages.at(-1).content,
+            /first failed attempt.*candidate-question strings/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /Question 2\?/,
+          )
         }
         return {
           text: JSON.stringify(
@@ -435,6 +443,73 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     ),
     true,
   )
+})
+
+test('targeted retry carries only bounded first-attempt question text into the corrective prompt', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].question =
+    'Question to avoid?'
+  const second = withRetrySourceFacts(rawQuiz())
+  second.questions.forEach(
+    (question, index) => {
+      question.question =
+        'Fresh retry question ' +
+        (index + 1) +
+        '?'
+    },
+  )
+
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          const retryMessage =
+            request.messages.at(-1).content
+          assert.match(
+            retryMessage,
+            /untrusted generated text/i,
+          )
+          assert.match(
+            retryMessage,
+            /Question 2\?/,
+          )
+          assert.equal(
+            retryMessage.includes(
+              'Mitochondria generate ATP through cellular respiration.',
+            ),
+            false,
+          )
+        }
+        return {
+          text: JSON.stringify(
+            calls === 1
+              ? first
+              : second,
+          ),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: {
+      avoidQuestions: [
+        'Question to avoid?',
+      ],
+    },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType:
+      'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
 })
 
 test('targeted retry filters exact prior questions from an eight-question candidate pool', async () => {
