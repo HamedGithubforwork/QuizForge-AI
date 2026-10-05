@@ -273,7 +273,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
   })
 
   assert.equal(result.questions.length, 5)
-  assert.equal(captured.messages.length, 3)
+  assert.equal(captured.messages.length, 4)
   assert.match(captured.messages[0].content, /targeted follow-up/)
   assert.match(captured.messages[2].content, /PRIOR QUESTIONS TO AVOID/)
   assert.match(captured.messages[0].content, /each question must test a different underlying source fact/i)
@@ -370,7 +370,7 @@ test('targeted practice retries once when the model repeats an avoided question'
 })
 
 test('targeted retry filters exact prior questions from an eight-question candidate pool', async () => {
-  const first = rawQuiz()
+  const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
   const pool = rawQuiz()
@@ -401,14 +401,6 @@ test('targeted retry filters exact prior questions from an eight-question candid
           assert.equal(
             request.generationProfile,
             'quiz-mcq-retry-v1',
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.minItems,
-            0,
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.minItems,
-            0,
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
@@ -483,7 +475,7 @@ test('targeted retry filters exact prior questions from an eight-question candid
 })
 
 test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
-  const first = rawQuiz()
+  const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
     'Question to avoid?'
 
@@ -656,7 +648,7 @@ test('targeted practice retries one strict validation failure and then succeeds'
   ])
 })
 
-test('targeted practice retries one false insufficient-source abstention without forcing seven candidates', async () => {
+test('targeted practice retries one false insufficient-source abstention without forcing the candidate-pool schema', async () => {
   let calls = 0
   const recovered = rawQuiz()
   recovered.questions.forEach((item, index) => {
@@ -717,7 +709,7 @@ test('targeted practice retries one false insufficient-source abstention without
 })
 
 test('candidate-pool exhaustion reports counts without source text', async () => {
-  const first = rawQuiz()
+  const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
   const pool = rawQuiz()
