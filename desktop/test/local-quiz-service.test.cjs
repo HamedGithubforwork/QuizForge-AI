@@ -287,16 +287,26 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quiz = withRetrySourceFacts(rawQuiz())
         quiz.questions[0].question = 'A different follow-up question?'
         quiz.questions[1].question = 'Another distinct follow-up question?'
+        assert.equal(request.jsonSchema.oneOf.length, 2)
         assert.equal(
-          request.jsonSchema.properties.questions.minItems,
-          0,
+          request.jsonSchema.oneOf[0].properties.title.const,
+          'Insufficient source material',
         )
         assert.equal(
-          request.jsonSchema.properties.questions.maxItems,
+          request.jsonSchema.oneOf[0].properties.questions.maxItems,
+          0,
+        )
+        const quizPoolSchema = request.jsonSchema.oneOf[1]
+        assert.equal(
+          quizPoolSchema.properties.questions.minItems,
           8,
         )
         assert.equal(
-          request.jsonSchema.properties.questions.items.required.includes(
+          quizPoolSchema.properties.questions.maxItems,
+          8,
+        )
+        assert.equal(
+          quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
           ),
           true,
