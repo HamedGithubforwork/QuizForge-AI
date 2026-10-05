@@ -167,7 +167,7 @@ function promptFor(request) {
       'This is targeted follow-up practice on the supplied pages.',
       'Do not repeat or lightly rephrase any question in the separate PRIOR QUESTIONS TO AVOID list.',
       'When you reuse an underlying fact from a prior question, you MUST reverse the question-answer direction or otherwise test a different relationship; never emit the same question text. For example, if a prior question asks for Aster\'s casing material, a new question may instead ask which device has a cobalt casing. Keep every new question independently answerable from the supplied pages.',
-      'Within the final five-question quiz, each question must test a different underlying source fact. If a targeted retry requests backup candidates, extras may provide alternate relationships, but the first five surviving non-repeated candidates must still cover five different underlying facts. Before returning JSON, mentally label each candidate by its subject plus property or relationship and avoid repeated labels among the intended survivors.',
+      'Within the final five-question quiz, each question must test a different underlying source fact. If targeted candidate-pool generation requests backup candidates, extras may provide alternate relationships, but the first five surviving non-repeated candidates must still cover five different underlying facts. Before returning JSON, mentally label each candidate by its subject plus property or relationship and avoid repeated labels among the intended survivors.',
     )
   }
   lines.push('Return only the JSON object required by the response schema.')
@@ -489,7 +489,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                       'For every candidate, set source_fact to one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
                       'Use the same source_fact value for alternate questions that test the same underlying fact, even if the question-answer direction is reversed.',
                       'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must test five different underlying source facts.',
-                      'Use the two backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
+                      'Use the three backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
                       'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return the Insufficient source material abstention instead of inventing facts.',
                     ].join('\n'),
             }))
