@@ -22,12 +22,19 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Validate evaluation contract
         run: python -m unittest discover -s desktop/benchmarks -p 'test_*.py'
+      - name: Validate production prompt parity for v3
+        if: ${{ contains(inputs.candidates, 'gemma4-e4b') }}
+        run: node --test desktop/benchmarks/prompt-v3/contract.test.cjs
       - name: Download verified runtime and pinned conversion source
+        if: ${{ !contains(inputs.candidates, 'gemma4-e4b') }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -42,6 +49,7 @@ jobs:
           python -m pip install --disable-pip-version-check -r "$env:RUNNER_TEMP/llama-src/requirements/requirements-convert_hf_to_gguf.txt"
           if ($LASTEXITCODE -ne 0) { throw 'Conversion dependencies failed' }
       - name: Same-run sequential candidate evaluation
+        if: ${{ !contains(inputs.candidates, 'gemma4-e4b') }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -69,10 +77,49 @@ jobs:
             if (Test-Path "$env:RUNNER_TEMP/models/$candidate") { Remove-Item -Recurse -Force "$env:RUNNER_TEMP/models/$candidate" }
           }
           if ($failed) { throw 'At least one candidate had an infrastructure failure; inspect preserved evidence' }
+      - name: Download verified runtime for production-prompt v3
+        if: ${{ contains(inputs.candidates, 'gemma4-e4b') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:CANDIDATES -ne 'qwen3-4b,gemma4-e4b') { throw 'For v3 use candidates exactly qwen3-4b,gemma4-e4b' }
+          $archive = "$env:RUNNER_TEMP/runtime-v3.zip"
+          curl.exe -fL --max-time 300 -o $archive 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne $env:RUNTIME_SHA256) { throw 'Runtime checksum mismatch' }
+          Expand-Archive $archive "$env:RUNNER_TEMP/runtime-v3"
+          $server = @(Get-ChildItem "$env:RUNNER_TEMP/runtime-v3" -Recurse -Filter llama-server.exe)
+          if ($server.Count -ne 1) { throw 'Expected exactly one pinned llama-server.exe' }
+          "LLAMA_SERVER_V3=$($server[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Evaluate production-prompt v3 pair
+        if: ${{ contains(inputs.candidates, 'gemma4-e4b') }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $models = "$env:RUNNER_TEMP/models-v3"
+          $evidence = "$env:RUNNER_TEMP/evidence"
+          New-Item -ItemType Directory $models,$evidence | Out-Null
+          $failed = $false
+          foreach ($candidate in @('qwen3-4b','gemma4-e4b')) {
+            try {
+              python desktop/benchmarks/prompt-v3/prepare.py --candidate $candidate --directory $models
+              if ($LASTEXITCODE -ne 0) { throw 'Verified model download failed' }
+              $model = @(Get-ChildItem "$models/$candidate" -Filter *.gguf)
+              if ($model.Count -ne 1) { throw 'Expected one verified GGUF file' }
+              node desktop/benchmarks/prompt-v3/evaluate.cjs --candidate $candidate --runtime $env:LLAMA_SERVER_V3 --model $model[0].FullName --output "$evidence/$candidate-prompt-v3-report.json"
+              if ($LASTEXITCODE -ne 0) { throw 'Evaluation had an infrastructure failure' }
+            } catch {
+              @{candidate=$candidate; status='infrastructure_failure'; inference_may_be_incomplete=$true} | ConvertTo-Json | Set-Content "$evidence/$candidate-prompt-v3-failure.json"
+              $failed = $true
+            } finally {
+              if (Test-Path "$models/$candidate") { Remove-Item -Recurse -Force "$models/$candidate" }
+            }
+          }
+          if ($failed) { throw 'At least one v3 candidate had an infrastructure failure; inspect preserved evidence' }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: local-ai-tournament-windows
+          name: ${{ contains(inputs.candidates, 'gemma4-e4b') && 'local-ai-production-prompt-v3' || 'local-ai-tournament-windows' }}
           path: ${{ runner.temp }}/evidence/*.json
           if-no-files-found: warn
           retention-days: 30
