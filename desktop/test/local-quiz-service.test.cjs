@@ -399,11 +399,15 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           )
           assert.match(
             request.messages.at(-1).content,
-            /first failed attempt.*candidate-question strings/i,
+            /first failed attempt.*candidate question and source-fact pairs/i,
           )
           assert.match(
             request.messages.at(-1).content,
             /Question 2\?/,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /Source fact: Ribosomes synthesize proteins from messenger RNA\./,
           )
         }
         return {
