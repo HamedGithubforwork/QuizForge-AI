@@ -445,32 +445,44 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           if (avoid) {
             messages.push(Object.freeze({ role: 'user', content: avoid }))
           }
+          const candidatePoolRetry =
+            retryReason !== null &&
+            retryReason !== 'insufficient_source'
           if (retryReason) {
             messages.push(Object.freeze({
               role: 'user',
-              content: [
-                'The previous targeted-practice draft failed strict quiz validation.',
-                'Generate a candidate pool of exactly seven questions from the supplied pages.',
-                'The final product will keep five valid non-repeated questions after deterministic filtering, so include two genuine backup questions.',
-                'Return exactly seven candidate questions with exactly four distinct choices each.',
-                'For every question, make choices[correct_index] the one source-supported answer and keep the explanation consistent with that selected choice.',
-                'Use only supplied PAGE numbers that directly support the selected answer.',
-                'Do not reuse any prior-question wording exactly and do not duplicate a question within the new quiz.',
-                'Compare every proposed question against PRIOR QUESTIONS TO AVOID before returning JSON. If any question is identical after ignoring capitalization and whitespace, replace it. When reusing that fact, reverse the question-answer direction (for example property-to-item instead of item-to-property).',
-                'Across the seven candidates, cover as many different underlying source facts as possible.',
-                'For every candidate, set source_fact to one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
-                'Use the same source_fact value for alternate questions that test the same underlying fact, even if the question-answer direction is reversed.',
-                'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must test five different underlying source facts.',
-                'Use the two backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
-                'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return the Insufficient source material abstention instead of inventing facts.',
-              ].join('\n'),
+              content:
+                retryReason === 'insufficient_source'
+                  ? [
+                      'The previous targeted-practice draft abstained as insufficient source material.',
+                      'Re-evaluate the supplied pages once using the same strict grounding rules.',
+                      'If at least five distinct source-supported factual questions are genuinely possible after deduplication, return exactly five valid questions.',
+                      'Do not reuse any PRIOR QUESTIONS TO AVOID exactly.',
+                      'If fewer than five distinct source-supported factual questions are genuinely possible, preserve the Insufficient source material abstention. Never invent facts to avoid abstaining.',
+                    ].join('\n')
+                  : [
+                      'The previous targeted-practice draft failed strict quiz validation.',
+                      'Generate a candidate pool of exactly seven questions from the supplied pages.',
+                      'The final product will keep five valid non-repeated questions after deterministic filtering, so include two genuine backup questions.',
+                      'Return exactly seven candidate questions with exactly four distinct choices each.',
+                      'For every question, make choices[correct_index] the one source-supported answer and keep the explanation consistent with that selected choice.',
+                      'Use only supplied PAGE numbers that directly support the selected answer.',
+                      'Do not reuse any prior-question wording exactly and do not duplicate a question within the new quiz.',
+                      'Compare every proposed question against PRIOR QUESTIONS TO AVOID before returning JSON. If any question is identical after ignoring capitalization and whitespace, replace it. When reusing that fact, reverse the question-answer direction (for example property-to-item instead of item-to-property).',
+                      'Across the seven candidates, cover as many different underlying source facts as possible.',
+                      'For every candidate, set source_fact to one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
+                      'Use the same source_fact value for alternate questions that test the same underlying fact, even if the question-answer direction is reversed.',
+                      'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must test five different underlying source facts.',
+                      'Use the two backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
+                      'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return the Insufficient source material abstention instead of inventing facts.',
+                    ].join('\n'),
             }))
           }
           result = await provider.generate({
             messages: Object.freeze(messages),
             maxTokens: 1800,
             jsonSchema:
-              retryReason
+              candidatePoolRetry
                 ? TARGETED_RETRY_SCHEMA
                 : QUIZ_SCHEMA,
             generationProfile:
@@ -488,6 +500,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         return result
       }
 
+      let retryValidationReason = null
       let result = await generateAttempt()
       try {
         return parseGeneratedQuizDetailed(
@@ -519,22 +532,31 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         const retryableTargetedValidation =
           request.practice &&
           validationReason !== null
+        if (retryableTargetedValidation) {
+          retryValidationReason =
+            validationReason
+        }
         if (!retryableTargetedValidation) {
           if (error instanceof LocalAiError) throw error
           throw failure('quiz_validation_failed')
         }
       }
 
-      result = await generateAttempt('targeted_validation')
+      result = await generateAttempt(
+        retryValidationReason,
+      )
       try {
         return parseGeneratedQuizDetailed(
           result.text,
           allowedPages,
           avoidQuestions,
-          {
-            filterAvoided: true,
-            sourceTextByPage,
-          },
+          retryValidationReason ===
+            'insufficient_source'
+            ? {}
+            : {
+                filterAvoided: true,
+                sourceTextByPage,
+              },
         )
       } catch (error) {
         const validationReason =
