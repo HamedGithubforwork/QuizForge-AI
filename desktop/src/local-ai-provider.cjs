@@ -30,7 +30,15 @@ class LocalAiError extends Error {
 const failure = (code, options) => new LocalAiError(code, options)
 
 function checkCancelled(signal) {
-  if (signal?.aborted) throw failure(signal.reason?.name === 'TimeoutError' ? 'timed_out' : 'cancelled')
+  if (!signal?.aborted) return
+  if (signal.reason?.name === 'TimeoutError') {
+    throw failure('timed_out', { retryable: true })
+  }
+  if (['watchdog_failed', 'watchdog_timeout', 'watchdog_shutdown_failed']
+    .includes(signal.reason?.code)) {
+    throw failure('runtime_unavailable')
+  }
+  throw failure('cancelled')
 }
 
 function normalizeError(error, signal, fallback) {

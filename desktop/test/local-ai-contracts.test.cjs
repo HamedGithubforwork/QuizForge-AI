@@ -87,6 +87,18 @@ test('invalid and truncated output is not silently treated as completed generati
   assert.equal(truncated.finishReason, 'length')
 })
 
+test('Windows watchdog loss is reported as runtime unavailable, not user cancellation', async () => {
+  const controller = new AbortController()
+  const provider = windows(async () => {
+    controller.abort(Object.assign(new Error('private watchdog detail'), { code: 'watchdog_failed' }))
+    return wire(result())
+  })
+  await assert.rejects(
+    provider.generate(input(), { signal: controller.signal }),
+    { code: 'runtime_unavailable', retryable: false },
+  )
+})
+
 test('capability failures, timeouts and cancellation have bounded public codes', async () => {
   const make = fn => createLocalAiProvider({ id: 'test', capability: fn, generate: async () => result() })
   await assert.rejects(make(async () => ({ available: false, modelId: 'test', reason: '/private/path' })).capability(), { code: 'invalid_capability' })
