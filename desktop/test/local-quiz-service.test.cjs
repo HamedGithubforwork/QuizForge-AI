@@ -509,7 +509,7 @@ test('targeted retry carries only validated first-pass candidates into the corre
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            1,
           )
           assert.match(
             retryMessage,
@@ -612,11 +612,11 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            3,
+            1,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            1,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -624,10 +624,10 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             ),
             true,
           )
-          assert.equal(request.maxTokens, 1300)
+          assert.equal(request.maxTokens, 500)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 3 additional candidate questions/i,
+            /exactly 1 additional candidate question/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -961,10 +961,10 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
           questions: pool.questions.slice(
             calls === 1
               ? 0
-              : (calls - 2) * 3,
+              : calls - 2,
             calls === 1
               ? (request.jsonSchema?.properties?.questions?.maxItems ?? 7)
-              : (calls - 2) * 3 +
+              : calls - 2 +
                 (request.jsonSchema?.properties?.questions?.maxItems ?? 7),
           ),
         }
@@ -997,7 +997,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 3)
+  assert.equal(calls, 6)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
