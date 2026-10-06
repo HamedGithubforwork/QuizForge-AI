@@ -310,11 +310,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          9,
+          7,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          9,
+          7,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
@@ -324,7 +324,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /exactly nine candidate questions/i,
+          /exactly seven candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
@@ -428,7 +428,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           )
           assert.match(
             request.messages.at(-1).content,
-            /first failed attempt.*candidate question and source-fact pairs/i,
+            /candidate question and source-fact pairs passed validation/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -478,7 +478,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   )
 })
 
-test('targeted retry carries bounded first-attempt question and source-fact pairs into the corrective prompt', async () => {
+test('targeted retry carries only validated first-pass candidates into the corrective prompt', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
     'Question to avoid?'
@@ -509,10 +509,16 @@ test('targeted retry carries bounded first-attempt question and source-fact pair
             /Question 2\?/,
           )
           assert.equal(
+          retryMessage.includes(
+              'Ribosomes synthesize proteins from messenger RNA.',
+            ),
+            true,
+          )
+          assert.equal(
             retryMessage.includes(
               'Mitochondria generate ATP through cellular respiration.',
             ),
-            true,
+            false,
           )
         }
         return {
@@ -545,28 +551,24 @@ test('targeted retry carries bounded first-attempt question and source-fact pair
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry filters exact prior questions from an eight-question candidate pool', async () => {
+test('targeted retry adds five candidates and filters exact prior questions', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
-  const pool = rawQuiz()
+  const pool = withRetrySourceFacts(rawQuiz())
   pool.questions[0].question = 'Question to avoid?'
   pool.questions[1].question = 'Pool question 2?'
   pool.questions[2].question = 'Pool question 3?'
   pool.questions[3].question = 'Pool question 4?'
   pool.questions[4].question = 'Pool question 5?'
-  pool.questions.push({
-    ...pool.questions[0],
+  pool.questions[4] = {
+    ...pool.questions[4],
     question: 'Pool backup question 6?',
-  })
-  pool.questions.push({
-    ...pool.questions[1],
-    question: 'Pool backup question 7?',
-  })
-  pool.questions.push({
-    ...pool.questions[2],
-    question: 'Pool backup question 8?',
-  })
+    source_pages: [RETRY_FACTS[5].page],
+    source_fact: RETRY_FACTS[5].text,
+  }
+  pool.questions[4].choices[pool.questions[4].correct_index] =
+    RETRY_FACTS[5].answer
 
   let calls = 0
   const service = createLocalQuizService({
@@ -580,11 +582,11 @@ test('targeted retry filters exact prior questions from an eight-question candid
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            8,
+            5,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            8,
+            5,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -595,7 +597,7 @@ test('targeted retry filters exact prior questions from an eight-question candid
           assert.equal(request.maxTokens, 1800)
           assert.match(
             request.messages.at(-1).content,
-            /candidate pool of exactly eight/i,
+            /exactly five additional candidate questions/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -606,7 +608,7 @@ test('targeted retry filters exact prior questions from an eight-question candid
           text: JSON.stringify(
             calls === 1
               ? first
-              : withRetrySourceFacts(pool),
+              : pool,
           ),
           finishReason: 'stop',
           usage: null,
@@ -648,73 +650,32 @@ test('targeted retry filters exact prior questions from an eight-question candid
 
 test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
   const first = withRetrySourceFacts(rawQuiz())
-  first.questions.slice(0, 4).forEach(question => {
-    question.question =
-      'Question to avoid?'
+  first.questions.slice(0, 3).forEach(question => {
+    question.question = 'Question to avoid?'
   })
 
-  const pool = withRetrySourceFacts(
-    rawQuiz(),
-  )
-  pool.questions[0].question =
-    'Question to avoid?'
-  pool.questions.push({
-    ...pool.questions[0],
-    question: 'Backup fact six?',
-    source_pages: [
-      RETRY_FACTS[5].page,
-    ],
-    source_fact:
-      RETRY_FACTS[5].text,
-  })
-  pool.questions.push({
+  const pool = withRetrySourceFacts(rawQuiz())
+  pool.questions[0].question = 'Question to avoid?'
+  pool.questions[1].question = 'Candidate on fact six?'
+  pool.questions[1].source_pages = [RETRY_FACTS[5].page]
+  pool.questions[1].source_fact = RETRY_FACTS[5].text
+  pool.questions[1].choices[pool.questions[1].correct_index] =
+    RETRY_FACTS[5].answer
+  pool.questions[2] = {
     ...pool.questions[1],
     choices: [...pool.questions[1].choices],
-    question: 'Backup fact seven?',
-    source_pages: [
-      RETRY_FACTS[6].page,
-    ],
-    source_fact:
-      RETRY_FACTS[6].text,
-  })
-  pool.questions.push({
-    ...pool.questions[1],
-    choices: [...pool.questions[1].choices],
-    question: 'Backup fact eight?',
-    source_pages: [
-      RETRY_FACTS[6].page,
-    ],
-    source_fact:
-      RETRY_FACTS[6].text,
-  })
-  pool.questions[5].choices[
-    pool.questions[5].correct_index
-  ] = RETRY_FACTS[5].answer
-  pool.questions[6].choices[
-    pool.questions[6].correct_index
-  ] = RETRY_FACTS[6].answer
-  pool.questions[7].choices[
-    pool.questions[7].correct_index
-  ] = RETRY_FACTS[6].answer
-
-  // Candidate 2 and candidate 3 intentionally
-  // point to the same underlying source fact.
-  pool.questions[1].source_pages = [
-    RETRY_FACTS[2].page,
-  ]
-  pool.questions[1].source_fact =
-    RETRY_FACTS[2].text
-  pool.questions[1].choices[
-    pool.questions[1].correct_index
-  ] = RETRY_FACTS[2].answer
-  pool.questions[2].source_pages = [
-    RETRY_FACTS[2].page,
-  ]
-  pool.questions[2].source_fact =
-    RETRY_FACTS[2].text
-  pool.questions[2].choices[
-    pool.questions[2].correct_index
-  ] = RETRY_FACTS[2].answer
+    question: 'Duplicate candidate on fact six?',
+  }
+  pool.questions[3].question = 'Candidate on fact seven?'
+  pool.questions[3].source_pages = [RETRY_FACTS[6].page]
+  pool.questions[3].source_fact = RETRY_FACTS[6].text
+  pool.questions[3].choices[pool.questions[3].correct_index] =
+    RETRY_FACTS[6].answer
+  pool.questions[4].question = 'Candidate on fact one?'
+  pool.questions[4].source_pages = [RETRY_FACTS[0].page]
+  pool.questions[4].source_fact = RETRY_FACTS[0].text
+  pool.questions[4].choices[pool.questions[4].correct_index] =
+    RETRY_FACTS[0].answer
 
   let calls = 0
   const service = createLocalQuizService({
@@ -799,15 +760,15 @@ test('targeted practice retries one strict validation failure and then succeeds'
           )
           assert.match(
             request.messages.at(-1).content,
-            /candidate pool of exactly eight/i,
+            /exactly five additional candidate questions/i,
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            8,
+            5,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            8,
+            5,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -925,7 +886,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   })
 
   const pool = rawQuiz()
-  while (pool.questions.length < 8) {
+  while (pool.questions.length < 7) {
     pool.questions.push({
       ...pool.questions[0],
       question:
@@ -998,12 +959,12 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   assert.deepEqual(
     validationIssues.at(-1).details,
     {
-      inputCandidates: 13,
+      inputCandidates: 12,
       avoidedQuestions: 1,
       duplicateQuestions: 1,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
-      duplicateSourceFacts: 10,
+      duplicateSourceFacts: 9,
       survivors: 1,
     },
   )
@@ -1025,17 +986,6 @@ test('targeted candidate filtering rejects answers absent from their cited sourc
   retry.questions.forEach((question, index) => {
     question.question = 'Retry candidate ' + (index + 1) + '?'
   })
-  for (const index of [5, 6]) {
-    const fact = RETRY_FACTS[index]
-    const question = {
-      ...retry.questions[0],
-      question: 'Retry candidate ' + (index + 1) + '?',
-      source_pages: [fact.page],
-      source_fact: fact.text,
-    }
-    question.choices[question.correct_index] = fact.answer
-    retry.questions.push(question)
-  }
 
   const issues = []
   let calls = 0
