@@ -10,7 +10,9 @@ const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 5
-const TARGETED_RETRY_BATCH_CANDIDATES = 3
+// Ask for one correction at a time so each rejected wording can be fed back
+// before the model spends its remaining recovery budget.
+const TARGETED_RETRY_BATCH_CANDIDATES = 1
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
 
