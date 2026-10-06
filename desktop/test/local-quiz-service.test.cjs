@@ -13,30 +13,37 @@ const {
 const RETRY_FACTS = Object.freeze([
   Object.freeze({
     page: 2,
+    answer: 'ATP',
     text: 'Mitochondria generate ATP through cellular respiration.',
   }),
   Object.freeze({
     page: 5,
+    answer: 'proteins',
     text: 'Ribosomes synthesize proteins from messenger RNA.',
   }),
   Object.freeze({
     page: 2,
+    answer: 'inner membrane',
     text: 'Mitochondria have an inner membrane.',
   }),
   Object.freeze({
     page: 5,
+    answer: 'ribosomal RNA',
     text: 'Ribosomes contain ribosomal RNA.',
   }),
   Object.freeze({
     page: 2,
+    answer: 'glucose',
     text: 'Cells use glucose during respiration.',
   }),
   Object.freeze({
     page: 5,
+    answer: 'coding information',
     text: 'Messenger RNA carries coding information.',
   }),
   Object.freeze({
     page: 5,
+    answer: 'amino acids',
     text: 'Proteins are chains of amino acids.',
   }),
 ])
@@ -68,6 +75,10 @@ const withRetrySourceFacts = quiz => ({
         ]
       return {
         ...question,
+        choices: question.choices.map((choice, choiceIndex) =>
+          choiceIndex === question.correct_index
+            ? fact.answer
+            : choice),
         source_pages: [fact.page],
         source_fact: fact.text,
       }
@@ -318,6 +329,10 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         assert.match(
           request.messages.at(-1).content,
           /compare every candidate against every PRIOR QUESTION TO AVOID/i,
+        )
+        assert.match(
+          request.messages.at(-1).content,
+          /selected correct choice must be a concise phrase copied verbatim from that source_fact/i,
         )
         return {
           text: JSON.stringify(quiz),
@@ -654,6 +669,7 @@ test('targeted retry filters duplicate underlying source facts using verbatim so
   })
   pool.questions.push({
     ...pool.questions[1],
+    choices: [...pool.questions[1].choices],
     question: 'Backup fact seven?',
     source_pages: [
       RETRY_FACTS[6].page,
@@ -663,6 +679,7 @@ test('targeted retry filters duplicate underlying source facts using verbatim so
   })
   pool.questions.push({
     ...pool.questions[1],
+    choices: [...pool.questions[1].choices],
     question: 'Backup fact eight?',
     source_pages: [
       RETRY_FACTS[6].page,
@@ -670,6 +687,15 @@ test('targeted retry filters duplicate underlying source facts using verbatim so
     source_fact:
       RETRY_FACTS[6].text,
   })
+  pool.questions[5].choices[
+    pool.questions[5].correct_index
+  ] = RETRY_FACTS[5].answer
+  pool.questions[6].choices[
+    pool.questions[6].correct_index
+  ] = RETRY_FACTS[6].answer
+  pool.questions[7].choices[
+    pool.questions[7].correct_index
+  ] = RETRY_FACTS[6].answer
 
   // Candidate 2 and candidate 3 intentionally
   // point to the same underlying source fact.
@@ -678,11 +704,17 @@ test('targeted retry filters duplicate underlying source facts using verbatim so
   ]
   pool.questions[1].source_fact =
     RETRY_FACTS[2].text
+  pool.questions[1].choices[
+    pool.questions[1].correct_index
+  ] = RETRY_FACTS[2].answer
   pool.questions[2].source_pages = [
     RETRY_FACTS[2].page,
   ]
   pool.questions[2].source_fact =
     RETRY_FACTS[2].text
+  pool.questions[2].choices[
+    pool.questions[2].correct_index
+  ] = RETRY_FACTS[2].answer
 
   let calls = 0
   const service = createLocalQuizService({
@@ -887,6 +919,9 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     ]
     question.source_fact =
       repeatedFact.text
+    question.choices[
+      question.correct_index
+    ] = repeatedFact.answer
   })
 
   const pool = rawQuiz()
@@ -912,6 +947,9 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     ]
     question.source_fact =
       repeatedFact.text
+    question.choices[
+      question.correct_index
+    ] = repeatedFact.answer
   }
 
   const validationIssues = []
@@ -964,6 +1002,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
       avoidedQuestions: 1,
       duplicateQuestions: 1,
       unsupportedSourceFacts: 0,
+      unsupportedAnswers: 0,
       duplicateSourceFacts: 10,
       survivors: 1,
     },
@@ -974,6 +1013,59 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     ).includes(repeatedFact.text),
     false,
   )
+})
+
+test('targeted candidate filtering rejects answers absent from their cited source fact', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].choices[
+    first.questions[0].correct_index
+  ] = 'To capture light'
+
+  const retry = withRetrySourceFacts(rawQuiz())
+  retry.questions.forEach((question, index) => {
+    question.question = 'Retry candidate ' + (index + 1) + '?'
+  })
+  for (const index of [5, 6]) {
+    const fact = RETRY_FACTS[index]
+    const question = {
+      ...retry.questions[0],
+      question: 'Retry candidate ' + (index + 1) + '?',
+      source_pages: [fact.page],
+      source_fact: fact.text,
+    }
+    question.choices[question.correct_index] = fact.answer
+    retry.questions.push(question)
+  }
+
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls === 1 ? first : retry),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(issues[0].reason, 'candidate_pool_exhausted')
+  assert.equal(issues[0].details.unsupportedAnswers, 1)
+  assert.equal(issues[0].details.survivors, 4)
 })
 
 test('targeted practice retries validation at most once', async () => {

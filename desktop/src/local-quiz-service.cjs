@@ -409,6 +409,7 @@ function parseGeneratedQuizDetailed(
     avoidedQuestions: 0,
     duplicateQuestions: 0,
     unsupportedSourceFacts: 0,
+    unsupportedAnswers: 0,
     duplicateSourceFacts: 0,
     survivors: 0,
   }
@@ -502,6 +503,13 @@ function parseGeneratedQuizDetailed(
         })
       if (!sourceFactSupported) {
         filterStats.unsupportedSourceFacts++
+        continue
+      }
+      if (!containsEvidencePhrase(
+        item.source_fact,
+        item.choices[item.correct_index],
+      )) {
+        filterStats.unsupportedAnswers++
         continue
       }
       if (
@@ -635,6 +643,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
                 'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven candidate questions. Keep each question short and every explanation to one concise sentence.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
+                'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
                 'Across the seven candidates, cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
@@ -665,6 +674,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                       'Compare every proposed question against PRIOR QUESTIONS TO AVOID before returning JSON. If any question is identical after ignoring capitalization and whitespace, replace it. When reusing that fact, reverse the question-answer direction (for example property-to-item instead of item-to-property).',
                       'Across the eight candidates, cover as many different underlying source facts as possible.',
                       'For every candidate, set source_fact to one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
+                      'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
                       'Use the same source_fact value for alternate questions that test the same underlying fact, even if the question-answer direction is reversed.',
                       'The first five candidates that remain after removing exact PRIOR QUESTIONS TO AVOID, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must test five different underlying source facts.',
                       'Use the three backup candidates especially to provide alternate relationships for facts represented in PRIOR QUESTIONS TO AVOID, without copying or lightly rephrasing those prior questions.',
