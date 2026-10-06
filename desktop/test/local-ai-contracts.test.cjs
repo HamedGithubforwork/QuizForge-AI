@@ -154,6 +154,16 @@ test('structured output schemas and named generation profiles stay trusted and b
   assert.deepEqual(runtimeRequest.chat_template_kwargs, {
     enable_thinking: false,
   })
+
+  await provider.generate({
+    ...input(),
+    generationProfile: 'quiz-mcq-targeted-retry-v1',
+  })
+  assert.equal(runtimeRequest.seed, 2718)
+  assert.equal(runtimeRequest.temperature, 0.9)
+  assert.equal(runtimeRequest.top_p, 0.9)
+  assert.equal(runtimeRequest.top_k, 40)
+  assert.equal(runtimeRequest.presence_penalty, 1.8)
 })
 
 test('Windows adapter preserves token limits, rejects unsupported platforms and protocol surprises', async () => {

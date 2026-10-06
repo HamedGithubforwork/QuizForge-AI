@@ -421,7 +421,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
         if (calls === 2) {
           assert.equal(
             request.generationProfile,
-            'quiz-mcq-retry-v1',
+            'quiz-mcq-targeted-retry-v1',
           )
           assert.match(
             request.messages.at(-1).content,
@@ -585,7 +585,7 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
         if (calls === 2) {
           assert.equal(
             request.generationProfile,
-            'quiz-mcq-retry-v1',
+            'quiz-mcq-targeted-retry-v1',
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,

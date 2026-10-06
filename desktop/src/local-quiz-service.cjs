@@ -699,9 +699,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                   : TARGETED_PRIMARY_SCHEMA
                 : QUIZ_SCHEMA,
             generationProfile:
-              retryReason
-                ? 'quiz-mcq-retry-v1'
-                : 'quiz-mcq-v1',
+              retryReason === 'candidate_pool_exhausted'
+                ? 'quiz-mcq-targeted-retry-v1'
+                : retryReason
+                  ? 'quiz-mcq-retry-v1'
+                  : 'quiz-mcq-v1',
           }, { signal })
         } catch (error) {
           if (error instanceof LocalAiError) throw error
