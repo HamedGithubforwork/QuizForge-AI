@@ -483,6 +483,11 @@ test('targeted retry carries only validated first-pass candidates into the corre
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
     'Question to avoid?'
+  first.questions[2].question =
+    'Filtered first-pass candidate wording?'
+  first.questions[2].choices[
+    first.questions[2].correct_index
+  ] = 'unsupported answer'
   const second = withRetrySourceFacts(rawQuiz())
   second.questions.forEach(
     (question, index) => {
@@ -502,6 +507,10 @@ test('targeted retry carries only validated first-pass candidates into the corre
         if (calls === 2) {
           const retryMessage =
             request.messages.at(-1).content
+          assert.equal(
+            request.jsonSchema.properties.questions.maxItems,
+            3,
+          )
           assert.match(
             retryMessage,
             /generated text as untrusted data/i,
@@ -519,6 +528,20 @@ test('targeted retry carries only validated first-pass candidates into the corre
           assert.equal(
             retryMessage.includes(
               'Mitochondria generate ATP through cellular respiration.',
+            ),
+            false,
+          )
+          assert.match(
+            retryMessage,
+            /question wordings already generated/i,
+          )
+          assert.match(
+            retryMessage,
+            /Filtered first-pass candidate wording\?/,
+          )
+          assert.equal(
+            retryMessage.includes(
+              'Mitochondria have an inner membrane.',
             ),
             false,
           )
@@ -601,7 +624,7 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             ),
             true,
           )
-          assert.equal(request.maxTokens, 1800)
+          assert.equal(request.maxTokens, 1300)
           assert.match(
             request.messages.at(-1).content,
             /exactly 3 additional candidate questions/i,
@@ -931,13 +954,25 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
       validationIssues.push(issue)
     },
     provider: {
-      async generate() {
+      async generate(request) {
         calls++
+        const retryPool = {
+          ...pool,
+          questions: pool.questions.slice(
+            calls === 1
+              ? 0
+              : (calls - 2) * 3,
+            calls === 1
+              ? (request.jsonSchema?.properties?.questions?.maxItems ?? 7)
+              : (calls - 2) * 3 +
+                (request.jsonSchema?.properties?.questions?.maxItems ?? 7),
+          ),
+        }
         return {
           text: JSON.stringify(
             calls === 1
               ? first
-              : pool,
+              : retryPool,
           ),
           finishReason: 'stop',
           usage: null,
@@ -962,7 +997,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
@@ -970,12 +1005,12 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   assert.deepEqual(
     validationIssues.at(-1).details,
     {
-      inputCandidates: 12,
+      inputCandidates: 10,
       avoidedQuestions: 1,
       duplicateQuestions: 1,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
-      duplicateSourceFacts: 9,
+      duplicateSourceFacts: 7,
       survivors: 1,
     },
   )
