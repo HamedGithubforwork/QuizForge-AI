@@ -8,8 +8,10 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
+const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 8
-const MAX_COMBINED_TARGETED_CANDIDATES = TARGETED_RETRY_CANDIDATES * 2
+const MAX_COMBINED_TARGETED_CANDIDATES =
+  TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
 
 const QUIZ_SCHEMA = Object.freeze({
   type: 'object',
@@ -85,6 +87,17 @@ const TARGETED_STRICT_RETRY_SCHEMA = Object.freeze({
     }),
   }),
 })
+const TARGETED_PRIMARY_POOL_SCHEMA = Object.freeze({
+  ...TARGETED_RETRY_SCHEMA,
+  properties: Object.freeze({
+    ...TARGETED_RETRY_SCHEMA.properties,
+    questions: Object.freeze({
+      ...TARGETED_RETRY_SCHEMA.properties.questions,
+      minItems: TARGETED_PRIMARY_CANDIDATES,
+      maxItems: TARGETED_PRIMARY_CANDIDATES,
+    }),
+  }),
+})
 
 
 const TARGETED_INSUFFICIENT_SCHEMA = Object.freeze({
@@ -103,7 +116,7 @@ const TARGETED_INSUFFICIENT_SCHEMA = Object.freeze({
 const TARGETED_PRIMARY_SCHEMA = Object.freeze({
   oneOf: Object.freeze([
     TARGETED_INSUFFICIENT_SCHEMA,
-    TARGETED_STRICT_RETRY_SCHEMA,
+    TARGETED_PRIMARY_POOL_SCHEMA,
   ]),
 })
 
@@ -620,10 +633,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly eight candidate questions. Keep every explanation to one concise sentence.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven candidate questions. Keep each question short and every explanation to one concise sentence.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
-                'Across the eight candidates, cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID.',
-                'Do not copy any PRIOR QUESTIONS TO AVOID exactly. The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
+                'Across the seven candidates, cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID.',
+                'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
+                'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',
               ].join('\n'),
             }))
