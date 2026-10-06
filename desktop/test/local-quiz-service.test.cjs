@@ -406,6 +406,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   second.questions.forEach((item, index) => {
     item.question = 'Replacement question ' + (index + 1) + '?'
   })
+  second.questions = second.questions.slice(0, 3)
   let calls = 0
   const service = createLocalQuizService({
     provider: {
@@ -491,6 +492,7 @@ test('targeted retry carries only validated first-pass candidates into the corre
         '?'
     },
   )
+  second.questions = second.questions.slice(0, 3)
 
   let calls = 0
   const service = createLocalQuizService({
@@ -551,7 +553,7 @@ test('targeted retry carries only validated first-pass candidates into the corre
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry adds five candidates and filters exact prior questions', async () => {
+test('targeted retry requests only the needed candidates plus two backups', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
@@ -569,6 +571,11 @@ test('targeted retry adds five candidates and filters exact prior questions', as
   }
   pool.questions[4].choices[pool.questions[4].correct_index] =
     RETRY_FACTS[5].answer
+  pool.questions = [
+    pool.questions[0],
+    pool.questions[1],
+    pool.questions[4],
+  ]
 
   let calls = 0
   const service = createLocalQuizService({
@@ -582,11 +589,11 @@ test('targeted retry adds five candidates and filters exact prior questions', as
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            5,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            5,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -597,7 +604,11 @@ test('targeted retry adds five candidates and filters exact prior questions', as
           assert.equal(request.maxTokens, 1800)
           assert.match(
             request.messages.at(-1).content,
-            /exactly five additional candidate questions/i,
+            /exactly 3 additional candidate questions/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /needs at least 1 more valid, distinct question/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -760,7 +771,7 @@ test('targeted practice retries one strict validation failure and then succeeds'
           )
           assert.match(
             request.messages.at(-1).content,
-            /exactly five additional candidate questions/i,
+            /exactly 5 additional candidate questions/i,
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
