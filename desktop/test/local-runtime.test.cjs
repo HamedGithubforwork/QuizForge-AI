@@ -151,6 +151,53 @@ test('a runtime process that exits during startup fails closed', async () => {
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
 })
 
+test('GPU launch uses Vulkan offload settings, then falls back to bounded CPU threads on startup failure', async () => {
+  const launches = []
+  const children = [fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      cpuThreadCount: () => 6,
+      spawnProcess: (_executable, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 2)
+  assert.ok(launches[0].includes('Vulkan0'))
+  assert.ok(launches[0].includes('99'))
+  assert.ok(launches[1].includes('none'))
+  assert.ok(launches[1].includes('0'))
+  assert.equal(launches[0][launches[0].indexOf('-t') + 1], '6')
+  assert.equal(launches[1][launches[1].indexOf('-t') + 1], '6')
+})
+
+test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {
+  const { boundedCpuThreads } = require('../src/local-runtime.cjs')
+  assert.equal(boundedCpuThreads(1), 1)
+  assert.equal(boundedCpuThreads(4), 3)
+  assert.equal(boundedCpuThreads(64), 8)
+})
+
+test('GPU generation failures after server startup are not retried on CPU', async () => {
+  let launches = 0
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => { launches++; return fakeChild() },
+      requestFn: async (_port, _key, route) => {
+        if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        throw Object.assign(new Error('generation failed'), { code: 'request_failed' })
+      },
+    },
+  })
+  await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'test' }] }),
+    { code: 'request_failed' })
+  assert.equal(launches, 1)
+})
+
 
 test('runtime does not contact the local server until process ownership is established', async () => {
   let requests = 0

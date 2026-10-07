@@ -9,6 +9,8 @@ const {
   WINDOWS_EXPERIMENTAL_PROFILES,
   probeWindowsLocalAiCapability,
   queryWindowsGpu,
+  queryWindowsVulkanDevices,
+  snapshotWindowsHardware,
 } = require('../src/windows-hardware-probe.cjs')
 
 const GIB = 1024 ** 3
@@ -81,6 +83,60 @@ test('GPU acceleration is reported usable only when both hardware and runtime su
   assert.equal(available.localEligible, true)
   assert.equal(available.acceleration, 'gpu')
   assert.equal(available.hardware.gpuAccelerationUsable, true)
+  assert.equal(evaluateLocalAiCapability(
+    snapshot({ runtimeAccelerationModes: ['cpu', 'gpu'] }), WINDOWS_EXPERIMENTAL_PROFILES,
+  ).acceleration, 'gpu')
+})
+
+test('Vulkan probe runs the pinned server device listing and requires a Vulkan device', async () => {
+  let called = false
+  const result = await queryWindowsVulkanDevices({
+    directory: path.resolve('runtime'),
+    platform: 'win32',
+    env: { SystemRoot: 'C:\\Windows' },
+    verifyRuntimeFn: async (directory, manifest) => {
+      assert.equal(directory, path.resolve('runtime'))
+      assert.equal(manifest.package, 'server-only')
+    },
+    exec(file, args, options, callback) {
+      called = true
+      assert.match(file, /llama-server\.exe$/)
+      assert.deepEqual(args, ['--list-devices'])
+      assert.equal(options.timeout, 15000)
+      assert.equal(options.windowsHide, true)
+      callback(null, '', 'Available devices:\n  Vulkan0: Test GPU (4096 MiB)')
+    },
+  })
+  assert.equal(called, true)
+  assert.deepEqual(result, { detected: true })
+
+  const noDevice = await queryWindowsVulkanDevices({
+    directory: path.resolve('runtime'),
+    platform: 'win32',
+    env: { SystemRoot: 'C:\\Windows' },
+    verifyRuntimeFn: async () => {},
+    exec(_file, _args, _options, callback) { callback(null, 'Available devices:\n  CPU: x64', '') },
+  })
+  assert.deepEqual(noDevice, { detected: false })
+})
+
+test('hardware snapshot enables GPU mode only when Vulkan enumeration finds a device', async () => {
+  const result = await snapshotWindowsHardware({
+    storageDirectory: path.resolve('models'),
+    runtimeDirectory: path.resolve('runtime'),
+    platform: 'win32',
+    arch: 'x64',
+    osModule: { totalmem: () => 16 * GIB, cpus: () => Array(8) },
+    fsModule: { statfs: async () => ({ bavail: 10, bsize: GIB }) },
+    env: { SystemRoot: 'C:\\Windows' },
+    verifyRuntimeFn: async () => {},
+    exec(file, _args, _options, callback) {
+      if (/llama-server\.exe$/i.test(file)) callback(null, '', 'Vulkan0: Test GPU (4096 MiB)')
+      else callback(null, '["Test GPU"]', '')
+    },
+  })
+  assert.equal(result.gpuDetected, true)
+  assert.deepEqual(result.runtimeAccelerationModes, ['cpu', 'gpu'])
 })
 
 test('Windows GPU query is bounded and degrades safely when inspection fails', async () => {

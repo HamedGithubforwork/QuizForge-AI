@@ -17,9 +17,12 @@ test('distribution policy is pinned to the exact evaluated runtime and model', (
   assert.equal(policy.runtime.delivery, 'bundle_before_activation')
   assert.equal(policy.runtime.automatic_download, false)
   assert.equal(policy.runtime.package_kind, 'server-only')
-  assert.equal(policy.runtime.package_file_count, 25)
+  assert.equal(policy.runtime.package_file_count, 26)
   assert.equal(runtime.package, 'server-only')
-  assert.equal(Object.keys(runtime.files).length, 25)
+  assert.equal(Object.keys(runtime.files).length, 26)
+  assert.equal(runtime.archiveSha256,
+    'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338')
+  assert.ok(Object.hasOwn(runtime.files, 'ggml-vulkan.dll'))
 
   assert.equal(policy.model.id, CANDIDATE.id)
   assert.equal(policy.model.display_name, CANDIDATE.displayName)
