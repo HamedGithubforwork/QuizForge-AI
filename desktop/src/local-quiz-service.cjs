@@ -735,7 +735,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 : QUIZ_SCHEMA,
             generationProfile:
               retryReason === 'candidate_pool_exhausted'
-                ? 'quiz-mcq-targeted-retry-v1'
+                ? `quiz-mcq-targeted-retry-v${Math.min(targetedRetryAttempt++, 4) + 1}`
                 : retryReason
                   ? 'quiz-mcq-retry-v1'
                   : 'quiz-mcq-v1',
@@ -751,6 +751,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
       }
 
       let retryValidationReason = null
+      let targetedRetryAttempt = 0
       let primaryCandidatePoolText = null
       let primaryRetryEvidence = []
       let result = await generateAttempt()
