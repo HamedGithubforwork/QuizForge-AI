@@ -21,8 +21,10 @@ if (actual.join('\n') !== expected.join('\n')) {
 
 module.exports = {
   ...build,
-  appId: 'com.quizfromnotes.desktop.local-ai-preview',
-  productName: 'Quiz From Notes Local AI Preview',
+  // Share the regular preview identity so NSIS upgrades that install in place
+  // and keeps the user's existing app data and settings.
+  appId: build.appId,
+  productName: build.productName,
   artifactName: 'Quiz-From-Notes-Local-AI-Preview-${version}-${arch}.${ext}',
   directories: {
     ...build.directories,
@@ -30,6 +32,7 @@ module.exports = {
   },
   nsis: {
     ...build.nsis,
+    allowToChangeInstallationDirectory: false,
     include: path.join(__dirname, 'local-ai-preview-installer.nsh'),
   },
   extraResources: [

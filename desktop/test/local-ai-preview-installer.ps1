@@ -4,15 +4,33 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
     throw 'Local AI preview installer acceptance is restricted to disposable Windows CI runners.'
 }
 
-$product = 'Quiz From Notes Local AI Preview'
+$package = Get-Content (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json
+$product = $package.build.productName
+$displayName = "$product $($package.version)"
 $installerRoot = Join-Path $PSScriptRoot '../dist/local-ai-preview'
 $installers = @(Get-ChildItem $installerRoot -Filter '*.exe' -File)
 if ($installers.Count -ne 1) { throw 'Expected exactly one Local AI preview installer.' }
+$previousRoot = Join-Path $PSScriptRoot '../dist-previous'
+$previousInstallers = @(Get-ChildItem $previousRoot -Filter '*.exe' -File)
+if ($previousInstallers.Count -ne 1) { throw 'Expected exactly one previous-version installer.' }
 
+$registryRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 $protocolRoot = 'HKCU:\Software\Classes\com.quizfromnotes.desktop.preview'
 $protocolCommand = Join-Path $protocolRoot 'shell\open\command'
+$backupRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer'
+function Find-Registration {
+    if (-not (Test-Path $registryRoot)) { return }
+    @(Get-ChildItem $registryRoot | ForEach-Object { Get-ItemProperty $_.PSPath } |
+        Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq $displayName })
+}
+if (@(Find-Registration).Count -ne 0) {
+    throw 'Refusing to replace a pre-existing installation on the CI runner.'
+}
 if (Test-Path $protocolRoot) {
-    throw 'Refusing to modify an existing sign-in protocol registration on the CI runner.'
+    throw 'Refusing to modify a pre-existing sign-in protocol registration on the CI runner.'
+}
+if (Test-Path $backupRoot) {
+    throw 'Refusing to modify a pre-existing installer backup on the CI runner.'
 }
 
 $installDir = Join-Path $env:RUNNER_TEMP ('qfn-local-ai-preview-' + [guid]::NewGuid().ToString('N'))
@@ -20,10 +38,6 @@ $exePath = Join-Path $installDir ($product + '.exe')
 $uninstaller = Join-Path $installDir ('Uninstall ' + $product + '.exe')
 $previousCommand = '"C:\QFN-Installer-Test\Previous Preview.exe" "%1"'
 $conflictDir = $null
-$backupRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer'
-if (Test-Path $backupRoot) {
-    throw 'Refusing to modify an existing Local AI installer backup on the CI runner.'
-}
 
 function Wait-ChildProcess($process, [int]$milliseconds, [string]$label) {
     if (-not $process.WaitForExit($milliseconds)) {
@@ -31,19 +45,34 @@ function Wait-ChildProcess($process, [int]$milliseconds, [string]$label) {
         if (-not $process.WaitForExit(10000)) { throw "$label could not be terminated." }
         throw "$label timed out and was terminated."
     }
+    if ($process.ExitCode -ne 0) { throw "$label exited with code $($process.ExitCode)." }
 }
 
 try {
+    $baseline = Start-Process -FilePath $previousInstallers[0].FullName `
+        -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
+    Wait-ChildProcess $baseline 120000 'Previous-version installation'
+    if (-not (Test-Path $exePath)) { throw 'Previous-version installation did not create its executable.' }
+    if ((Get-Item $exePath).VersionInfo.ProductVersion -notlike '0.0.1*') {
+        throw 'Previous-version installation did not install the expected baseline version.'
+    }
+
     $install = Start-Process -FilePath $installers[0].FullName `
         -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
-    Wait-ChildProcess $install 120000 'Local AI preview installation'
-    if ($install.ExitCode -ne 0) { throw "Local AI preview installation exited with code $($install.ExitCode)." }
+    Wait-ChildProcess $install 120000 'Local AI in-place replacement'
     if (-not (Test-Path $exePath) -or -not (Test-Path $uninstaller)) {
-        throw 'Local AI preview installation did not create its executable and uninstaller.'
+        throw 'Local AI replacement did not retain the expected app executable and uninstaller.'
     }
+    if ((Get-Item $exePath).VersionInfo.ProductVersion -notlike "$($package.version)*") {
+        throw 'Local AI installer did not replace the installed app version.'
+    }
+    if (-not (Test-Path (Join-Path $installDir 'resources/local-ai-runtime/llama-server.exe'))) {
+        throw 'In-place replacement did not install the Local AI runtime.'
+    }
+    if (@(Find-Registration).Count -ne 1) { throw 'Replacement did not retain a single per-user uninstall registration.' }
     $registeredCommand = (Get-Item $protocolCommand).GetValue('')
     if ($registeredCommand -ne ('"' + $exePath + '" "%1"')) {
-        throw 'Local AI preview did not register its expected sign-in handler.'
+        throw 'Replacement did not register the installed app for desktop sign-in links.'
     }
 
     New-Item -Path $backupRoot -Force | Out-Null
@@ -51,12 +80,11 @@ try {
         -Value $previousCommand -PropertyType String -Force | Out-Null
     $remove = Start-Process -FilePath $uninstaller `
         -ArgumentList @('/S', '/currentuser', "_?=$installDir") -PassThru
-    Wait-ChildProcess $remove 60000 'Local AI preview uninstallation'
-    if ($remove.ExitCode -ne 0) { throw "Local AI preview uninstallation exited with code $($remove.ExitCode)." }
+    Wait-ChildProcess $remove 60000 'Local AI uninstallation'
     if ((Get-Item $protocolCommand).GetValue('') -ne $previousCommand) {
-        throw 'Uninstallation did not restore the previously saved sign-in handler.'
+        throw 'Uninstallation did not restore the saved sign-in handler.'
     }
-    if (Test-Path $backupRoot) { throw 'Uninstallation left its saved protocol handler behind.' }
+    if (Test-Path $backupRoot) { throw 'Uninstallation left its saved handler behind.' }
     Remove-Item -LiteralPath $protocolRoot -Recurse -Force
 
     New-Item -Path $protocolCommand -Force | Out-Null
@@ -67,21 +95,23 @@ try {
     $conflictDir = Join-Path $env:RUNNER_TEMP ('qfn-local-ai-conflict-' + [guid]::NewGuid().ToString('N'))
     $conflictInstall = Start-Process -FilePath $installers[0].FullName `
         -ArgumentList @('/S', '/currentuser', "/D=$conflictDir") -PassThru
-    Wait-ChildProcess $conflictInstall 120000 'Silent conflicting installation'
-    if ($conflictInstall.ExitCode -eq 0) {
-        throw 'A silent install did not stop when another installation owned the sign-in handler.'
+    if (-not $conflictInstall.WaitForExit(120000)) {
+        $conflictInstall.Kill($true)
+        throw 'Silent conflicting installation timed out.'
     }
-    $afterConflict = (Get-Item $protocolCommand).GetValue('')
-    if ($afterConflict -ne $previousCommand) {
+    if ($conflictInstall.ExitCode -eq 0) {
+        throw 'A silent install did not stop when another program owned the sign-in handler.'
+    }
+    if ((Get-Item $protocolCommand).GetValue('') -ne $previousCommand) {
         throw 'A silent install changed the existing sign-in handler without asking.'
     }
-    if (Test-Path $backupRoot) { throw 'A silent install changed backup state despite refusing the protocol takeover.' }
-    Write-Output 'Install, uninstall cleanup, and safe refusal of silent protocol takeover passed.'
+    if (Test-Path $backupRoot) { throw 'A silent install changed handler backup state after refusing takeover.' }
+    Write-Output 'In-place replacement, preserved app registration, uninstall restoration, and safe silent refusal passed.'
 } finally {
-    if (Test-Path $protocolRoot) {
-        Remove-Item -LiteralPath $protocolRoot -Recurse -Force
-    }
+    if (Test-Path $protocolRoot) { Remove-Item -LiteralPath $protocolRoot -Recurse -Force }
     if (Test-Path $backupRoot) { Remove-Item -LiteralPath $backupRoot -Recurse -Force }
     if (Test-Path $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
-    if ($conflictDir -and (Test-Path $conflictDir)) { Remove-Item -LiteralPath $conflictDir -Recurse -Force }
+    if ($conflictDir -and (Test-Path $conflictDir)) {
+        Remove-Item -LiteralPath $conflictDir -Recurse -Force
+    }
 }

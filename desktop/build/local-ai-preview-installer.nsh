@@ -1,13 +1,26 @@
 !define QFN_PROTOCOL_KEY "Software\Classes\com.quizfromnotes.desktop.preview"
 !define QFN_LOCAL_AI_BACKUP_KEY "Software\Quiz From Notes\Local AI Preview Installer"
 
+!macro customInit
+  ReadRegStr $0 HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  StrCmp $0 "" qfn_no_existing_version
+  IfSilent qfn_replace_existing_version 0
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "An existing version of Quiz From Notes is already installed.$\r$\n$\r$\nWould you like to replace it with the Local AI version?$\r$\nYour settings and saved data will be kept." IDYES qfn_replace_existing_version IDNO qfn_cancel_install
+
+  qfn_cancel_install:
+  Quit
+
+  qfn_replace_existing_version:
+  qfn_no_existing_version:
+!macroend
+
 !macro customInstall
   ReadRegStr $0 HKCU "${QFN_PROTOCOL_KEY}\shell\open\command" ""
   StrCmp $0 "" qfn_register_protocol
   StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"' qfn_register_protocol
 
   IfSilent qfn_silent_conflict 0
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "An existing version of Quiz From Notes is set to open sign-in links.$\r$\n$\r$\nWould you like Local AI Preview to replace it for sign-in links?$\r$\nThe existing version will stay installed. Uninstalling Local AI Preview restores the previous sign-in setup.$\r$\n$\r$\nChoose No to keep things as they are and cancel setup." IDYES qfn_save_previous_handler IDNO qfn_decline_handler
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "A different app is already set up to handle Quiz From Notes sign-in.$\r$\n$\r$\nWould you like to continue and make Local AI Preview the default?" IDYES qfn_save_previous_handler IDNO qfn_decline_handler
 
   qfn_silent_conflict:
   Abort
