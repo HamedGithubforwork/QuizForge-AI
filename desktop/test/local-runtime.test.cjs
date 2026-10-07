@@ -185,7 +185,11 @@ test('successful GPU inference records the actual selected backend and device', 
       gpuDevice: () => 'Vulkan1',
       spawnProcess: (_executable, args) => {
         launches.push(args)
-        return fakeChild()
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        queueMicrotask(() => child.stderr.emit('data', 'load_tensors: offloaded 35/35 layers to GPU\n'))
+        return child
       },
     },
   })
@@ -194,6 +198,22 @@ test('successful GPU inference records the actual selected backend and device', 
   assert.equal(launches.length, 1)
   assert.equal(launches[0][launches[0].indexOf('--device') + 1], 'Vulkan1')
   assert.equal(runtime.lastAccelerationMode(), 'gpu')
+})
+
+test('GPU launch without a layer offload report is not presented as confirmed GPU use', async () => {
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => {
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        return child
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(runtime.lastAccelerationMode(), 'unknown')
 })
 
 test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {

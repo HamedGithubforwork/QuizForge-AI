@@ -17,7 +17,8 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
   }
   function localAiSnapshot(manager, status) {
     const mode = manager.lastAccelerationMode?.()
-    return { ...status, lastAccelerationMode: mode === 'cpu' || mode === 'gpu' ? mode : null }
+    return { ...status, lastAccelerationMode:
+      mode === 'cpu' || mode === 'gpu' || mode === 'unknown' ? mode : null }
   }
   function sourceTextCache() {
     const cache = getSourceTextCache()

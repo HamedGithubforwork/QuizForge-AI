@@ -58,7 +58,7 @@ test('Local AI bridge requires an enrolled account and exposes only manager resu
   account = { userId: 'user', enrolled: true }
   assert.deepEqual(await handlers['qfn:localAiStatus'](event),
     { phase: 'idle', model: { ready: false }, secretPath: undefined, lastAccelerationMode: 'gpu' })
-  lastMode = 'unknown'
+  lastMode = 'Vulkan1'
   assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).lastAccelerationMode, null)
   allowDownload = true
   lastMode = 'cpu'

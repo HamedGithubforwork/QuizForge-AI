@@ -199,7 +199,9 @@ export default function LocalAiSettings() {
                     ? 'CPU'
                     : status.lastAccelerationMode === null
                       ? 'Not used yet'
-                      : 'Not reported by this build'}
+                      : status.lastAccelerationMode === 'unknown'
+                        ? 'Could not confirm GPU offload'
+                        : 'Not reported by this build'}
               </strong>
               {capability.acceleration === 'gpu' &&
                 status.lastAccelerationMode === 'cpu' &&

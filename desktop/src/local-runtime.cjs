@@ -98,6 +98,28 @@ function boundedCpuThreads(logicalCpuCount = os.cpus().length) {
   return Math.max(1, Math.min(8, count - 1))
 }
 
+function trackGpuLayerOffload(child) {
+  let pending = ''
+  let offloaded = null
+  function consume(chunk) {
+    const lines = (pending + String(chunk)).split(/\r?\n/)
+    pending = lines.pop().slice(-4096)
+    for (const line of lines) {
+      const match = line.match(/offloaded\s+(\d+)\s*\/\s*\d+\s+layers?\s+to GPU/i)
+      if (match) offloaded = Number(match[1]) > 0
+    }
+  }
+  for (const stream of [child?.stdout, child?.stderr]) {
+    stream?.on?.('data', consume)
+  }
+  return Object.freeze({
+    state() {
+      if (pending) consume('\n')
+      return offloaded
+    },
+  })
+}
+
 function createLocalRuntime({
   directory,
   modelStore,
@@ -139,7 +161,8 @@ function createLocalRuntime({
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
         '-c', '4096', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
-      { cwd: directory, windowsHide: true, shell: false, stdio: 'ignore', env: runtimeEnvironment(key) })
+      { cwd: directory, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment(key) })
+      const offloadTracker = trackGpuLayerOffload(child)
       try {
         if (Number.isSafeInteger(child?.pid) && child.pid > 0) onProcessChange(child.pid)
       } catch {}
@@ -165,7 +188,10 @@ function createLocalRuntime({
       const result = await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
         owned)
-      lastAccelerationMode = mode
+      const gpuOffloaded = offloadTracker.state()
+      lastAccelerationMode = mode === 'cpu'
+        ? 'cpu'
+        : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
       return result
     } finally {
       let cleanupError = null
