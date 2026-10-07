@@ -18,6 +18,7 @@ $registryRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 $protocolRoot = 'HKCU:\Software\Classes\com.quizfromnotes.desktop.preview'
 $protocolCommand = Join-Path $protocolRoot 'shell\open\command'
 $backupRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer'
+$stateRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer State'
 $installerSource = Get-Content (Join-Path $PSScriptRoot '../build/local-ai-preview-installer.nsh') -Raw
 if ([regex]::Matches($installerSource, 'MessageBox').Count -ne 1 -or
     $installerSource -notmatch 'A version of Quiz From Notes is already installed\.' -or
@@ -37,6 +38,9 @@ if (Test-Path $protocolRoot) {
 }
 if (Test-Path $backupRoot) {
     throw 'Refusing to modify a pre-existing installer backup on the CI runner.'
+}
+if (Test-Path $stateRoot) {
+    throw 'Refusing to modify pre-existing installer prompt state on the CI runner.'
 }
 
 $installDir = Join-Path $env:RUNNER_TEMP ('qfn-local-ai-preview-' + [guid]::NewGuid().ToString('N'))
@@ -112,10 +116,12 @@ try {
         throw 'A silent install changed the existing sign-in handler without asking.'
     }
     if (Test-Path $backupRoot) { throw 'A silent install changed handler backup state after refusing takeover.' }
+    if (Test-Path $stateRoot) { throw 'A silent install left replacement prompt state behind.' }
     Write-Output 'Friendly replacement prompt, in-place upgrade, app registration, uninstall restoration, and safe silent refusal passed.'
 } finally {
     if (Test-Path $protocolRoot) { Remove-Item -LiteralPath $protocolRoot -Recurse -Force }
     if (Test-Path $backupRoot) { Remove-Item -LiteralPath $backupRoot -Recurse -Force }
+    if (Test-Path $stateRoot) { Remove-Item -LiteralPath $stateRoot -Recurse -Force }
     if (Test-Path $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
     if ($conflictDir -and (Test-Path $conflictDir)) {
         Remove-Item -LiteralPath $conflictDir -Recurse -Force
