@@ -956,6 +956,12 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     provider: {
       async generate(request) {
         calls++
+        if (calls > 1) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-targeted-retry-v' + (calls - 1),
+          )
+        }
         const retryPool = {
           ...pool,
           questions: pool.questions.slice(
