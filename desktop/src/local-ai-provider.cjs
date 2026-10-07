@@ -16,6 +16,10 @@ const PROFILES = new Set([
   'quiz-mcq-v1',
   'quiz-mcq-retry-v1',
   'quiz-mcq-targeted-retry-v1',
+  'quiz-mcq-targeted-retry-v2',
+  'quiz-mcq-targeted-retry-v3',
+  'quiz-mcq-targeted-retry-v4',
+  'quiz-mcq-targeted-retry-v5',
 ])
 const encoder = new TextEncoder()
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
