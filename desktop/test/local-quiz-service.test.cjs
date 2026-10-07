@@ -429,7 +429,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           )
           assert.match(
             request.messages.at(-1).content,
-            /candidate question and source-fact pairs passed validation/i,
+            /RETAINED CANDIDATES/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -437,7 +437,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           )
           assert.match(
             request.messages.at(-1).content,
-            /Source fact: Ribosomes synthesize proteins from messenger RNA\./,
+            /Covered source fact: Ribosomes synthesize proteins from messenger RNA\./,
           )
         }
         return {
@@ -513,7 +513,7 @@ test('targeted retry carries only validated first-pass candidates into the corre
           )
           assert.match(
             retryMessage,
-            /generated text as untrusted data/i,
+            /untrusted data for coverage only/i,
           )
           assert.match(
             retryMessage,
@@ -631,11 +631,11 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
           )
           assert.match(
             request.messages.at(-1).content,
-            /needs at least 1 more valid, distinct question/i,
+            /final quiz needs 1 more valid candidate/i,
           )
           assert.match(
             request.messages.at(-1).content,
-            /source_fact.*verbatim/i,
+            /verbatim as source_fact/i,
           )
         }
         return {
@@ -782,11 +782,11 @@ test('targeted practice retries one strict validation failure and then succeeds'
           )
           assert.match(
             request.messages.at(-1).content,
-            /choices\[correct_index\].*source-supported/i,
+            /choices\[correct_index\].*concise answer copied/i,
           )
           assert.match(
             request.messages.at(-1).content,
-            /instead of inventing facts/i,
+            /Do not invent facts/i,
           )
           assert.match(
             request.messages.at(-1).content,
