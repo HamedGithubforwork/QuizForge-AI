@@ -59,9 +59,9 @@ export default function DesktopAuthGate() {
         <text x="86" y="49" fill="rgba(255,255,255,.9)" fontSize="7" fontWeight="700" letterSpacing=".5">QUIZ</text>
       </svg>
       <div className="auth-hero-copy">
-        <span className="auth-eyebrow">YOUR STUDY WORKSPACE</span>
-        <h1>Study smarter with your own notes.</h1>
-        <p>Turn class materials into quizzes, save what you’ve learned, and pick up where you left off.</p>
+        <span className="auth-eyebrow">QUIZZES FROM YOUR NOTES</span>
+        <h1>Turn your notes into practice quizzes.</h1>
+        <p>Build decks from class materials, track your progress, and pick up where you left off.</p>
       </div>
       <ul className="auth-benefit-list">
         <li><span aria-hidden="true">✓</span> Build quizzes from your notes</li>
@@ -69,8 +69,8 @@ export default function DesktopAuthGate() {
       </ul>
     </div>
     <div className="auth-login-panel"><div className="auth-login-panel-inner">
-      <span className="auth-login-kicker">WELCOME BACK</span>
-      <h2>Sign in to the desktop app</h2>
+      <span className="auth-login-kicker">YOUR ACCOUNT</span>
+      <h2>Sign in to continue</h2>
       <p className="auth-login-copy">Sign in securely in your browser, then come back here.</p>
       {error && <p className="auth-error auth-login-error" role="alert">{error}</p>}
       <div className="auth-entry-actions">
@@ -87,8 +87,8 @@ export default function DesktopAuthGate() {
         </button>
         <button aria-label="Open account setup in browser" className="auth-entry-action auth-entry-action-secondary" disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>
           <span className="auth-entry-action-copy">
-            <strong>Open account setup in browser</strong>
-            <small>Create an account or finish first-time setup</small>
+            <strong>Create or set up an account</strong>
+            <small>Opens in your browser to finish account setup</small>
           </span>
           <span className="auth-cta-arrow" aria-hidden="true">↗</span>
         </button>
