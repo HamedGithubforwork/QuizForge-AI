@@ -188,7 +188,10 @@ test('successful GPU inference records the actual selected backend and device', 
         const child = fakeChild()
         child.stdout = new EventEmitter()
         child.stderr = new EventEmitter()
-        queueMicrotask(() => child.stderr.emit('data', 'load_tensors: offloaded 35/35 layers to GPU\n'))
+        queueMicrotask(() => {
+          child.stderr.emit('data', Buffer.from('load_tensors: offloaded 35/35 la'))
+          child.stderr.emit('data', Buffer.from('yers to GPU\n'))
+        })
         return child
       },
     },
@@ -214,6 +217,23 @@ test('GPU launch without a layer offload report is not presented as confirmed GP
   })
   await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
   assert.equal(runtime.lastAccelerationMode(), 'unknown')
+})
+
+test('GPU launch reporting zero offloaded layers is recorded as CPU inference', async () => {
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => {
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        queueMicrotask(() => child.stderr.emit('data', 'load_tensors: offloaded 0/35 layers to GPU\n'))
+        return child
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
 })
 
 test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {
