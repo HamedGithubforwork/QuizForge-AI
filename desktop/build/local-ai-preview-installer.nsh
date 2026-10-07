@@ -7,7 +7,7 @@
   StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"' qfn_register_protocol
 
   IfSilent qfn_silent_conflict 0
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Another Quiz From Notes preview is set to open desktop sign-in links.$\r$\n$\r$\nWould you like Local AI Preview to handle them instead?$\r$\nWhile Local AI Preview is installed, the other preview won't receive sign-in links. Its handler will be restored when you uninstall Local AI Preview.$\r$\n$\r$\nChoose No to keep the current setup and cancel this installation." IDYES qfn_save_previous_handler IDNO qfn_decline_handler
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "An existing version of Quiz From Notes is set to open sign-in links.$\r$\n$\r$\nWould you like Local AI Preview to replace it for sign-in links?$\r$\nThe existing version will stay installed. Uninstalling Local AI Preview restores the previous sign-in setup.$\r$\n$\r$\nChoose No to keep things as they are and cancel setup." IDYES qfn_save_previous_handler IDNO qfn_decline_handler
 
   qfn_silent_conflict:
   Abort
