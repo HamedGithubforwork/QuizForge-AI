@@ -1,16 +1,27 @@
 !define QFN_PROTOCOL_KEY "Software\Classes\com.quizfromnotes.desktop.preview"
 !define QFN_LOCAL_AI_BACKUP_KEY "Software\Quiz From Notes\Local AI Preview Installer"
+Var QFN_REPLACE_CONFIRMED
 
 !macro customInit
+  StrCpy $QFN_REPLACE_CONFIRMED "0"
   ReadRegStr $0 HKCU "${UNINSTALL_REGISTRY_KEY}" "UninstallString"
+  StrCmp $0 "" qfn_check_existing_handler
+  Goto qfn_ask_replace
+
+  qfn_check_existing_handler:
+  ReadRegStr $0 HKCU "${QFN_PROTOCOL_KEY}\shell\open\command" ""
   StrCmp $0 "" qfn_no_existing_version
+  StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"' qfn_no_existing_version
+
+  qfn_ask_replace:
   IfSilent qfn_replace_existing_version 0
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "An existing version of Quiz From Notes is already installed.$\r$\n$\r$\nWould you like to replace it with the Local AI version?$\r$\nYour settings and saved data will be kept." IDYES qfn_replace_existing_version IDNO qfn_cancel_install
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "A version of Quiz From Notes is already installed.$\r$\n$\r$\nWould you like to replace it with the Local AI version? Your saved data and settings will be kept." IDYES qfn_replace_existing_version IDNO qfn_cancel_install
 
   qfn_cancel_install:
   Quit
 
   qfn_replace_existing_version:
+  StrCpy $QFN_REPLACE_CONFIRMED "1"
   qfn_no_existing_version:
 !macroend
 
@@ -20,12 +31,10 @@
   StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"' qfn_register_protocol
 
   IfSilent qfn_silent_conflict 0
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "A different app is already set up to handle Quiz From Notes sign-in.$\r$\n$\r$\nWould you like to continue and make Local AI Preview the default?" IDYES qfn_save_previous_handler IDNO qfn_decline_handler
+  StrCmp $QFN_REPLACE_CONFIRMED "1" qfn_save_previous_handler
+  Goto qfn_register_protocol
 
   qfn_silent_conflict:
-  Abort
-
-  qfn_decline_handler:
   Abort
 
   qfn_save_previous_handler:
