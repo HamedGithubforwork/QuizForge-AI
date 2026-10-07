@@ -1092,3 +1092,34 @@
     width: 100%;
   }
 }
+
+
+/* Compact welcome layout for the desktop app's smaller starting window. */
+@media (max-width: 760px) {
+  .auth-page-desktop-welcome { padding: 12px 16px; }
+  .auth-page-desktop-welcome .auth-login-shell { width: min(560px, 100%); }
+  .auth-page-desktop-welcome .auth-hero-panel { min-height: 0; padding: 16px 25px 15px; }
+  .auth-page-desktop-welcome .auth-wordmark { gap: 10px; font-size: 16px; }
+  .auth-page-desktop-welcome .auth-wordmark-mark { width: 36px; height: 36px; border-radius: 11px; font-size: 12px; }
+  .auth-page-desktop-welcome .auth-hero-copy { margin: 10px 0 0; }
+  .auth-page-desktop-welcome .auth-eyebrow { margin-bottom: 6px; padding: 0; border: 0; background: transparent; font-size: 9px; }
+  .auth-page-desktop-welcome .auth-hero-copy h1 { font-size: 22px; letter-spacing: -0.025em; }
+  .auth-page-desktop-welcome .auth-hero-copy p { max-width: 100%; margin-top: 6px; font-size: 12px; line-height: 1.45; }
+  .auth-page-desktop-welcome .auth-login-panel { padding: 20px 25px 21px; }
+  .auth-page-desktop-welcome .auth-login-panel-inner { width: 100%; }
+  .auth-page-desktop-welcome .auth-login-kicker { margin-bottom: 7px; font-size: 10px; }
+  .auth-page-desktop-welcome .auth-login-panel h2 { font-size: 25px; }
+  .auth-page-desktop-welcome .auth-login-copy { margin: 9px 0 15px; font-size: 13px; line-height: 1.5; }
+  .auth-page-desktop-welcome .auth-entry-actions { gap: 9px; }
+  .auth-page-desktop-welcome .auth-entry-action { min-height: 53px; gap: 12px; padding: 9px 13px; border-radius: 11px; }
+  .auth-page-desktop-welcome .auth-entry-action-copy { gap: 2px; }
+  .auth-page-desktop-welcome .auth-entry-action-copy strong { font-size: 13px; }
+  .auth-page-desktop-welcome .auth-entry-action-copy small { font-size: 11px; }
+  .auth-page-desktop-welcome .auth-security-note { margin-top: 11px; font-size: 11px; }
+}
+@media (max-width: 420px) {
+  .auth-page-desktop-welcome { padding: 10px; }
+  .auth-page-desktop-welcome .auth-hero-panel { padding: 15px 19px 14px; }
+  .auth-page-desktop-welcome .auth-login-panel { padding: 18px 19px; }
+  .auth-page-desktop-welcome .auth-entry-action-copy strong { font-size: 12px; }
+}
