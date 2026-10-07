@@ -18,6 +18,12 @@ $registryRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 $protocolRoot = 'HKCU:\Software\Classes\com.quizfromnotes.desktop.preview'
 $protocolCommand = Join-Path $protocolRoot 'shell\open\command'
 $backupRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer'
+$installerSource = Get-Content (Join-Path $PSScriptRoot '../build/local-ai-preview-installer.nsh') -Raw
+if ([regex]::Matches($installerSource, 'MessageBox').Count -ne 1 -or
+    $installerSource -notmatch 'A version of Quiz From Notes is already installed\.' -or
+    $installerSource -match 'MessageBox[^\r\n]*sign-in') {
+    throw 'Installer must use one friendly replacement prompt without sign-in-link wording.'
+}
 function Find-Registration {
     if (-not (Test-Path $registryRoot)) { return }
     @(Get-ChildItem $registryRoot | ForEach-Object { Get-ItemProperty $_.PSPath } |
@@ -106,7 +112,7 @@ try {
         throw 'A silent install changed the existing sign-in handler without asking.'
     }
     if (Test-Path $backupRoot) { throw 'A silent install changed handler backup state after refusing takeover.' }
-    Write-Output 'In-place replacement, preserved app registration, uninstall restoration, and safe silent refusal passed.'
+    Write-Output 'Friendly replacement prompt, in-place upgrade, app registration, uninstall restoration, and safe silent refusal passed.'
 } finally {
     if (Test-Path $protocolRoot) { Remove-Item -LiteralPath $protocolRoot -Recurse -Force }
     if (Test-Path $backupRoot) { Remove-Item -LiteralPath $backupRoot -Recurse -Force }
