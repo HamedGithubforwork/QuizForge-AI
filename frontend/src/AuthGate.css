@@ -905,9 +905,8 @@
 }
 
 .auth-entry-action:focus-visible {
-  outline: 2px solid #ffffff;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 5px #3f36b8;
+  outline: 3px solid #3f36b8;
+  outline-offset: 3px;
 }
 
 .auth-entry-action-primary {
