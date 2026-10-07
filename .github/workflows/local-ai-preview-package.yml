@@ -9,8 +9,10 @@ on:
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/verify-packaged-runtime.cjs
       - desktop/build/local-ai-preview.cjs
+      - desktop/build/local-ai-preview-installer.nsh
       - desktop/package.json
       - desktop/package-lock.json
+      - desktop/test/local-ai-preview-installer.ps1
       - .github/workflows/local-ai-preview-package.yml
 
 permissions:
@@ -97,6 +99,10 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
+
+      - name: Test Local AI preview installation and protocol conflict handling
+        shell: pwsh
+        run: ./test/local-ai-preview-installer.ps1
 
       - name: Retain internal Local AI preview
         uses: actions/upload-artifact@v7

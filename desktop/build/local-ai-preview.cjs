@@ -28,6 +28,10 @@ module.exports = {
     ...build.directories,
     output: 'dist/local-ai-preview',
   },
+  nsis: {
+    ...build.nsis,
+    include: path.join(__dirname, 'local-ai-preview-installer.nsh'),
+  },
   extraResources: [
     {
       from: runtime,
