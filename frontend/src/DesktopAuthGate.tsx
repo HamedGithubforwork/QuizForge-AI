@@ -47,6 +47,17 @@ export default function DesktopAuthGate() {
   if (!account) return <main className="auth-page auth-page-welcome auth-page-desktop-welcome"><section className="auth-login-shell">
     <div className="auth-hero-panel">
       <div className="auth-wordmark"><span className="auth-wordmark-mark" aria-hidden="true">QF</span>Quiz From Notes</div>
+      <svg className="auth-flow-visual" viewBox="0 0 132 64" aria-hidden="true" focusable="false">
+        <rect x="3" y="5" width="43" height="52" rx="7" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.55)" />
+        <path d="M12 17h24M12 23h19M12 29h21" stroke="rgba(255,255,255,.82)" strokeWidth="2" strokeLinecap="round" />
+        <text x="12" y="47" fill="rgba(255,255,255,.82)" fontSize="7" fontWeight="700" letterSpacing=".5">NOTES</text>
+        <path d="M51 31h17m-5-5 5 5-5 5" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="78" y="5" width="47" height="52" rx="7" fill="rgba(255,255,255,.2)" stroke="rgba(255,255,255,.65)" />
+        <rect x="86" y="16" width="7" height="7" rx="2" fill="rgba(255,255,255,.9)" />
+        <path d="m88 19 1.5 1.5L92 18" fill="none" stroke="#6257e7" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M98 19h18M86 29h7m5 0h18M86 36h7m5 0h18" stroke="rgba(255,255,255,.82)" strokeWidth="2" strokeLinecap="round" />
+        <text x="86" y="49" fill="rgba(255,255,255,.9)" fontSize="7" fontWeight="700" letterSpacing=".5">QUIZ</text>
+      </svg>
       <div className="auth-hero-copy">
         <span className="auth-eyebrow">YOUR STUDY WORKSPACE</span>
         <h1>Study smarter with your own notes.</h1>
