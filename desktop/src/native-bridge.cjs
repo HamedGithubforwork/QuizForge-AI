@@ -15,6 +15,10 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     if (!manager) throw new Error('Local AI is not available in this desktop build.')
     return manager
   }
+  function localAiSnapshot(manager, status) {
+    const mode = manager.lastAccelerationMode?.()
+    return { ...status, lastAccelerationMode: mode === 'cpu' || mode === 'gpu' ? mode : null }
+  }
   function sourceTextCache() {
     const cache = getSourceTextCache()
     if (!cache) throw new Error('Desktop source-text cache is not available.')
@@ -46,19 +50,27 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     reminderStatus: () => getReminders()?.status() ?? { supported: false, enabled: false },
     enableReminders: () => getReminders()?.enable(),
     disableReminders: () => getReminders()?.disable(),
-    localAiStatus: () => localAi().load(),
+    localAiStatus: async () => {
+      const manager = localAi()
+      return localAiSnapshot(manager, await manager.load())
+    },
     startLocalAiModelDownload: async () => {
       const manager = localAi()
       const status = await manager.load()
-      if (status.model?.ready) return status
-      return await confirmLocalAiDownload(status) ? manager.startDownload() : status
+      if (status.model?.ready) return localAiSnapshot(manager, status)
+      return localAiSnapshot(manager,
+        await confirmLocalAiDownload(status) ? await manager.startDownload() : status)
     },
-    cancelLocalAiModelDownload: () => localAi().cancelDownload(),
+    cancelLocalAiModelDownload: async () => {
+      const manager = localAi()
+      return localAiSnapshot(manager, await manager.cancelDownload())
+    },
     removeLocalAiModel: async () => {
       const manager = localAi()
       const status = await manager.load()
-      if (!status.model?.ready && status.model?.state !== 'invalid') return status
-      return await confirmLocalAiRemoval(status) ? manager.removeModel() : status
+      if (!status.model?.ready && status.model?.state !== 'invalid') return localAiSnapshot(manager, status)
+      return localAiSnapshot(manager,
+        await confirmLocalAiRemoval(status) ? await manager.removeModel() : status)
     },
     localAiQuizStatus: () => localAi().quizStatus(),
     generateLocalAiQuiz: async value => {

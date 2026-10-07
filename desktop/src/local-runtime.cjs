@@ -108,6 +108,7 @@ function createLocalRuntime({
   randomBytesFn = randomBytes,
   onProcessChange = () => {},
   accelerationMode = () => 'cpu',
+  gpuDevice = () => 'Vulkan0',
   cpuThreadCount = boundedCpuThreads,
   platform = process.platform,
   arch = process.arch,
@@ -115,6 +116,7 @@ function createLocalRuntime({
 }) {
   let active = null
   let closed = false
+  let lastAccelerationMode = null
   const ownerAbort = new AbortController()
 
   async function runBackend(payload, bounded, mode, fallbackState = null) {
@@ -128,7 +130,11 @@ function createLocalRuntime({
       const alias = 'qfn-' + randomBytesFn(16).toString('hex')
       const port = await freePortFn()
       const threads = String(cpuThreadCount())
-      const gpuArgs = mode === 'gpu' ? ['--device', 'Vulkan0', '-ngl', '99'] : ['--device', 'none', '-ngl', '0']
+      const selectedGpuDevice = gpuDevice()
+      const gpuArgs = mode === 'gpu'
+        ? ['--device', typeof selectedGpuDevice === 'string' && /^Vulkan\d+$/.test(selectedGpuDevice)
+          ? selectedGpuDevice : 'Vulkan0', '-ngl', '99']
+        : ['--device', 'none', '-ngl', '0']
       if (fallbackState && mode === 'gpu') fallbackState.eligible = true
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
         '-c', '4096', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
@@ -156,9 +162,11 @@ function createLocalRuntime({
         } catch { startup.throwIfAborted() }
         await delay(100, undefined, { signal: startup })
       }
-      return await requestFn(port, key, '/v1/chat/completions',
+      const result = await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
         owned)
+      lastAccelerationMode = mode
+      return result
     } finally {
       let cleanupError = null
       try {
@@ -235,7 +243,11 @@ function createLocalRuntime({
     return Object.freeze({ busy: active !== null, closed })
   }
 
-  return Object.freeze({ complete, shutdown, status })
+  function accelerationStatus() {
+    return lastAccelerationMode
+  }
+
+  return Object.freeze({ complete, shutdown, status, lastAccelerationMode: accelerationStatus })
 }
 
 module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }

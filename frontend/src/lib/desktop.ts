@@ -54,6 +54,7 @@ export type DesktopLocalQuizResult =
     }
 
 export type DesktopLocalAiStatus = {
+  lastAccelerationMode?: 'cpu' | 'gpu' | null
   initialized: boolean
   phase: 'idle' | 'checking' | 'downloading' | 'removing'
   progress: { receivedBytes: number; totalBytes: number } | null

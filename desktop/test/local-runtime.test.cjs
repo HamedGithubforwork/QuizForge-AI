@@ -107,6 +107,7 @@ test('runtime lifecycle exposes bounded busy state and cleans successful session
   const result = runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
   assert.deepEqual(runtime.status(), { busy: true, closed: false })
   assert.equal((await result).choices[0].message.content, 'ok')
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
   assert.equal(child.kills.length, 1)
 })
@@ -157,6 +158,7 @@ test('GPU launch uses Vulkan offload settings, then falls back to bounded CPU th
   const { runtime } = runtimeFixture({
     options: {
       accelerationMode: () => 'gpu',
+      gpuDevice: () => 'Vulkan1',
       cpuThreadCount: () => 6,
       spawnProcess: (_executable, args) => {
         launches.push(args)
@@ -166,12 +168,32 @@ test('GPU launch uses Vulkan offload settings, then falls back to bounded CPU th
   })
   await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
   assert.equal(launches.length, 2)
-  assert.ok(launches[0].includes('Vulkan0'))
+  assert.ok(launches[0].includes('Vulkan1'))
   assert.ok(launches[0].includes('99'))
   assert.ok(launches[1].includes('none'))
   assert.ok(launches[1].includes('0'))
   assert.equal(launches[0][launches[0].indexOf('-t') + 1], '6')
   assert.equal(launches[1][launches[1].indexOf('-t') + 1], '6')
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+})
+
+test('successful GPU inference records the actual selected backend and device', async () => {
+  const launches = []
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuDevice: () => 'Vulkan1',
+      spawnProcess: (_executable, args) => {
+        launches.push(args)
+        return fakeChild()
+      },
+    },
+  })
+  assert.equal(runtime.lastAccelerationMode(), null)
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 1)
+  assert.equal(launches[0][launches[0].indexOf('--device') + 1], 'Vulkan1')
+  assert.equal(runtime.lastAccelerationMode(), 'gpu')
 })
 
 test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {

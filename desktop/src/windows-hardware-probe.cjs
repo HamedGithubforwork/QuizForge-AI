@@ -73,15 +73,17 @@ async function queryWindowsVulkanDevices({
   exec = execFile,
   verifyRuntimeFn = verifyRuntime,
 } = {}) {
-  if (platform !== 'win32') return Object.freeze({ detected: false })
-  if (typeof directory !== 'string' || !path.isAbsolute(directory)) return Object.freeze({ detected: false })
+  if (platform !== 'win32') return Object.freeze({ detected: false, deviceId: null })
+  if (typeof directory !== 'string' || !path.isAbsolute(directory)) {
+    return Object.freeze({ detected: false, deviceId: null })
+  }
   let safe
   try {
     await verifyRuntimeFn(directory, MANIFEST)
     safe = safeEnvironment(env)
-    if (!safe.SystemRoot) return Object.freeze({ detected: false })
+    if (!safe.SystemRoot) return Object.freeze({ detected: false, deviceId: null })
   } catch {
-    return Object.freeze({ detected: false })
+    return Object.freeze({ detected: false, deviceId: null })
   }
   const executable = path.join(directory, 'llama-server.exe')
   return await new Promise(resolve => {
@@ -92,10 +94,10 @@ async function queryWindowsVulkanDevices({
       maxBuffer: 65536,
       env: safe,
     }, (error, stdout, stderr) => {
-      if (error) return resolve(Object.freeze({ detected: false }))
+      if (error) return resolve(Object.freeze({ detected: false, deviceId: null }))
       const output = String(stdout || '') + '\n' + String(stderr || '')
-      const detected = /\bVulkan\d+\s*:\s*[^\r\n]+/i.test(output)
-      resolve(Object.freeze({ detected }))
+      const device = output.match(/\b(Vulkan\d+)\s*:\s*[^\r\n]+/i)?.[1] ?? null
+      resolve(Object.freeze({ detected: device !== null, deviceId: device }))
     })
   })
 }
@@ -137,6 +139,7 @@ async function snapshotWindowsHardware({
     logicalCpuCount: Math.max(1, osModule.cpus().length),
     gpuDetected: gpu.detected,
     gpuDetection: gpu.detection,
+    gpuDevice: vulkan.deviceId,
     runtimeAccelerationModes: Object.freeze(accelerationModes),
   })
 }

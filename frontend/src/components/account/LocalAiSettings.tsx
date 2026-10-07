@@ -184,8 +184,26 @@ export default function LocalAiSettings() {
                 {capability.recommendation === 'enhanced-local-preview'
                   ? 'Enhanced local model'
                   : 'Lightweight local model'}
+              </strong>.
+            </p>
+            <p>
+              Available acceleration: <strong>
+                {capability.acceleration === 'gpu' ? 'GPU (Vulkan)' : 'CPU'}
               </strong>
-              {' '}using {capability.acceleration === 'gpu' ? 'GPU' : 'CPU'} inference.
+            </p>
+            <p>
+              Last successful inference: <strong>
+                {status.lastAccelerationMode === 'gpu'
+                  ? 'GPU (Vulkan)'
+                  : status.lastAccelerationMode === 'cpu'
+                    ? 'CPU'
+                    : status.lastAccelerationMode === null
+                      ? 'Not used yet'
+                      : 'Not reported by this build'}
+              </strong>
+              {capability.acceleration === 'gpu' &&
+                status.lastAccelerationMode === 'cpu' &&
+                ' (GPU startup fell back to CPU)'}
             </p>
             {capability.hardware.gpuDetected &&
               !capability.hardware.gpuAccelerationUsable && (

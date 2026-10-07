@@ -49,6 +49,7 @@ function createWindowsLocalAiStack({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
       accelerationMode: () => manager.status()?.capability?.acceleration ?? 'cpu',
+      gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       onProcessChange: onRuntimeProcess,
     })
     const provider = createWindowsLocalAiProvider({
@@ -152,6 +153,7 @@ function createWindowsLocalAiStack({
     quizStatus,
     generateQuiz,
     cancelQuiz,
+    lastAccelerationMode: () => runtime?.lastAccelerationMode() ?? null,
     dispose,
   })
 }

@@ -23,6 +23,7 @@ function snapshot(overrides = {}) {
     availableDiskBytes: 20 * GIB,
     logicalCpuCount: 8,
     gpuDetected: true,
+    gpuDevice: 'Vulkan0',
     gpuDetection: 'detected',
     runtimeAccelerationModes: ['cpu'],
     ...overrides,
@@ -108,7 +109,7 @@ test('Vulkan probe runs the pinned server device listing and requires a Vulkan d
     },
   })
   assert.equal(called, true)
-  assert.deepEqual(result, { detected: true })
+  assert.deepEqual(result, { detected: true, deviceId: 'Vulkan0' })
 
   const noDevice = await queryWindowsVulkanDevices({
     directory: path.resolve('runtime'),
@@ -117,7 +118,20 @@ test('Vulkan probe runs the pinned server device listing and requires a Vulkan d
     verifyRuntimeFn: async () => {},
     exec(_file, _args, _options, callback) { callback(null, 'Available devices:\n  CPU: x64', '') },
   })
-  assert.deepEqual(noDevice, { detected: false })
+  assert.deepEqual(noDevice, { detected: false, deviceId: null })
+})
+
+test('Vulkan probe returns the enumerated device id when it is not the first ordinal', async () => {
+  const result = await queryWindowsVulkanDevices({
+    directory: path.resolve('runtime'),
+    platform: 'win32',
+    env: { SystemRoot: 'C:\\Windows' },
+    verifyRuntimeFn: async () => {},
+    exec(_file, _args, _options, callback) {
+      callback(null, 'Available devices:\n  Vulkan1: Discrete GPU (8192 MiB)', '')
+    },
+  })
+  assert.deepEqual(result, { detected: true, deviceId: 'Vulkan1' })
 })
 
 test('hardware snapshot enables GPU mode only when Vulkan enumeration finds a device', async () => {
@@ -136,6 +150,7 @@ test('hardware snapshot enables GPU mode only when Vulkan enumeration finds a de
     },
   })
   assert.equal(result.gpuDetected, true)
+  assert.equal(result.gpuDevice, 'Vulkan0')
   assert.deepEqual(result.runtimeAccelerationModes, ['cpu', 'gpu'])
 })
 

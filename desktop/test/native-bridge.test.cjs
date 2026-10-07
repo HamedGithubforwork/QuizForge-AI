@@ -41,6 +41,8 @@ test('Local AI bridge requires an enrolled account and exposes only manager resu
   }
   let allowDownload = false
   let allowRemoval = false
+  let lastMode = 'gpu'
+  local.lastAccelerationMode = () => lastMode
   installNativeBridge({
     ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
     getWindow: () => ({ webContents: contents }),
@@ -55,11 +57,13 @@ test('Local AI bridge requires an enrolled account and exposes only manager resu
   await assert.rejects(handlers['qfn:localAiStatus'](event), /Sign in/)
   account = { userId: 'user', enrolled: true }
   assert.deepEqual(await handlers['qfn:localAiStatus'](event),
-    { phase: 'idle', model: { ready: false }, secretPath: undefined })
-  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).phase, 'idle')
+    { phase: 'idle', model: { ready: false }, secretPath: undefined, lastAccelerationMode: 'gpu' })
+  lastMode = 'unknown'
+  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).lastAccelerationMode, null)
   allowDownload = true
-  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).phase, 'downloading')
-  assert.equal((await handlers['qfn:cancelLocalAiModelDownload'](event)).phase, 'idle')
+  lastMode = 'cpu'
+  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).lastAccelerationMode, 'cpu')
+  assert.equal((await handlers['qfn:cancelLocalAiModelDownload'](event)).lastAccelerationMode, 'cpu')
   local.load = async () => ({ phase: 'idle', model: { ready: true } })
   assert.equal((await handlers['qfn:removeLocalAiModel'](event)).model.ready, true)
   allowRemoval = true
