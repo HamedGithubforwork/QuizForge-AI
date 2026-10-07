@@ -44,19 +44,47 @@ export default function DesktopAuthGate() {
     await bridge.signOut()
   }
   if (loading) return <p role="status">Checking desktop account…</p>
-  if (!account) return <main className="auth-page"><section className="auth-card">
-    <h1>Quiz From Notes</h1>
-    <h2>Sign in to the desktop app</h2>
-    <p>Your browser will open for secure sign-in. Return here to use your saved decks and study progress.</p>
-    {error && <p role="alert">{error}</p>}
-    <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
-      const revision = ++authRevision.current
-      const next = await bridge.signIn()
-      if (revision === authRevision.current) setAccount(next)
-    })}>{busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'}</button>
-    {busy && <button onClick={() => void bridge.signOut().catch(() => {})}>Cancel sign-in</button>}
-    <p>New account or first-time setup?</p>
-    <button disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>Open account setup in browser</button>
+  if (!account) return <main className="auth-page auth-page-welcome auth-page-desktop-welcome"><section className="auth-login-shell">
+    <div className="auth-hero-panel">
+      <div className="auth-wordmark"><span className="auth-wordmark-mark" aria-hidden="true">QF</span>Quiz From Notes</div>
+      <div className="auth-hero-copy">
+        <span className="auth-eyebrow">YOUR STUDY WORKSPACE</span>
+        <h1>Study smarter with your own notes.</h1>
+        <p>Turn class materials into quizzes, save what you’ve learned, and pick up where you left off.</p>
+      </div>
+      <ul className="auth-benefit-list">
+        <li><span aria-hidden="true">✓</span> Build quizzes from your notes</li>
+        <li><span aria-hidden="true">✓</span> Keep decks and progress together</li>
+      </ul>
+    </div>
+    <div className="auth-login-panel"><div className="auth-login-panel-inner">
+      <span className="auth-login-kicker">WELCOME BACK</span>
+      <h2>Sign in to the desktop app</h2>
+      <p className="auth-login-copy">Sign in securely in your browser, then come back here.</p>
+      {error && <p className="auth-error auth-login-error" role="alert">{error}</p>}
+      <div className="auth-entry-actions">
+        <button aria-label={busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'} className="auth-entry-action auth-entry-action-primary" disabled={busy} onClick={() => void run(async () => {
+          const revision = ++authRevision.current
+          const next = await bridge.signIn()
+          if (revision === authRevision.current) setAccount(next)
+        })}>
+          <span className="auth-entry-action-copy">
+            <strong>{busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'}</strong>
+            <small>Securely connect your account</small>
+          </span>
+          {!busy && <span className="auth-cta-arrow" aria-hidden="true">→</span>}
+        </button>
+        <button aria-label="Open account setup in browser" className="auth-entry-action auth-entry-action-secondary" disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>
+          <span className="auth-entry-action-copy">
+            <strong>Open account setup in browser</strong>
+            <small>Create an account or finish first-time setup</small>
+          </span>
+          <span className="auth-cta-arrow" aria-hidden="true">↗</span>
+        </button>
+      </div>
+      {busy && <div className="auth-login-signout"><button className="sign-out-button" onClick={() => void bridge.signOut().catch(() => {})}>Cancel sign-in</button></div>}
+      <div className="auth-security-note"><span className="auth-security-dot" aria-hidden="true" />Your saved decks and study progress stay with your account.</div>
+    </div></div>
   </section></main>
   if (!account.enrolled) return <main className="auth-page"><section className="auth-card">
     <h1>Finish account setup</h1><p>Signed in as {account.email}. Complete account setup in your browser, then sign in here again.</p>
