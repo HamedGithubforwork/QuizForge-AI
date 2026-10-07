@@ -724,6 +724,22 @@
   backdrop-filter: blur(10px);
 }
 
+.auth-flow-visual {
+  position: absolute;
+  z-index: 1;
+  top: 24px;
+  right: 26px;
+  width: 122px;
+  height: 60px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.auth-page-desktop-welcome .auth-hero-panel::before,
+.auth-page-desktop-welcome .auth-hero-panel::after {
+  display: none;
+}
+
 .auth-hero-copy {
   position: relative;
   z-index: 1;
@@ -886,6 +902,12 @@
 .auth-entry-action:disabled {
   cursor: not-allowed;
   opacity: 0.62;
+}
+
+.auth-entry-action:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px #3f36b8;
 }
 
 .auth-entry-action-primary {
@@ -1101,6 +1123,7 @@
   .auth-page-desktop-welcome .auth-hero-panel { min-height: 0; padding: 16px 25px 15px; }
   .auth-page-desktop-welcome .auth-wordmark { gap: 10px; font-size: 16px; }
   .auth-page-desktop-welcome .auth-wordmark-mark { width: 36px; height: 36px; border-radius: 11px; font-size: 12px; }
+  .auth-page-desktop-welcome .auth-flow-visual { top: 20px; right: 22px; width: 112px; }
   .auth-page-desktop-welcome .auth-hero-copy { margin: 10px 0 0; }
   .auth-page-desktop-welcome .auth-eyebrow { margin-bottom: 6px; padding: 0; border: 0; background: transparent; font-size: 9px; }
   .auth-page-desktop-welcome .auth-hero-copy h1 { font-size: 22px; letter-spacing: -0.025em; }
@@ -1122,4 +1145,5 @@
   .auth-page-desktop-welcome .auth-hero-panel { padding: 15px 19px 14px; }
   .auth-page-desktop-welcome .auth-login-panel { padding: 18px 19px; }
   .auth-page-desktop-welcome .auth-entry-action-copy strong { font-size: 12px; }
+  .auth-page-desktop-welcome .auth-flow-visual { top: 18px; right: 18px; width: 96px; }
 }
