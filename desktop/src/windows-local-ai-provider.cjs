@@ -29,6 +29,42 @@ const GENERATION_PROFILES = Object.freeze({
     seed: 2718,
     chat_template_kwargs: Object.freeze({ enable_thinking: false }),
   }),
+  'quiz-mcq-targeted-retry-v2': Object.freeze({
+    temperature: 0.9,
+    top_p: 0.9,
+    top_k: 40,
+    min_p: 0,
+    presence_penalty: 1.8,
+    seed: 31415,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
+  'quiz-mcq-targeted-retry-v3': Object.freeze({
+    temperature: 0.9,
+    top_p: 0.9,
+    top_k: 40,
+    min_p: 0,
+    presence_penalty: 1.8,
+    seed: 16180,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
+  'quiz-mcq-targeted-retry-v4': Object.freeze({
+    temperature: 0.9,
+    top_p: 0.9,
+    top_k: 40,
+    min_p: 0,
+    presence_penalty: 1.8,
+    seed: 57721,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
+  'quiz-mcq-targeted-retry-v5': Object.freeze({
+    temperature: 0.9,
+    top_p: 0.9,
+    top_k: 40,
+    min_p: 0,
+    presence_penalty: 1.8,
+    seed: 14142,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }),
+  }),
 })
 
 const RUNTIME_ERRORS = Object.freeze({
