@@ -439,7 +439,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           )
           assert.match(
             request.messages.at(-1).content,
-            /Covered source fact: Ribosomes synthesize proteins from messenger RNA\./,
+            /Question: Question 3\?[\s\S]*Covered source fact: Mitochondria have an inner membrane\./,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -493,7 +493,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   )
 })
 
-test('targeted retry carries only validated first-pass candidates into the corrective prompt', async () => {
+test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
     'Question to avoid?'
@@ -531,6 +531,10 @@ test('targeted retry carries only validated first-pass candidates into the corre
           )
           assert.match(
             retryMessage,
+            /REJECTED CANDIDATES AND FILTER REASONS/i,
+          )
+          assert.match(
+            retryMessage,
             /Question 2\?/,
           )
           assert.equal(
@@ -539,11 +543,9 @@ test('targeted retry carries only validated first-pass candidates into the corre
             ),
             true,
           )
-          assert.equal(
-            retryMessage.includes(
-              'Mitochondria generate ATP through cellular respiration.',
-            ),
-            false,
+          assert.match(
+            retryMessage,
+            /Rejection reason: avoided_question[\s\S]*Question: Question to avoid\?[\s\S]*Source fact: Mitochondria generate ATP through cellular respiration\./,
           )
           assert.match(
             retryMessage,
@@ -553,11 +555,9 @@ test('targeted retry carries only validated first-pass candidates into the corre
             retryMessage,
             /Filtered first-pass candidate wording\?/,
           )
-          assert.equal(
-            retryMessage.includes(
-              'Mitochondria have an inner membrane.',
-            ),
-            false,
+          assert.match(
+            retryMessage,
+            /Rejection reason: unsupported_answer[\s\S]*Question: Filtered first-pass candidate wording\?[\s\S]*Source fact: Mitochondria have an inner membrane\./,
           )
         }
         return {
