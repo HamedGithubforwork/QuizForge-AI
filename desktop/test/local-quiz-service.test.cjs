@@ -402,6 +402,8 @@ test('targeted-practice input rejects duplicate, oversized and malformed prior-q
 test('targeted practice accumulates valid candidates across the bounded retry', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
+  first.questions[1].choices[first.questions[1].correct_index] =
+    'Not stated in the notes'
   const second = rawQuiz()
   second.questions.forEach((item, index) => {
     item.question = 'Replacement question ' + (index + 1) + '?'
@@ -438,6 +440,18 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           assert.match(
             request.messages.at(-1).content,
             /Covered source fact: Ribosomes synthesize proteins from messenger RNA\./,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /REJECTED CANDIDATES AND FILTER REASONS/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /Rejection reason: avoided_question[\s\S]*Question: Question to avoid\?/,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /Rejection reason: unsupported_answer[\s\S]*Source fact: Ribosomes synthesize proteins from messenger RNA\./,
           )
         }
         return {
