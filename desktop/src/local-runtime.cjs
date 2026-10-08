@@ -2,6 +2,7 @@
 
 // Internal main-process component. Never expose configuration or credentials to IPC.
 const fs = require('node:fs/promises')
+const os = require('node:os')
 const path = require('node:path')
 const http = require('node:http')
 const net = require('node:net')
@@ -92,6 +93,33 @@ async function stop(child, closed) {
   if (!await Promise.race([closed.then(() => true), delay(3000, false)])) throw fail('shutdown_failed')
 }
 
+function boundedCpuThreads(logicalCpuCount = os.cpus().length) {
+  const count = Number.isSafeInteger(logicalCpuCount) && logicalCpuCount > 0 ? logicalCpuCount : 1
+  return Math.max(1, Math.min(8, count - 1))
+}
+
+function trackGpuLayerOffload(child) {
+  let pending = ''
+  let offloaded = null
+  function consume(chunk) {
+    const lines = (pending + String(chunk)).split(/\r?\n/)
+    pending = lines.pop().slice(-4096)
+    for (const line of lines) {
+      const match = line.match(/offloaded\s+(\d+)\s*\/\s*\d+\s+layers?\s+to GPU/i)
+      if (match) offloaded = Number(match[1]) > 0
+    }
+  }
+  for (const stream of [child?.stdout, child?.stderr]) {
+    stream?.on?.('data', consume)
+  }
+  return Object.freeze({
+    state() {
+      if (pending) consume('\n')
+      return offloaded
+    },
+  })
+}
+
 function createLocalRuntime({
   directory,
   modelStore,
@@ -101,21 +129,20 @@ function createLocalRuntime({
   requestFn = request,
   randomBytesFn = randomBytes,
   onProcessChange = () => {},
+  accelerationMode = () => 'cpu',
+  gpuDevice = () => 'Vulkan0',
+  cpuThreadCount = boundedCpuThreads,
   platform = process.platform,
   arch = process.arch,
   guardProcess = createWindowsProcessGuard,
 }) {
   let active = null
   let closed = false
+  let lastAccelerationMode = null
   const ownerAbort = new AbortController()
 
-  async function run(payload, signal) {
+  async function runBackend(payload, bounded, mode, fallbackState = null) {
     let child, childClosed, processGuard
-    const bounded = AbortSignal.any([
-      AbortSignal.timeout(6 * 60 * 1000),
-      ownerAbort.signal,
-      ...(signal ? [signal] : []),
-    ])
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
       const model = await modelStore.status({ signal: bounded })
@@ -124,10 +151,18 @@ function createLocalRuntime({
       const key = randomBytesFn(32).toString('hex')
       const alias = 'qfn-' + randomBytesFn(16).toString('hex')
       const port = await freePortFn()
+      const threads = String(cpuThreadCount())
+      const selectedGpuDevice = gpuDevice()
+      const gpuArgs = mode === 'gpu'
+        ? ['--device', typeof selectedGpuDevice === 'string' && /^Vulkan\d+$/.test(selectedGpuDevice)
+          ? selectedGpuDevice : 'Vulkan0', '-ngl', '99']
+        : ['--device', 'none', '-ngl', '0']
+      if (fallbackState && mode === 'gpu') fallbackState.eligible = true
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
-        '-c', '4096', '-t', '2', '-ngl', '0', '-np', '1', '--no-ui', '--no-agent',
+        '-c', '4096', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
-      { cwd: directory, windowsHide: true, shell: false, stdio: 'ignore', env: runtimeEnvironment(key) })
+      { cwd: directory, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment(key) })
+      const offloadTracker = trackGpuLayerOffload(child)
       try {
         if (Number.isSafeInteger(child?.pid) && child.pid > 0) onProcessChange(child.pid)
       } catch {}
@@ -143,13 +178,21 @@ function createLocalRuntime({
         try {
           const models = await requestFn(port, key, '/v1/models', undefined,
             AbortSignal.any([startup, AbortSignal.timeout(2000)]))
-          if (models.data?.some(item => item.id === alias)) break
+          if (models.data?.some(item => item.id === alias)) {
+            if (fallbackState) fallbackState.ready = true
+            break
+          }
         } catch { startup.throwIfAborted() }
         await delay(100, undefined, { signal: startup })
       }
-      return await requestFn(port, key, '/v1/chat/completions',
+      const result = await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
         owned)
+      const gpuOffloaded = offloadTracker.state()
+      lastAccelerationMode = mode === 'cpu'
+        ? 'cpu'
+        : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
+      return result
     } finally {
       let cleanupError = null
       try {
@@ -169,6 +212,24 @@ function createLocalRuntime({
       }
       try { onProcessChange(null) } catch {}
       if (cleanupError) throw cleanupError
+    }
+  }
+
+  async function run(payload, signal) {
+    const bounded = AbortSignal.any([
+      AbortSignal.timeout(6 * 60 * 1000),
+      ownerAbort.signal,
+      ...(signal ? [signal] : []),
+    ])
+    const mode = accelerationMode() === 'gpu' ? 'gpu' : 'cpu'
+    if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu')
+    const fallbackState = { eligible: false, ready: false }
+    try {
+      return await runBackend(payload, bounded, 'gpu', fallbackState)
+    } catch (error) {
+      const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
+      if (!fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) throw error
+      return runBackend(payload, bounded, 'cpu')
     }
   }
 
@@ -208,7 +269,11 @@ function createLocalRuntime({
     return Object.freeze({ busy: active !== null, closed })
   }
 
-  return Object.freeze({ complete, shutdown, status })
+  function accelerationStatus() {
+    return lastAccelerationMode
+  }
+
+  return Object.freeze({ complete, shutdown, status, lastAccelerationMode: accelerationStatus })
 }
 
-module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, MANIFEST }
+module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }

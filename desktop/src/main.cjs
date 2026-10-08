@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, Notification, safeStorage } = require('electron')
+const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, Notification, safeStorage, protocol } = require('electron')
 const { APP_ORIGIN, windowOptions } = require('./policy.cjs')
 
 const { guardContents } = require('./guards.cjs')
@@ -11,6 +11,12 @@ const diagnostics = createDiagnostics({
 })
 
 app.enableSandbox()
+if (typeof protocol?.registerSchemesAsPrivileged === 'function') {
+  protocol.registerSchemesAsPrivileged([{
+    scheme: 'qfn',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
+  }])
+}
 const { createNativeAuthClient } = require('./native-auth-client.cjs')
 const { createNativeSession } = require('./native-session.cjs')
 const { createNativeReminders } = require('./native-reminders.cjs')
@@ -20,11 +26,15 @@ const { createWindowsSnapshotStore } = require('./windows-snapshot-store.cjs')
 const { createWindowsSourceTextStore } = require('./windows-source-text-store.cjs')
 const { createAccountSourceTextCache } = require('./account-source-text-cache.cjs')
 const { createWindowsLocalAiStack } = require('./windows-local-ai-stack.cjs')
+const { createPdfJsLocalEngine } = require('./pdfjs-local-engine.cjs')
+const { createLocalDocumentProcessor } = require('./local-document-processing.cjs')
 const { createSnapshotMenu } = require('./snapshot-menu.cjs')
 const { createOfflineReader } = require('./offline-reader.cjs')
 const { createOfflineMenu } = require('./offline-menu.cjs')
 const { installNativeBridge } = require('./native-bridge.cjs')
 const path = require('node:path')
+const fs = require('node:fs')
+const { registerLocalRenderer } = require('./local-renderer.cjs')
 const { createNativeSignInTest } = require('./native-sign-in-test.cjs')
 const { createUpdates, loadApprovedConfiguration } = require('./updates.cjs')
 let updates
@@ -48,6 +58,8 @@ let shutdownPromise = null
 let shutdownComplete = false
 const receiveCallback = createCallbackReceiver({ getSession: () => nativeTest?.status().running ? testSession : nativeSession, focus: focusWindow })
 let mainWindow
+let rendererUrl = APP_ORIGIN
+let bundledLocalRenderer = false
 let showingFailure = false
 
 async function reportFailure() {
@@ -86,17 +98,23 @@ async function disposeSessions() {
 
 function loadHome() {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.loadURL(APP_ORIGIN).catch(() => reportFailure())
+    mainWindow.loadURL(rendererUrl).catch(() => reportFailure())
   }
 }
 
 function createWindow() {
   const options = windowOptions()
+  if (bundledLocalRenderer) options.title = 'Quiz From Notes Preview (Local AI)'
   if (app.isPackaged && process.platform === 'win32') options.webPreferences.preload = path.join(__dirname, 'preload.cjs')
   mainWindow = new BrowserWindow(options)
   const contents = mainWindow.webContents
   guardContents(contents)
   diagnostics.attach(contents)
+  contents.on('page-title-updated', event => {
+    if (!bundledLocalRenderer) return
+    event.preventDefault()
+    mainWindow?.setTitle('Quiz From Notes Preview (Local AI)')
+  })
   contents.on('render-process-gone', () => reportFailure())
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = undefined; shutdownPromise ||= disposeSessions() })
@@ -222,6 +240,22 @@ if (!app.requestSingleInstanceLock()) {
   void receiveCallback(process.argv)
   app.whenReady().then(async () => {
     const browserSession = session.fromPartition('quiz-from-notes-preview')
+    const localAiRuntimeDirectory = typeof process.resourcesPath === 'string' && process.platform === 'win32'
+      ? path.join(process.resourcesPath, 'local-ai-runtime')
+      : null
+    if (app.isPackaged && localAiRuntimeDirectory && fs.existsSync(localAiRuntimeDirectory)) {
+      const localUiDirectory = path.join(process.resourcesPath, 'app-ui')
+      try {
+        await fs.promises.access(path.join(localUiDirectory, 'index.html'), fs.constants.R_OK)
+        rendererUrl = registerLocalRenderer(browserSession.protocol, { directory: localUiDirectory })
+        bundledLocalRenderer = true
+      } catch {
+        dialog.showErrorBox('Local AI preview could not start',
+          'The bundled app interface is missing or damaged. Repair or reinstall this preview before continuing.')
+        app.quit()
+        return
+      }
+    }
     browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
     browserSession.setPermissionCheckHandler(() => false)
     browserSession.on('will-download', event => event.preventDefault())
@@ -265,6 +299,7 @@ if (!app.requestSingleInstanceLock()) {
       localAiManager = createWindowsLocalAiStack({
         userDataDirectory: app.getPath('userData'),
         ...(runtimeDirectory ? { runtimeDirectory } : {}),
+        documentProcessor: createLocalDocumentProcessor({ engine: createPdfJsLocalEngine() }),
       })
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })

@@ -107,6 +107,7 @@ test('runtime lifecycle exposes bounded busy state and cleans successful session
   const result = runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
   assert.deepEqual(runtime.status(), { busy: true, closed: false })
   assert.equal((await result).choices[0].message.content, 'ok')
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
   assert.equal(child.kills.length, 1)
 })
@@ -149,6 +150,114 @@ test('a runtime process that exits during startup fails closed', async () => {
     { code: 'startup_failed' },
   )
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
+test('GPU launch uses Vulkan offload settings, then falls back to bounded CPU threads on startup failure', async () => {
+  const launches = []
+  const children = [fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuDevice: () => 'Vulkan1',
+      cpuThreadCount: () => 6,
+      spawnProcess: (_executable, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 2)
+  assert.ok(launches[0].includes('Vulkan1'))
+  assert.ok(launches[0].includes('99'))
+  assert.ok(launches[1].includes('none'))
+  assert.ok(launches[1].includes('0'))
+  assert.equal(launches[0][launches[0].indexOf('-t') + 1], '6')
+  assert.equal(launches[1][launches[1].indexOf('-t') + 1], '6')
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+})
+
+test('successful GPU inference records the actual selected backend and device', async () => {
+  const launches = []
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuDevice: () => 'Vulkan1',
+      spawnProcess: (_executable, args) => {
+        launches.push(args)
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        queueMicrotask(() => {
+          child.stderr.emit('data', Buffer.from('load_tensors: offloaded 35/35 la'))
+          child.stderr.emit('data', Buffer.from('yers to GPU\n'))
+        })
+        return child
+      },
+    },
+  })
+  assert.equal(runtime.lastAccelerationMode(), null)
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 1)
+  assert.equal(launches[0][launches[0].indexOf('--device') + 1], 'Vulkan1')
+  assert.equal(runtime.lastAccelerationMode(), 'gpu')
+})
+
+test('GPU launch without a layer offload report is not presented as confirmed GPU use', async () => {
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => {
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        return child
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(runtime.lastAccelerationMode(), 'unknown')
+})
+
+test('GPU launch reporting zero offloaded layers is recorded as CPU inference', async () => {
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => {
+        const child = fakeChild()
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        queueMicrotask(() => child.stderr.emit('data', 'load_tensors: offloaded 0/35 layers to GPU\n'))
+        return child
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+})
+
+test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {
+  const { boundedCpuThreads } = require('../src/local-runtime.cjs')
+  assert.equal(boundedCpuThreads(1), 1)
+  assert.equal(boundedCpuThreads(4), 3)
+  assert.equal(boundedCpuThreads(64), 8)
+})
+
+test('GPU generation failures after server startup are not retried on CPU', async () => {
+  let launches = 0
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      spawnProcess: () => { launches++; return fakeChild() },
+      requestFn: async (_port, _key, route) => {
+        if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        throw Object.assign(new Error('generation failed'), { code: 'request_failed' })
+      },
+    },
+  })
+  await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'test' }] }),
+    { code: 'request_failed' })
+  assert.equal(launches, 1)
 })
 
 

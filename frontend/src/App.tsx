@@ -25,9 +25,12 @@ import {
 import {
   apiFetch,
 } from './lib/api.ts'
+import { normalizePageSelection } from './lib/pageSelection.ts'
 import {
   desktopLocalQuizBridge,
+  desktopLocalPdfBridge,
   type DesktopLocalAiQuizStatus,
+  type DesktopLocalPdfDocument,
 } from './lib/desktop.ts'
 import {
   buildLocalPracticeRequest,
@@ -61,6 +64,8 @@ function App() {
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null)
   const [isChangingPages, setIsChangingPages] = useState(false)
+  const [isLocalPdfProcessing, setIsLocalPdfProcessing] = useState(false)
+  const [localProcessedPages, setLocalProcessedPages] = useState<DesktopLocalPdfDocument['pages'] | null>(null)
   const [pageSelection, setPageSelection] = useState('')
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
@@ -77,7 +82,7 @@ function App() {
   const [questionType, setQuestionType] =
     useState<QuestionMode>('multiple_choice')
   const pdfUpload = usePdfUpload()
-  const { isProcessing } = pdfUpload
+  const isProcessing = pdfUpload.isProcessing || isLocalPdfProcessing
   const [isGenerating, setIsGenerating] =
     useState(false)
   const [generationStage, setGenerationStage] =
@@ -101,6 +106,8 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
+  const localPdfBridge = localPdfBridgeRef.current
   const localGenerationController =
     useRef<AbortController | null>(null)
   const generationModeUserSelected =
@@ -190,6 +197,7 @@ function App() {
 
   function resetProcessedDocument() {
     pdfUpload.clear()
+    setLocalProcessedPages(null)
     setIsChangingPages(false)
     setDocumentResult(null)
     setQuiz(null)
@@ -203,6 +211,47 @@ function App() {
   function handlePageSelectionChange(value: string) {
     setPageSelection(value)
     resetProcessedDocument()
+  }
+
+  async function processLocalPdf(file: File, selection: string): Promise<UploadResult> {
+    if (!localPdfBridge) throw new Error('Local PDF processing is not available in this desktop build.')
+    const normalized = normalizePageSelection(selection)
+    const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
+    const result = await localPdfBridge.processLocalPdf({
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      filename: file.name,
+      ...(selectedPages ? { selectedPages } : {}),
+    })
+    if (!result.ok) {
+      if (result.error === 'cancelled') throw new DOMException('Local PDF processing was cancelled.', 'AbortError')
+      const messages: Record<string, string> = {
+        input_too_large: 'This PDF is over the 15 MB limit for local processing.',
+        too_many_pages: 'This PDF has more than 100 pages and cannot be processed locally yet.',
+        text_too_large: 'This PDF contains too much text to process locally at once.',
+        busy: 'Local AI is busy. Wait for the current task to finish, then try again.',
+        invalid_selection: 'Choose valid PDF pages to process.',
+        invalid_input: 'Choose a valid PDF file.',
+        runtime_unavailable: 'Local PDF processing is unavailable in this desktop build.',
+        processing_failed: 'The PDF could not be processed on this computer.',
+      }
+      throw new Error(messages[result.error] ?? 'Local PDF processing failed.')
+    }
+    const document = result.document
+    setLocalProcessedPages(document.pages)
+    return {
+      filename: document.filename,
+      pdf_sha256: document.pdfSha256,
+      page_count: document.pageCount,
+      character_count: document.characterCount,
+      extractable_page_count: document.extractablePageCount,
+      scanned_likely: document.scannedLikely,
+      warning: document.warning,
+      pages: document.pages.map(page => ({
+        page_number: page.pageNumber,
+        character_count: page.text.length,
+        preview: page.text.slice(0, 240),
+      })),
+    }
   }
 
   async function handleProcessPdf(resume?: PdfJobResponse) {
@@ -219,13 +268,22 @@ function App() {
     }
     setError('')
     setDocumentResult(null)
+    setLocalProcessedPages(null)
     setQuiz(null)
     setGeneratedSettings(null)
     attempt.resetAttempt()
     resetPracticeMode()
 
     try {
-      const data = await pdfUpload.run(selectedFile ?? undefined, resume, pageSelection)
+      let data: UploadResult
+      if (!resume && generationMode === 'local' && localPdfBridge && selectedFile) {
+        setIsLocalPdfProcessing(true)
+        data = await processLocalPdf(selectedFile, pageSelection)
+        pdfUpload.clear()
+      } else {
+        setLocalProcessedPages(null)
+        data = await pdfUpload.run(selectedFile ?? undefined, resume, pageSelection)
+      }
       setDocumentResult(data)
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
@@ -234,10 +292,16 @@ function App() {
           ? caughtError.message
           : 'Something went wrong while processing the PDF.',
       )
+    } finally {
+      setIsLocalPdfProcessing(false)
     }
   }
 
   async function handleCancelProcessing() {
+    if (isLocalPdfProcessing) {
+      await localQuizBridge?.cancelLocalAiQuiz().catch(() => {})
+      return
+    }
     try {
       await pdfUpload.cancel()
       if (!isChangingPages) setDocumentResult(null)
@@ -249,8 +313,17 @@ function App() {
   async function handleApplyPages(file: File | null, selection: string) {
     setError('')
     try {
-      const data = await pdfUpload.run(file ?? undefined, undefined, selection, pdfUpload.sourceSha256 ?? undefined)
-      setSelectedFile(file)
+      const sourceFile = file ?? selectedFile
+      let data: UploadResult
+      if (generationMode === 'local' && localPdfBridge && sourceFile) {
+        setIsLocalPdfProcessing(true)
+        data = await processLocalPdf(sourceFile, selection)
+        pdfUpload.clear()
+      } else {
+        setLocalProcessedPages(null)
+        data = await pdfUpload.run(file ?? undefined, undefined, selection, pdfUpload.sourceSha256 ?? undefined)
+      }
+      setSelectedFile(sourceFile)
       setPageSelection(selection)
       setDocumentResult(data)
       setQuiz(null)
@@ -266,12 +339,24 @@ function App() {
       throw caughtError instanceof Error
         ? caughtError
         : new Error('Could not change pages. Please try again.')
+    } finally {
+      setIsLocalPdfProcessing(false)
     }
   }
 
   function appendDocument(formData: FormData) {
-    if (documentResult) formData.append('document_sha256', documentResult.pdf_sha256)
+    if (documentResult && !localProcessedPages) formData.append('document_sha256', documentResult.pdf_sha256)
     else if (selectedFile) formData.append('file', selectedFile)
+  }
+
+  async function loadCurrentSourcePageText(documentSha256: string, pageNumber: number, signal?: AbortSignal) {
+    if (localProcessedPages) {
+      signal?.throwIfAborted()
+      const page = localProcessedPages.find(item => item.pageNumber === pageNumber)
+      if (!page) throw new Error('Reprocess the PDF to load the selected pages locally.')
+      return page.text
+    }
+    return loadSourcePageText(documentSha256, pageNumber, signal)
   }
 
   function handleGenerationModeChange(
@@ -330,7 +415,7 @@ function App() {
           localQuizStatus,
           focusPages,
           avoidQuestions,
-          loadSourcePageText,
+          loadCurrentSourcePageText,
           controller.signal,
         )
 
@@ -449,7 +534,7 @@ function App() {
             documentResult,
             difficulty,
             localQuizStatus,
-            loadSourcePageText,
+            loadCurrentSourcePageText,
             localController?.signal,
           )
 
@@ -1013,7 +1098,9 @@ function App() {
           onCancel={() => void handleCancelProcessing()}
           pageSelection={pageSelection}
           onPageSelectionChange={handlePageSelectionChange}
-          supportsPageSelection={pdfUpload.supportsPageSelection}
+          supportsPageSelection={pdfUpload.supportsPageSelection || (generationMode === 'local' && Boolean(localPdfBridge))}
+          localProcessing={generationMode === 'local' && Boolean(localPdfBridge)}
+          processedLocally={Boolean(localProcessedPages)}
           selectionDisabled={documentBusy || isChangingPages}
           hidePageSelection={Boolean(documentResult && pdfUpload.supportsPageReuse && pdfUpload.sourceSha256)}
           isChangingPages={isChangingPages}

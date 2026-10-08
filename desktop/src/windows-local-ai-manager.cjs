@@ -8,6 +8,7 @@ const { probeWindowsLocalAiCapability } = require('./windows-hardware-probe.cjs'
 function createWindowsLocalAiResources({
   userDataDirectory,
   modelDirectory = path.join(userDataDirectory, 'local-ai', 'models'),
+  runtimeDirectory,
 } = {}) {
   if (typeof userDataDirectory !== 'string' || !path.isAbsolute(userDataDirectory) ||
       typeof modelDirectory !== 'string' || !path.isAbsolute(modelDirectory)) {
@@ -28,6 +29,7 @@ function createWindowsLocalAiResources({
     },
     capabilityProbe: () => probeWindowsLocalAiCapability({
       storageDirectory: modelDirectory,
+      ...(typeof runtimeDirectory === 'string' ? { runtimeDirectory } : {}),
     }),
   })
   return Object.freeze({ manager, modelStore, rawModelStore, modelId: CANDIDATE.id })

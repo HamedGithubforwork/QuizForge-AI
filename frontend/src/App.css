@@ -2071,6 +2071,12 @@ button {
   margin-block: 1rem;
 }
 
+.local-processing-note {
+  margin: 0.65rem 0;
+  color: #37506d;
+  font-size: 0.9rem;
+}
+
 .page-selection input {
   width: 100%;
   box-sizing: border-box;
