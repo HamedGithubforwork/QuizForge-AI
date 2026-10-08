@@ -1,0 +1,74 @@
+name: Local AI grounding regression v2
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - desktop/src/local-ai-provider.cjs
+      - desktop/src/local-quiz-service.cjs
+      - desktop/src/windows-local-ai-provider.cjs
+      - desktop/src/windows-local-ai-stack.cjs
+      - desktop/scripts/verify-local-grounding-regression-v2.cjs
+      - .github/workflows/local-ai-grounding-regression-v2.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-grounding-v2-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-grounding-v2:
+    name: Windows unseen grounding regression v2
+    runs-on: windows-2025
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Download and verify pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') {
+            throw 'Runtime checksum mismatch'
+          }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download model through verified store
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models"
+          node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+
+      - name: Run unseen grounding regression
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/verify-local-grounding-regression-v2.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-grounding-regression-v2.json"
+          exit $LASTEXITCODE
+
+      - name: Upload grounding evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-grounding-regression-v2-windows
+          path: ${{ runner.temp }}/local-ai-grounding-regression-v2.json
+          if-no-files-found: warn
+          retention-days: 30
