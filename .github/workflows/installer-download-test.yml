@@ -1,0 +1,51 @@
+name: Installer download test
+
+on:
+  push:
+    branches:
+      - test/installer-download-20261008
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installer-download-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-installer:
+    name: Build and verify Windows installer
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Build unsigned installer
+        run: npm run pack:windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Build previous-version fixture for upgrade test
+        run: npx --no-install electron-builder --win nsis --x64 --publish never '-c.extraMetadata.version=0.0.1' '-c.directories.output=dist-previous'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Retain installer for download testing
+        uses: actions/upload-artifact@v7
+        with:
+          name: quiz-from-notes-windows-installer-test
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Install, launch and uninstall the packaged app
+        run: ./test/installer.ps1
