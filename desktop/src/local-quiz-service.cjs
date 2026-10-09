@@ -10,8 +10,8 @@ const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 5
-// Batch only the missing slots, capped at three, to limit wasted decoding
-// without serializing multi-question recovery.
+// Batch multi-slot recovery to avoid repeated full-context inference calls.
+// A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
@@ -879,12 +879,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         let generatedCount = 0
 
         while (generatedCount < retryBudget) {
+          const missingCount = Math.max(
+            1,
+            QUESTION_COUNT - retainedEvidence.length,
+          )
           const batchCount = Math.min(
-            Math.max(
-              1,
-              QUESTION_COUNT - retainedEvidence.length,
-            ),
-            TARGETED_RETRY_BATCH_CANDIDATES,
+            missingCount === 1
+              ? 1
+              : TARGETED_RETRY_BATCH_CANDIDATES,
             retryBudget - generatedCount,
           )
           result = await generateAttempt(

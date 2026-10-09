@@ -421,8 +421,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   second.questions.forEach((item, index) => {
     item.question = 'Replacement question ' + (index + 1) + '?'
   })
-  second.questions = second.questions.slice(0, 2)
-  const retryQuestions = withRetrySourceFacts(second).questions
+  second.questions = second.questions.slice(0, 3)
   let calls = 0
   const service = createLocalQuizService({
     provider: {
@@ -438,10 +437,6 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           assert.equal(
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.maxItems,
-            2,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -476,13 +471,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           text: JSON.stringify(
             calls === 1
               ? first
-              : {
-                ...second,
-                questions: retryQuestions.slice(
-                  0,
-                  request.jsonSchema.properties.questions.maxItems,
-                ),
-              },
+              : withRetrySourceFacts(second),
           ),
           finishReason: 'stop',
           usage: null,
@@ -526,12 +515,16 @@ test('targeted retry separates retained candidates from rejected evidence in the
   first.questions[2].choices[
     first.questions[2].correct_index
   ] = 'unsupported answer'
-  const secondSource = withRetrySourceFacts(rawQuiz())
-  const secondQuestions = [
-    { ...secondSource.questions[0], question: 'Fresh retry question 1?' },
-    { ...secondSource.questions[2], question: 'Fresh retry question 2?' },
-  ]
-  const second = { ...secondSource, questions: secondQuestions }
+  const second = withRetrySourceFacts(rawQuiz())
+  second.questions.forEach(
+    (question, index) => {
+      question.question =
+        'Fresh retry question ' +
+        (index + 1) +
+        '?'
+    },
+  )
+  second.questions = second.questions.slice(0, 3)
 
   let calls = 0
   const service = createLocalQuizService({
@@ -543,7 +536,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            2,
+            3,
           )
           assert.match(
             retryMessage,
@@ -588,10 +581,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
           text: JSON.stringify(
             calls === 1
               ? first
-              : {
-              ...second,
-              questions: second.questions,
-            },
+              : second,
           ),
           finishReason: 'stop',
           usage: null,
