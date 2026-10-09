@@ -318,7 +318,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
-          160,
+          128,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.choices.items.maxLength,
@@ -326,9 +326,9 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
-          120,
+          90,
         )
-        assert.equal(request.maxTokens, 1500)
+        assert.equal(request.maxTokens, 1400)
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
@@ -655,7 +655,7 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             ),
             true,
           )
-          assert.equal(request.maxTokens, 1000)
+          assert.equal(request.maxTokens, 925)
           assert.match(
             request.messages.at(-1).content,
             /exactly 3 additional candidate questions/i,

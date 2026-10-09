@@ -63,7 +63,7 @@ const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
     ...QUIZ_SCHEMA.properties.questions.items.properties,
     question: Object.freeze({
       ...QUIZ_SCHEMA.properties.questions.items.properties.question,
-      maxLength: 160,
+      maxLength: 128,
     }),
     choices: Object.freeze({
       ...QUIZ_SCHEMA.properties.questions.items.properties.choices,
@@ -74,7 +74,7 @@ const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
     }),
     explanation: Object.freeze({
       ...QUIZ_SCHEMA.properties.questions.items.properties.explanation,
-      maxLength: 120,
+      maxLength: 90,
     }),
     source_fact: {
       type: 'string',
@@ -670,10 +670,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             )
         const maxTokens =
           request.practice && retryReason === null
-            ? 1500
+            ? 1400
             : retryReason === 'candidate_pool_exhausted' &&
           Number.isSafeInteger(retryCandidateCountOverride)
-            ? Math.min(1500, 300 * retryCandidateCount + 100)
+            ? Math.min(1400, 275 * retryCandidateCount + 100)
             : 1800
         let result
         try {
@@ -696,7 +696,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven candidate questions. Keep each question under 160 characters, each choice under 48 characters, and each explanation under 120 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven candidate questions. Keep each question under 128 characters, each choice under 48 characters, and each explanation under 90 characters.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
                 'Across the seven candidates, cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID.',
@@ -726,7 +726,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                       'Before writing, compare each candidate with every PRIOR QUESTION TO AVOID and every wording in the already-generated list below. Never return identical wording after ignoring capitalization and whitespace; a repeated question is discarded, so choose a different question or fact.',
                       'If a chosen fact appears in PRIOR QUESTIONS TO AVOID, ask about it in the reverse direction (for example, change “What is Aster’s casing material?” to “Which item has a cobalt casing?”).',
                       'For each candidate, copy one exact supporting source sentence or bullet verbatim as source_fact. Cite its PAGE. The question must test that fact, and choices[correct_index] must be a concise answer copied from it.',
-                      'Keep each question under 160 characters, each choice under 48 characters, and each explanation under 120 characters. Make each explanation one concise sentence that agrees with choices[correct_index].',
+                      'Keep each question under 128 characters, each choice under 48 characters, and each explanation under 90 characters. Make each explanation one concise sentence that agrees with choices[correct_index].',
                       'Do not invent facts when the supplied pages do not support an answer.',
                       ...(retryCandidateEvidence.length
                         ? [
