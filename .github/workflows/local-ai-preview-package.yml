@@ -65,6 +65,9 @@ jobs:
           npm audit --audit-level=moderate
           exit $LASTEXITCODE
 
+      - name: Run desktop unit and contract tests
+        run: npm test
+
       - name: Build the branch frontend for the desktop preview
         shell: pwsh
         run: |
