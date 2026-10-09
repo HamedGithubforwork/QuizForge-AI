@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-quiz-service.cjs
       - desktop/third_party/local-ai/**
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/verify-packaged-runtime.cjs
