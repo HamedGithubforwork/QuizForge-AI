@@ -8,12 +8,12 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
-const TARGETED_PRIMARY_CANDIDATES = 7
+const TARGETED_PRIMARY_CANDIDATES = 9
 const TARGETED_RETRY_CANDIDATES = 5
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
-const TARGETED_PRIMARY_MAX_TOKENS = 1000
+const TARGETED_PRIMARY_MAX_TOKENS = 1150
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 160
 const TARGETED_RETRY_TOKEN_OVERHEAD = 60
 const MAX_COMBINED_TARGETED_CANDIDATES =
@@ -703,7 +703,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven candidate questions. Keep each question under 96 characters, each choice under 36 characters, and each explanation under 64 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly nine candidate questions. Keep each question under 96 characters, each choice under 36 characters, and each explanation under 64 characters.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
                 'Across the seven candidates, cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID.',
