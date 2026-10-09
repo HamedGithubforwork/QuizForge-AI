@@ -341,6 +341,14 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
+          /Across all nine candidates, use nine distinct question wordings/i,
+        )
+        assert.match(
+          request.messages.at(-1).content,
+          /Do not fill remaining slots by repeating prior or in-pool wording/i,
+        )
+        assert.match(
+          request.messages.at(-1).content,
           /compare every candidate against every PRIOR QUESTION TO AVOID/i,
         )
         assert.match(
