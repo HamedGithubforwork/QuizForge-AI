@@ -523,7 +523,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            1,
+            3,
           )
           assert.match(
             retryMessage,
@@ -532,6 +532,10 @@ test('targeted retry separates retained candidates from rejected evidence in the
           assert.match(
             retryMessage,
             /REJECTED CANDIDATES AND FILTER REASONS/i,
+          )
+          assert.match(
+            retryMessage,
+            /do not reuse that underlying proposition/i,
           )
           assert.match(
             retryMessage,
@@ -626,11 +630,11 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            1,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            1,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -638,10 +642,10 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             ),
             true,
           )
-          assert.equal(request.maxTokens, 500)
+          assert.equal(request.maxTokens, 1300)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 1 additional candidate question/i,
+            /exactly 3 additional candidate questions/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -1017,7 +1021,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 6)
+  assert.equal(calls, 3)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
@@ -1027,10 +1031,10 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     {
       inputCandidates: 10,
       avoidedQuestions: 1,
-      duplicateQuestions: 1,
+      duplicateQuestions: 3,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
-      duplicateSourceFacts: 7,
+      duplicateSourceFacts: 5,
       survivors: 1,
     },
   )
