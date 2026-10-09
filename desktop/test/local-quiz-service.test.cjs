@@ -439,6 +439,10 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
+          assert.equal(
+            request.jsonSchema.properties.questions.maxItems,
+            2,
+          )
           assert.match(
             request.messages.at(-1).content,
             /failed strict quiz validation/i,
@@ -474,7 +478,10 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
               ? first
               : {
                 ...second,
-                questions: [retryQuestions[calls - 2]],
+                questions: retryQuestions.slice(
+                  0,
+                  request.jsonSchema.properties.questions.maxItems,
+                ),
               },
           ),
           finishReason: 'stop',
@@ -490,7 +497,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     difficulty: 'medium',
     questionType: 'multiple_choice',
   })
-  assert.equal(calls, 3)
+  assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
@@ -536,7 +543,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            1,
+            2,
           )
           assert.match(
             retryMessage,
@@ -583,7 +590,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
               ? first
               : {
               ...second,
-              questions: [second.questions[calls - 2]],
+              questions: second.questions,
             },
           ),
           finishReason: 'stop',
@@ -606,11 +613,11 @@ test('targeted retry separates retained candidates from rejected evidence in the
       'multiple_choice',
   })
 
-  assert.equal(calls, 3)
+  assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry requests only the needed candidates plus two backups', async () => {
+test('targeted retry requests only the missing candidates when one question remains', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
@@ -1033,7 +1040,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 6)
+  assert.equal(calls, 3)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
@@ -1043,10 +1050,10 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     {
       inputCandidates: 10,
       avoidedQuestions: 1,
-      duplicateQuestions: 1,
+      duplicateQuestions: 3,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
-      duplicateSourceFacts: 7,
+      duplicateSourceFacts: 5,
       survivors: 1,
     },
   )

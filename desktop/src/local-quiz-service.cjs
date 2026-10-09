@@ -10,9 +10,9 @@ const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 5
-// Generate one corrective candidate per feedback turn so validation can guide
-// the next bounded retry.
-const TARGETED_RETRY_BATCH_CANDIDATES = 1
+// Batch only the missing slots, capped at three, to limit wasted decoding
+// without serializing multi-question recovery.
+const TARGETED_RETRY_BATCH_CANDIDATES = 3
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
 
@@ -880,6 +880,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
 
         while (generatedCount < retryBudget) {
           const batchCount = Math.min(
+            Math.max(
+              1,
+              QUESTION_COUNT - retainedEvidence.length,
+            ),
             TARGETED_RETRY_BATCH_CANDIDATES,
             retryBudget - generatedCount,
           )
