@@ -10,8 +10,8 @@ const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 5
-// Batch corrective candidates to reduce repeated full-context inference calls,
-// while preserving a feedback point before the remaining retry budget is used.
+// Generate one corrective candidate per feedback turn so validation can guide
+// the next bounded retry.
 const TARGETED_RETRY_BATCH_CANDIDATES = 1
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
