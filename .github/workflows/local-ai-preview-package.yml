@@ -143,10 +143,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $installers = @(Get-ChildItem 'desktop/dist/local-ai-preview' -Filter '*.exe' -File)
+          $installers = @(Get-ChildItem 'dist/local-ai-preview' -Filter '*.exe' -File)
           if ($installers.Count -ne 1) { throw 'Expected exactly one internal Local AI installer.' }
           $sha256 = (Get-FileHash $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha256  $($installers[0].Name)" | Set-Content 'desktop/dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
+          "$sha256  $($installers[0].Name)" | Set-Content 'dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
           Write-Output "Local AI preview installer SHA-256: $sha256"
 
       - name: Retain internal Local AI preview
