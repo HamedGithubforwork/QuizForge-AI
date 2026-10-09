@@ -12,7 +12,15 @@ const ERROR_CODES = new Set([
 ])
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
-const PROFILES = new Set(['quiz-mcq-v1'])
+const PROFILES = new Set([
+  'quiz-mcq-v1',
+  'quiz-mcq-retry-v1',
+  'quiz-mcq-targeted-retry-v1',
+  'quiz-mcq-targeted-retry-v2',
+  'quiz-mcq-targeted-retry-v3',
+  'quiz-mcq-targeted-retry-v4',
+  'quiz-mcq-targeted-retry-v5',
+])
 const encoder = new TextEncoder()
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const validId = value => typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,199}$/.test(value)
@@ -30,7 +38,15 @@ class LocalAiError extends Error {
 const failure = (code, options) => new LocalAiError(code, options)
 
 function checkCancelled(signal) {
-  if (signal?.aborted) throw failure(signal.reason?.name === 'TimeoutError' ? 'timed_out' : 'cancelled')
+  if (!signal?.aborted) return
+  if (signal.reason?.name === 'TimeoutError') {
+    throw failure('timed_out', { retryable: true })
+  }
+  if (['watchdog_failed', 'watchdog_timeout', 'watchdog_shutdown_failed']
+    .includes(signal.reason?.code)) {
+    throw failure('runtime_unavailable')
+  }
+  throw failure('cancelled')
 }
 
 function normalizeError(error, signal, fallback) {

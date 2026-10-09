@@ -87,6 +87,18 @@ test('invalid and truncated output is not silently treated as completed generati
   assert.equal(truncated.finishReason, 'length')
 })
 
+test('Windows watchdog loss is reported as runtime unavailable, not user cancellation', async () => {
+  const controller = new AbortController()
+  const provider = windows(async () => {
+    controller.abort(Object.assign(new Error('private watchdog detail'), { code: 'watchdog_failed' }))
+    return wire(result())
+  })
+  await assert.rejects(
+    provider.generate(input(), { signal: controller.signal }),
+    { code: 'runtime_unavailable', retryable: false },
+  )
+})
+
 test('capability failures, timeouts and cancellation have bounded public codes', async () => {
   const make = fn => createLocalAiProvider({ id: 'test', capability: fn, generate: async () => result() })
   await assert.rejects(make(async () => ({ available: false, modelId: 'test', reason: '/private/path' })).capability(), { code: 'invalid_capability' })
@@ -132,6 +144,33 @@ test('structured output schemas and named generation profiles stay trusted and b
     seed: 42,
     chat_template_kwargs: { enable_thinking: false },
   })
+
+  await provider.generate({
+    ...input(),
+    generationProfile: 'quiz-mcq-retry-v1',
+  })
+  assert.equal(runtimeRequest.seed, 137)
+  assert.equal(runtimeRequest.temperature, 0.7)
+  assert.deepEqual(runtimeRequest.chat_template_kwargs, {
+    enable_thinking: false,
+  })
+
+  await provider.generate({
+    ...input(),
+    generationProfile: 'quiz-mcq-targeted-retry-v1',
+  })
+  assert.equal(runtimeRequest.seed, 2718)
+  assert.equal(runtimeRequest.temperature, 0.9)
+  assert.equal(runtimeRequest.top_p, 0.9)
+  assert.equal(runtimeRequest.top_k, 40)
+  assert.equal(runtimeRequest.presence_penalty, 1.8)
+
+  await provider.generate({
+    ...input(),
+    generationProfile: 'quiz-mcq-targeted-retry-v2',
+  })
+  assert.equal(runtimeRequest.seed, 31415)
+  assert.equal(runtimeRequest.temperature, 0.9)
 })
 
 test('Windows adapter preserves token limits, rejects unsupported platforms and protocol surprises', async () => {
