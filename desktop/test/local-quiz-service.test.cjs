@@ -421,7 +421,8 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   second.questions.forEach((item, index) => {
     item.question = 'Replacement question ' + (index + 1) + '?'
   })
-  second.questions = second.questions.slice(0, 3)
+  second.questions = second.questions.slice(0, 2)
+  const retryQuestions = withRetrySourceFacts(second).questions
   let calls = 0
   const service = createLocalQuizService({
     provider: {
@@ -471,7 +472,10 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
           text: JSON.stringify(
             calls === 1
               ? first
-              : withRetrySourceFacts(second),
+              : {
+                ...second,
+                questions: [retryQuestions[calls - 2]],
+              },
           ),
           finishReason: 'stop',
           usage: null,
@@ -486,7 +490,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     difficulty: 'medium',
     questionType: 'multiple_choice',
   })
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
@@ -515,16 +519,12 @@ test('targeted retry separates retained candidates from rejected evidence in the
   first.questions[2].choices[
     first.questions[2].correct_index
   ] = 'unsupported answer'
-  const second = withRetrySourceFacts(rawQuiz())
-  second.questions.forEach(
-    (question, index) => {
-      question.question =
-        'Fresh retry question ' +
-        (index + 1) +
-        '?'
-    },
-  )
-  second.questions = second.questions.slice(0, 3)
+  const secondSource = withRetrySourceFacts(rawQuiz())
+  const secondQuestions = [
+    { ...secondSource.questions[0], question: 'Fresh retry question 1?' },
+    { ...secondSource.questions[2], question: 'Fresh retry question 2?' },
+  ]
+  const second = { ...secondSource, questions: secondQuestions }
 
   let calls = 0
   const service = createLocalQuizService({
@@ -536,7 +536,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            1,
           )
           assert.match(
             retryMessage,
@@ -581,7 +581,10 @@ test('targeted retry separates retained candidates from rejected evidence in the
           text: JSON.stringify(
             calls === 1
               ? first
-              : second,
+              : {
+              ...second,
+              questions: [second.questions[calls - 2]],
+            },
           ),
           finishReason: 'stop',
           usage: null,
@@ -603,7 +606,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
       'multiple_choice',
   })
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(result.questions.length, 5)
 })
 
@@ -625,11 +628,7 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
   }
   pool.questions[4].choices[pool.questions[4].correct_index] =
     RETRY_FACTS[5].answer
-  pool.questions = [
-    pool.questions[0],
-    pool.questions[1],
-    pool.questions[4],
-  ]
+  pool.questions = [pool.questions[4]]
 
   let calls = 0
   const service = createLocalQuizService({
@@ -643,11 +642,11 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            3,
+            1,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            1,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -655,10 +654,10 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             ),
             true,
           )
-          assert.equal(request.maxTokens, 925)
+          assert.equal(request.maxTokens, 375)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 3 additional candidate questions/i,
+            /exactly 1 additional candidate question/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -1034,7 +1033,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 3)
+  assert.equal(calls, 6)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
@@ -1044,10 +1043,10 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     {
       inputCandidates: 10,
       avoidedQuestions: 1,
-      duplicateQuestions: 3,
+      duplicateQuestions: 1,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
-      duplicateSourceFacts: 5,
+      duplicateSourceFacts: 7,
       survivors: 1,
     },
   )

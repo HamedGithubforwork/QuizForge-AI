@@ -12,7 +12,7 @@ const TARGETED_PRIMARY_CANDIDATES = 7
 const TARGETED_RETRY_CANDIDATES = 5
 // Batch corrective candidates to reduce repeated full-context inference calls,
 // while preserving a feedback point before the remaining retry budget is used.
-const TARGETED_RETRY_BATCH_CANDIDATES = 3
+const TARGETED_RETRY_BATCH_CANDIDATES = 1
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
 
