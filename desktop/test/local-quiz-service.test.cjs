@@ -607,25 +607,30 @@ test('targeted retry separates retained candidates from rejected evidence in the
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry requests only the missing candidates when one question remains', async () => {
+test('targeted retry batches backup candidates when one question remains', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
-  const pool = withRetrySourceFacts(rawQuiz())
-  pool.questions[0].question = 'Question to avoid?'
-  pool.questions[1].question = 'Pool question 2?'
-  pool.questions[2].question = 'Pool question 3?'
-  pool.questions[3].question = 'Pool question 4?'
-  pool.questions[4].question = 'Pool question 5?'
-  pool.questions[4] = {
-    ...pool.questions[4],
+  const candidatePool = withRetrySourceFacts(rawQuiz())
+  const backup = {
+    ...candidatePool.questions[0],
     question: 'Pool backup question 6?',
     source_pages: [RETRY_FACTS[5].page],
     source_fact: RETRY_FACTS[5].text,
+    choices: [...candidatePool.questions[0].choices],
   }
-  pool.questions[4].choices[pool.questions[4].correct_index] =
-    RETRY_FACTS[5].answer
-  pool.questions = [pool.questions[4]]
+  backup.choices[backup.correct_index] = RETRY_FACTS[5].answer
+  const duplicateFact = {
+    ...candidatePool.questions[1],
+    question: 'A second proteins question?',
+    source_pages: [RETRY_FACTS[1].page],
+    source_fact: RETRY_FACTS[1].text,
+  }
+  const repeatedQuestion = {
+    ...candidatePool.questions[2],
+    question: 'Question to avoid?',
+  }
+  candidatePool.questions = [backup, duplicateFact, repeatedQuestion]
 
   let calls = 0
   const service = createLocalQuizService({
@@ -639,11 +644,11 @@ test('targeted retry requests only the missing candidates when one question rema
           )
           assert.equal(
             request.jsonSchema.properties.questions.minItems,
-            1,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            1,
+            3,
           )
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
@@ -651,10 +656,10 @@ test('targeted retry requests only the missing candidates when one question rema
             ),
             true,
           )
-          assert.equal(request.maxTokens, 375)
+          assert.equal(request.maxTokens, 925)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 1 additional candidate question/i,
+            /exactly 3 additional candidate questions/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -666,11 +671,7 @@ test('targeted retry requests only the missing candidates when one question rema
           )
         }
         return {
-          text: JSON.stringify(
-            calls === 1
-              ? first
-              : pool,
-          ),
+          text: JSON.stringify(calls === 1 ? first : candidatePool),
           finishReason: 'stop',
           usage: null,
         }
@@ -691,22 +692,14 @@ test('targeted retry requests only the missing candidates when one question rema
   })
 
   assert.equal(calls, 2)
-  assert.equal(
-    result.questions.length,
-    5,
-  )
+  assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
-      question =>
-        question.question ===
-        'Question to avoid?',
+      question => question.question === 'Question to avoid?',
     ),
     false,
   )
-  assert.equal(
-    result.questions.at(-1).question,
-    'Pool backup question 6?',
-  )
+  assert.equal(result.questions.at(-1).question, 'Pool backup question 6?')
 })
 
 test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
