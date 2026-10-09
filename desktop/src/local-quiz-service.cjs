@@ -13,6 +13,9 @@ const TARGETED_RETRY_CANDIDATES = 5
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
+const TARGETED_PRIMARY_MAX_TOKENS = 1050
+const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 180
+const TARGETED_RETRY_TOKEN_OVERHEAD = 60
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
 
@@ -670,10 +673,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             )
         const maxTokens =
           request.practice && retryReason === null
-            ? 1400
+            ? TARGETED_PRIMARY_MAX_TOKENS
             : retryReason === 'candidate_pool_exhausted' &&
           Number.isSafeInteger(retryCandidateCountOverride)
-            ? Math.min(1400, 275 * retryCandidateCount + 100)
+            ? Math.min(
+                TARGETED_PRIMARY_MAX_TOKENS,
+                TARGETED_RETRY_TOKENS_PER_CANDIDATE * retryCandidateCount +
+                  TARGETED_RETRY_TOKEN_OVERHEAD,
+              )
             : 1800
         let result
         try {
