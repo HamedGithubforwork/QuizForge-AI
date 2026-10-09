@@ -85,6 +85,32 @@ try {
         throw 'Replacement did not register the installed app for desktop sign-in links.'
     }
 
+    $installedPreview = Start-Process -FilePath $exePath -PassThru
+    try {
+        $launchDeadline = [DateTime]::UtcNow.AddSeconds(45)
+        do {
+            Start-Sleep -Milliseconds 500
+            $installedPreview.Refresh()
+            if ($installedPreview.HasExited) {
+                throw 'Installed Local AI preview exited before displaying a window.'
+            }
+        } while ($installedPreview.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $launchDeadline)
+        if ($installedPreview.MainWindowHandle -eq 0) {
+            throw 'Installed Local AI preview did not display a window.'
+        }
+        if ($installedPreview.MainWindowTitle -notlike 'Quiz From Notes*Local AI*') {
+            throw 'The installed Local AI renderer did not open.'
+        }
+        if (-not $installedPreview.CloseMainWindow() -or -not $installedPreview.WaitForExit(15000)) {
+            throw 'Installed Local AI preview did not close cleanly.'
+        }
+    } finally {
+        if (-not $installedPreview.HasExited) {
+            $installedPreview.Kill($true)
+            $installedPreview.WaitForExit(10000) | Out-Null
+        }
+    }
+
     New-Item -Path $backupRoot -Force | Out-Null
     New-ItemProperty -Path $backupRoot -Name 'PreviousProtocolCommand' `
         -Value $previousCommand -PropertyType String -Force | Out-Null
@@ -117,7 +143,7 @@ try {
     }
     if (Test-Path $backupRoot) { throw 'A silent install changed handler backup state after refusing takeover.' }
     if (Test-Path $stateRoot) { throw 'A silent install left replacement prompt state behind.' }
-    Write-Output 'Friendly replacement prompt, in-place upgrade, app registration, uninstall restoration, and safe silent refusal passed.'
+    Write-Output 'Friendly replacement prompt, in-place upgrade, installed app visible launch and close, app registration, uninstall restoration, and safe silent refusal passed.'
 } finally {
     if (Test-Path $protocolRoot) { Remove-Item -LiteralPath $protocolRoot -Recurse -Force }
     if (Test-Path $backupRoot) { Remove-Item -LiteralPath $backupRoot -Recurse -Force }

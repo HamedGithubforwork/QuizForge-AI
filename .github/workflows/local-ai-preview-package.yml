@@ -139,10 +139,22 @@ jobs:
         shell: pwsh
         run: ./test/local-ai-preview-installer.ps1
 
+      - name: Record exact installer SHA-256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem 'desktop/dist/local-ai-preview' -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one internal Local AI installer.' }
+          $sha256 = (Get-FileHash $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha256  $($installers[0].Name)" | Set-Content 'desktop/dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
+          Write-Output "Local AI preview installer SHA-256: $sha256"
+
       - name: Retain internal Local AI preview
         uses: actions/upload-artifact@v7
         with:
           name: quiz-from-notes-local-ai-internal-preview
-          path: desktop/dist/local-ai-preview/*.exe
+          path: |
+            desktop/dist/local-ai-preview/*.exe
+            desktop/dist/local-ai-preview/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
