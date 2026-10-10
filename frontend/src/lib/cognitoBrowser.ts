@@ -85,12 +85,14 @@ export async function signOut() {
   window.location.assign(url.href)
 }
 
-export async function identityRequest(path: string, body?: object, legacyToken?: string) {
+export async function identityRequest(path: string, body?: object, legacyToken?: string, cognitoLinkToken?: string) {
   const current = await session()
   if (!current) throw new Error('Sign in again to continue.')
   const headers = new Headers({ Authorization: `Bearer ${current.accessToken}` })
   if (body) headers.set('Content-Type', 'application/json')
+  if (legacyToken && cognitoLinkToken) throw new Error('Choose one existing-account authentication method.')
   if (legacyToken) headers.set('X-Legacy-Authorization', `Bearer ${legacyToken}`)
+  if (cognitoLinkToken) headers.set('X-Cognito-Link-Authorization', `Bearer ${cognitoLinkToken}`)
   const response = await fetch(config.identityApi + path, { method: body ? 'POST' : 'GET', headers,
     body: body ? JSON.stringify(body) : undefined, credentials: 'omit', cache: 'no-store', redirect: 'error',
     signal: AbortSignal.timeout(15_000) })
