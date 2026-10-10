@@ -635,6 +635,7 @@ export default function CognitoAuthGate() {
         <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
       </> : mode === 'link-cognito' ? <>
         <p>Sign in again with your existing Quiz From Notes email and password to keep your saved quizzes. Verification of both accounts is required; an email match alone is not enough.</p>
+        <p className="auth-message" role="note">After linking, Google controls sign-in security, including two-step verification. Quiz From Notes MFA will not be prompted on later Google sign-ins.</p>
         <label>Existing Quiz From Notes email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email}
           disabled={busy} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
