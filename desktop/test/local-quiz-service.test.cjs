@@ -494,7 +494,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     difficulty: 'medium',
     questionType: 'multiple_choice',
   })
-  assert.equal(calls, 3)
+  assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
