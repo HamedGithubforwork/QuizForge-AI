@@ -16,7 +16,7 @@ function withCognitoFetch(responses: Array<Record<string, unknown> | { error: nu
         body: JSON.parse(init?.body as string) })
       const next = responses.shift()
       if (!next) throw new Error('Unexpected Cognito request')
-      if ('error' in next) return new Response('{}', { status: next.error })
+      if (typeof next.error === 'number') return new Response('{}', { status: next.error })
       return new Response(JSON.stringify(next), { status: 200,
         headers: { 'Content-Type': 'application/json' } })
     }
@@ -54,7 +54,7 @@ test('authenticator, SMS and email MFA require the valid second challenge before
         : challenge === 'SMS_MFA' ? 'SMS_MFA_CODE' : 'EMAIL_OTP_CODE'
       assert.deepEqual(requests[1].body, { ClientId: 'public-client', ChallengeName: challenge,
         Session: 'challenge-session', ChallengeResponses: { USERNAME: 'canonical-user', [codeKey]: '123456' } })
-    })( )
+    })()
   }
 })
 
