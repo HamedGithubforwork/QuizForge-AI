@@ -79,8 +79,8 @@ run "reject_google_without_oauth_credentials" {
 run "reviewed_google_federation_keeps_password_login" {
   command = plan
   variables {
-    enable_google_signin     = true
-    google_oauth_client_id   = "123456789000-synthetic.apps.googleusercontent.com"
+    enable_google_signin       = true
+    google_oauth_client_id     = "123456789000-synthetic.apps.googleusercontent.com"
     google_oauth_client_secret = "synthetic-google-oauth-secret"
   }
   assert {
