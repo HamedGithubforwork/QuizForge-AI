@@ -485,7 +485,7 @@ export default function CognitoAuthGate() {
         <form className="auth-form" aria-busy={busy} onSubmit={beginActivation}>
           <label>
             <span>Existing account email</span>
-            <input type="email" autoComplete="username" required value={email} disabled={busy}
+            <input type="email" autoComplete="username" required placeholder="you@example.com" value={email} disabled={busy}
               onChange={e => setEmail(e.target.value)} />
           </label>
           <label>
@@ -631,11 +631,11 @@ export default function CognitoAuthGate() {
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
         {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
-        <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+        <label>Existing account email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
       </> : mode === 'link-cognito' ? <>
         <p>Sign in again with your existing Quiz From Notes email and password to keep your saved quizzes. Verification of both accounts is required; an email match alone is not enough.</p>
-        <label>Existing Quiz From Notes email<input type="email" autoComplete="username" required value={email}
+        <label>Existing Quiz From Notes email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email}
           disabled={busy} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
           value={password} disabled={busy} onChange={e => setPassword(e.target.value)} /></label>
