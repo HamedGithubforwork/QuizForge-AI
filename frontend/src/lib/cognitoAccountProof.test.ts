@@ -82,3 +82,16 @@ test('invalid credentials cannot become a linking proof', withCognitoFetch(
     await assert.rejects(beginCognitoAccountProof('client', 'test@example.com', 'bad'), /verification failed/)
   },
 ))
+
+test('missing existing-account credentials never trigger a Cognito network request', async () => {
+  const original = globalThis.fetch
+  let requests = 0
+  globalThis.fetch = async () => { requests++; throw new Error('No network call expected') }
+  try {
+    await assert.rejects(beginCognitoAccountProof('client', '', 'pass'), /email and password/)
+    await assert.rejects(beginCognitoAccountProof('client', 'test@example.com', ''), /email and password/)
+    assert.equal(requests, 0)
+  } finally {
+    globalThis.fetch = original
+  }
+})
