@@ -39,6 +39,22 @@ variable "public_signup" {
   type    = bool
   default = true
 }
+variable "enable_google_signin" {
+  type        = bool
+  default     = false
+  description = "Opt-in only after OAuth setup, safe account linking, and an explicit production review."
+}
+variable "google_oauth_client_id" {
+  type        = string
+  default     = ""
+  description = "Google Cloud web OAuth client ID; configure privately for an approved rollout."
+}
+variable "google_oauth_client_secret" {
+  type        = string
+  default     = ""
+  sensitive   = true
+  description = "Google Cloud web OAuth client secret; inject from a protected secret source, never in Git."
+}
 locals {
   name          = "quizforge-production-lightsail"
   instance_name = "quizforge-production-lightsail-server"
