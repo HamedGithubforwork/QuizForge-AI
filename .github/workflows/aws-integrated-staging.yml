@@ -337,6 +337,33 @@ jobs:
                       "healthStatus": container.get("healthStatus"),
                   } for container in task.get("containers", [])],
               } for task in tasks], indent=2))
+          log_group = "/quizforge/integrated-staging"
+          streams = aws(
+              "logs", "describe-log-streams",
+              "--log-group-name", log_group,
+              "--order-by", "LastEventTime",
+              "--descending",
+              "--limit", "10",
+          ).get("logStreams", [])
+          api_streams = [
+              stream["logStreamName"] for stream in streams
+              if "/api/" in stream.get("logStreamName", "")
+          ]
+          for stream_name in api_streams[:3]:
+              events = aws(
+                  "logs", "get-log-events",
+                  "--log-group-name", log_group,
+                  "--log-stream-name", stream_name,
+                  "--limit", "40",
+              ).get("events", [])
+              print(json.dumps({
+                  "container": "api",
+                  "stream": stream_name,
+                  "recentEvents": [
+                      {"timestamp": event.get("timestamp"), "message": event.get("message")}
+                      for event in events[-30:]
+                  ],
+              }, indent=2))
           PY
       - name: Verify hosting boundary and publish checked frontend
         run: python scripts/integrated_staging/control.py publish
