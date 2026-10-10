@@ -310,23 +310,23 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          5,
+          7,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          5,
+          7,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
-          96,
+          72,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.choices.items.maxLength,
-          36,
+          24,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
-          64,
+          40,
         )
         assert.equal(request.maxTokens, 1150)
         assert.equal(
@@ -337,15 +337,15 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /exactly five candidate questions/i,
+          /exactly seven compact candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /make a five-item plan that assigns each candidate a different source fact/i,
+          /make a five-fact plan for candidates 1–5 and a backup plan for candidates 6–7/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /Do not fill any slot with a prior or in-pool repeat/i,
+          /Never copy any wording from PRIOR QUESTIONS TO AVOID/i,
         )
         assert.match(
           request.messages.at(-1).content,
