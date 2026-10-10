@@ -119,7 +119,7 @@ def verify_config(v):
     assert google["ProviderDetails"].get("authorize_scopes") == "openid email"
     assert google["ProviderDetails"].get("client_id", "").endswith(".apps.googleusercontent.com")
     assert len(google["ProviderDetails"].get("client_secret", "")) >= 10
-    assert app["ExplicitAuthFlows"] == ["ALLOW_REFRESH_TOKEN_AUTH"]
+    assert set(app["ExplicitAuthFlows"]) == {"ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_PASSWORD_AUTH"}
     db = client("rds").describe_db_instances(DBInstanceIdentifier=NAME)["DBInstances"][0]
     assert db["DBInstanceStatus"] == "available" and not db["PubliclyAccessible"] and db["StorageEncrypted"]
     assert db["DBInstanceClass"] == "db.t4g.micro" and not db["MultiAZ"] and db["BackupRetentionPeriod"] == 1
