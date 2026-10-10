@@ -236,10 +236,11 @@ test('GPU launch reporting zero offloaded layers is recorded as CPU inference', 
   assert.equal(runtime.lastAccelerationMode(), 'cpu')
 })
 
-test('CPU thread count is capped and leaves one logical CPU for the desktop', () => {
+test('CPU thread count uses available capacity with an eight-thread cap', () => {
   const { boundedCpuThreads } = require('../src/local-runtime.cjs')
   assert.equal(boundedCpuThreads(1), 1)
-  assert.equal(boundedCpuThreads(4), 3)
+  assert.equal(boundedCpuThreads(2), 2)
+  assert.equal(boundedCpuThreads(4), 4)
   assert.equal(boundedCpuThreads(64), 8)
 })
 
