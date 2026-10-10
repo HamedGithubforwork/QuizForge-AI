@@ -37,14 +37,15 @@ resource "aws_cognito_user_pool_client" "browser" {
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_scopes                 = ["openid", "email", "aws.cognito.signin.user.admin"]
-  supported_identity_providers         = ["COGNITO"]
+  supported_identity_providers         = var.enable_google_signin ? ["COGNITO", "Google"] : ["COGNITO"]
+  depends_on                           = [aws_cognito_identity_provider.google]
   callback_urls                        = ["${local.origin}/auth/callback"]
   logout_urls                          = ["${local.origin}/"]
   explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_PASSWORD_AUTH"]
   prevent_user_existence_errors        = "ENABLED"
   enable_token_revocation              = true
   read_attributes                      = ["email", "email_verified", "sub"]
-  write_attributes                     = ["email"]
+  write_attributes                     = ["email", "email_verified"]
   access_token_validity                = 5
   id_token_validity                    = 5
   refresh_token_validity               = 1
@@ -58,4 +59,30 @@ resource "aws_cognito_user_pool_domain" "browser" {
   domain                = local.domain
   user_pool_id          = aws_cognito_user_pool.browser.id
   managed_login_version = 1
+}
+
+# Disabled until Google OAuth credentials and safe linkage for existing accounts
+# have been reviewed. Matching email addresses are never proof of ownership.
+resource "aws_cognito_identity_provider" "google" {
+  count         = var.enable_google_signin ? 1 : 0
+  user_pool_id  = aws_cognito_user_pool.browser.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    authorize_scopes = "openid email"
+    client_id        = var.google_oauth_client_id
+    client_secret    = var.google_oauth_client_secret
+  }
+  attribute_mapping = {
+    email          = "email"
+    email_verified = "email_verified"
+  }
+
+  lifecycle {
+    precondition {
+      condition     = endswith(var.google_oauth_client_id, ".apps.googleusercontent.com") && length(var.google_oauth_client_secret) >= 10
+      error_message = "Google sign-in requires a reviewed Google Cloud web OAuth client ID and secret."
+    }
+  }
 }
