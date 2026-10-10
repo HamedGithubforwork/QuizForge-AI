@@ -881,7 +881,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         )
         const retryBudget = Math.min(
           TARGETED_RETRY_CANDIDATES,
-          initialNeed + 2,
+          initialNeed + 4,
         )
         let generatedCount = 0
 
