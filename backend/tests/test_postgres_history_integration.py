@@ -276,6 +276,41 @@ def test_identity_link_requires_dual_proof_confirmation_and_cannot_reassign(enro
     assert owner.execute('SELECT count(*) FROM app.quiz_history').fetchone()[0] == 1
 
 
+def test_two_recent_cognito_sessions_link_without_changing_existing_history(enrollment, owner, cognito):
+    # The destination is already enrolled. Its email can match the new identity;
+    # only independently verified Cognito subjects authorize the same app user.
+    original_subject = str(UUID(int=222))
+    owner.execute("INSERT INTO app.user_identities(issuer,subject,user_id) VALUES (%s,%s,%s)",
+                  (cognito.settings.issuer, original_subject, USERS[0]))
+    original = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(original_subject)}
+    stale = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(original_subject,
+             changes={"auth_time": int(__import__("time").time()) - 600})}
+
+    async def scenario():
+        async with enrollment() as (client, _, _):
+            assert (await client.get("/identity/session")).json()["enrolled"] is False
+            assert (await client.post("/identity/challenge", json={"mode":"link"}, headers=stale)).status_code == 401
+            result = await client.post("/identity/challenge", json={"mode":"link"}, headers=original)
+            assert result.status_code == 200, result.text
+            nonce = result.json()["nonce"]
+            wrong = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(str(UUID(int=999)))}
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=wrong)).status_code == 409
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=stale)).status_code == 401
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=original)).status_code == 204
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=original)).status_code == 409
+            assert (await client.get("/identity/session")).json()["enrolled"] is True
+    asyncio.run(scenario())
+    rows = owner.execute("SELECT issuer, subject, user_id FROM app.user_identities "
+                         "WHERE issuer=%s ORDER BY subject", (cognito.settings.issuer,)).fetchall()
+    assert len(rows) == 2 and {row[2] for row in rows} == {USERS[0]}
+    assert owner.execute("SELECT count(*) FROM app.users").fetchone()[0] == 1
+    assert owner.execute("SELECT count(*) FROM app.quiz_history WHERE user_id=%s", (USERS[0],)).fetchone()[0] == 1
+
+
 def test_identity_new_account_has_no_email_based_history_and_serializes_confirmation(enrollment, owner):
     async def scenario():
         async with enrollment() as (client, _, _):
