@@ -494,7 +494,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     difficulty: 'medium',
     questionType: 'multiple_choice',
   })
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
@@ -638,7 +638,18 @@ test('targeted retry batches backup candidates when one question remains', async
     ...candidatePool.questions[2],
     question: 'Question to avoid?',
   }
-  candidatePool.questions = [backup, duplicateFact, repeatedQuestion]
+  const firstBatch = {
+    ...candidatePool,
+    questions: [
+      duplicateFact,
+      repeatedQuestion,
+      { ...duplicateFact, question: 'Another proteins question?' },
+    ],
+  }
+  const finalBatch = {
+    ...candidatePool,
+    questions: [backup, duplicateFact],
+  }
 
   let calls = 0
   const service = createLocalQuizService({
@@ -650,14 +661,8 @@ test('targeted retry batches backup candidates when one question remains', async
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
-          assert.equal(
-            request.jsonSchema.properties.questions.minItems,
-            3,
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.maxItems,
-            3,
-          )
+          assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
               'source_fact',
@@ -678,8 +683,27 @@ test('targeted retry batches backup candidates when one question remains', async
             /verbatim as source_fact/i,
           )
         }
+        if (calls === 3) {
+          assert.equal(
+            request.generationProfile,
+            'quiz-mcq-targeted-retry-v2',
+          )
+          assert.equal(request.jsonSchema.properties.questions.minItems, 2)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
+          assert.equal(request.maxTokens, 380)
+          assert.match(
+            request.messages.at(-1).content,
+            /exactly 2 additional candidate questions/i,
+          )
+          assert.match(
+            request.messages.at(-1).content,
+            /QUESTION WORDINGS ALREADY GENERATED/i,
+          )
+        }
         return {
-          text: JSON.stringify(calls === 1 ? first : candidatePool),
+          text: JSON.stringify(
+            calls === 1 ? first : calls === 2 ? firstBatch : finalBatch,
+          ),
           finishReason: 'stop',
           usage: null,
         }
