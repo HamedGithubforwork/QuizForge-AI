@@ -45,6 +45,10 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
   assert {
+    condition     = length(aws_cognito_identity_provider.google) == 0 && aws_cognito_user_pool_client.browser.supported_identity_providers == toset(["COGNITO"])
+    error_message = "Google federation must be disabled by default; the existing password flow must remain available."
+  }
+  assert {
     condition     = length(jsondecode(aws_sns_topic_policy.alerts.policy).Statement) == 1 && jsondecode(aws_sns_topic_policy.alerts.policy).Statement[0].Principal.Service == "cloudwatch.amazonaws.com"
     error_message = "The Lightsail alert topic must accept publishes only from CloudWatch; the account budget is managed separately."
   }
@@ -66,4 +70,25 @@ run "reject_placeholder_recipient" {
   command = plan
   variables { alert_email = "operator@example.invalid" }
   expect_failures = [var.alert_email]
+}
+run "reject_google_without_oauth_credentials" {
+  command = plan
+  variables { enable_google_signin = true }
+  expect_failures = [aws_cognito_identity_provider.google[0]]
+}
+run "reviewed_google_federation_keeps_password_login" {
+  command = plan
+  variables {
+    enable_google_signin     = true
+    google_oauth_client_id   = "123456789000-synthetic.apps.googleusercontent.com"
+    google_oauth_client_secret = "synthetic-google-oauth-secret"
+  }
+  assert {
+    condition     = length(aws_cognito_identity_provider.google) == 1 && aws_cognito_user_pool_client.browser.supported_identity_providers == toset(["COGNITO", "Google"])
+    error_message = "Opting in must add Google without removing existing Cognito login."
+  }
+  assert {
+    condition     = aws_cognito_identity_provider.google[0].attribute_mapping["email_verified"] == "email_verified" && aws_cognito_identity_provider.google[0].provider_details["authorize_scopes"] == "openid email"
+    error_message = "Google sign-in must request verified email claims through the reviewed provider."
+  }
 }
