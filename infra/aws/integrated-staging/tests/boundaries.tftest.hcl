@@ -120,7 +120,7 @@ run "google_federation_keeps_cognito_password_provider" {
     google_oauth_client_secret = "synthetic-staging-google-secret"
   }
   assert {
-    condition     = toset(aws_cognito_user_pool_client.browser.supported_identity_providers) == toset(["COGNITO", "Google"]) && aws_cognito_identity_provider.google[0].provider_type == "Google"
+    condition     = toset(aws_cognito_user_pool_client.browser.supported_identity_providers) == toset(["COGNITO", "Google"]) && aws_cognito_identity_provider.google[0].provider_type == "Google" && contains(aws_cognito_user_pool_client.browser.explicit_auth_flows, "ALLOW_USER_PASSWORD_AUTH")
     error_message = "Google federation must remain alongside the existing Cognito sign-in provider."
   }
 }
