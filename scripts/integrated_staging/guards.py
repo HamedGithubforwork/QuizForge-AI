@@ -35,6 +35,7 @@ def permitted_state(addresses):
         "aws_cloudwatch_log_group.app", "aws_db_subnet_group.db", "aws_db_parameter_group.tls", "aws_db_instance.db",
         "aws_cognito_user_pool.browser", "aws_cognito_user_pool_client.browser",
         "aws_cognito_user_pool_client.fixture", "aws_cognito_user_pool_domain.browser",
+        "aws_cognito_identity_provider.google",
         "aws_iam_role.setup", "aws_iam_role_policy.setup", "aws_ecs_task_definition.probe",
         "aws_elasticache_subnet_group.cache", "aws_elasticache_replication_group.cache", "aws_iam_role_policy.generation_secret",
         "aws_lb.api", "aws_lb_listener.http", "aws_lb_listener.https", "aws_route53_record.api",
