@@ -5,6 +5,7 @@ on:
     paths:
       - "infra/aws/integrated-staging/**"
       - "scripts/integrated_staging/**"
+      - "scripts/frontend_staging/**"
       - ".github/workflows/aws-integrated-staging.yml"
   workflow_dispatch:
     inputs:
@@ -66,6 +67,7 @@ jobs:
           INTEGRATED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
         run: |
           python -m unittest discover -s scripts/integrated_staging -p 'test_*.py' -v
+          python -m unittest discover -s scripts/frontend_staging -p 'test_*.py' -v
           python -m compileall -q scripts/integrated_staging
           node --check scripts/integrated_staging/browser.mjs
       - uses: hashicorp/setup-terraform@v4
