@@ -30,7 +30,7 @@ Cognito gives an unlinked Google identity a new user subject. Existing quiz hist
 
 To link existing history, the user must authenticate the existing Cognito account with its password and any configured MFA, then confirm the one-time link. The Google session remains active during this proof.
 
-After linking, later Google sign-ins use Google's authentication and security settings. Quiz From Notes does not enforce Google 2-Step Verification; it applies only when a person has enabled it on their Google account. Cognito MFA is not prompted on Google-federated sign-ins. The account-linking screen discloses this. Decide before activation whether Google's security controls are acceptable; if every login must require an app-controlled second factor, design and test that separately.
+After linking, later Google sign-ins use Google's authentication and security settings. Quiz From Notes does not enforce Google 2-Step Verification; it applies only when a person has enabled it on their Google account. Cognito MFA is not prompted on Google-federated sign-ins. The account-linking screen discloses this. The owner has accepted Google's account security settings for Google sign-ins; 2-Step Verification is not guaranteed unless enabled or required on that Google account. If the policy changes to require an app-controlled second factor on every login, design and test that separately.
 
 Google OAuth itself does not require SMS production access. If the existing Cognito account uses SMS MFA, the SMS sandbox can be used for testing with a verified destination number; sending to arbitrary customer numbers requires production access.
 
@@ -45,7 +45,7 @@ Run this against the configured provider in a production-like environment, with 
 5. Confirm passwords and proof tokens are not stored in local or session storage and are not sent in URLs.
 6. Confirm the Google sign-in button is absent when `VITE_COGNITO_GOOGLE_SIGNIN_ENABLED=false`.
 
-Before public activation, require exact-head CI to pass, review backend identity-linking changes, complete this real-provider test, decide the MFA policy above, and review the active production release lock. Keep OAuth credentials in private configuration throughout.
+Before public activation, require exact-head CI to pass, review backend identity-linking changes, complete this real-provider test under the accepted Google security policy, and review the active production release lock. Keep OAuth credentials in private configuration throughout.
 
 ## Cognito-managed email example
 
