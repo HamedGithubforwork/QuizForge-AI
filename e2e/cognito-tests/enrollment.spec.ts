@@ -160,7 +160,8 @@ test('Google login links an existing Cognito account only after password and MFA
   const state = await setup(page, { googleExistingLink: true })
   let directAuthCalls = 0
   let mfaCalls = 0
-  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST, OPTIONS' }
   await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     const target = route.request().headers()['x-amz-target']
