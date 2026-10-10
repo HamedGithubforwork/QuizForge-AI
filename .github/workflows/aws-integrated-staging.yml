@@ -262,6 +262,82 @@ jobs:
           TF_VAR_google_oauth_client_id: ${{ secrets.STAGING_GOOGLE_OAUTH_CLIENT_ID }}
           TF_VAR_google_oauth_client_secret: ${{ secrets.STAGING_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: terraform -chdir=infra/aws/integrated-staging apply -auto-approve
+      - name: Diagnose failed API rollout before cleanup
+        if: failure()
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+
+          def aws(*args):
+              result = subprocess.run(
+                  ["aws", *args, "--output", "json"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+              return json.loads(result.stdout)
+
+          services = aws(
+              "ecs", "describe-services",
+              "--cluster", "quizforge-api",
+              "--services", "quizforge-integrated-staging-api",
+          ).get("services", [])
+          print(json.dumps([{
+              "status": service.get("status"),
+              "desiredCount": service.get("desiredCount"),
+              "runningCount": service.get("runningCount"),
+              "pendingCount": service.get("pendingCount"),
+              "events": [
+                  {"createdAt": event.get("createdAt"), "message": event.get("message")}
+                  for event in service.get("events", [])[:10]
+              ],
+          } for service in services], indent=2))
+
+          target_groups = aws(
+              "elbv2", "describe-target-groups",
+              "--names", "qf-integrated-api",
+          ).get("TargetGroups", [])
+          if target_groups:
+              health = aws(
+                  "elbv2", "describe-target-health",
+                  "--target-group-arn", target_groups[0]["TargetGroupArn"],
+              ).get("TargetHealthDescriptions", [])
+              print(json.dumps([{
+                  "state": item.get("TargetHealth", {}).get("State"),
+                  "reason": item.get("TargetHealth", {}).get("Reason"),
+                  "description": item.get("TargetHealth", {}).get("Description"),
+              } for item in health], indent=2))
+
+          task_arns = []
+          for desired_status in ("RUNNING", "STOPPED"):
+              task_arns.extend(aws(
+                  "ecs", "list-tasks",
+                  "--cluster", "quizforge-api",
+                  "--service-name", "quizforge-integrated-staging-api",
+                  "--desired-status", desired_status,
+                  "--max-results", "5",
+              ).get("taskArns", []))
+          if task_arns:
+              tasks = aws(
+                  "ecs", "describe-tasks",
+                  "--cluster", "quizforge-api",
+                  "--tasks", *task_arns,
+              ).get("tasks", [])
+              print(json.dumps([{
+                  "lastStatus": task.get("lastStatus"),
+                  "desiredStatus": task.get("desiredStatus"),
+                  "stopCode": task.get("stopCode"),
+                  "stoppedReason": task.get("stoppedReason"),
+                  "containers": [{
+                      "name": container.get("name"),
+                      "lastStatus": container.get("lastStatus"),
+                      "exitCode": container.get("exitCode"),
+                      "reason": container.get("reason"),
+                      "healthStatus": container.get("healthStatus"),
+                  } for container in task.get("containers", [])],
+              } for task in tasks], indent=2))
+          PY
       - name: Verify hosting boundary and publish checked frontend
         run: python scripts/integrated_staging/control.py publish
       - name: Test real hosted browser without AWS credentials or database passwords
