@@ -95,7 +95,7 @@ async function stop(child, closed) {
 
 function boundedCpuThreads(logicalCpuCount = os.cpus().length) {
   const count = Number.isSafeInteger(logicalCpuCount) && logicalCpuCount > 0 ? logicalCpuCount : 1
-  return Math.max(1, Math.min(8, count - 1))
+  return Math.max(1, Math.min(8, count))
 }
 
 function trackGpuLayerOffload(child) {
