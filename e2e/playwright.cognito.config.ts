@@ -13,6 +13,8 @@ export default defineConfig({
     env: { ...process.env, VITE_AUTH_PROVIDER: 'cognito', VITE_COGNITO_STAGING: 'true',
       VITE_COGNITO_USER_POOL_ID: 'ca-central-1_BrowserTest', VITE_COGNITO_CLIENT_ID: 'browserclient123',
       VITE_COGNITO_DOMAIN: 'https://quizforge-test.auth.ca-central-1.amazoncognito.com',
+      // Synthetic Cognito/Google provider routes in these tests only. Production defaults off.
+      VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: 'true',
       VITE_API_URL: baseURL + '/api-mock', VITE_IDENTITY_API_URL: baseURL + '/identity-mock',
       VITE_SUPABASE_URL: baseURL + '/supabase-mock', VITE_SUPABASE_PUBLISHABLE_KEY: 'test-publishable' },
   },

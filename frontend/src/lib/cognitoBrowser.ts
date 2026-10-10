@@ -46,6 +46,17 @@ export async function signIn() {
   await manager.signinRedirect({ nonce: crypto.randomUUID() })
 }
 
+export async function signInWithGoogle() {
+  if (!config.googleSignInEnabled) throw new Error('Google sign-in is not available yet.')
+  await manager.clearStaleState()
+  // Preserve the same Cognito authorization-code + PKCE flow; select the
+  // Google identity provider at the Cognito authorize endpoint.
+  await manager.signinRedirect({
+    nonce: crypto.randomUUID(),
+    extraQueryParams: { identity_provider: 'Google' },
+  })
+}
+
 export async function signUp() {
   await manager.clearStaleState()
   await signupManager.signinRedirect({ nonce: crypto.randomUUID() })
@@ -74,12 +85,14 @@ export async function signOut() {
   window.location.assign(url.href)
 }
 
-export async function identityRequest(path: string, body?: object, legacyToken?: string) {
+export async function identityRequest(path: string, body?: object, legacyToken?: string, cognitoLinkToken?: string) {
   const current = await session()
   if (!current) throw new Error('Sign in again to continue.')
   const headers = new Headers({ Authorization: `Bearer ${current.accessToken}` })
   if (body) headers.set('Content-Type', 'application/json')
+  if (legacyToken && cognitoLinkToken) throw new Error('Choose one existing-account authentication method.')
   if (legacyToken) headers.set('X-Legacy-Authorization', `Bearer ${legacyToken}`)
+  if (cognitoLinkToken) headers.set('X-Cognito-Link-Authorization', `Bearer ${cognitoLinkToken}`)
   const response = await fetch(config.identityApi + path, { method: body ? 'POST' : 'GET', headers,
     body: body ? JSON.stringify(body) : undefined, credentials: 'omit', cache: 'no-store', redirect: 'error',
     signal: AbortSignal.timeout(15_000) })

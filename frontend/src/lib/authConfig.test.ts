@@ -73,6 +73,18 @@ test('SMS MFA feature flag is explicit and boolean', () => {
   )
 })
 
+test('Google sign-in requires explicit opt-in and rejects malformed settings', () => {
+  assert.equal(cognitoConfiguration(valid, 'https://staging.example.test').googleSignInEnabled, false)
+  assert.equal(cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: 'false' },
+    'https://staging.example.test').googleSignInEnabled, false)
+  assert.equal(cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: 'true' },
+    'https://staging.example.test').googleSignInEnabled, true)
+  for (const flag of ['', 'TRUE', 'yes', '1']) {
+    assert.throws(() => cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: flag },
+      'https://staging.example.test'))
+  }
+})
+
 test('Production configuration accepts only public legacy key types', () => {
   const token = (role: string, ref = 'vfxmsvphgcaizqnbyjip') => `header.${btoa(JSON.stringify({ role, ref }))}.signature`
   assert.equal(publicLegacyKey(token('anon')), true)

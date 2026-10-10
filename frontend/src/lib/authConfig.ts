@@ -32,6 +32,10 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
   if (smsFlag !== undefined && smsFlag !== 'true' && smsFlag !== 'false') {
     throw new Error('Invalid Cognito SMS MFA configuration.')
   }
+  const googleFlag = env.VITE_COGNITO_GOOGLE_SIGNIN_ENABLED
+  if (googleFlag !== undefined && googleFlag !== 'true' && googleFlag !== 'false') {
+    throw new Error('Invalid Cognito Google sign-in configuration.')
+  }
   const base = secureEndpoint(origin)
   return {
     pool, client, domain, environment, authority: `https://cognito-idp.ca-central-1.amazonaws.com/${pool}`,
@@ -39,6 +43,7 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
     identityApi: secureEndpoint(env.VITE_IDENTITY_API_URL || ''),
     api: secureEndpoint(env.VITE_API_URL || ''),
     smsMfaEnabled: smsFlag === 'true',
+    googleSignInEnabled: googleFlag === 'true',
   }
 }
 

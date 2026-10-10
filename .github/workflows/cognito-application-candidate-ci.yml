@@ -4,8 +4,18 @@ on:
   pull_request:
     branches:
       - feat/aws-production-auth
+      - application/production
     paths:
-      - "frontend/**"
+      - "frontend/src/AuthGate.tsx"
+      - "frontend/src/CognitoAuthGate.tsx"
+      - "frontend/src/AuthGate.css"
+      - "frontend/src/lib/authConfig.ts"
+      - "frontend/src/lib/authConfig.test.ts"
+      - "frontend/src/lib/cognitoBrowser.ts"
+      - "frontend/src/lib/cognitoActivation.ts"
+      - "frontend/src/lib/cognitoMfa.ts"
+      - "frontend/src/lib/cognitoAccountProof.ts"
+      - "frontend/src/lib/cognitoAccountProof.test.ts"
       - "e2e/cognito-tests/**"
       - "e2e/playwright.cognito.config.ts"
       - ".github/workflows/cognito-application-candidate-ci.yml"
