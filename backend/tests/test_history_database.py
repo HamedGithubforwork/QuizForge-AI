@@ -55,3 +55,18 @@ def test_pool_errors_do_not_log_raw_connection_details(caplog):
         logging.getLogger("psycopg.pool").warning("Connection failed: %s", "private-password-or-query")
     assert "private-password-or-query" not in caplog.text
     assert "PostgreSQL history pool event" in caplog.text
+
+def test_pool_errors_preserve_only_safe_diagnostic_metadata(caplog):
+    class SafeDatabaseError(Exception):
+        sqlstate = "08001"
+
+    secret = "private-password-or-query"
+    error = SafeDatabaseError(secret)
+    with caplog.at_level(logging.WARNING, logger="psycopg.pool"):
+        logging.getLogger("psycopg.pool").warning("Connection failed: %s", error)
+
+    assert "PostgreSQL history pool event" in caplog.text
+    assert "error_type=SafeDatabaseError" in caplog.text
+    assert "sqlstate=08001" in caplog.text
+    assert secret not in caplog.text
+
