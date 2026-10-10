@@ -47,7 +47,7 @@ variable "enable_api" {
   default = false
 }
 variable "enable_google_signin" {
-  type    = bool
+  type        = bool
   default     = false
   description = "Enable Google only in the disposable staging pool after a dedicated OAuth client is configured."
 }
