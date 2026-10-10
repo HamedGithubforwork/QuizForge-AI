@@ -187,6 +187,7 @@ test('Google login links an existing Cognito account only after password and MFA
   await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
   expect(state.counts().googleProvider).toBe(true)
   await page.getByLabel('Account setup', { exact: true }).selectOption('link-cognito')
+  await expect(page.getByRole('note')).toContainText('Quiz From Notes MFA will not be prompted on later Google sign-ins')
   await expect(page.getByLabel('Existing Quiz From Notes email')).toHaveAttribute('placeholder', 'you@example.com')
   await page.getByLabel('Existing Quiz From Notes email').fill('existing@example.invalid')
   await page.getByLabel('Existing Quiz From Notes password').fill('synthetic-test-password')
