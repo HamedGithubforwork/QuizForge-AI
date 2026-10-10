@@ -45,7 +45,7 @@ resource "aws_cognito_user_pool_client" "browser" {
   prevent_user_existence_errors        = "ENABLED"
   enable_token_revocation              = true
   read_attributes                      = ["email", "email_verified", "sub"]
-  write_attributes                     = ["email", "email_verified"]
+  write_attributes                     = ["email"]
   access_token_validity                = 5
   id_token_validity                    = 5
   refresh_token_validity               = 1
