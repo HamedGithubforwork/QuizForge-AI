@@ -46,6 +46,17 @@ export async function signIn() {
   await manager.signinRedirect({ nonce: crypto.randomUUID() })
 }
 
+export async function signInWithGoogle() {
+  if (!config.googleSignInEnabled) throw new Error('Google sign-in is not available yet.')
+  await manager.clearStaleState()
+  // Preserve the same Cognito authorization-code + PKCE flow; select the
+  // Google identity provider at the Cognito authorize endpoint.
+  await manager.signinRedirect({
+    nonce: crypto.randomUUID(),
+    extraQueryParams: { identity_provider: 'Google' },
+  })
+}
+
 export async function signUp() {
   await manager.clearStaleState()
   await signupManager.signinRedirect({ nonce: crypto.randomUUID() })
