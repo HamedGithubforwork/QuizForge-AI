@@ -100,9 +100,30 @@ async def check_application_role(conn):
 
 
 class _SafePoolLog(logging.Filter):
-    """Pool connection exceptions can contain connection details: omit their text."""
+    """Keep connection error type and SQLSTATE, but omit exception text/details."""
     def filter(self, record):
-        record.msg = "PostgreSQL history pool event"
+        error = None
+        if record.exc_info and len(record.exc_info) > 1:
+            error = record.exc_info[1]
+        if error is None:
+            args = record.args if isinstance(record.args, (tuple, list)) else (record.args,)
+            error = next((item for item in args if isinstance(item, BaseException)), None)
+
+        metadata = []
+        if error is not None:
+            metadata.append(f"error_type={type(error).__name__}")
+            sqlstate = getattr(error, "sqlstate", None)
+            if (
+                isinstance(sqlstate, str)
+                and len(sqlstate) == 5
+                and sqlstate.isascii()
+                and sqlstate.isalnum()
+            ):
+                metadata.append(f"sqlstate={sqlstate}")
+
+        record.msg = "PostgreSQL history pool event" + (
+            " " + " ".join(metadata) if metadata else ""
+        )
         record.args = ()
         record.exc_info = None
         record.exc_text = None
