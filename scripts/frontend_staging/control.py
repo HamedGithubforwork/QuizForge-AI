@@ -32,7 +32,7 @@ def inventory(directory):
         key = path.relative_to(directory).as_posix()
         if not (key in {"index.html", "favicon.svg", "icons.svg"} or re.fullmatch(
                 r"assets/[A-Za-z0-9_-]+\.(?:js|css|svg|png|webp|woff2?)", key)):
-            raise ValueError("Unexpected artifact path")
+            raise ValueError(f"Unexpected artifact path: {json.dumps(key, ensure_ascii=True)}")
         content = path.read_bytes()
         total += len(content)
         if total > 20 * 1024 * 1024 or len(files) >= 100:
