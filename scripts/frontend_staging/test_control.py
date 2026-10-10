@@ -25,8 +25,9 @@ class ArtifactSafety(unittest.TestCase):
         for key in (".env", "assets/app.js.map", "credentials.json", "assets/code.html"):
             path = self.root / key
             path.write_text("not deployable")
-            with self.assertRaises(ValueError):
+            with self.assertRaisesRegex(ValueError, "Unexpected artifact path") as error:
                 inventory(self.root)
+            self.assertIn(key, str(error.exception))
             path.unlink()
 
     def test_rejects_symlink_even_to_allowed_file(self):
