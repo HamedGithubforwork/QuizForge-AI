@@ -723,7 +723,7 @@ test('targeted retry batches backup candidates when one question remains', async
     questionType: 'multiple_choice',
   })
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
