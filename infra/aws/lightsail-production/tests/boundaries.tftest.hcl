@@ -45,7 +45,7 @@ run "permanent_host_private_ports_auth_and_cost_controls" {
     error_message = "PKCE redirects must remain bound to the canonical HTTPS website."
   }
   assert {
-    condition     = length(aws_cognito_identity_provider.google) == 0 && aws_cognito_user_pool_client.browser.supported_identity_providers == toset(["COGNITO"])
+    condition     = length(aws_cognito_identity_provider.google) == 0 && toset(aws_cognito_user_pool_client.browser.supported_identity_providers) == toset(["COGNITO"])
     error_message = "Google federation must be disabled by default; the existing password flow must remain available."
   }
   assert {
@@ -84,7 +84,7 @@ run "reviewed_google_federation_keeps_password_login" {
     google_oauth_client_secret = "synthetic-google-oauth-secret"
   }
   assert {
-    condition     = length(aws_cognito_identity_provider.google) == 1 && aws_cognito_user_pool_client.browser.supported_identity_providers == toset(["COGNITO", "Google"])
+    condition     = length(aws_cognito_identity_provider.google) == 1 && toset(aws_cognito_user_pool_client.browser.supported_identity_providers) == toset(["COGNITO", "Google"])
     error_message = "Opting in must add Google without removing existing Cognito login."
   }
   assert {
