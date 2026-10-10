@@ -8,7 +8,7 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
-const TARGETED_PRIMARY_CANDIDATES = 9
+const TARGETED_PRIMARY_CANDIDATES = 5
 const TARGETED_RETRY_CANDIDATES = 5
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
@@ -703,10 +703,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly nine candidate questions. Keep each question under 96 characters, each choice under 36 characters, and each explanation under 64 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly five candidate questions. Keep each question under 96 characters, each choice under 36 characters, and each explanation under 64 characters.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
-                'Across all nine candidates, use nine distinct question wordings; cover as many different underlying source facts as possible and include alternate question-answer directions for facts represented by PRIOR QUESTIONS TO AVOID. Do not fill remaining slots by repeating prior or in-pool wording.',
+                'Before writing, make a five-item plan that assigns each candidate a different source fact. Across all five candidates, use five distinct question wordings and five distinct underlying source facts. Prefer facts not represented by PRIOR QUESTIONS TO AVOID; when revisiting an avoided fact is necessary, ask a different question-answer direction. Do not fill any slot with a prior or in-pool repeat.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',
