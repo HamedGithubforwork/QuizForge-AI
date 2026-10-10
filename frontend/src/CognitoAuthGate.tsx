@@ -5,7 +5,7 @@ import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
-import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
+import { config, identityRequest, initialize, manager, session, signIn, signInWithGoogle, signOut, signUp } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { secureEndpoint } from './lib/authConfig'
@@ -525,6 +525,17 @@ export default function CognitoAuthGate() {
               </span>
               <span className="auth-cta-arrow" aria-hidden="true">→</span>
             </button>
+
+            {config.googleSignInEnabled && (
+              <button className="auth-entry-action auth-entry-action-secondary" type="button"
+                aria-label="Continue with Google" disabled={busy} onClick={() => void run(signInWithGoogle)}>
+                <span className="auth-entry-action-copy">
+                  <strong>Continue with Google</strong>
+                  <small>Use your Google account through secure Cognito sign-in</small>
+                </span>
+                <span className="auth-cta-arrow" aria-hidden="true">→</span>
+              </button>
+            )}
 
             <button className="auth-entry-action auth-entry-action-secondary" aria-label="Create account" disabled={busy}
               onClick={() => void run(signUp)}>
