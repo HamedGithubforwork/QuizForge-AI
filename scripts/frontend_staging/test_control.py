@@ -16,6 +16,11 @@ class ArtifactSafety(unittest.TestCase):
         (self.root / "assets").mkdir()
         (self.root / "assets/app-hash.js").write_text("void 0;")
 
+    def test_allows_notification_service_worker(self):
+        (self.root / "study-notifications-sw.js").write_text("self.addEventListener('push', () => {})")
+        files = inventory(self.root)
+        self.assertIn("study-notifications-sw.js", files)
+
     def test_content_hash_detects_modified_build(self):
         original = inventory(self.root)
         (self.root / "assets/app-hash.js").write_text("void 1;")
