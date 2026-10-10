@@ -41,6 +41,8 @@ test('Local AI bridge requires an enrolled account and exposes only manager resu
   }
   let allowDownload = false
   let allowRemoval = false
+  let lastMode = 'gpu'
+  local.lastAccelerationMode = () => lastMode
   installNativeBridge({
     ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
     getWindow: () => ({ webContents: contents }),
@@ -55,11 +57,13 @@ test('Local AI bridge requires an enrolled account and exposes only manager resu
   await assert.rejects(handlers['qfn:localAiStatus'](event), /Sign in/)
   account = { userId: 'user', enrolled: true }
   assert.deepEqual(await handlers['qfn:localAiStatus'](event),
-    { phase: 'idle', model: { ready: false }, secretPath: undefined })
-  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).phase, 'idle')
+    { phase: 'idle', model: { ready: false }, secretPath: undefined, lastAccelerationMode: 'gpu' })
+  lastMode = 'Vulkan1'
+  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).lastAccelerationMode, null)
   allowDownload = true
-  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).phase, 'downloading')
-  assert.equal((await handlers['qfn:cancelLocalAiModelDownload'](event)).phase, 'idle')
+  lastMode = 'cpu'
+  assert.equal((await handlers['qfn:startLocalAiModelDownload'](event)).lastAccelerationMode, 'cpu')
+  assert.equal((await handlers['qfn:cancelLocalAiModelDownload'](event)).lastAccelerationMode, 'cpu')
   local.load = async () => ({ phase: 'idle', model: { ready: true } })
   assert.equal((await handlers['qfn:removeLocalAiModel'](event)).model.ready, true)
   allowRemoval = true
@@ -121,6 +125,79 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
 
   account = null
   await assert.rejects(handlers['qfn:localAiQuizStatus'](event), /Sign in/)
+})
+
+test('local PDF quiz IPC bounds file bytes, requires the local account path and never calls cloud request', async () => {
+  const handlers = {}, frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let account = { userId: 'user', enrolled: true }
+  let received
+  let cloudCalls = 0
+  const result = {
+    processing: 'local', documentSha256: 'a'.repeat(64), pageCount: 1,
+    selectedPages: [1], quiz: { title: 'Fixture', questions: [] },
+  }
+  const local = {
+    generateDocumentQuiz: async value => { received = value; return result },
+    cancelQuiz: async () => {},
+  }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }), getSession: () => ({}),
+    getAccount: () => ({ current: () => account, request: async () => { cloudCalls++; throw new Error('cloud must not run') } }),
+    getLocalAi: () => local, openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  const request = {
+    bytes: new Uint8Array(Buffer.from('%PDF-1.7 local')),
+    filename: 'notes.pdf', selectedPages: [1], questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice',
+  }
+  assert.deepEqual(await handlers['qfn:generateLocalDocumentQuiz'](event, request), { ok: true, ...result })
+  assert.deepEqual(received, request)
+  assert.equal(cloudCalls, 0)
+  assert.deepEqual(await handlers['qfn:generateLocalDocumentQuiz'](event, {
+    ...request, bytes: new Uint8Array(15 * 1024 * 1024 + 1),
+  }), { ok: false, error: 'invalid_request' })
+  assert.deepEqual(await handlers['qfn:generateLocalDocumentQuiz'](event, { ...request, extra: 'not permitted' }),
+    { ok: false, error: 'invalid_request' })
+  await assert.rejects(handlers['qfn:generateLocalDocumentQuiz'](event), /not permitted/)
+  await assert.rejects(handlers['qfn:generateLocalDocumentQuiz'](event, request, request), /not permitted/)
+
+  local.generateDocumentQuiz = async () => { throw Object.assign(new Error('private path'), { code: 'processing_failed' }) }
+  assert.deepEqual(await handlers['qfn:generateLocalDocumentQuiz'](event, request), { ok: false, error: 'processing_failed' })
+
+  account = null
+  await assert.rejects(handlers['qfn:generateLocalDocumentQuiz'](event, request), /Sign in/)
+  assert.equal(cloudCalls, 0)
+})
+
+test('local PDF preprocessing stays on the desktop and rejects oversized input', async () => {
+  const handlers = {}, frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  const account = { userId: 'user', enrolled: true }
+  let received
+  const local = {
+    processDocument: async value => {
+      received = value
+      return { processing: 'local', pdfSha256: 'a'.repeat(64), pageCount: 1, pages: [{ pageNumber: 1, text: 'local extracted text' }] }
+    },
+  }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }), getSession: () => ({}),
+    getAccount: () => ({ current: () => account, request: async () => { throw new Error('cloud must not run') } }),
+    getLocalAi: () => local, openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  const request = { bytes: new Uint8Array(Buffer.from('%PDF-1.7 local')), filename: 'notes.pdf', selectedPages: [1] }
+  const result = await handlers['qfn:processLocalPdf'](event, request)
+  assert.equal(result.ok, true)
+  assert.equal(result.document.processing, 'local')
+  assert.deepEqual(received, request)
+  assert.deepEqual(await handlers['qfn:processLocalPdf'](event, { ...request, extra: true }), { ok: false, error: 'invalid_request' })
+  assert.deepEqual(await handlers['qfn:processLocalPdf'](event, { ...request, bytes: new Uint8Array(15 * 1024 * 1024 + 1) }), { ok: false, error: 'invalid_request' })
+  await assert.rejects(handlers['qfn:processLocalPdf'](event), /not permitted/)
 })
 
 

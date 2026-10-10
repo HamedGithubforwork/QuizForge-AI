@@ -5,12 +5,30 @@ on:
   pull_request:
     paths:
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-quiz-service.cjs
       - desktop/third_party/local-ai/**
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/verify-packaged-runtime.cjs
       - desktop/build/local-ai-preview.cjs
+      - desktop/build/local-ai-preview-installer.nsh
+      - desktop/src/main.cjs
+      - desktop/src/native-bridge.cjs
+      - desktop/src/preload.cjs
+      - desktop/src/policy.cjs
+      - desktop/src/local-renderer.cjs
+      - desktop/test/local-renderer.test.cjs
+      - desktop/test/policy.test.cjs
+      - desktop/README.md
+      - ARCHITECTURE.md
       - desktop/package.json
       - desktop/package-lock.json
+      - desktop/test/local-ai-preview-installer.ps1
+      - desktop/scripts/verify-local-ui.cjs
+      - frontend/index.html
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/src/**
+      - frontend/vite.config.ts
       - .github/workflows/local-ai-preview-package.yml
 
 permissions:
@@ -47,14 +65,29 @@ jobs:
           npm audit --audit-level=moderate
           exit $LASTEXITCODE
 
+      - name: Run desktop unit and contract tests
+        run: npm test
+
+      - name: Build the branch frontend for the desktop preview
+        shell: pwsh
+        run: |
+          npm ci --prefix ../frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build --prefix ../frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-local-ui.cjs ../frontend/dist
+          exit $LASTEXITCODE
+        env:
+          QFN_DESKTOP_BUNDLE: 'true'
+
       - name: Download and stage pinned server-only runtime
         shell: pwsh
         working-directory: .
         run: |
           $ErrorActionPreference = 'Stop'
-          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
           if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
-          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') { throw 'Runtime checksum mismatch' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
           Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
           New-Item -ItemType Directory "$env:RUNNER_TEMP/local-ai-runtime"
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/local-ai-runtime"
@@ -68,14 +101,22 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
 
+      - name: Build previous-version installer for replacement acceptance
+        run: npx --no-install electron-builder --win nsis --x64 --publish never '-c.extraMetadata.version=0.0.1' '-c.directories.output=dist-previous'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
       - name: Reverify runtime inside packaged resources
         run: node scripts/verify-packaged-runtime.cjs "dist/local-ai-preview/win-unpacked/resources/local-ai-runtime"
+
+      - name: Verify the bundled branch interface inside the app
+        run: node scripts/verify-local-ui.cjs "dist/local-ai-preview/win-unpacked/resources/app-ui"
 
       - name: Launch and close unpacked preview
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = Join-Path $PWD 'dist/local-ai-preview/win-unpacked/Quiz From Notes Local AI Preview.exe'
+          $exe = Join-Path $PWD 'dist/local-ai-preview/win-unpacked/Quiz From Notes Preview.exe'
           if (-not (Test-Path $exe)) { throw 'Local AI preview executable is missing.' }
           $process = Start-Process -FilePath $exe -PassThru
           try {
@@ -86,7 +127,7 @@ jobs:
               if ($process.HasExited) { throw 'Local AI preview exited before displaying a window.' }
             } while ($process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
             if ($process.MainWindowHandle -eq 0) { throw 'Local AI preview did not display a window.' }
-            if ($process.MainWindowTitle -notlike 'Quiz From Notes*') { throw 'Unexpected preview window title.' }
+            if ($process.MainWindowTitle -notlike 'Quiz From Notes*Local AI*') { throw 'The packaged Local AI renderer did not open.' }
             if (-not $process.CloseMainWindow() -or -not $process.WaitForExit(15000)) { throw 'Local AI preview did not close cleanly.' }
           } finally {
             if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit(10000) | Out-Null }
@@ -98,10 +139,26 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
 
+      - name: Test Local AI preview installation and protocol conflict handling
+        shell: pwsh
+        run: ./test/local-ai-preview-installer.ps1
+
+      - name: Record exact installer SHA-256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installers = @(Get-ChildItem 'dist/local-ai-preview' -Filter '*.exe' -File)
+          if ($installers.Count -ne 1) { throw 'Expected exactly one internal Local AI installer.' }
+          $sha256 = (Get-FileHash $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$sha256  $($installers[0].Name)" | Set-Content 'dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
+          Write-Output "Local AI preview installer SHA-256: $sha256"
+
       - name: Retain internal Local AI preview
         uses: actions/upload-artifact@v7
         with:
           name: quiz-from-notes-local-ai-internal-preview
-          path: desktop/dist/local-ai-preview/*.exe
+          path: |
+            desktop/dist/local-ai-preview/*.exe
+            desktop/dist/local-ai-preview/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7

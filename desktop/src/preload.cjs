@@ -1,7 +1,9 @@
 'use strict'
 const { contextBridge, ipcRenderer } = require('electron')
 // Sandboxed preload: no Node APIs exposed, no generic send/invoke/listener API.
-if (process.isMainFrame && location.origin === 'https://quizfromnotes.com') {
+const trustedRenderer = location.origin === 'https://quizfromnotes.com' ||
+  (location.protocol === 'qfn:' && location.hostname === 'app' && !location.port)
+if (process.isMainFrame && trustedRenderer) {
   contextBridge.exposeInMainWorld('quizFromNotesDesktop', Object.freeze({
     version: 1,
     status: () => ipcRenderer.invoke('qfn:status'),
@@ -17,7 +19,9 @@ if (process.isMainFrame && location.origin === 'https://quizfromnotes.com') {
     cancelLocalAiModelDownload: () => ipcRenderer.invoke('qfn:cancelLocalAiModelDownload'),
     removeLocalAiModel: () => ipcRenderer.invoke('qfn:removeLocalAiModel'),
     localAiQuizStatus: () => ipcRenderer.invoke('qfn:localAiQuizStatus'),
+    processLocalPdf: value => ipcRenderer.invoke('qfn:processLocalPdf', value),
     generateLocalAiQuiz: value => ipcRenderer.invoke('qfn:generateLocalAiQuiz', value),
+    generateLocalDocumentQuiz: value => ipcRenderer.invoke('qfn:generateLocalDocumentQuiz', value),
     cancelLocalAiQuiz: () => ipcRenderer.invoke('qfn:cancelLocalAiQuiz'),
     openAccountWebsite: () => ipcRenderer.invoke('qfn:openAccountWebsite'),
   }))

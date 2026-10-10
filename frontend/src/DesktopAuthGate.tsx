@@ -44,19 +44,58 @@ export default function DesktopAuthGate() {
     await bridge.signOut()
   }
   if (loading) return <p role="status">Checking desktop account…</p>
-  if (!account) return <main className="auth-page"><section className="auth-card">
-    <h1>Quiz From Notes</h1>
-    <h2>Sign in to the desktop app</h2>
-    <p>Your browser will open for secure sign-in. Return here to use your saved decks and study progress.</p>
-    {error && <p role="alert">{error}</p>}
-    <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
-      const revision = ++authRevision.current
-      const next = await bridge.signIn()
-      if (revision === authRevision.current) setAccount(next)
-    })}>{busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'}</button>
-    {busy && <button onClick={() => void bridge.signOut().catch(() => {})}>Cancel sign-in</button>}
-    <p>New account or first-time setup?</p>
-    <button disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>Open account setup in browser</button>
+  if (!account) return <main className="auth-page auth-page-welcome auth-page-desktop-welcome"><section className="auth-login-shell">
+    <div className="auth-hero-panel">
+      <div className="auth-wordmark"><span className="auth-wordmark-mark" aria-hidden="true">QF</span>Quiz From Notes</div>
+      <svg className="auth-flow-visual" viewBox="0 0 132 64" aria-hidden="true" focusable="false">
+        <rect x="3" y="5" width="43" height="52" rx="7" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.55)" />
+        <path d="M12 17h24M12 23h19M12 29h21" stroke="rgba(255,255,255,.82)" strokeWidth="2" strokeLinecap="round" />
+        <text x="12" y="47" fill="rgba(255,255,255,.82)" fontSize="7" fontWeight="700" letterSpacing=".5">NOTES</text>
+        <path d="M51 31h17m-5-5 5 5-5 5" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <rect x="78" y="5" width="47" height="52" rx="7" fill="rgba(255,255,255,.2)" stroke="rgba(255,255,255,.65)" />
+        <rect x="86" y="16" width="7" height="7" rx="2" fill="rgba(255,255,255,.9)" />
+        <path d="m88 19 1.5 1.5L92 18" fill="none" stroke="#6257e7" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M98 19h18M86 29h7m5 0h18M86 36h7m5 0h18" stroke="rgba(255,255,255,.82)" strokeWidth="2" strokeLinecap="round" />
+        <text x="86" y="49" fill="rgba(255,255,255,.9)" fontSize="7" fontWeight="700" letterSpacing=".5">QUIZ</text>
+      </svg>
+      <div className="auth-hero-copy">
+        <span className="auth-eyebrow">QUIZZES FROM YOUR NOTES</span>
+        <h1>Turn your notes into practice quizzes.</h1>
+        <p>Build decks from class materials, track your progress, and pick up where you left off.</p>
+      </div>
+      <ul className="auth-benefit-list">
+        <li><span aria-hidden="true">✓</span> Build quizzes from your notes</li>
+        <li><span aria-hidden="true">✓</span> Keep decks and progress together</li>
+      </ul>
+    </div>
+    <div className="auth-login-panel"><div className="auth-login-panel-inner">
+      <span className="auth-login-kicker">YOUR ACCOUNT</span>
+      <h2>Sign in to continue</h2>
+      <p className="auth-login-copy">Sign in securely in your browser, then come back here.</p>
+      {error && <p className="auth-error auth-login-error" role="alert">{error}</p>}
+      <div className="auth-entry-actions">
+        <button aria-label={busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'} className="auth-entry-action auth-entry-action-primary" disabled={busy} onClick={() => void run(async () => {
+          const revision = ++authRevision.current
+          const next = await bridge.signIn()
+          if (revision === authRevision.current) setAccount(next)
+        })}>
+          <span className="auth-entry-action-copy">
+            <strong>{busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'}</strong>
+            <small>Securely connect your account</small>
+          </span>
+          {!busy && <span className="auth-cta-arrow" aria-hidden="true">→</span>}
+        </button>
+        <button aria-label="Open account setup in browser" className="auth-entry-action auth-entry-action-secondary" disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>
+          <span className="auth-entry-action-copy">
+            <strong>Create or set up an account</strong>
+            <small>Opens in your browser to finish account setup</small>
+          </span>
+          <span className="auth-cta-arrow" aria-hidden="true">↗</span>
+        </button>
+      </div>
+      {busy && <div className="auth-login-signout"><button className="sign-out-button" onClick={() => void bridge.signOut().catch(() => {})}>Cancel sign-in</button></div>}
+      <div className="auth-security-note"><span className="auth-security-dot" aria-hidden="true" />Your saved decks and study progress stay with your account.</div>
+    </div></div>
   </section></main>
   if (!account.enrolled) return <main className="auth-page"><section className="auth-card">
     <h1>Finish account setup</h1><p>Signed in as {account.email}. Complete account setup in your browser, then sign in here again.</p>
