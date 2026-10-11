@@ -41,8 +41,8 @@ sudo() {
         # Inspection may accept an already active release; a real promotion still cannot.
         result = subprocess.run(
             ["bash", "-s", "--", "0" * 40, "/unused"],
-            input="test() { return 0; }\\nsystemctl() { return 0; }\\n"
-                  "readlink() { printf '/opt/quizforge/releases/%040d\\\\n' 0; }\\n"
+            input="test() { return 0; }\nsystemctl() { return 0; }\n"
+                  "readlink() { printf '/opt/quizforge/releases/%040d\\n' 0; }\n"
                   + promote_release.REMOTE_PROMOTE,
             text=True, capture_output=True, timeout=5,
         )
