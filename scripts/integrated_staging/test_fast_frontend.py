@@ -58,9 +58,11 @@ class FastFrontendChecks(unittest.TestCase):
             current = os.getcwd()
             try:
                 os.chdir(path)
-                with patch("fast_frontend.live", return_value=(self.values(now), original)), (
-                    patch("fast_frontend.control.client") as aws
-                ), self.assertRaises(ValueError):
+                with (
+                    patch("fast_frontend.live", return_value=(self.values(now), original)),
+                    patch("fast_frontend.control.client") as aws,
+                    self.assertRaises(ValueError),
+                ):
                     publish()
                 aws.assert_not_called()
             finally:
