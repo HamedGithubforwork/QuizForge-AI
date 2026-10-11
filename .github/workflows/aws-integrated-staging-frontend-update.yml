@@ -20,7 +20,7 @@ permissions:
 
 # Serialize with full provision/stop/scheduled cleanup. Never extend the lease.
 concurrency:
-  group: quizforge-integrated-staging
+  group: ${{ github.event_name == 'workflow_dispatch' && 'quizforge-integrated-staging' || format('quizforge-fast-refresh-pr-{0}', github.event.pull_request.number) }}
   cancel-in-progress: false
 
 env:
