@@ -27,6 +27,37 @@ def options(env):
                 autocommit=True, row_factory=dict_row)
 
 
+def verify_application_schema(conn):
+    required = {
+        "quiz_history",
+        "user_identities",
+        "decks",
+        "cards",
+        "card_review_logs",
+        "study_notification_preferences",
+        "study_push_subscriptions",
+        "study_notification_deliveries",
+    }
+    rows = conn.execute("""
+        SELECT c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner) AS owner
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'app' AND c.relkind = 'r'
+    """).fetchall()
+    tables = {row["relname"]: row for row in rows}
+    assert required <= tables.keys(), "Staging schema is missing required application tables"
+    assert all(tables[name]["relrowsecurity"] for name in required), "RLS is disabled on an application table"
+    assert all(tables[name]["owner"] != "quizforge_app" for name in required), "Application role owns an application table"
+
+
+def staging_application_schema():
+    schema = Path("application_schema.sql").read_text()
+    # The canonical bootstrap names its production database in CONNECT grants.
+    # Rewrite only those database identifiers for this disposable database.
+    assert schema.count("DATABASE quizforge ") == 3, "Unexpected canonical schema database references"
+    return schema.replace("DATABASE quizforge ", "DATABASE quizforge_rehearsal ")
+
+
 def main(phase):
     assert phase in ("seed", "verify")
     sm = boto3.client("secretsmanager", region_name="ca-central-1")
@@ -51,8 +82,8 @@ def main(phase):
             else:
                 raise AssertionError("Database accepted non-TLS access")
             with conn.transaction():
-                conn.execute(Path("schema.sql").read_text())
-                conn.execute(Path("identity_schema.sql").read_text())
+                conn.execute(staging_application_schema())
+                verify_application_schema(conn)
                 issuer = "https://cognito-idp.ca-central-1.amazonaws.com/" + bundle["pool"]
                 for number in (1, 2, 3):
                     user = UUID(int=number)
