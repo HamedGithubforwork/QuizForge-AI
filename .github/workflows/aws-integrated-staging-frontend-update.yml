@@ -1,0 +1,192 @@
+name: AWS staging fast frontend update
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/aws-integrated-staging-frontend-update.yml"
+      - "scripts/integrated_staging/fast_frontend.py"
+      - "scripts/integrated_staging/test_fast_frontend.py"
+      - "scripts/integrated_staging/build.py"
+  workflow_dispatch:
+    inputs:
+      frontend_pr:
+        description: "Same-repository frontend PR with green exact-commit checks"
+        type: string
+        required: true
+        default: "538"
+
+permissions:
+  contents: read
+
+# Serialize with full provision/stop/scheduled cleanup. Never extend the lease.
+concurrency:
+  group: quizforge-integrated-staging
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_foundation_state_bucket: ${{ vars.TF_STATE_BUCKET }}
+  TF_VAR_hostname: ${{ vars.AWS_STAGING_API_HOSTNAME }}
+  TF_VAR_certificate_arn: ${{ vars.AWS_STAGING_CERTIFICATE_ARN }}
+  TF_VAR_zone_id: ${{ vars.AWS_STAGING_ZONE_ID }}
+
+jobs:
+  test:
+    name: Fast refresh safety tests (no cloud credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked staging test dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Exercise lease, artifact, ownership and fail-closed checks
+        run: |
+          python -m unittest discover -s scripts/integrated_staging -p 'test_fast_frontend.py' -v
+          python -m compileall -q scripts/integrated_staging/fast_frontend.py
+
+  resolve:
+    name: Verify exact frontend PR commit
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    outputs:
+      frontend_sha: ${{ steps.review.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require existing reviewed frontend checks
+        id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_FRONTEND_PR: ${{ inputs.frontend_pr }}
+        run: |
+          python - <<'PY'
+          import os
+          from scripts.aws_staging_preview import FRONTEND_REQUIRED, checked_pr
+          sha = checked_pr(os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"sha={sha}\n")
+          print("PASS: exact same-repository frontend PR and required checks verified")
+          PY
+
+  config:
+    name: Export active staging configuration only
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Read only isolated staging state
+        run: |
+          terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Require a healthy disposable staging lease
+        run: python scripts/integrated_staging/fast_frontend.py export
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fast-update-public-config
+          path: integration-config.json
+          retention-days: 1
+
+  build:
+    name: Build frontend with no AWS credentials
+    needs: [resolve, config]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.frontend_sha }}
+          path: preview-source
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: fast-update-public-config
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install locked trusted dependencies
+        run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - name: Build reviewed frontend using only public staging settings
+        run: python scripts/integrated_staging/build.py preview-source/frontend
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fast-update-built-site
+          path: |
+            hosting-dist/
+            hosting-manifest.json
+            integration-config.json
+          retention-days: 1
+
+  publish:
+    name: Publish only verified staging frontend files
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: fast-update-built-site
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Reopen only isolated staging state
+        run: |
+          terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Recheck lease and update existing S3 frontend
+        run: python scripts/integrated_staging/fast_frontend.py publish
