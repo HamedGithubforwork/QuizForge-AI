@@ -16,6 +16,7 @@ from generation_guard import BUDGET_KEY, CALLS_KEY, MAX_CALLS
 from psycopg import sql
 from psycopg.rows import dict_row
 from probe_fixtures import fixtures, fingerprint, insert
+from application_schema import staging_application_schema
 
 
 def options(env):
@@ -25,6 +26,29 @@ def options(env):
     return dict(host=host, dbname=env["PGDATABASE"], user=env["PGUSER"], password=env["PGPASSWORD"],
                 sslmode="verify-full", sslrootcert=env["PGSSLROOTCERT"], connect_timeout=15,
                 autocommit=True, row_factory=dict_row)
+
+
+def verify_application_schema(conn):
+    required = {
+        "quiz_history",
+        "user_identities",
+        "decks",
+        "cards",
+        "card_review_logs",
+        "study_notification_preferences",
+        "study_push_subscriptions",
+        "study_notification_deliveries",
+    }
+    rows = conn.execute("""
+        SELECT c.relname, c.relrowsecurity, pg_get_userbyid(c.relowner) AS owner
+        FROM pg_class AS c
+        JOIN pg_namespace AS n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'app' AND c.relkind = 'r'
+    """).fetchall()
+    tables = {row["relname"]: row for row in rows}
+    assert required <= tables.keys(), "Staging schema is missing required application tables"
+    assert all(tables[name]["relrowsecurity"] for name in required), "RLS is disabled on an application table"
+    assert all(tables[name]["owner"] != "quizforge_app" for name in required), "Application role owns an application table"
 
 
 def main(phase):
@@ -51,8 +75,8 @@ def main(phase):
             else:
                 raise AssertionError("Database accepted non-TLS access")
             with conn.transaction():
-                conn.execute(Path("schema.sql").read_text())
-                conn.execute(Path("identity_schema.sql").read_text())
+                conn.execute(staging_application_schema())
+                verify_application_schema(conn)
                 issuer = "https://cognito-idp.ca-central-1.amazonaws.com/" + bundle["pool"]
                 for number in (1, 2, 3):
                     user = UUID(int=number)
