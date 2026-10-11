@@ -7,7 +7,7 @@ export function providerFrom(value: string | undefined) {
 export type AccountSetupMode = 'enroll' | 'link' | 'link-cognito'
 
 /** Pick an available account-setup flow; disposable staging has no production history to link. */
-export function initialAccountSetupMode(environment: 'staging' | 'production', googleEnabled: boolean,
+export function initialAccountSetupMode(environment: string, googleEnabled: boolean,
   legacyLinkingAvailable: boolean): AccountSetupMode {
   if (environment === 'staging' && !legacyLinkingAvailable) return 'enroll'
   if (googleEnabled) return 'link-cognito'
