@@ -8,7 +8,7 @@ import './AuthGate.css'
 import { config, identityRequest, initialize, manager, session, signIn, signInWithGoogle, signOut, signUp } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
-import { secureEndpoint } from './lib/authConfig'
+import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 
 const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
@@ -19,8 +19,7 @@ export default function CognitoAuthGate() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'enroll' | 'link' | 'link-cognito'>(
-    config.environment === 'staging' && !linkingAvailable ? 'enroll'
-      : config.googleSignInEnabled ? 'link-cognito' : linkingAvailable ? 'link' : 'enroll'
+    initialAccountSetupMode(config.environment, config.googleSignInEnabled, linkingAvailable)
   )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
