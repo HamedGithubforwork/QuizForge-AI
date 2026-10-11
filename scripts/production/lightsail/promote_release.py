@@ -61,6 +61,8 @@ fi
 REMOTE_PROMOTE = r"""set -euo pipefail
 release_sha="$1"
 archive="$2"
+inspect_only="${3:-false}"
+case "$inspect_only" in true|false) ;; *) exit 39 ;; esac
 
 # Report only numeric source location/status, never commands or their output.
 report_failure() {
@@ -87,7 +89,9 @@ case "$old_sha" in
 esac
 [ "$(printf %s "$old_sha" | wc -c)" -eq 40 ] || exit 34
 printf 'QF_CURRENT=%s\n' "$old_sha"
-[ "$old_sha" != "$release_sha" ] || exit 35
+if [ "$inspect_only" != true ]; then
+  [ "$old_sha" != "$release_sha" ] || exit 35
+fi
 
 final="/opt/quizforge/releases/$release_sha"
 frontends="/opt/quizforge/frontends"
@@ -96,8 +100,10 @@ old_frontend="$frontends/$old_sha"
 stage="/opt/quizforge/releases/.promoting-$release_sha"
 frontend_stage="$frontends/.promoting-$release_sha"
 
-[ ! -e "$final" ] || exit 36
-[ ! -e "$new_frontend" ] || exit 37
+if [ "$inspect_only" != true ]; then
+  [ ! -e "$final" ] || exit 36
+  [ ! -e "$new_frontend" ] || exit 37
+fi
 
 """ + FRONTEND_PREFLIGHT + r"""
 # New application code is not allowed to start against an old database.
@@ -607,7 +613,7 @@ def main() -> int:
         if inspection == "true":
             completed = subprocess.run(
                 ssh_command(key, cert, known, username, ip,
-                            "sudo", "-n", "bash", "-s", "--", release_sha, "unused"),
+                            "sudo", "-n", "bash", "-s", "--", release_sha, "unused", "true"),
                 input=REMOTE_INSPECT, text=True, capture_output=True,
                 timeout=120, check=True,
             )
