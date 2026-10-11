@@ -208,6 +208,67 @@ test('Google login links an existing Cognito account only after password and MFA
   expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
 })
 
+test('Google account linking resolves a Cognito MFA factor-choice challenge before code verification', async ({ page }) => {
+  const state = await setup(page, { googleExistingLink: true })
+  let choices = 0
+  let codes = 0
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST, OPTIONS' }
+  await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const target = route.request().headers()['x-amz-target']
+    const body = route.request().postDataJSON()
+    if (target === 'AWSCognitoIdentityProviderService.InitiateAuth') {
+      expect(body.AuthFlow).toBe('USER_PASSWORD_AUTH')
+      return route.fulfill({ json: { ChallengeName: 'SELECT_MFA_TYPE', Session: 'choice-session',
+        ChallengeParameters: { USERNAME: 'existing@example.invalid',
+          MFAS_CAN_CHOOSE: '["SMS_MFA","SOFTWARE_TOKEN_MFA"]' } }, headers: cors })
+    }
+    if (target === 'AWSCognitoIdentityProviderService.RespondToAuthChallenge') {
+      if (body.ChallengeName === 'SELECT_MFA_TYPE') {
+        choices++
+        expect(body.Session).toBe('choice-session')
+        expect(body.ChallengeResponses).toEqual({ USERNAME: 'existing@example.invalid', ANSWER: 'SOFTWARE_TOKEN_MFA' })
+        return route.fulfill({ json: { ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 'code-session',
+          ChallengeParameters: { USERNAME: 'existing@example.invalid' } }, headers: cors })
+      }
+      if (body.ChallengeName === 'SOFTWARE_TOKEN_MFA') {
+        codes++
+        expect(body.Session).toBe('code-session')
+        expect(body.ChallengeResponses).toEqual({ USERNAME: 'existing@example.invalid',
+          SOFTWARE_TOKEN_MFA_CODE: '123456' })
+        return route.fulfill({ json: { AuthenticationResult: { AccessToken: 'synthetic-cognito-local' } }, headers: cors })
+      }
+    }
+    throw new Error('Unexpected direct Cognito authentication challenge')
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue with Google' }).click()
+  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
+  await page.getByLabel('Account setup', { exact: true }).selectOption('link-cognito')
+  await page.getByLabel('Existing Quiz From Notes email').fill('existing@example.invalid')
+  await page.getByLabel('Existing Quiz From Notes password').fill('synthetic-test-password')
+  await page.getByRole('button', { name: 'Continue account setup' }).click()
+  await expect(page.getByLabel('Existing-account verification method')).toBeVisible()
+  expect(state.counts().challengeCount).toBe(0)
+  await page.getByLabel('Existing-account verification method').selectOption('SOFTWARE_TOKEN_MFA')
+  await page.getByRole('button', { name: 'Continue to verification' }).click()
+  expect(choices).toBe(1)
+  await expect(page.getByLabel('Existing-account verification code')).toBeVisible()
+  expect(state.counts().challengeCount).toBe(0)
+  await page.getByLabel('Existing-account verification code').fill('123456')
+  await page.getByRole('button', { name: 'Verify existing account' }).click()
+  await expect(page.getByText('Link this Cognito account', { exact: false })).toBeVisible()
+  expect(codes).toBe(1)
+  expect(state.counts().challengeCount).toBe(1)
+  await page.getByRole('button', { name: 'Confirm account setup' }).click()
+  await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
+  expect(state.counts().confirmationCount).toBe(1)
+  const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(JSON.stringify(storage)).not.toContain('synthetic-cognito-local')
+  expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
+})
+
 test('create account starts at the dedicated Cognito signup endpoint with PKCE', async ({ page }) => {
   const state = await setup(page)
   await createAccount(page)
