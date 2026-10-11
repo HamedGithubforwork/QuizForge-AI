@@ -16,6 +16,7 @@ from generation_guard import BUDGET_KEY, CALLS_KEY, MAX_CALLS
 from psycopg import sql
 from psycopg.rows import dict_row
 from probe_fixtures import fixtures, fingerprint, insert
+from application_schema import staging_application_schema
 
 
 def options(env):
@@ -48,14 +49,6 @@ def verify_application_schema(conn):
     assert required <= tables.keys(), "Staging schema is missing required application tables"
     assert all(tables[name]["relrowsecurity"] for name in required), "RLS is disabled on an application table"
     assert all(tables[name]["owner"] != "quizforge_app" for name in required), "Application role owns an application table"
-
-
-def staging_application_schema():
-    schema = Path("application_schema.sql").read_text()
-    # The canonical bootstrap names its production database in CONNECT grants.
-    # Rewrite only those database identifiers for this disposable database.
-    assert schema.count("DATABASE quizforge ") == 3, "Unexpected canonical schema database references"
-    return schema.replace("DATABASE quizforge ", "DATABASE quizforge_rehearsal ")
 
 
 def main(phase):
