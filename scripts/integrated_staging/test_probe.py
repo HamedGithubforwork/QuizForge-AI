@@ -38,7 +38,7 @@ class CognitoRateIdentity(unittest.TestCase):
         self.cache.set(document + ":source-pages", json.dumps({"page_numbers": [1]}), ex=86400)
         self.cache.set("quizforge:quiz-cache:synthetic", json.dumps({
             "questions": [{"question_type": "multiple_choice", "source_pages": [1]} for _ in range(5)]
-        }), ex=3600)
+        }), ex=86400)
         metrics = {"quiz_cache_hits_total": 1, "quiz_cache_misses_total": 9,
                    "quiz_requests_total": 10, "document_cache_hits_total": 2,
                    "document_cache_misses_total": 1}
@@ -57,6 +57,16 @@ class CognitoRateIdentity(unittest.TestCase):
 
     def test_cognito_rate_key_passes_complete_cache_verification(self):
         verify_cache(self.cache, self.bundle)
+
+    def test_quiz_cache_without_expiry_is_rejected_with_observed_ttl(self):
+        self.cache.persist("quizforge:quiz-cache:synthetic")
+        with self.assertRaisesRegex(AssertionError, "observed_seconds=-1"):
+            verify_cache(self.cache, self.bundle)
+
+    def test_quiz_cache_over_24_hours_is_rejected(self):
+        self.cache.expire("quizforge:quiz-cache:synthetic", 172800)
+        with self.assertRaisesRegex(AssertionError, "maximum_seconds=86400"):
+            verify_cache(self.cache, self.bundle)
 
     def test_history_uuid_cannot_substitute_for_cognito_rate_key(self):
         self.cache.delete(self.rate)
