@@ -1,5 +1,6 @@
 """Real TLS PostgreSQL and FastAPI auth; only Supabase's HTTP response is mocked."""
 import asyncio
+from datetime import datetime
 import hashlib
 from contextlib import asynccontextmanager
 import os
@@ -13,6 +14,7 @@ import pytest
 
 import app_shared
 import history_database
+import study_analytics_postgres
 from history_postgres import PostgresHistoryRepository
 from quiz_history import router
 from decks import router as decks_router
@@ -1072,7 +1074,7 @@ def test_move_card_preserves_review_state_and_owner_boundary(api, owner):
 
     asyncio.run(scenario())
 
-def test_study_analytics_aggregate_owner_review_data(api, owner):
+def test_study_analytics_aggregate_owner_review_data(api, owner, monkeypatch):
     async def scenario():
         async with api() as (client, _):
             created = await client.post(
@@ -1154,6 +1156,24 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                 (suspended_card_id,),
             )
 
+            analytics_now = owner.execute(
+                "SELECT date_trunc('day', now() AT TIME ZONE 'UTC') "
+                "AT TIME ZONE 'UTC' + interval '12 hours'"
+            ).fetchone()[0]
+
+            class FixedAnalyticsClock:
+                @staticmethod
+                def now(tz=None):
+                    return analytics_now.astimezone(tz) if tz else analytics_now
+
+                combine = staticmethod(datetime.combine)
+
+            monkeypatch.setattr(
+                study_analytics_postgres,
+                "datetime",
+                FixedAnalyticsClock,
+            )
+
             review_rows = [
                 (
                     learning_card_id,
@@ -1186,9 +1206,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     difficult_card_id,
                     USERS[0],
                     4,
-                    owner.execute(
-                        "SELECT date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
-                    ).fetchone()[0],
+                    analytics_now,
                     60000,
                 ),
             ]
