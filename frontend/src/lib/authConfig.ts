@@ -4,6 +4,16 @@ export function providerFrom(value: string | undefined) {
   return provider
 }
 
+export type AccountSetupMode = 'enroll' | 'link' | 'link-cognito'
+
+/** Pick an available account-setup flow; disposable staging has no production history to link. */
+export function initialAccountSetupMode(environment: 'staging' | 'production', googleEnabled: boolean,
+  legacyLinkingAvailable: boolean): AccountSetupMode {
+  if (environment === 'staging' && !legacyLinkingAvailable) return 'enroll'
+  if (googleEnabled) return 'link-cognito'
+  return legacyLinkingAvailable ? 'link' : 'enroll'
+}
+
 export function secureEndpoint(value: string) {
   const url = new URL(value)
   if (url.username || url.password || url.search || url.hash ||
