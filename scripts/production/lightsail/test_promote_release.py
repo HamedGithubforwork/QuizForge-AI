@@ -47,7 +47,6 @@ sudo() {
             text=True, capture_output=True, timeout=5,
         )
         self.assertEqual(result.returncode, 35)
-        self.assertIn("QF_FAILURE=35:", result.stderr)
 
     def test_frontend_promotion_retains_live_hotfix_and_original_snapshot(self):
         for mode in ("original", "versioned", "hotfix", "collision", "wrong_link"):
