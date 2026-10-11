@@ -9,7 +9,7 @@ import { config, identityRequest, initialize, manager, session, signIn, signInWi
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { secureEndpoint } from './lib/authConfig'
-import { beginCognitoAccountProof, finishCognitoAccountProof, type CognitoAccountProof } from './lib/cognitoAccountProof'
+import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 
 export default function CognitoAuthGate() {
   const [account, setAccount] = useState<{ email: string; enrolled: boolean } | null>(null)
@@ -32,6 +32,8 @@ export default function CognitoAuthGate() {
   const [totpCode, setTotpCode] = useState('')
   const [legacy, setLegacy] = useState<{ client: SupabaseClient; factor: string } | null>(null)
   const [cognitoProof, setCognitoProof] = useState<Extract<CognitoAccountProof, { kind: 'mfa' }> | null>(null)
+  const [cognitoChoice, setCognitoChoice] = useState<Extract<CognitoAccountProof, { kind: 'select-mfa' }> | null>(null)
+  const [selectedMfa, setSelectedMfa] = useState<CognitoMfaMethod>('SOFTWARE_TOKEN_MFA')
   const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string; cognitoToken?: string } | null>(null)
   const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 
@@ -52,6 +54,7 @@ export default function CognitoAuthGate() {
       setConfirmation(null)
       setLegacy(null)
       setCognitoProof(null)
+      setCognitoChoice(null)
       setActivationMode(false)
       setActivationSetup(null)
       setActivationComplete(false)
@@ -116,6 +119,10 @@ export default function CognitoAuthGate() {
         let proof: CognitoAccountProof
         try { proof = await beginCognitoAccountProof(config.client, email, password) }
         finally { setPassword('') }
+        if (proof.kind === 'select-mfa') {
+          setSelectedMfa(proof.methods.includes('SOFTWARE_TOKEN_MFA') ? 'SOFTWARE_TOKEN_MFA' : proof.methods[0])
+          setCognitoChoice(proof); setCode(''); return
+        }
         if (proof.kind === 'mfa') { setCognitoProof(proof); setCode(''); return }
         await requestConfirmation(undefined, proof.accessToken)
         return
@@ -145,6 +152,17 @@ export default function CognitoAuthGate() {
       if (result.error) throw new Error('Authenticator verification failed.')
       setLegacy(null)
       await requestConfirmation(result.data.access_token)
+    })
+  }
+
+  async function selectCognitoMfa(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      if (!cognitoChoice) return
+      const next = await chooseCognitoAccountMfa(config.client, cognitoChoice, selectedMfa)
+      setCognitoChoice(null)
+      setCognitoProof(next)
+      setCode('')
     })
   }
 
@@ -608,7 +626,20 @@ export default function CognitoAuthGate() {
         setConfirmation(null); await load()
       })}>Confirm account setup</button>
       <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
-    </> : cognitoProof ? <form className="auth-form" aria-busy={busy} onSubmit={verifyCognitoAccount}>
+    </> : cognitoChoice ? <form className="auth-form" aria-busy={busy} onSubmit={selectCognitoMfa}>
+      <p>Choose how to verify your existing account. Your Google session stays active.</p>
+      <label>Existing-account verification method
+        <select value={selectedMfa} disabled={busy} onChange={e => setSelectedMfa(e.target.value as CognitoMfaMethod)}>
+          {cognitoChoice.methods.map(method => (
+            <option key={method} value={method}>
+              {method === 'SOFTWARE_TOKEN_MFA' ? 'Authenticator app' : 'Text message'}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="auth-submit" disabled={busy}>Continue to verification</button>
+      <button type="button" disabled={busy} onClick={() => { setCognitoChoice(null); setCode('') }}>Cancel</button>
+    </form> : cognitoProof ? <form className="auth-form" aria-busy={busy} onSubmit={verifyCognitoAccount}>
       <p>Confirm ownership of your existing Quiz From Notes account. This does not change your Google session.</p>
       <label>Existing-account verification code<input autoComplete="one-time-code" inputMode="numeric" required
         pattern="[0-9]{6,8}" value={code} disabled={busy} onChange={e => setCode(e.target.value)} /></label>
@@ -622,7 +653,7 @@ export default function CognitoAuthGate() {
       <label htmlFor="account-setup">Account setup</label>
       <select id="account-setup" value={mode} disabled={busy} onChange={e => {
         setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
-        setPassword(''); setCognitoProof(null); setCode(''); setError('')
+        setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
       }}>
         <option value="link">Link my old account (before Cognito migration)</option>
         {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}

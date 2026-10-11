@@ -1,8 +1,10 @@
 /** A short-lived, non-persistent proof of an existing Cognito password account.
  * The active Google/OIDC session is not replaced by this direct Cognito flow.
  */
+export type CognitoMfaMethod = 'SOFTWARE_TOKEN_MFA' | 'SMS_MFA'
 export type CognitoAccountProof =
   | { kind: 'ready'; accessToken: string }
+  | { kind: 'select-mfa'; methods: CognitoMfaMethod[]; session: string; username: string }
   | { kind: 'mfa'; challenge: 'SOFTWARE_TOKEN_MFA' | 'SMS_MFA' | 'EMAIL_OTP'; session: string; username: string }
 
 const endpoint = 'https://cognito-idp.ca-central-1.amazonaws.com/'
@@ -38,16 +40,30 @@ function parseProof(response: CognitoReply, username: string): CognitoAccountPro
   if (challenge === 'MFA_SETUP') {
     throw new Error('Finish your existing account’s first-time security setup, then return to link Google.')
   }
-  if (challenge === 'SOFTWARE_TOKEN_MFA' || challenge === 'SMS_MFA' || challenge === 'EMAIL_OTP') {
+  if (challenge === 'SELECT_MFA_TYPE' || challenge === 'SOFTWARE_TOKEN_MFA' ||
+      challenge === 'SMS_MFA' || challenge === 'EMAIL_OTP') {
     const session = response.Session
     const params = response.ChallengeParameters
-    const cognitoUsername = params && typeof params === 'object' && !Array.isArray(params)
-      ? (params as Record<string, unknown>).USERNAME : undefined
+    const fields = params && typeof params === 'object' && !Array.isArray(params)
+      ? params as Record<string, unknown> : {}
     if (typeof session !== 'string' || !session || session.length > 8192) {
       throw new Error('Cognito did not return a valid verification challenge.')
     }
-    return { kind: 'mfa', challenge, session,
-      username: typeof cognitoUsername === 'string' && cognitoUsername ? cognitoUsername : username }
+    const usernameFromChallenge = fields.USERNAME
+    const canonicalUsername = typeof usernameFromChallenge === 'string' && usernameFromChallenge
+      ? usernameFromChallenge : username
+    if (challenge === 'SELECT_MFA_TYPE') {
+      let offered: unknown
+      try {
+        offered = typeof fields.MFAS_CAN_CHOOSE === 'string' ? JSON.parse(fields.MFAS_CAN_CHOOSE) : null
+      } catch { throw new Error('Cognito returned an invalid MFA selection.') }
+      // Only present factors supported by the linking proof UI; never silently skip MFA.
+      const methods = (Array.isArray(offered) ? offered : [])
+        .filter((method): method is CognitoMfaMethod => method === 'SOFTWARE_TOKEN_MFA' || method === 'SMS_MFA')
+      if (!methods.length) throw new Error('No supported existing-account MFA method is available for linking.')
+      return { kind: 'select-mfa', methods, session, username: canonicalUsername }
+    }
+    return { kind: 'mfa', challenge, session, username: canonicalUsername }
   }
   throw new Error('This existing-account sign-in challenge is not supported for linking.')
 }
@@ -75,5 +91,21 @@ export async function finishCognitoAccountProof(clientId: string, proof: Extract
   })
   const result = parseProof(response, proof.username)
   if (result.kind !== 'ready') throw new Error('Existing-account verification did not complete.')
+  return result
+}
+
+/** Resolve Cognito's factor-choice challenge before asking the user for an MFA code. */
+export async function chooseCognitoAccountMfa(clientId: string,
+  proof: Extract<CognitoAccountProof, { kind: 'select-mfa' }>,
+  method: CognitoMfaMethod): Promise<Extract<CognitoAccountProof, { kind: 'mfa' }>> {
+  if (!proof.methods.includes(method)) throw new Error('Choose an available verification method.')
+  const response = await cognitoRequest('RespondToAuthChallenge', {
+    ClientId: clientId, ChallengeName: 'SELECT_MFA_TYPE', Session: proof.session,
+    ChallengeResponses: { USERNAME: proof.username, ANSWER: method },
+  })
+  const result = parseProof(response, proof.username)
+  if (result.kind !== 'mfa' || result.challenge !== method) {
+    throw new Error('Existing-account MFA selection did not produce the requested verification challenge.')
+  }
   return result
 }

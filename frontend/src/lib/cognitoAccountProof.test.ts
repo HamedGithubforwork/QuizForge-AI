@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { beginCognitoAccountProof, finishCognitoAccountProof } from './cognitoAccountProof.ts'
+import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof } from './cognitoAccountProof.ts'
 
 function withCognitoFetch(responses: Array<Record<string, unknown> | { error: number }>,
                           run: (requests: Array<{ operation: string; body: Record<string, unknown> }>) => Promise<void>) {
@@ -95,3 +95,62 @@ test('missing existing-account credentials never trigger a Cognito network reque
     globalThis.fetch = original
   }
 })
+
+test('Cognito MFA method selection requires a separate challenge and valid code', withCognitoFetch([
+  { ChallengeName: 'SELECT_MFA_TYPE', Session: 'selection-session',
+    ChallengeParameters: { USERNAME: 'canonical-user', MFAS_CAN_CHOOSE: '["SMS_MFA","SOFTWARE_TOKEN_MFA"]' } },
+  { ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 'code-session',
+    ChallengeParameters: { USERNAME: 'canonical-user' } },
+  { AuthenticationResult: { AccessToken: 'signed-local-access-token' } },
+], async (requests) => {
+  const choice = await beginCognitoAccountProof('client', 'test@example.com', 'pass')
+  assert.equal(choice.kind, 'select-mfa')
+  if (choice.kind !== 'select-mfa') return
+  assert.deepEqual(choice.methods, ['SMS_MFA', 'SOFTWARE_TOKEN_MFA'])
+  const method = await chooseCognitoAccountMfa('client', choice, 'SOFTWARE_TOKEN_MFA')
+  assert.equal(method.kind, 'mfa')
+  assert.deepEqual(requests[1].body, { ClientId: 'client', ChallengeName: 'SELECT_MFA_TYPE',
+    Session: 'selection-session',
+    ChallengeResponses: { USERNAME: 'canonical-user', ANSWER: 'SOFTWARE_TOKEN_MFA' } })
+  assert.deepEqual(await finishCognitoAccountProof('client', method, '123456'),
+    { kind: 'ready', accessToken: 'signed-local-access-token' })
+  assert.deepEqual(requests[2].body, { ClientId: 'client', ChallengeName: 'SOFTWARE_TOKEN_MFA',
+    Session: 'code-session',
+    ChallengeResponses: { USERNAME: 'canonical-user', SOFTWARE_TOKEN_MFA_CODE: '123456' } })
+}))
+
+test('unoffered MFA methods are rejected without another request', withCognitoFetch([
+  { ChallengeName: 'SELECT_MFA_TYPE', Session: 'selection-session',
+    ChallengeParameters: { MFAS_CAN_CHOOSE: '["SMS_MFA"]' } },
+], async (requests) => {
+  const choice = await beginCognitoAccountProof('client', 'test@example.com', 'pass')
+  assert.equal(choice.kind, 'select-mfa')
+  if (choice.kind !== 'select-mfa') return
+  await assert.rejects(chooseCognitoAccountMfa('client', choice, 'SOFTWARE_TOKEN_MFA'), /available verification method/)
+  assert.equal(requests.length, 1)
+}))
+
+test('missing or unsupported Cognito factor lists fail closed', async () => {
+  for (const parameters of [{}, { MFAS_CAN_CHOOSE: 'not-json' },
+    { MFAS_CAN_CHOOSE: '["EMAIL_MFA"]' }, { MFAS_CAN_CHOOSE: '[]' }]) {
+    await withCognitoFetch([
+      { ChallengeName: 'SELECT_MFA_TYPE', Session: 'selection-session',
+        ChallengeParameters: parameters },
+    ], async () => {
+      await assert.rejects(beginCognitoAccountProof('client', 'test@example.com', 'pass'),
+        /MFA selection|supported existing-account MFA method/)
+    })()
+  }
+})
+
+test('Cognito MFA factor selection never accepts an authentication result without the chosen code', withCognitoFetch([
+  { ChallengeName: 'SELECT_MFA_TYPE', Session: 'selection-session',
+    ChallengeParameters: { MFAS_CAN_CHOOSE: '["SMS_MFA"]' } },
+  { AuthenticationResult: { AccessToken: 'unexpected' } },
+], async () => {
+  const choice = await beginCognitoAccountProof('client', 'test@example.com', 'pass')
+  assert.equal(choice.kind, 'select-mfa')
+  if (choice.kind === 'select-mfa') {
+    await assert.rejects(chooseCognitoAccountMfa('client', choice, 'SMS_MFA'), /did not produce/)
+  }
+}))
