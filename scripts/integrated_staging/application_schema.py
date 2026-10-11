@@ -8,5 +8,5 @@ def staging_application_schema(schema=None):
     # The canonical bootstrap names its production database in CONNECT grants.
     # Rewrite only those database identifiers for this disposable database.
     reference = "DATABASE quizforge "
-    assert schema.count(reference) == 3, "Unexpected canonical schema database references"
+    assert schema.count(reference) == 4, "Unexpected canonical schema database references"
     return schema.replace(reference, "DATABASE quizforge_rehearsal ")
