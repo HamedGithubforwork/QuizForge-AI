@@ -1187,7 +1187,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     USERS[0],
                     4,
                     owner.execute(
-                        "SELECT now()-interval '10 minutes'"
+                        "SELECT date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'"
                     ).fetchone()[0],
                     60000,
                 ),
