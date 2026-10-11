@@ -87,6 +87,11 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      valkey:
+        image: valkey/valkey:8.1.3
+        ports: ["6379:6379"]
+        options: --health-cmd "valkey-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
     permissions:
       contents: read
       checks: read
@@ -115,6 +120,10 @@ jobs:
           docker build --tag quizforge-integrated-api:tested backend-source/backend
           docker build --tag quizforge-integrated-probe:tested -f scripts/integrated_staging/probe.Dockerfile .
           docker build --tag quizforge-integrated-browser:tested -f scripts/integrated_staging/browser.Dockerfile .
+          docker run --rm --network host --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges \
+            --env INTEGRATED_TEST_REDIS_URL=redis://127.0.0.1:6379/15 \
+            --mount "type=bind,source=$PWD/scripts/integrated_staging/cache_contract.py,target=/contract/cache_contract.py,readonly" \
+            --entrypoint python quizforge-integrated-api:tested /contract/cache_contract.py
           docker save --output /tmp/integration-images.tar quizforge-integrated-api:tested quizforge-integrated-probe:tested
       - uses: actions/upload-artifact@v7
         if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
@@ -380,16 +389,17 @@ jobs:
           url = config["frontend_url"]
           auth = config["auth_origin"]
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write("## Google sign-in staging is ready\\n\\n")
-              summary.write(f"[Open Quiz From Notes staging]({url})\\n\\n")
-              summary.write(f"Google OAuth redirect URI: `{auth}/oauth2/idpresponse`\\n\\n")
-              summary.write("This temporary environment is removed by the hourly cleanup or a manual `stop` run.\\n")
+              summary.write("## Staging is ready for manual Google sign-in verification\n\n")
+              summary.write(f"[Open Quiz From Notes staging]({url})\n\n")
+              summary.write(f"Google OAuth redirect URI: `{auth}/oauth2/idpresponse`\n\n")
+              summary.write("Automated checks cover Cognito password/MFA and the quiz flow. Google OAuth and account linking still require the real-provider checklist.\n\n")
+              summary.write("This temporary environment is removed by the hourly cleanup or a manual `stop` run.\n")
           PY
 
   cleanup:
     name: Stop or recover integrated staging and independently verify absence
     needs: [validate, images, provision, frontend, live]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || needs.validate.result == 'failure' || needs.images.result == 'failure' || needs.provision.result == 'failure' || needs.frontend.result == 'failure' || needs.live.result == 'failure')))
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

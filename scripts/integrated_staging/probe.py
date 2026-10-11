@@ -17,6 +17,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 from probe_fixtures import fixtures, fingerprint, insert
 from application_schema import staging_application_schema
+from cache_contract import verify_quiz_ttl
 
 
 def options(env):
@@ -138,7 +139,7 @@ def verify_cache(cache, bundle):
     quiz = json.loads(cache.get(quizzes[0]))
     assert len(quiz["questions"]) == 5
     assert all(q["question_type"] == "multiple_choice" and q["source_pages"] == [1] for q in quiz["questions"])
-    assert 0 < cache.ttl(quizzes[0]) <= 3600
+    verify_quiz_ttl(cache, quizzes[0])
     print("PASS: private quiz cache contains five grounded multiple-choice questions with a valid TTL")
     # Generation uses app_shared.AuthenticatedUser.id; history separately maps
     # that Cognito identity to an internal database UUID.

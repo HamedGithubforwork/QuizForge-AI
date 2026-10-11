@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock -r redis.lo
 COPY scripts/production/schema.sql ./application_schema.sql
 COPY scripts/rds_rehearsal/rds-ca.pem ./
 COPY scripts/rds_rehearsal/probe.py ./probe_fixtures.py
-COPY scripts/integrated_staging/probe.py scripts/integrated_staging/generation_guard.py scripts/integrated_staging/application_schema.py ./
+COPY scripts/integrated_staging/probe.py scripts/integrated_staging/generation_guard.py scripts/integrated_staging/application_schema.py scripts/integrated_staging/cache_contract.py ./
 USER 10001:10001
 CMD ["python", "probe.py", "seed"]
