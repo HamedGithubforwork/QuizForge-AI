@@ -623,15 +623,17 @@ export default function CognitoAuthGate() {
       {logout}
     </div>
     <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
-    {confirmation ? <>
+    {confirmation ? <div className="auth-account-setup-confirmation">
       <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
         : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
-      <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
-        await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token, confirmation.cognitoToken)
-        setConfirmation(null); await load()
-      })}>Confirm account setup</button>
-      <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
-    </> : cognitoChoice ? <form className="auth-form" aria-busy={busy} onSubmit={selectCognitoMfa}>
+      <div className="auth-account-setup-actions">
+        <button type="button" className="auth-submit" disabled={busy} onClick={() => void run(async () => {
+          await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token, confirmation.cognitoToken)
+          setConfirmation(null); await load()
+        })}>Confirm account setup</button>
+        <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
+      </div>
+    </div> : cognitoChoice ? <form className="auth-form" aria-busy={busy} onSubmit={selectCognitoMfa}>
       <p>Choose how to verify your existing account. Your Google session stays active.</p>
       <label>Existing-account verification method
         <select value={selectedMfa} disabled={busy} onChange={e => setSelectedMfa(e.target.value as CognitoMfaMethod)}>
@@ -643,13 +645,13 @@ export default function CognitoAuthGate() {
         </select>
       </label>
       <button className="auth-submit" disabled={busy}>Continue to verification</button>
-      <button type="button" disabled={busy} onClick={() => { setCognitoChoice(null); setCode('') }}>Cancel</button>
+      <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => { setCognitoChoice(null); setCode('') }}>Cancel</button>
     </form> : cognitoProof ? <form className="auth-form" aria-busy={busy} onSubmit={verifyCognitoAccount}>
       <p>Confirm ownership of your existing Quiz From Notes account. This does not change your Google session.</p>
       <label>Existing-account verification code<input autoComplete="one-time-code" inputMode="numeric" required
         pattern="[0-9]{6,8}" value={code} disabled={busy} onChange={e => setCode(e.target.value)} /></label>
       <button className="auth-submit" disabled={busy}>Verify existing account</button>
-      <button type="button" disabled={busy} onClick={() => { setCognitoProof(null); setCode('') }}>Cancel</button>
+      <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => { setCognitoProof(null); setCode('') }}>Cancel</button>
     </form> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
       <label>Existing-account authenticator code<input autoComplete="one-time-code" inputMode="numeric" required
         pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
