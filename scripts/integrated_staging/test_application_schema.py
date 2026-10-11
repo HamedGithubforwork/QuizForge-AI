@@ -23,7 +23,7 @@ class ApplicationSchemaTests(unittest.TestCase):
         canonical = canonical_path.read_text()
         adapted = staging_application_schema(canonical)
 
-        self.assertEqual(adapted.count("DATABASE quizforge_rehearsal "), 3)
+        self.assertEqual(adapted.count("DATABASE quizforge_rehearsal "), 4)
         self.assertNotIn("DATABASE quizforge ", adapted)
         for table in REQUIRED_TABLES:
             self.assertIn(f"CREATE TABLE app.{table} (", adapted)
