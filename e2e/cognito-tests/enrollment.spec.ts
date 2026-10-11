@@ -186,7 +186,8 @@ test('Google login links an existing Cognito account only after password and MFA
   await page.getByRole('button', { name: 'Continue with Google' }).click()
   await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
   expect(state.counts().googleProvider).toBe(true)
-  await page.getByLabel('Account setup', { exact: true }).selectOption('link-cognito')
+  await expect(page.getByLabel('Account setup', { exact: true })).toHaveValue('link-cognito')
+  await expect(page.getByRole('button', { name: 'Continue account setup' })).toBeEnabled()
   await expect(page.getByRole('note')).toContainText('Google 2-Step Verification applies only if you enable it on your Google account')
   await expect(page.getByLabel('Existing Quiz From Notes email')).toHaveAttribute('placeholder', 'you@example.com')
   await page.getByLabel('Existing Quiz From Notes email').fill('existing@example.invalid')
@@ -280,6 +281,7 @@ test('create account starts at the dedicated Cognito signup endpoint with PKCE',
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
   const state = await setup(page)
   await login(page)
+  await page.getByLabel('Account setup', { exact: true }).selectOption('link')
   await page.getByLabel('Existing account email').fill('legacy@example.invalid')
   await page.getByLabel('Existing account password').fill('synthetic-test-password')
   await page.getByRole('button', { name: 'Continue account setup' }).click()
