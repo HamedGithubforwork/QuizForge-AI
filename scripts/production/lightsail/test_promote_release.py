@@ -23,7 +23,7 @@ sudo() {
 }
 """
         result = subprocess.run(
-            ["bash", "-s", "--", "a" * 40, "/unused"],
+            ["bash", "-s", "--", "0" * 40, "/unused", "true"],
             input=helpers + promote_release.REMOTE_INSPECT,
             text=True, capture_output=True, timeout=5,
         )
@@ -36,6 +36,17 @@ sudo() {
             promote_release.current_release_details(result.stdout, result.stderr),
             {"observed_current_release_sha": "0" * 40},
         )
+
+    def test_inspection_allows_active_release_but_promotion_rejects_it(self):
+        # Inspection may accept an already active release; a real promotion still cannot.
+        result = subprocess.run(
+            ["bash", "-s", "--", "0" * 40, "/unused"],
+            input="test() { return 0; }\nsystemctl() { return 0; }\n"
+                  "readlink() { printf '/opt/quizforge/releases/%040d\\n' 0; }\n"
+                  + promote_release.REMOTE_PROMOTE,
+            text=True, capture_output=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 35)
 
     def test_frontend_promotion_retains_live_hotfix_and_original_snapshot(self):
         for mode in ("original", "versioned", "hotfix", "collision", "wrong_link"):
