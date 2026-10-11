@@ -5,6 +5,7 @@ on:
     paths:
       - "infra/aws/integrated-staging/**"
       - "scripts/integrated_staging/**"
+      - "scripts/production/schema.sql"
       - "scripts/frontend_staging/**"
       - ".github/workflows/aws-integrated-staging.yml"
   workflow_dispatch:
