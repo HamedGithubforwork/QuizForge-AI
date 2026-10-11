@@ -19,7 +19,8 @@ export default function CognitoAuthGate() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'enroll' | 'link' | 'link-cognito'>(
-    config.googleSignInEnabled ? 'link-cognito' : linkingAvailable ? 'link' : 'enroll'
+    config.environment === 'staging' && !linkingAvailable ? 'enroll'
+      : config.googleSignInEnabled ? 'link-cognito' : linkingAvailable ? 'link' : 'enroll'
   )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -618,7 +619,10 @@ export default function CognitoAuthGate() {
   return <main className="auth-page"><section className="auth-card">
     <h1>{config.environment === 'staging' ? 'Quiz From Notes staging' : 'Quiz From Notes'}</h1>
     {error && <p role="alert">{error}</p>}
-    <p>Signed in as {account.email}</p>
+    <div className="auth-account-setup-session">
+      <p>Signed in as <strong>{account.email}</strong></p>
+      {logout}
+    </div>
     <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
     {confirmation ? <>
       <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
@@ -661,6 +665,7 @@ export default function CognitoAuthGate() {
         {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}
         <option value="enroll">Create an empty account</option>
       </select>
+      {config.environment === 'staging' && !linkingAvailable && <p className="auth-account-setup-note">This is a temporary test site, separate from the live Quiz From Notes accounts. Your usual website password cannot verify an account here.</p>}
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
         <label>Existing account email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></label>
@@ -672,9 +677,10 @@ export default function CognitoAuthGate() {
           disabled={busy} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
           value={password} disabled={busy} onChange={e => setPassword(e.target.value)} /></label>
-      </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}
+      </> : <p>{config.environment === 'staging'
+        ? 'Continue with a temporary test account and empty quiz history. No production quizzes will be transferred.'
+        : 'Your new account will start with empty history. Choose linking if you have existing quizzes.'}</p>}
       <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
     </form>}
-    {logout}
   </section></main>
 }
