@@ -11,12 +11,16 @@ import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurity
 import { secureEndpoint } from './lib/authConfig'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 
+const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
+
 export default function CognitoAuthGate() {
   const [account, setAccount] = useState<{ email: string; enrolled: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState<'enroll' | 'link' | 'link-cognito'>('link')
+  const [mode, setMode] = useState<'enroll' | 'link' | 'link-cognito'>(
+    config.googleSignInEnabled ? 'link-cognito' : linkingAvailable ? 'link' : 'enroll'
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
@@ -35,8 +39,6 @@ export default function CognitoAuthGate() {
   const [cognitoChoice, setCognitoChoice] = useState<Extract<CognitoAccountProof, { kind: 'select-mfa' }> | null>(null)
   const [selectedMfa, setSelectedMfa] = useState<CognitoMfaMethod>('SOFTWARE_TOKEN_MFA')
   const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string; cognitoToken?: string } | null>(null)
-  const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
-
   async function load() {
     if (await session()) setAccount(await identityRequest('/identity/session'))
     else setAccount(null)
@@ -655,13 +657,12 @@ export default function CognitoAuthGate() {
         setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
         setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
       }}>
-        <option value="link">Link my old account (before Cognito migration)</option>
+        {linkingAvailable && <option value="link">Link my old account (before Cognito migration)</option>}
         {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}
         <option value="enroll">Create an empty account</option>
       </select>
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
-        {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
         <label>Existing account email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
       </> : mode === 'link-cognito' ? <>
