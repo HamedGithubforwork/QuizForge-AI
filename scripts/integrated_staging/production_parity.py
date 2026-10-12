@@ -68,13 +68,39 @@ def block(source, resource_type, name):
 
 
 def field(source, key):
-    # Handle inline nested HCL and provider blocks without whitespace
-    # sensitivity. Keep exact semantics for brackets/literals/code definitions.
-    pattern = rf"\b{re.escape(key)}\s*=\s*([^\n}}]+)"
-    matches = re.findall(pattern, source)
-    if len(matches) != 1:
+    """Return the normalized value of exactly one HCL assignment or block."""
+    assignments = list(re.finditer(
+        rf"\\b{re.escape(key)}\\s*=\\s*([^\\n}}]+)", source))
+    blocks = list(re.finditer(
+        rf"\\b{re.escape(key)}\\s*\\{{", source))
+    if len(assignments) + len(blocks) != 1:
         raise ValueError("Missing or ambiguous required parity field: " + key)
-    return re.sub(r"\s+", "", matches[0].split("#", 1)[0].strip().rstrip(","))
+    if assignments:
+        value = assignments[0].group(1).split("#", 1)[0].strip().rstrip(",")
+    else:
+        begin = blocks[0].end()
+        depth, quoted, escaped = 1, False, False
+        for i in range(begin, len(source)):
+            c = source[i]
+            if quoted:
+                if escaped:
+                    escaped = False
+                elif c == "\\":
+                    escaped = True
+                elif c == '"':
+                    quoted = False
+            elif c == '"':
+                quoted = True
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    value = source[begin:i]
+                    break
+        else:
+            raise ValueError("Unbalanced HCL setting: " + key)
+    return re.sub(r"\\s+", "", value)
 
 
 def compare_sources(prod, staging, prod_ops):
