@@ -15,7 +15,7 @@ from uuid import UUID
 
 import boto3
 from botocore.exceptions import ClientError
-from guards import HOST, NAME, owned_task, permitted_state, public_config
+from guards import HOST, MANUAL_DEADLINE, NAME, owned_task, permitted_state, public_config
 
 ROOT = Path(__file__).resolve().parents[2]
 TF = ROOT / "infra/aws/integrated-staging"
@@ -70,10 +70,10 @@ def configure():
     # Reuse the existing certificate/account/region/public-zone/no-overwrite gates.
     https.preflight()
     assert os.environ["TF_VAR_hostname"] == HOST
-    deadline = (datetime.now(timezone.utc) + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    deadline = MANUAL_DEADLINE
     write_vars(dict(deadline=deadline, api_image=os.environ["INTEGRATED_API_IMAGE"],
                     probe_image=os.environ["INTEGRATED_PROBE_IMAGE"], enable_api=False))
-    print("PASS: empty integration state and existing HTTPS prerequisites verified; two-hour edge lease")
+    print("PASS: empty integration state and existing HTTPS prerequisites verified; staging stays active until manual Stop")
 
 
 def push():

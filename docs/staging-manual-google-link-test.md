@@ -4,13 +4,13 @@ Use this checklist to test **real Google sign-in → existing Cognito account li
 
 ## Prerequisites
 
-- If staging is **already active**, choose [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml) from trusted `main`, then select operation **enable_test_signup**. This changes only the existing disposable Cognito user pool, with a reviewed in-place Terraform plan. It cannot create or revive staging and does not extend the automatic cleanup deadline. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
-- Work promptly. The isolated site is destroyed by the hourly cleanup (minute 47) or a manual `stop` run; an edge lease is at most two hours and does not guarantee a two-hour window. Start shortly after a cleanup tick to allow enough manual testing time.
+- If staging is **already active**, choose [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml) from trusted `main`, then select operation **enable_test_signup**. This changes only the existing disposable Cognito user pool, with a reviewed in-place Terraform plan. It cannot create staging or change the manual shutdown policy. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
+- **Manual shutdown:** a successful new staging deployment stays running until you choose operation `stop` in the Full Staging workflow. There is no hourly automatic teardown. **AWS RDS, ECS, ALB, ElastiCache and other resources keep accruing charges** while this environment is running; stop it when testing is finished. Failure recovery may still automatically clean up an unsuccessful deployment. Do not store real personal data in staging.
 - Without the explicit **Enable test signup** input, the pool stays administrator-only, with no registration email delivery. When enabled, Cognito requires email confirmation and authenticator MFA; Cognito's built-in email delivery has a limited quota, so a confirmation message may be delayed or unavailable. The full staging workflow still prepares three disposable password+TOTP users as a fallback.
 - Use a **fresh staging session** if the Google account you intend to test has already chosen **Create an empty account** in the previous session. Do not try to merge or relink an already-enrolled Google identity. A newly provisioned staging pool is isolated, so you can reuse the same Google account with the new pool.
 - **Self-registration requires no AWS Secrets Manager access.** The operator-only fixture is a fallback when signup was disabled or Cognito cannot deliver a verification email. Never share your test password, TOTP seed, or bearer tokens.
 
-- If staging has expired or been cleaned up, start [Full Staging](../.github/workflows/aws-integrated-staging.yml) with backend PR **537** and frontend PR **538**. **Check Enable test signup before running.** Full Staging now checks isolated Terraform state before image builds; it automatically recovers only a positively identified **expired** disposable environment, waits for independent AWS absence verification, and then starts a new stack. An **active** lease or unverified/foreign state is never auto-destroyed and requires explicit stop/review.
+- If staging is already running, use [Quick Update](../.github/workflows/aws-integrated-staging-frontend-update.yml) instead of deploying another stack. To create a **fresh, isolated Cognito pool**, first run operation `stop`, wait for independently verified resource absence, then start [Full Staging](../.github/workflows/aws-integrated-staging.yml) with backend PR **537**, frontend PR **538**, and **Enable test signup** selected. A second full staging run never deletes an existing site, even if an old deadline has elapsed.
 - Wait for the workflow's staging URL; a pull-request validation or a completed quick-update test job alone is **not** evidence the live environment is available.
 
 ## Recommended: create your own staging-only account
@@ -19,7 +19,7 @@ Use this checklist to test **real Google sign-in → existing Cognito account li
 2. Open the fresh staging URL after all live checks pass. Click **Create account** (not Continue with Google yet). Enter a **different email address** from the Google account that you will link to later and choose a unique throwaway password satisfying the displayed Cognito policy.
 3. Confirm the account using the email verification code delivered by Cognito. If no email arrives, check spam; Cognito's built-in email quota is limited. Do **not** disable email confirmation or MFA to get past a failed delivery.
 4. Sign in with that email/password account and follow Cognito's **authenticator app** setup. Save the TOTP entry temporarily; MFA remains mandatory.
-5. Complete the quiz and account-linking checks below. New staging accounts will be deleted by the hourly cleanup. Never use production passwords or expect history to copy from production.
+5. Complete the quiz and account-linking checks below. New staging accounts remain until you explicitly Stop staging; you are responsible for ending the running AWS charges. Never use production passwords or expect history to copy from production.
 
 If sign-up is disabled, email delivery fails, or you want the exact synthetic fixture from the automated run, follow the operator-only fallback below.
 
@@ -45,7 +45,7 @@ aws secretsmanager get-secret-value \
 
 This deliberately prints **only** the three fields needed for manual testing. Treat the output as a secret. The `totp` value is the authenticator-app **manual setup key**; add it as a temporary, time-based 6-digit account in your authenticator app. Do not paste the seed into web searches, password-sharing messages, or this conversation. Delete the temporary authenticator entry after AWS cleanup.
 
-If the secret is absent, the staging instance may have been destroyed or `prepare` did not finish. A quick update cannot revive an expired staging session: run a **new full staging workflow**. No production secret, user pool, or account can substitute for this fixture.
+If the secret is absent, the staging instance may have been manually stopped or `prepare` did not finish. A quick update cannot recreate a removed staging stack: start a **new full staging workflow** after verifying resource absence. No production secret, user pool, or account can substitute for this fixture.
 
 ## Real linking acceptance sequence
 
@@ -64,6 +64,6 @@ If the secret is absent, the staging instance may have been destroyed or `prepar
 
 ## Rollback, clean-up and release boundary
 
-The hourly staging cleanup or the workflow's `operation=stop` deletes the isolated user pool (including any email-registered test accounts), temporary fixture users, database, cache, CloudFront assets and encrypted fixture secret. Use stop if testing is finished early. Verify the cleanup job reports absence. Never apply a development/staging account to production and never change `application/production`, the production release lock, or Google/OAuth activation flags based solely on staging creation working.
+**You must explicitly choose `operation=stop`** in the Full Staging workflow to delete the isolated user pool (including any email-registered test accounts), temporary fixture users, database, cache, CloudFront assets and encrypted fixture secret. There is no scheduled hourly shutdown; successful staging runs incur ongoing AWS charges until Stop completes. The workflow continues to automatically clean up failed deployments only. Verify the Stop job reports absence. Keep AWS budgets and billing alerts active. Never apply a development/staging account to production and never change `application/production`, the production release lock, or Google/OAuth activation flags based solely on staging creation working.
 
 The production backend/frontend changes remain in [PR #537](https://github.com/HamedGithubforwork/QuizForge-AI/pull/537) and [PR #538](https://github.com/HamedGithubforwork/QuizForge-AI/pull/538); public Google login stays off until the real linking test and production release review pass.

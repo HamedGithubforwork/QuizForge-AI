@@ -4,6 +4,9 @@ import re
 
 NAME = "quizforge-integrated-staging"
 HOST = "staging-api.quizfromnotes.com"
+# Far-future application guard for staging that remains active until explicit
+# manual Stop. No AWS cleanup schedule uses this value.
+MANUAL_DEADLINE = "2099-12-31T23:59:59Z"
 
 
 def public_config(data):
@@ -19,7 +22,12 @@ def public_config(data):
     assert data["api_url"] == "https://" + HOST
     deadline = datetime.fromisoformat(data["deadline"].replace("Z", "+00:00"))
     assert deadline.tzinfo is not None
-    assert 0 < (deadline - datetime.now(timezone.utc)).total_seconds() <= 7300
+    # Legacy two-hour sessions are accepted until they are manually stopped.
+    # New manual-stop staging sessions carry one exact sentinel, not arbitrary
+    # long-lived deadlines. This preserves strict origin/account validation.
+    assert data["deadline"] == MANUAL_DEADLINE or (
+        0 < (deadline - datetime.now(timezone.utc)).total_seconds() <= 7300
+    )
     return data
 
 

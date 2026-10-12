@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Provision a temporary Google sign-in test environment, or stop it"
+        description: "Start or manually stop the isolated Google sign-in staging environment (charges run until Stop)"
         type: choice
         required: true
         options: [run, stop]
@@ -27,9 +27,6 @@ on:
         description: "Allow temporary email-verified account creation for manual Google-linking tests (not production)"
         type: boolean
         default: false
-  schedule:
-    - cron: "47 * * * *"
-
 permissions:
   contents: read
 concurrency:
@@ -90,7 +87,7 @@ jobs:
           terraform -chdir=infra/aws/integrated-staging test
 
   preflight:
-    name: Preflight staging state and recover expired isolated resources before builds
+    name: Require empty staging state before builds (manual shutdown)
     needs: validate
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run'
     runs-on: ubuntu-latest
@@ -121,7 +118,7 @@ jobs:
           terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
             -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
             -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
-      - name: Verify state and recover only expired, owned staging before Docker builds
+      - name: Reject existing staging state and verify absence before Docker builds
         run: python scripts/integrated_staging/preflight.py run
 
   images:
@@ -441,21 +438,21 @@ jobs:
               summary.write("## Existing-account Google linking test\n\n")
               if os.environ["STAGING_SELF_SIGNUP"] == "true":
                   summary.write("**Temporary manual sign-up enabled:** Select Create account, verify the email confirmation code, and complete mandatory authenticator MFA.\n\n")
-                  summary.write("Only this isolated staging pool permits signup; scheduled cleanup deletes its users.\n\n")
+                  summary.write("Only this isolated staging pool permits signup. You must manually Stop staging to delete its test users.\n\n")
               else:
                   summary.write("Public email/password sign-up is disabled (default). The workflow seeded a disposable password+TOTP account.\n\n")
               summary.write("[Manual Google account-linking guide (self-signup or operator fixture)](https://github.com/HamedGithubforwork/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\n\n")
               summary.write("Never print fixture passwords, TOTP seeds, bearer tokens or the full secret in Actions logs.\n\n")
-              summary.write("This temporary environment is removed by the hourly cleanup or a manual `stop` run.\n")
+              summary.write("**Shutdown policy: MANUAL.** To end AWS charges and delete temporary accounts, select operation `stop` in Full AWS Staging.\n")
           PY
 
   cleanup:
-    name: Stop or recover integrated staging and independently verify absence
+    name: Manually stop or recover failed staging; verify absence
     needs: [validate, preflight, images, provision, frontend, live]
-    # Never destroy an existing ACTIVE session just because preflight refuses
-    # a new run. Only explicit stop, scheduled cleanup, or downstream failure
-    # after a successful preflight may delete staging automatically.
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || (inputs.operation == 'run' && needs.preflight.result == 'success' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))))))
+    # Never delete an existing successful staging site on a timer or because
+    # preflight refused a new run. Cleanup is only manually requested Stop or
+    # recovery of a failed deployment after successful empty-state preflight.
+    if: always() && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || (inputs.operation == 'run' && needs.preflight.result == 'success' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
