@@ -1,7 +1,7 @@
 """No-cloud negative and regression tests for manual staging AI budget actions."""
 import unittest
 from ai_budget import (
-    ALLOWED, RESULT, SCRIPT, STAGING_CAP, command_for, parse_status,
+    ALLOWED, RESULT, SCRIPT, STAGING_CAP, TASK_FAMILY, command_for, parse_status,
     require_trusted_manual_action,
 )
 
@@ -16,6 +16,22 @@ def env(action="status"):
 
 
 class StagingBudgetSafety(unittest.TestCase):
+    def test_real_ecs_task_definition_arn_syntax(self):
+        # ECS task-definition ARNs contain a slash after task-definition.
+        valid = (
+            "arn:aws:ecs:ca-central-1:123456789012:"
+            "task-definition/quizforge-integrated-staging-probe:15"
+        )
+        self.assertIsNotNone(TASK_FAMILY.fullmatch(valid))
+        for bad in (
+            valid.replace("task-definition/", "task-definition:"),
+            valid.replace("quizforge-integrated-staging-probe", "quizforge-integrated-staging-api"),
+            valid.replace("ca-central-1", "us-east-1"),
+            valid.replace(":15", ":x"),
+        ):
+            with self.subTest(arn=bad):
+                self.assertIsNone(TASK_FAMILY.fullmatch(bad))
+
     def test_exact_main_only_manual_operations(self):
         for action in ALLOWED:
             self.assertIsNone(require_trusted_manual_action(action, env(action)))
