@@ -392,7 +392,11 @@ jobs:
               summary.write("## Staging is ready for manual Google sign-in verification\n\n")
               summary.write(f"[Open Quiz From Notes staging]({url})\n\n")
               summary.write(f"Google OAuth redirect URI: `{auth}/oauth2/idpresponse`\n\n")
-              summary.write("Automated checks cover Cognito password/MFA and the quiz flow. Google OAuth and account linking still require the real-provider checklist.\n\n")
+              summary.write("Automated checks cover Cognito password/MFA and the quiz flow. Google OAuth and account linking still require the real-provider checklist.\\n\\n")
+              summary.write("## Existing-account Google linking test\\n\\n")
+              summary.write("Public email/password sign-up is disabled. The workflow already seeded a disposable password+TOTP account.\\n\\n")
+              summary.write("[Operator instructions: retrieve the staging-only mapped fixture in AWS Secrets Manager and test real Google linking](https://github.com/HamedGithubforwork/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\\n\\n")
+              summary.write("Never print fixture passwords, TOTP seeds, bearer tokens or the full secret in Actions logs.\\n\\n")
               summary.write("This temporary environment is removed by the hourly cleanup or a manual `stop` run.\n")
           PY
 
