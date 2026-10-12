@@ -32,6 +32,14 @@ class ProductionParityAudit(unittest.TestCase):
             with self.subTest(change=changed[:130]):
                 self.assertNotEqual(compare_sources(prod, changed, ops), [])
 
+    def test_staging_frontend_uses_same_auth_build_transform_as_production(self):
+        staging_builder = (PROD.parents[2] / "scripts/integrated_staging/build.py").read_text()
+        production_builder = (PROD.parents[2] / "scripts/production/build.py").read_text()
+        self.assertIn("narrow_production_auth_source(target)", staging_builder)
+        self.assertIn("def narrow_production_auth_source(frontend)", production_builder)
+        self.assertIn('VITE_COGNITO_GOOGLE_SIGNIN_ENABLED="true"', staging_builder)
+        self.assertIn('VITE_COGNITO_ENVIRONMENT="production"', staging_builder)
+
     def test_exact_production_recovery_source_and_deterministic_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             p = Path(directory) / "recovery.zip"
