@@ -17,6 +17,10 @@ mock_provider "aws" {
     override_during = plan
     defaults        = { arn = "arn:aws:lambda:ca-central-1:123456789012:function:quizforge-integrated-staging-recovery" }
   }
+  mock_resource "aws_cloudwatch_log_group" {
+    override_during = plan
+    defaults        = { arn = "arn:aws:logs:ca-central-1:123456789012:log-group:/aws/lambda/quizforge-integrated-staging-recovery" }
+  }
   mock_resource "aws_lb" {
     defaults = {
       arn      = "arn:aws:elasticloadbalancing:ca-central-1:123456789012:loadbalancer/app/quizforge-integrated-staging/0000000000000000"
