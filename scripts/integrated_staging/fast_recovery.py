@@ -19,6 +19,41 @@ from guards import NAME
 from package_recovery import DEST, package
 
 POOL = "aws_cognito_user_pool.browser"
+
+# All printed labels are literals. Never display Terraform plans, provider
+# exceptions, account IDs, token-bearing state or AWS response bodies.
+SAFE_REJECTION_REASONS = frozenset({
+    "Unexpected Terraform plan or resource drift",
+    "Recovery migration contains unrelated resource changes",
+    "Unexpected replacement, destroy or mutation",
+    "Exactly five new hook resources and one pool update required",
+    "No old or new Cognito pool configuration",
+    "Recovery hook must be newly attached",
+    "Unexpected Lambda triggers",
+    "Only post-confirmation recovery trigger is authorized",
+    "Recovery migration may only attach one Cognito trigger",
+    "Unexpected staging recovery Lambda configuration",
+    "Recovery migration cannot adopt or replace resources",
+    "Recovery cannot change staging outputs",
+    "Unexpected Cognito pool identity",
+    "Unexpected Cognito MFA mode",
+    "Parity change must preserve disposable pool boundary",
+    "Cognito username mode changed",
+    "Existing staging signup mode changed",
+    "Authenticator support changed",
+    "Unexpected email auto-verification policy",
+    "Unexpected Cognito recovery block",
+    "Unexpected Cognito recovery methods",
+    "Unexpected Cognito account recovery mechanism",
+    "Email attribute changes must require verification",
+    "Cognito email confirmation must use codes",
+})
+
+
+def checkpoint(label):
+    """Safe, deliberately limited deployment progress diagnostics."""
+    print("STAGING_RECOVERY_PHASE=" + label, flush=True)
+
 NEW = frozenset({
     "aws_cloudwatch_log_group.recovery",
     "aws_iam_role.recovery",
@@ -117,12 +152,17 @@ def verify_live(pool_id):
 def update():
     if os.environ.get("STAGING_AUTH_UPDATE") != "align_recovery_hook":
         raise ValueError("Explicit one-time staging recovery authorization is required")
+    checkpoint("package")
     package()
+    checkpoint("validate-existing-environment")
     values, config = fast_frontend.live()
     pool_id = values["pool"]
+    checkpoint("validate-password-policy")
     if fast_password.live_minimum(pool_id) != 8:
         raise ValueError("Existing Cognito password policy is not production-parity")
+    checkpoint("validate-email-controls")
     fast_parity.live_email_controls(pool_id)
+    checkpoint("inspect-existing-hook")
     hook = live_attached(pool_id)
     if hook:
         verify_live(pool_id)
@@ -132,6 +172,7 @@ def update():
     if plan_path.exists():
         raise ValueError("A previously saved plan already exists")
     try:
+        checkpoint("create-targeted-terraform-plan")
         fast_auth._terraform(
             "plan", "-input=false", "-no-color", "-lock-timeout=60s",
             "-target=" + POOL,
@@ -140,16 +181,28 @@ def update():
             "-var=enable_test_signup=" + str(control.signup_policy(values)).lower(),
             "-out=" + str(plan_path),
         )
+        checkpoint("read-targeted-terraform-plan")
         plan = json.loads(fast_auth._terraform("show", "-json", str(plan_path)))
-        verify_plan(plan, pool_id)
+        checkpoint("audit-targeted-terraform-plan")
+        try:
+            verify_plan(plan, pool_id)
+        except ValueError as error:
+            reason = str(error)
+            if reason in SAFE_REJECTION_REASONS:
+                print("STAGING_RECOVERY_GUARD=" + reason, flush=True)
+            raise
+        checkpoint("recheck-live-environment")
         current, current_config = fast_frontend.live()
         if current != values or current_config != config or live_attached(pool_id):
             raise ValueError("Staging changed after recovery plan audit")
+        checkpoint("apply-reviewed-saved-plan")
         fast_auth._terraform("apply", "-input=false", "-no-color", str(plan_path))
+        checkpoint("verify-live-after-apply")
         actual, actual_config = fast_frontend.live()
         if actual != values or actual_config != config:
             raise ValueError("Staging resources changed during recovery attachment")
         verify_live(pool_id)
+        checkpoint("complete")
         print("PASS: production-identical recovery Lambda attached only to existing staging pool")
         summary = os.environ.get("GITHUB_STEP_SUMMARY")
         if summary:
