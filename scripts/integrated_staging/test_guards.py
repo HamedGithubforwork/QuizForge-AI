@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch, Mock
 from botocore.exceptions import ClientError
 from guards import NAME, public_config, permitted_state, owned_task
-from control import hosting, state_resources, wait_for_backups_absent
+from control import hosting, signup_enabled, state_resources, wait_for_backups_absent
 
 
 class Boundaries(unittest.TestCase):
@@ -13,6 +13,18 @@ class Boundaries(unittest.TestCase):
         return dict(pool="ca-central-1_Test",client="client123",auth_origin="https://quizforge-integrated-123456789012.auth.ca-central-1.amazoncognito.com",
                     frontend_url="https://d123.cloudfront.net",api_url="https://staging-api.quizfromnotes.com",
                     deadline=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+
+    def test_manual_registration_opt_in_only_and_rejects_unknown_flags(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(signup_enabled())
+        with patch.dict("os.environ", {"STAGING_SELF_SIGNUP": "false"}):
+            self.assertFalse(signup_enabled())
+        with patch.dict("os.environ", {"STAGING_SELF_SIGNUP": "true"}):
+            self.assertTrue(signup_enabled())
+        for value in ("TRUE", "yes", "1", "production", ""):
+            with self.subTest(value=value), patch.dict("os.environ", {"STAGING_SELF_SIGNUP": value}):
+                with self.assertRaises(ValueError):
+                    signup_enabled()
 
     def test_exact_public_config(self):
         self.assertEqual(public_config(self.config())["client"], "client123")

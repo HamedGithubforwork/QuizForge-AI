@@ -103,10 +103,20 @@ def export():
     print("PASS: exported public build settings only; no users, tokens, passwords or private resource metadata")
 
 
+def signup_enabled():
+    """Only a trusted opt-in workflow value may authorize disposable public signup."""
+    mode = os.environ.get("STAGING_SELF_SIGNUP", "false")
+    if mode not in ("true", "false"):
+        raise ValueError("Unrecognized disposable staging sign-up policy")
+    return mode == "true"
+
+
 def verify_config(v):
     pool = client("cognito-idp").describe_user_pool(UserPoolId=v["pool"])["UserPool"]
     assert pool["Name"] == NAME and pool["UserPoolTier"] == "LITE" and pool["MfaConfiguration"] == "ON"
-    assert pool["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"] is True
+    enabled = signup_enabled()
+    assert pool["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"] is (not enabled)
+    assert set(pool.get("AutoVerifiedAttributes", [])) == ({"email"} if enabled else set())
     assert not pool.get("SmsConfiguration")
     app = client("cognito-idp").describe_user_pool_client(UserPoolId=v["pool"], ClientId=v["client"])["UserPoolClient"]
     assert app["CallbackURLs"] == ["https://" + v["domain"] + "/auth/callback"]
