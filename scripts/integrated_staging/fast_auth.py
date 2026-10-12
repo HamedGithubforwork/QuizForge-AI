@@ -16,13 +16,13 @@ from guards import NAME
 
 POOL_ADDRESS = "aws_cognito_user_pool.browser"
 ALLOWED_DIFF_KEYS = frozenset({
-    "admin_create_user_config", "auto_verified_attributes", "email_configuration",
+    "admin_create_user_config",
 })
 EXPECTED_PROOFS = frozenset({"name", "pool", "client", "domain", "bucket", "deadline"})
 
 
 def _verified_pool(pool, *, signup):
-    if pool.get("name") != NAME or pool.get("mfa_configuration") != "ON":
+    if pool.get("name") != NAME or pool.get("mfa_configuration") != "OPTIONAL":
         raise ValueError("Unexpected staging Cognito pool or MFA policy in plan")
     attrs = pool.get("username_attributes")
     if attrs != ["email"]:
@@ -32,7 +32,7 @@ def _verified_pool(pool, *, signup):
         admin[0].get("allow_admin_create_user_only") is not (not signup)
     ):
         raise ValueError("Unexpected Cognito public registration plan")
-    if set(pool.get("auto_verified_attributes") or []) != ({"email"} if signup else set()):
+    if set(pool.get("auto_verified_attributes") or []) != {"email"}:
         raise ValueError("Signup email verification must match reviewed staging policy")
     mfa = pool.get("software_token_mfa_configuration")
     if not isinstance(mfa, list) or len(mfa) != 1 or mfa[0].get("enabled") is not True:
@@ -70,8 +70,8 @@ def verify_plan(plan, expected_pool_id):
     if before.get("id") != expected_pool_id or after.get("id") != expected_pool_id:
         raise ValueError("Plan targets a different Cognito user pool")
     changed = {key for key in set(before) | set(after) if before.get(key) != after.get(key)}
-    if not {"admin_create_user_config", "auto_verified_attributes"} <= changed:
-        raise ValueError("Expected registration/email verification changes are absent")
+    if changed != ALLOWED_DIFF_KEYS:
+        raise ValueError("Only reviewed registration setting may change")
     if changed - ALLOWED_DIFF_KEYS:
         raise ValueError("Plan changes unrelated Cognito configuration")
     _verified_pool(before, signup=False)
@@ -125,7 +125,7 @@ def enable():
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write("## Temporary staging account creation enabled\\n\\n")
             summary.write(f"[Open the existing staging website]({config['frontend_url']}/)\\n\\n")
-            summary.write("Cognito Create account now supports email confirmation and mandatory authenticator MFA. No database, website, production, or lease change.\\n\\n")
+            summary.write("Cognito Create account now supports email confirmation and optional authenticator MFA. No database, website, production, or lease change.\\n\\n")
             summary.write("Account creation may be limited by Cognito default email delivery quotas. Staging cleanup will remove these accounts.\\n")
         print("PASS: reviewed, in-place Cognito-only staging signup configuration applied and verified")
     finally:
