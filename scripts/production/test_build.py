@@ -110,6 +110,32 @@ class ProductionBuildTests(unittest.TestCase):
             self.assertNotIn("supabase", session.lower())
             self.assertFalse((frontend / "src" / "lib" / "supabase.ts").exists())
 
+    def test_google_requires_explicit_verified_public_production_flag(self):
+        config = {
+            "pool": "ca-central-1_SyntheticPool",
+            "client": "syntheticclient123",
+            "auth_origin": "https://quizforge-123456789012.auth.ca-central-1.amazoncognito.com",
+            "frontend_url": "https://quizfromnotes.com",
+            "api_url": "https://api.quizfromnotes.com",
+            "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
+            "legacy_publishable_key": "sb_publishable_synthetic_public_key_123456789",
+            "sms_mfa_enabled": False,
+            "google_signin_enabled": False,
+        }
+        self.assertFalse(production_build.public_config(config)["google_signin_enabled"])
+        self.assertTrue(production_build.public_config({
+            **config, "google_signin_enabled": True
+        })["google_signin_enabled"])
+        for invalid in (None, "true", "false", 1, 0):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                production_build.public_config({
+                    **config, "google_signin_enabled": invalid
+                })
+        with self.assertRaises(ValueError):
+            production_build.public_config({
+                k: v for k, v in config.items() if k != "google_signin_enabled"
+            })
+
     def test_incomplete_desktop_source_fails(self):
         with tempfile.TemporaryDirectory() as root:
             frontend = self.fixture(root)
