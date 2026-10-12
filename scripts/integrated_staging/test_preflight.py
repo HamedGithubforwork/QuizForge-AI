@@ -1,136 +1,101 @@
-"""Fail-closed recovery tests for full staging before expensive image builds."""
+"""Manual-stop staging must never be torn down by a new deployment."""
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 import os
+from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from guards import NAME
+from guards import NAME, MANUAL_DEADLINE
 from preflight import classify, run, PreflightBlocked, REQUIRED_OWNED_RESOURCES
 
 ACCOUNT = "123456789012"
 
 
 def state():
-    return sorted(REQUIRED_OWNED_RESOURCES | {"aws_ecs_service.app[\"api\"]"})
+    return sorted(REQUIRED_OWNED_RESOURCES | {'aws_ecs_service.app["api"]'})
 
 
-def values(delta=timedelta(minutes=-5)):
+def values(deadline=MANUAL_DEADLINE):
     return {
         "name": NAME, "bucket": NAME + "-" + ACCOUNT,
         "auth_domain": "quizforge-integrated-" + ACCOUNT,
         "api_url": "https://staging-api.quizfromnotes.com",
         "pool": "ca-central-1_Testpool", "domain": "d123.cloudfront.net",
-        "deadline": (datetime.now(timezone.utc) + delta).isoformat(),
+        "deadline": deadline,
     }
 
 
-class ExpiredRecovery(unittest.TestCase):
-    def test_empty_state_passes_only_without_outputs(self):
+class ManualStopPreflight(unittest.TestCase):
+    def test_empty_state_only_without_outputs(self):
         self.assertEqual(classify([], None, None), "empty")
         with self.assertRaises(PreflightBlocked):
             classify([], values(), ACCOUNT)
 
-    def test_expired_verified_state_is_eligible_for_recovery(self):
-        self.assertEqual(classify(state(), values(), ACCOUNT), "expired")
-        self.assertEqual(classify(state(), values(timedelta(hours=-8)), ACCOUNT), "expired")
+    def test_existing_manual_and_expired_sessions_are_never_auto_deleted(self):
+        legacy = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        for deadline in (MANUAL_DEADLINE, legacy, "not-a-date"):
+            with self.subTest(deadline=deadline), self.assertRaisesRegex(PreflightBlocked, "explicitly Stop"):
+                classify(state(), values(deadline), ACCOUNT)
 
-    def test_active_leases_protected_even_if_close_to_expiration(self):
-        for minutes in (0.2, 10, 60, 120):
-            with self.subTest(minutes=minutes), self.assertRaisesRegex(PreflightBlocked, "active staging lease"):
-                classify(state(), values(timedelta(minutes=minutes)), ACCOUNT)
-
-    def test_invalid_or_overlong_leases_fail_closed(self):
-        for deadline in ("missing", "not-a-date", "", "2035-01-01T00:00:00Z"):
-            with self.subTest(deadline=deadline), self.assertRaises(PreflightBlocked):
-                classify(state(), {**values(), "deadline": deadline}, ACCOUNT)
-        with self.assertRaises(PreflightBlocked):
-            classify(state(), {**values(), "deadline": datetime.now().isoformat()}, ACCOUNT)
-
-    def test_partial_foreign_production_and_missing_ownership_fail_closed(self):
-        mutations = [
+    def test_foreign_partial_unknown_resources_fail_closed(self):
+        variants = [
             (["aws_s3_bucket.site"], values(), ACCOUNT),
             (state() + ["aws_db_instance.production"], values(), ACCOUNT),
-            (state() + ["module.production.aws_s3_bucket.site"], values(), ACCOUNT),
-            (state(), None, ACCOUNT),
-            (state(), {**values(), "name": "quizforge-production"}, ACCOUNT),
-            (state(), {**values(), "bucket": "quizforge-production"}, ACCOUNT),
+            (state(), {**values(), "name": "production"}, ACCOUNT),
+            (state(), {**values(), "bucket": "production"}, ACCOUNT),
             (state(), {**values(), "domain": "prod.quizfromnotes.com"}, ACCOUNT),
-            (state(), {**values(), "pool": "us-east-1_pool"}, ACCOUNT),
             (state(), {**values(), "auth_domain": "quizforge-integrated-000000000000"}, ACCOUNT),
+            (state(), {**values(), "pool": "us-east-1_foo"}, ACCOUNT),
             (state(), {**values(), "api_url": "https://api.quizfromnotes.com"}, ACCOUNT),
             (state(), values(), "000000000000"),
+            (state(), None, ACCOUNT),
         ]
-        for resources, output, account in mutations:
+        for resources, out, account in variants:
             with self.subTest(resources=resources, account=account), self.assertRaises((AssertionError, PreflightBlocked)):
-                classify(resources, output, account)
+                classify(resources, out, account)
 
-    def test_expired_run_recovers_and_verifies_absence_once(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+    def test_existing_site_never_triggers_stop_or_terraform_destroy(self):
+        with patch.dict(os.environ, {
             "STAGING_PREFLIGHT_ACTION": "run",
             "STAGING_SELF_SIGNUP": "true",
             "GITHUB_REF": "refs/heads/main",
             "TF_VAR_hostname": "staging-api.quizfromnotes.com",
-            "GITHUB_STEP_SUMMARY": str(Path(temp) / "summary.md"),
         }), patch("preflight.control.state_resources", return_value=state()), (
             patch("preflight.control.values", return_value=values())
-        ), patch("preflight.control.client") as client, patch("preflight.control.stop_tasks") as stop, (
-            patch("preflight._destroy")
-        ) as destroy, patch("preflight.control.absent") as absent:
-            client.return_value.get_caller_identity.return_value = {"Account": ACCOUNT}
+        ), patch("preflight.control.client") as aws, patch("preflight.control.stop_tasks") as stop, (
+            patch("preflight.control.absent")
+        ) as absent, self.assertRaisesRegex(PreflightBlocked, "explicitly Stop"):
+            aws.return_value.get_caller_identity.return_value = {"Account": ACCOUNT}
             run()
-            stop.assert_called_once_with()
-            destroy.assert_called_once_with()
-            absent.assert_called_once_with()
-            self.assertIn("ENABLED", (Path(temp) / "summary.md").read_text())
+        stop.assert_not_called()
+        absent.assert_not_called()
 
-    def test_active_run_never_stops_or_deletes(self):
-        with patch.dict(os.environ, {
+    def test_empty_site_requires_independent_absence_and_records_manual_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
             "STAGING_PREFLIGHT_ACTION": "run",
-            "STAGING_SELF_SIGNUP": "false",
+            "STAGING_SELF_SIGNUP": "true",
             "GITHUB_REF": "refs/heads/main",
             "TF_VAR_hostname": "staging-api.quizfromnotes.com",
-        }), patch("preflight.control.state_resources", return_value=state()), (
-            patch("preflight.control.values", return_value=values(timedelta(hours=1)))
-        ), patch("preflight.control.client") as client, patch("preflight.control.stop_tasks") as stop, (
-            patch("preflight._destroy")
-        ) as destroy, patch("preflight.control.absent") as absent:
-            client.return_value.get_caller_identity.return_value = {"Account": ACCOUNT}
-            with self.assertRaisesRegex(PreflightBlocked, "active staging lease"):
-                run()
-            stop.assert_not_called()
-            destroy.assert_not_called()
-            absent.assert_not_called()
-
-    def test_absent_run_verifies_orphans_before_allowing_build(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
-            "STAGING_PREFLIGHT_ACTION": "run",
-            "STAGING_SELF_SIGNUP": "false",
-            "GITHUB_REF": "refs/heads/main",
-            "TF_VAR_hostname": "staging-api.quizfromnotes.com",
-            "GITHUB_STEP_SUMMARY": str(Path(temp) / "summary.md"),
+            "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary.md"),
         }), patch("preflight.control.state_resources", return_value=[]), (
             patch("preflight.control.client")
-        ) as client, patch("preflight.control.stop_tasks") as stop, (
-            patch("preflight._destroy")
-        ) as destroy, patch("preflight.control.absent") as absent:
+        ) as aws, patch("preflight.control.absent") as absent:
             run()
-            client.assert_not_called()
-            stop.assert_not_called()
-            destroy.assert_not_called()
+            aws.assert_not_called()
             absent.assert_called_once_with()
-            self.assertIn("DISABLED", (Path(temp) / "summary.md").read_text())
+            content = (Path(tmp) / "summary.md").read_text()
+            self.assertIn("MANUAL", content)
+            self.assertIn("ENABLED", content)
 
-    def test_does_not_run_outside_trusted_explicit_main(self):
-        for env in ({"GITHUB_REF": "refs/heads/dev", "STAGING_PREFLIGHT_ACTION": "run"},
-                    {"GITHUB_REF": "refs/heads/main", "STAGING_PREFLIGHT_ACTION": "stop"},
-                    {"GITHUB_REF": "refs/heads/main", "STAGING_PREFLIGHT_ACTION": ""}):
-            with self.subTest(env=env), patch.dict(os.environ, env), (
-                patch("preflight.control.state_resources")
-            ) as get_state, self.assertRaises(PreflightBlocked):
+    def test_no_non_main_or_implicit_changes(self):
+        for ref, action in (("refs/heads/dev", "run"), ("refs/heads/main", "stop"),
+                            ("refs/heads/main", "")):
+            with self.subTest(ref=ref, action=action), patch.dict(os.environ, {
+                "GITHUB_REF": ref, "STAGING_PREFLIGHT_ACTION": action,
+            }), patch("preflight.control.state_resources") as state_check, self.assertRaises(PreflightBlocked):
                 run()
-                get_state.assert_not_called()
+            state_check.assert_not_called()
 
 
 if __name__ == "__main__":
