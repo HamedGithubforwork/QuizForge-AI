@@ -6,7 +6,7 @@ on:
     branches: [main]
     paths:
       - ".github/staging-update-requests/auth-parity-pr-563.json"
-      - ".github/staging-update-requests/recovery-diagnostic-pr-566.json"
+      - ".github/staging-update-requests/recovery-diagnostic-pr-567.json"
   pull_request:
     paths:
       - ".github/workflows/aws-integrated-staging-frontend-update.yml"
@@ -27,6 +27,9 @@ on:
       - ".github/staging-update-requests/recovery-diagnostic-pr-566.json"
       - "scripts/integrated_staging/auto_recovery_shape_merge.py"
       - "scripts/integrated_staging/test_auto_recovery_shape_merge.py"
+      - "scripts/integrated_staging/auto_recovery_fields_merge.py"
+      - "scripts/integrated_staging/test_auto_recovery_fields_merge.py"
+      - ".github/staging-update-requests/recovery-diagnostic-pr-567.json"
       - "scripts/integrated_staging/production_parity.py"
       - "scripts/integrated_staging/test_production_parity.py"
       - "scripts/integrated_staging/package_recovery.py"
@@ -95,6 +98,7 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_recovery_diagnostics.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_recovery_diagnostic.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_recovery_shape_merge.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_auto_recovery_fields_merge.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_production_parity.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_preview_baseline.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_parity_merge.py' -v
@@ -294,10 +298,10 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Require exact PR 566 merge before AWS identity
+      - name: Require exact PR 567 merge before AWS identity
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python scripts/integrated_staging/auto_recovery_shape_merge.py
+        run: python scripts/integrated_staging/auto_recovery_fields_merge.py
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"

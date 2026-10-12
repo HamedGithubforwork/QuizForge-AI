@@ -124,6 +124,18 @@ def _plan_shape(value):
     return "other"
 
 
+# Output only trusted Terraform *schema field names*, never plan field
+# values, unrecognized dynamic keys, ARNs, tokens or AWS account identifiers.
+KNOWN_LAMBDA_FIELDS = frozenset({
+    "post_confirmation", "pre_sign_up", "pre_authentication",
+    "post_authentication", "custom_message", "define_auth_challenge",
+    "create_auth_challenge", "verify_auth_challenge_response",
+    "user_migration", "pre_token_generation",
+    "pre_token_generation_config", "custom_email_sender", "custom_sms_sender",
+    "kms_key_id", "email_mfa_message", "email_mfa_subject",
+})
+
+
 def _safe_hook_shape(plan):
     for item in plan.get("resource_changes", []):
         if item.get("address") == POOL:
@@ -137,6 +149,20 @@ def _safe_hook_shape(plan):
                 _plan_shape(unknown.get("lambda_config")),
             )
             print("STAGING_RECOVERY_PLAN_SHAPE=" + ",".join(labels), flush=True)
+            computed = unknown.get("lambda_config") or []
+            if isinstance(computed, list) and len(computed) == 1 and isinstance(computed[0], dict):
+                known_keys = sorted(
+                    key for key, val in computed[0].items()
+                    if key in KNOWN_LAMBDA_FIELDS and not _blank(val)
+                )
+                other_count = sum(
+                    1 for key, val in computed[0].items()
+                    if key not in KNOWN_LAMBDA_FIELDS and not _blank(val)
+                )
+                print("STAGING_RECOVERY_COMPUTED_FIELDS=" + (
+                    ",".join(known_keys) if known_keys else "none"
+                ), flush=True)
+                print("STAGING_RECOVERY_UNKNOWN_FIELD_COUNT=" + str(other_count), flush=True)
             return
 
 
