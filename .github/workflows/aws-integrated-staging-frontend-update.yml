@@ -17,6 +17,14 @@ on:
       - "scripts/integrated_staging/test_fast_password.py"
       - "scripts/integrated_staging/fast_parity.py"
       - "scripts/integrated_staging/test_fast_parity.py"
+      - "scripts/integrated_staging/production_parity.py"
+      - "scripts/integrated_staging/test_production_parity.py"
+      - "scripts/integrated_staging/package_recovery.py"
+      - "scripts/integrated_staging/test_preview_baseline.py"
+      - "scripts/aws_staging_preview.py"
+      - "infra/aws/lightsail-production/auth.tf"
+      - "infra/aws/lightsail-production/operations.tf"
+      - "scripts/production/lightsail/identity_triggers.py"
       - "scripts/integrated_staging/auto_parity_merge.py"
       - "scripts/integrated_staging/test_auto_parity_merge.py"
       - ".github/staging-update-requests/auth-parity-pr-563.json"
@@ -73,8 +81,10 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_password.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_parity.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_production_parity.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_preview_baseline.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_parity_merge.py' -v
-          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py scripts/integrated_staging/auto_parity_merge.py
+          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py scripts/integrated_staging/auto_parity_merge.py scripts/integrated_staging/production_parity.py scripts/integrated_staging/package_recovery.py scripts/aws_staging_preview.py
 
   resolve:
     name: Verify exact frontend PR commit

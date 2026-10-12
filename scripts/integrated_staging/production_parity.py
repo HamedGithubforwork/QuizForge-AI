@@ -94,11 +94,18 @@ def compare_sources(prod, staging, prod_ops):
         'resource "aws_iam_role_policy" "recovery"',
         'aws_cognito_user_pool.browser.arn',
         'cognito-idp:AdminUserGlobalSignOut',
+        'Resource = aws_cognito_user_pool.browser.arn',
     )
     for name, content in (("production", prod + prod_ops), ("staging", staging)):
         for item in required:
             if item not in content:
                 findings.append({"setting": f"{name}.recovery.{item}", "production": "required", "staging": "missing"})
+    role_policy = block(staging, "aws_iam_role_policy", "recovery")
+    permission = block(staging, "aws_lambda_permission", "recovery")
+    if role_policy.count('Resource = aws_cognito_user_pool.browser.arn') != 1:
+        findings.append({"setting": "recovery.scoped_policy", "production": "pool-only", "staging": "unexpected"})
+    if field(permission, "source_arn") != "aws_cognito_user_pool.browser.arn":
+        findings.append({"setting": "recovery.scoped_invocation", "production": "pool-only", "staging": "unexpected"})
     for key in ("handler", "runtime", "memory_size", "timeout"):
         a = field(block(prod_ops, "aws_lambda_function", "recovery"), key)
         b = field(block(staging, "aws_lambda_function", "recovery"), key)
