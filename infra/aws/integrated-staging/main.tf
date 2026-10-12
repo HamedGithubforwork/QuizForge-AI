@@ -207,8 +207,10 @@ resource "aws_cognito_user_pool" "browser" {
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
+  # Match the existing production Cognito password policy exactly.
+  # Staging retains required TOTP and other deliberate isolation boundaries.
   password_policy {
-    minimum_length                   = 14
+    minimum_length                   = 8
     require_lowercase                = true
     require_uppercase                = true
     require_numbers                  = true
