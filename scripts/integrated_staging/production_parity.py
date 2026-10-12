@@ -70,9 +70,9 @@ def block(source, resource_type, name):
 def field(source, key):
     """Return the normalized value of exactly one HCL assignment or block."""
     assignments = list(re.finditer(
-        rf"\\b{re.escape(key)}\\s*=\\s*([^\\n}}]+)", source))
+        rf"\b{re.escape(key)}\s*=\s*([^\n}}]+)", source))
     blocks = list(re.finditer(
-        rf"\\b{re.escape(key)}\\s*\\{{", source))
+        rf"\b{re.escape(key)}\s*\{{", source))
     if len(assignments) + len(blocks) != 1:
         raise ValueError("Missing or ambiguous required parity field: " + key)
     if assignments:
@@ -100,7 +100,7 @@ def field(source, key):
                     break
         else:
             raise ValueError("Unbalanced HCL setting: " + key)
-    return re.sub(r"\\s+", "", value)
+    return re.sub(r"\s+", "", value)
 
 
 def compare_sources(prod, staging, prod_ops):
