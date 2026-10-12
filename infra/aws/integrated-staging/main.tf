@@ -207,10 +207,10 @@ resource "aws_cognito_user_pool" "browser" {
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
-  # Staging-only: faster manual Google account-linking tests. The production
-  # Cognito password policy is intentionally unchanged; TOTP stays required.
+  # Match the existing production Cognito password policy exactly.
+  # Staging retains required TOTP and other deliberate isolation boundaries.
   password_policy {
-    minimum_length                   = 10
+    minimum_length                   = 8
     require_lowercase                = true
     require_uppercase                = true
     require_numbers                  = true
