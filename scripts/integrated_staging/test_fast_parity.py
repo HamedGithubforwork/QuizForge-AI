@@ -90,6 +90,38 @@ class StagingParityGuards(unittest.TestCase):
             with self.subTest(case=case), self.assertRaises(ValueError):
                 verify_plan(d,POOL,signup=(case!="wrong signup"))
 
+    def test_live_policy_guard_distinguishes_legacy_and_parity_pools(self):
+        import control
+
+        pool = {
+            "Name": "quizforge-integrated-staging",
+            "UserPoolTier": "LITE",
+            "MfaConfiguration": "ON",
+            "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False},
+            "AutoVerifiedAttributes": ["email"],
+            "EmailConfiguration": {"EmailSendingAccount": "COGNITO_DEFAULT"},
+            "AccountRecoverySetting": {
+                "RecoveryMechanisms": [{"Name": "admin_only", "Priority": 1}]
+            },
+        }
+        factors = {"MfaConfiguration": "ON",
+                   "SoftwareTokenMfaConfiguration": {"Enabled": True}}
+        with patch("control.client") as aws:
+            aws.return_value.describe_user_pool.return_value = {"UserPool": pool}
+            aws.return_value.get_user_pool_mfa_config.return_value = factors
+            self.assertTrue(control.signup_policy({"pool": POOL}, legacy_auth=True))
+            with self.assertRaises(ValueError):
+                control.signup_policy({"pool": POOL})
+            newer = deepcopy(pool)
+            newer["MfaConfiguration"] = "OPTIONAL"
+            newer["AccountRecoverySetting"]["RecoveryMechanisms"][0]["Name"] = "verified_email"
+            aws.return_value.describe_user_pool.return_value = {"UserPool": newer}
+            aws.return_value.get_user_pool_mfa_config.return_value = {
+                **factors, "MfaConfiguration": "OPTIONAL"}
+            self.assertTrue(control.signup_policy({"pool": POOL}))
+            with self.assertRaises(ValueError):
+                control.signup_policy({"pool": POOL}, legacy_auth=True)
+
     def test_requires_operator_dispatch_before_aws(self):
         with patch.dict(os.environ, {"STAGING_AUTH_UPDATE":"frontend"}), (
             patch("fast_parity.control.values")
