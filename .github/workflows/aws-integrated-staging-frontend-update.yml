@@ -199,7 +199,7 @@ jobs:
 
   parity:
     name: Align only existing disposable staging Cognito with production auth policy
-    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.operation == 'align_auth_parity') || github.event_name == 'push')
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.operation == 'align_auth_parity'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
