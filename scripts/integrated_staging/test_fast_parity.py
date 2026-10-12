@@ -105,12 +105,12 @@ class StagingParityGuards(unittest.TestCase):
             self.assertEqual(len(matches),1,regex)
             return matches[0]
         for key in ("mfa_configuration","auto_verified_attributes"):
-            reg=r"(?m)^\\s*"+key+r"\\s*=\\s*([^\\r\\n#]+)"
+            reg=r"(?m)^\s*"+key+r"\s*=\s*([^\r\n#]+)"
             self.assertEqual(one(prod,reg).strip(),one(stage,reg).strip())
         for reg in (
-            r"account_recovery_setting\\s*\\{\\s*recovery_mechanism\\s*\\{\\s*name\\s*=\\s*([^\\s]+)",
-            r"user_attribute_update_settings\\s*\\{\\s*attributes_require_verification_before_update\\s*=\\s*([^\\r\\n]+)",
-            r"verification_message_template\\s*\\{\\s*default_email_option\\s*=\\s*([^\\s]+)",
+            r"account_recovery_setting\s*\{\s*recovery_mechanism\s*\{\s*name\s*=\s*([^\s]+)",
+            r"user_attribute_update_settings\s*\{\s*attributes_require_verification_before_update\s*=\s*([^\r\n]+)",
+            r"verification_message_template\s*\{\s*default_email_option\s*=\s*([^\s]+)",
         ):
             self.assertEqual(one(prod,reg),one(stage,reg))
 
