@@ -10,15 +10,17 @@ on:
       - "scripts/integrated_staging/test_fast_auth.py"
       - "scripts/integrated_staging/fast_password.py"
       - "scripts/integrated_staging/test_fast_password.py"
+      - "scripts/integrated_staging/fast_parity.py"
+      - "scripts/integrated_staging/test_fast_parity.py"
       - "scripts/integrated_staging/control.py"
       - "scripts/integrated_staging/build.py"
       - "infra/aws/integrated-staging/main.tf"
   workflow_dispatch:
     inputs:
       operation:
-        description: "Frontend, email signup, or production-matching staging password minimum"
+        description: "Frontend, signup, password minimum, or guarded auth parity"
         type: choice
-        options: [frontend, enable_test_signup, update_password_policy]
+        options: [frontend, enable_test_signup, update_password_policy, align_auth_parity]
         required: true
         default: frontend
       frontend_pr:
@@ -62,7 +64,8 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_frontend.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_password.py' -v
-          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py
+          python -m unittest discover -s scripts/integrated_staging -p 'test_fast_parity.py' -v
+          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py
 
   resolve:
     name: Verify exact frontend PR commit
@@ -164,6 +167,41 @@ jobs:
             -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Audit exact password-only Terraform plan and apply verified change
         run: python scripts/integrated_staging/fast_password.py update
+
+  parity:
+    name: Align only existing disposable staging Cognito with production auth policy
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'align_auth_parity'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      STAGING_AUTH_UPDATE: align_auth_parity
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Open only existing disposable staging Terraform state
+        run: |
+          terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Audit single-pool auth parity plan with old and new live checks
+        run: python scripts/integrated_staging/fast_parity.py update
 
   config:
     name: Export active staging configuration only

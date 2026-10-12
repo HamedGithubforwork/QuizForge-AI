@@ -111,26 +111,28 @@ def signup_enabled():
     return mode == "true"
 
 
-def signup_policy(v):
+def signup_policy(v, *, legacy_auth=False):
     """Return the only two approved disposable staging signup modes.
 
     The live Cognito pool is authoritative after a guarded fast update; never
     trust a GitHub workflow input or a production pool name for this decision.
     """
     pool = client("cognito-idp").describe_user_pool(UserPoolId=v["pool"])["UserPool"]
-    if pool.get("Name") != NAME or pool.get("UserPoolTier") != "LITE" or pool.get("MfaConfiguration") != "OPTIONAL":
-        raise ValueError("Staging pool ownership or required MFA policy changed")
+    expected_mfa = "ON" if legacy_auth else "OPTIONAL"
+    if pool.get("Name") != NAME or pool.get("UserPoolTier") != "LITE" or pool.get("MfaConfiguration") != expected_mfa:
+        raise ValueError("Unexpected staging Cognito pool or MFA configuration")
     admin = pool.get("AdminCreateUserConfig", {}).get("AllowAdminCreateUserOnly")
     if type(admin) is not bool:
         raise ValueError("Unrecognized staging registration policy")
     enabled = not admin
-    if set(pool.get("AutoVerifiedAttributes", [])) != {"email"}:
+    expected_verified = ({"email"} if enabled else set()) if legacy_auth else {"email"}
+    if set(pool.get("AutoVerifiedAttributes", [])) != expected_verified:
         raise ValueError("Staging signup email verification policy changed")
     # DescribeUserPool reports the required MFA mode but does not return the
     # SoftwareTokenMfaConfiguration field. Cognito publishes configured MFA
     # factors through the separate GetUserPoolMfaConfig API.
     mfa = client("cognito-idp").get_user_pool_mfa_config(UserPoolId=v["pool"])
-    if mfa.get("MfaConfiguration") != "OPTIONAL":
+    if mfa.get("MfaConfiguration") != expected_mfa:
         raise ValueError("Staging MFA policy differs from production")
     if mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is not True:
         raise ValueError("Staging authenticator MFA is not enabled")
@@ -139,7 +141,8 @@ def signup_policy(v):
     if pool.get("EmailConfiguration", {}).get("EmailSendingAccount", "COGNITO_DEFAULT") != "COGNITO_DEFAULT":
         raise ValueError("Unrecognized staging email delivery provider")
     recovery = pool.get("AccountRecoverySetting", {}).get("RecoveryMechanisms", [])
-    if len(recovery) != 1 or recovery[0].get("Name") != "verified_email":
+    expected_recovery = "admin_only" if legacy_auth else "verified_email"
+    if len(recovery) != 1 or recovery[0].get("Name") != expected_recovery:
         raise ValueError("Unexpected staging account recovery configuration")
     if pool.get("SmsConfiguration"):
         raise ValueError("Unexpected staging SMS configuration")
@@ -154,12 +157,13 @@ def check_auth():
     print("PASS: optional TOTP, verified-email recovery and requested signup policy verified")
 
 
-def verify_config(v, *, expected_signup=None):
+def verify_config(v, *, expected_signup=None, legacy_auth=False):
     pool = client("cognito-idp").describe_user_pool(UserPoolId=v["pool"])["UserPool"]
-    assert pool["Name"] == NAME and pool["UserPoolTier"] == "LITE" and pool["MfaConfiguration"] == "OPTIONAL"
+    expected_mfa = "ON" if legacy_auth else "OPTIONAL"
+    assert pool["Name"] == NAME and pool["UserPoolTier"] == "LITE" and pool["MfaConfiguration"] == expected_mfa
     enabled = signup_enabled() if expected_signup is None else expected_signup
     assert type(enabled) is bool
-    assert signup_policy(v) is enabled
+    assert signup_policy(v, legacy_auth=legacy_auth) is enabled
     assert not pool.get("SmsConfiguration")
     app = client("cognito-idp").describe_user_pool_client(UserPoolId=v["pool"], ClientId=v["client"])["UserPoolClient"]
     assert app["CallbackURLs"] == ["https://" + v["domain"] + "/auth/callback"]

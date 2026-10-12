@@ -48,7 +48,7 @@ def checked_config(resources, values, now=None):
     return data
 
 
-def live():
+def live(*, legacy_auth=False):
     values = control.values()
     config = checked_config(control.state_resources(), values)
     account = control.client("sts").get_caller_identity()["Account"]
@@ -56,7 +56,15 @@ def live():
         raise ValueError("Staging ownership checks failed.")
     # Reuse existing integrated-staging verification for TLS, RDS, Cognito,
     # cache and sealed application tasks, before any publication.
-    control.verify_config(values, expected_signup=control.signup_policy(values))
+    if legacy_auth:
+        # The parity updater alone may inspect the known previous staging
+        # policy while the existing pool is changed in place.
+        control.verify_config(
+            values, expected_signup=control.signup_policy(values, legacy_auth=True),
+            legacy_auth=True,
+        )
+    else:
+        control.verify_config(values, expected_signup=control.signup_policy(values))
     s3 = control.client("s3")
     block = s3.get_public_access_block(Bucket=values["bucket"])["PublicAccessBlockConfiguration"]
     if not all(block.get(name) is True for name in (
