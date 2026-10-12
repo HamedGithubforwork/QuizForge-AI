@@ -17,6 +17,8 @@ on:
       - "scripts/integrated_staging/test_fast_password.py"
       - "scripts/integrated_staging/fast_parity.py"
       - "scripts/integrated_staging/test_fast_parity.py"
+      - "scripts/integrated_staging/fast_recovery.py"
+      - "scripts/integrated_staging/test_fast_recovery.py"
       - "scripts/integrated_staging/production_parity.py"
       - "scripts/integrated_staging/test_production_parity.py"
       - "scripts/integrated_staging/package_recovery.py"
@@ -36,7 +38,7 @@ on:
       operation:
         description: "Frontend, signup, password minimum, or guarded auth parity"
         type: choice
-        options: [frontend, enable_test_signup, update_password_policy, align_auth_parity]
+        options: [frontend, enable_test_signup, update_password_policy, align_auth_parity, align_recovery_hook]
         required: true
         default: frontend
       frontend_pr:
@@ -81,6 +83,7 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_password.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_parity.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_fast_recovery.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_production_parity.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_preview_baseline.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_parity_merge.py' -v
@@ -227,6 +230,41 @@ jobs:
             -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Audit single-pool auth parity plan with old and new live checks
         run: python scripts/integrated_staging/fast_parity.py update
+
+  recovery:
+    name: Attach reviewed recovery Lambda only to existing disposable Cognito
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'align_recovery_hook'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      STAGING_AUTH_UPDATE: align_recovery_hook
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Open only existing isolated staging state
+        run: |
+          terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Audit exact recovery resources and attach in-place
+        run: python scripts/integrated_staging/fast_recovery.py update
 
   config:
     name: Export active staging configuration only
