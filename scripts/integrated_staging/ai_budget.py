@@ -20,7 +20,7 @@ RESULT = re.compile(
     r"^STAGING_AI_BUDGET remaining=(\d+) total_calls=(\d+) allowance=10$"
 )
 TASK_FAMILY = re.compile(
-    r"^arn:aws:ecs:ca-central-1:[0-9]{12}:task-definition:"
+    r"^arn:aws:ecs:ca-central-1:[0-9]{12}:task-definition/"
     + re.escape(NAME) + r"-probe:[0-9]+$"
 )
 
