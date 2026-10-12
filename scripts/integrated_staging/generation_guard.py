@@ -18,7 +18,7 @@ from guards import MANUAL_DEADLINE
 
 BUDGET_KEY = "integration:openai:remaining"
 CALLS_KEY = "integration:openai:calls"
-MAX_CALLS = 2
+MAX_CALLS = 10
 MAX_BODY_BYTES = 32768
 MAX_OUTPUT_TOKENS = 4096
 RESERVE = """
