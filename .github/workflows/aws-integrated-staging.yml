@@ -84,7 +84,10 @@ jobs:
           terraform -chdir=infra/aws/integrated-staging fmt -check -recursive
           terraform -chdir=infra/aws/integrated-staging init -backend=false -lockfile=readonly
           terraform -chdir=infra/aws/integrated-staging validate
-          terraform -chdir=infra/aws/integrated-staging test
+          # Exercise both workflow_dispatch policies in the same credentialless
+          # validation job, including the actual opt-in environment from #108.
+          TF_VAR_enable_test_signup=false terraform -chdir=infra/aws/integrated-staging test
+          TF_VAR_enable_test_signup=true terraform -chdir=infra/aws/integrated-staging test
 
   preflight:
     name: Require empty staging state before builds (manual shutdown)
