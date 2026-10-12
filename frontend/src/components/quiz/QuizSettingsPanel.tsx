@@ -52,11 +52,13 @@ function QuizSettingsPanel({
         remaining?: number
         allowance?: number
       }
-      if (typeof data.remaining !== 'number' || !Number.isInteger(data.remaining) || data.allowance !== 10 ||
-          (data.remaining ?? -1) < 0 || (data.remaining ?? 11) > 10) {
+      if (typeof data.remaining !== 'number' ||
+          !Number.isInteger(data.remaining) ||
+          data.allowance !== 10 ||
+          data.remaining < 0 || data.remaining > 10) {
         throw new Error('Unexpected allowance response')
       }
-      setAllowance({ remaining: data.remaining!, allowance: 10 })
+      setAllowance({ remaining: data.remaining, allowance: 10 })
       setAllowanceUnavailable(false)
     } catch {
       setAllowance(null)
