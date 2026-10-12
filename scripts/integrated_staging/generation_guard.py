@@ -33,9 +33,12 @@ return 1
 def bounded_request(raw, deadline, now=None):
     now = now or datetime.now(timezone.utc)
     end = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-    if end.tzinfo is None or not (
-        deadline == MANUAL_DEADLINE or 0 < (end - now).total_seconds() <= 7300
-    ):
+    if end.tzinfo is None:
+        raise ValueError("Staging deadline must include timezone")
+    seconds_remaining = (end - now).total_seconds()
+    if not (seconds_remaining > 0 and (
+        deadline == MANUAL_DEADLINE or seconds_remaining <= 7300
+    )):
         raise ValueError("Expired or unapproved staging deadline")
     if not 0 < len(raw) <= MAX_BODY_BYTES:
         raise ValueError("Oversized request")
