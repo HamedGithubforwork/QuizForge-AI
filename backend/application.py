@@ -315,8 +315,6 @@ async def require_admin(
 
     return current_user
 
-
-
 @app.get("/api/staging/ai-budget")
 async def staging_ai_budget(
     _current_user: AuthenticatedUser = Depends(get_current_user),
