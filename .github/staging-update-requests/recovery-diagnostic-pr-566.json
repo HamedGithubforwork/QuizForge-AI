@@ -1,0 +1,6 @@
+{
+  "operation": "diagnose_recovery_hook",
+  "pull_request": 566,
+  "environment": "quizforge-integrated-staging",
+  "mode": "read-only-once-after-reviewed-merge"
+}
