@@ -1,3 +1,6 @@
+import { useCallback, useEffect, useState } from 'react'
+import { apiFetch } from '../../lib/api.ts'
+
 import type {
   QuestionMode,
 } from '../../types/quiz'
@@ -34,6 +37,37 @@ function QuizSettingsPanel({
   onQuestionTypeChange,
   onGenerateQuiz,
 }: QuizSettingsPanelProps) {
+  const staging = import.meta.env.VITE_COGNITO_STAGING === 'true'
+  const [allowance, setAllowance] = useState<{
+    remaining: number
+    allowance: number
+  } | null>(null)
+  const [allowanceUnavailable, setAllowanceUnavailable] = useState(false)
+  const refreshAllowance = useCallback(async () => {
+    if (!staging) return
+    try {
+      const response = await apiFetch('/api/staging/ai-budget')
+      if (!response.ok) throw new Error('Allowance unavailable')
+      const data = await response.json() as {
+        remaining?: number
+        allowance?: number
+      }
+      if (!Number.isInteger(data.remaining) || data.allowance !== 10 ||
+          (data.remaining ?? -1) < 0 || (data.remaining ?? 11) > 10) {
+        throw new Error('Unexpected allowance response')
+      }
+      setAllowance({ remaining: data.remaining!, allowance: 10 })
+      setAllowanceUnavailable(false)
+    } catch {
+      setAllowance(null)
+      setAllowanceUnavailable(true)
+    }
+  }, [staging])
+
+  useEffect(() => {
+    void refreshAllowance()
+  }, [refreshAllowance, isGenerating])
+
   const settingsDisabled =
     isGenerating ||
     isWeakPracticeGenerating
@@ -140,6 +174,19 @@ function QuizSettingsPanel({
           </select>
         </label>
       </div>
+
+      {staging && (
+        <p className="staging-allowance" role="status">
+          {allowance
+            ? `Staging AI requests remaining: ${allowance.remaining} / ${allowance.allowance}`
+            : allowanceUnavailable
+              ? 'Staging AI request count unavailable'
+              : 'Checking staging AI allowance...'}
+          <button type="button" onClick={() => void refreshAllowance()}>
+            Refresh count
+          </button>
+        </p>
+      )}
 
       {!hasQuiz && (
         <>
