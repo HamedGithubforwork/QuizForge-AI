@@ -46,6 +46,12 @@ variables {
 }
 run "private_data_and_stopped_tasks" {
   command = plan
+  # Test the locked-down default even when workflow_dispatch explicitly
+  # enables sign-up and exports TF_VAR_enable_test_signup=true. Run-level
+  # variables must override inherited workflow variables.
+  variables {
+    enable_test_signup = false
+  }
   assert {
     condition     = !aws_db_instance.db.publicly_accessible && aws_db_instance.db.storage_encrypted && aws_db_instance.db.backup_retention_period == 1 && aws_db_instance.db.delete_automated_backups
     error_message = "Disposable data must remain private, encrypted and removable with its backups."
