@@ -46,6 +46,11 @@ variable "enable_api" {
   type    = bool
   default = false
 }
+variable "enable_test_signup" {
+  type        = bool
+  default     = false
+  description = "Explicit, disposable staging-only self-registration for manual Google linking tests. Public signup remains disabled by default."
+}
 variable "enable_google_signin" {
   type        = bool
   default     = false
@@ -186,16 +191,22 @@ resource "aws_db_instance" "db" {
   skip_final_snapshot          = true
   delete_automated_backups     = true
 }
-# No public signup, delivery or recovery in this synthetic integration test.
+# Ordinary CI staging has no public sign-up. Only explicitly requested manual
+# sessions allow confirmed-email signup; all sessions keep mandatory TOTP,
+# admin-only recovery and automatic short-lived cleanup.
 resource "aws_cognito_user_pool" "browser" {
   name                = local.name
   user_pool_tier      = "LITE"
   deletion_protection = "INACTIVE"
-  username_attributes = ["email"]
-  mfa_configuration   = "ON"
+  username_attributes     = ["email"]
+  auto_verified_attributes = var.enable_test_signup ? ["email"] : []
+  mfa_configuration       = "ON"
   username_configuration { case_sensitive = false }
-  admin_create_user_config { allow_admin_create_user_only = true }
+  admin_create_user_config { allow_admin_create_user_only = !var.enable_test_signup }
   software_token_mfa_configuration { enabled = true }
+  email_configuration {
+    email_sending_account = "COGNITO_DEFAULT"
+  }
   password_policy {
     minimum_length                   = 14
     require_lowercase                = true
