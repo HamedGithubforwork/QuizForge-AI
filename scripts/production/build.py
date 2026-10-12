@@ -10,10 +10,10 @@ import sys
 
 
 def public_config(config):
-    expected = {"pool", "client", "auth_origin", "frontend_url", "api_url", "legacy_url", "legacy_publishable_key", "sms_mfa_enabled"}
+    expected = {"pool", "client", "auth_origin", "frontend_url", "api_url", "legacy_url", "legacy_publishable_key", "sms_mfa_enabled", "google_signin_enabled"}
     if not isinstance(config, dict) or set(config) != expected:
         raise ValueError("Only exact public build configuration fields are permitted")
-    if any(not isinstance(config[key], str) for key in expected - {"sms_mfa_enabled"}):
+    if any(not isinstance(config[key], str) for key in expected - {"sms_mfa_enabled", "google_signin_enabled"}):
         raise ValueError("Only string endpoint values are permitted")
     if type(config["sms_mfa_enabled"]) is not bool:
         raise ValueError("SMS MFA availability must be an explicit boolean")
@@ -23,6 +23,8 @@ def public_config(config):
             or not re.fullmatch(r"[a-z0-9]{1,128}",config["client"])
             or not re.fullmatch(r"https://quizforge-[0-9]{12}\.auth\.ca-central-1\.amazoncognito\.com",config["auth_origin"])):
         raise ValueError("Unexpected production endpoint configuration")
+    if type(config["google_signin_enabled"]) is not bool:
+        raise ValueError("Google sign-in availability must be an explicit boolean")
     key = config["legacy_publishable_key"]
     if re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}",key):
         return config
@@ -134,7 +136,8 @@ def main():
                VITE_COGNITO_DOMAIN=config['auth_origin'],VITE_API_URL=config['api_url'],
                VITE_IDENTITY_API_URL=config['api_url'],VITE_SUPABASE_URL=config['legacy_url'],
                VITE_SUPABASE_PUBLISHABLE_KEY=config['legacy_publishable_key'],
-               VITE_COGNITO_SMS_MFA_ENABLED='true' if config['sms_mfa_enabled'] else 'false')
+               VITE_COGNITO_SMS_MFA_ENABLED='true' if config['sms_mfa_enabled'] else 'false',
+               VITE_COGNITO_GOOGLE_SIGNIN_ENABLED='true' if config['google_signin_enabled'] else 'false')
     subprocess.run(['npm','ci','--ignore-scripts'],cwd=destination,env=env,check=True)
     subprocess.run(['npm','run','build'],cwd=destination,env=env,check=True)
     print('PASS: production frontend built with validated public configuration only')

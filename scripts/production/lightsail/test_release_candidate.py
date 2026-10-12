@@ -48,6 +48,19 @@ class FakeCognito:
             }
         }
 
+    def describe_user_pool_client(self, **kwargs):
+        return {"UserPoolClient": {
+            "ClientId": kwargs["ClientId"],
+            "SupportedIdentityProviders": ["COGNITO"],
+            "CallbackURLs": ["https://quizfromnotes.com/auth/callback"],
+            "LogoutURLs": ["https://quizfromnotes.com/"],
+            "AllowedOAuthFlows": ["code"],
+            "GenerateSecret": False,
+        }}
+
+    def describe_identity_provider(self, **kwargs):
+        raise AssertionError("Google provider must not be read when disabled")
+
     def get_user_pool_mfa_config(self, **kwargs):
         self.mfa_pool = kwargs["UserPoolId"]
         return {
@@ -92,13 +105,15 @@ class ReleaseCandidateTests(unittest.TestCase):
         self.assertEqual(cognito.domain, "quizforge-123456789012")
         self.assertEqual(cognito.mfa_pool, "ca-central-1_SyntheticPool")
         self.assertFalse(config["sms_mfa_enabled"])
+        self.assertFalse(config["google_signin_enabled"])
 
         summary = safe_public_summary(config)
         self.assertFalse(summary["sms_mfa_enabled"])
+        self.assertFalse(summary["google_signin_enabled"])
         self.assertTrue(all(
             summary[key]
             for key in summary
-            if key not in {"schema", "sms_mfa_enabled"}
+            if key not in {"schema", "sms_mfa_enabled", "google_signin_enabled"}
         ))
         raw = json.dumps(summary)
         self.assertNotIn(config["legacy_publishable_key"], raw)
@@ -119,6 +134,42 @@ class ReleaseCandidateTests(unittest.TestCase):
         config = discover_public_config(self.source(), FakeSTS(), Sms())
         self.assertTrue(config["sms_mfa_enabled"])
         self.assertTrue(safe_public_summary(config)["sms_mfa_enabled"])
+
+    def test_production_google_enabled_only_for_verified_browser_client_and_idp(self):
+        class Google(FakeCognito):
+            def describe_user_pool_client(self, **kwargs):
+                data = super().describe_user_pool_client(**kwargs)
+                data["UserPoolClient"]["SupportedIdentityProviders"] = ["COGNITO", "Google"]
+                return data
+
+            def describe_identity_provider(self, **kwargs):
+                return {"IdentityProvider": {
+                    "ProviderType": "Google",
+                    "ProviderDetails": {
+                        "client_id": "synthetic.apps.googleusercontent.com",
+                        "authorize_scopes": "openid email",
+                    },
+                }}
+
+        expected = discover_public_config(self.source(), FakeSTS(), Google())
+        self.assertTrue(expected["google_signin_enabled"])
+        self.assertTrue(safe_public_summary(expected)["google_signin_enabled"])
+
+        class BadRedirect(Google):
+            def describe_user_pool_client(self, **kwargs):
+                data = super().describe_user_pool_client(**kwargs)
+                data["UserPoolClient"]["CallbackURLs"] = ["https://foreign.test/auth/callback"]
+                return data
+
+        class UnreviewedGoogle(Google):
+            def describe_identity_provider(self, **kwargs):
+                data = super().describe_identity_provider(**kwargs)
+                data["IdentityProvider"]["ProviderDetails"]["client_id"] = "foreign-id"
+                return data
+
+        for invalid in (BadRedirect, UnreviewedGoogle):
+            with self.subTest(case=invalid.__name__), self.assertRaises(ValueError):
+                discover_public_config(self.source(), FakeSTS(), invalid())
 
     def test_wrong_domain_attachment_is_refused(self):
         class Bad(FakeCognito):
