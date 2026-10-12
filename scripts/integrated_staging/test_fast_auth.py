@@ -107,6 +107,19 @@ class GuardedAuthPlan(unittest.TestCase):
             enable()
             live.assert_not_called()
 
+    def test_auth_check_blocks_signup_mismatch_immediately_after_provisioning(self):
+        for requested, actual in (("true", True), ("false", False)):
+            with patch.dict(os.environ, {"STAGING_SELF_SIGNUP": requested}), (
+                patch("control.values", return_value={"pool": POOL})
+            ), patch("control.signup_policy", return_value=actual) as policy:
+                control.check_auth()
+                policy.assert_called_once_with({"pool": POOL})
+        for requested, actual in (("true", False), ("false", True)):
+            with patch.dict(os.environ, {"STAGING_SELF_SIGNUP": requested}), (
+                patch("control.values", return_value={"pool": POOL})
+            ), patch("control.signup_policy", return_value=actual), self.assertRaises(ValueError):
+                control.check_auth()
+
     def test_living_approved_modes_require_email_confirmation_and_mfa(self):
         verified = {
             "Name": "quizforge-integrated-staging", "UserPoolTier": "LITE",
