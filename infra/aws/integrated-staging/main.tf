@@ -195,12 +195,12 @@ resource "aws_db_instance" "db" {
 # sessions allow confirmed-email signup; all sessions keep mandatory TOTP,
 # admin-only recovery and automatic short-lived cleanup.
 resource "aws_cognito_user_pool" "browser" {
-  name                = local.name
-  user_pool_tier      = "LITE"
-  deletion_protection = "INACTIVE"
-  username_attributes     = ["email"]
+  name                     = local.name
+  user_pool_tier           = "LITE"
+  deletion_protection      = "INACTIVE"
+  username_attributes      = ["email"]
   auto_verified_attributes = var.enable_test_signup ? ["email"] : []
-  mfa_configuration       = "ON"
+  mfa_configuration        = "ON"
   username_configuration { case_sensitive = false }
   admin_create_user_config { allow_admin_create_user_only = !var.enable_test_signup }
   software_token_mfa_configuration { enabled = true }
