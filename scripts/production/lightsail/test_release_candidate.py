@@ -104,10 +104,12 @@ class ReleaseCandidateTests(unittest.TestCase):
         )
         self.assertEqual(cognito.domain, "quizforge-123456789012")
         self.assertEqual(cognito.mfa_pool, "ca-central-1_SyntheticPool")
-        self.assertFalse(config["sms_mfa_enabled"])\n        self.assertFalse(config["google_signin_enabled"])
+        self.assertFalse(config["sms_mfa_enabled"])
+        self.assertFalse(config["google_signin_enabled"])
 
         summary = safe_public_summary(config)
-        self.assertFalse(summary["sms_mfa_enabled"])\n        self.assertFalse(summary["google_signin_enabled"])
+        self.assertFalse(summary["sms_mfa_enabled"])
+        self.assertFalse(summary["google_signin_enabled"])
         self.assertTrue(all(
             summary[key]
             for key in summary
