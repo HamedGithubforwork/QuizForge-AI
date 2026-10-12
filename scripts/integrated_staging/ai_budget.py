@@ -86,7 +86,7 @@ def parse_status(events):
     matches = []
     for event in events:
         message = event.get("message", "")
-        m = RESULT.fullmatch(message)
+        m = RESULT.fullmatch(message.rstrip("\r\n"))
         if m:
             matches.append((int(m.group(1)), int(m.group(2))))
     if len(matches) != 1 or not 0 <= matches[0][0] <= STAGING_CAP:
