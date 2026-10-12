@@ -10,6 +10,7 @@ import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivatio
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
+import { confirmSignupCode, resendSignupCode } from './lib/cognitoSignupRecovery'
 
 const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 
@@ -24,6 +25,12 @@ export default function CognitoAuthGate() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
+  const [verificationMode, setVerificationMode] = useState(false)
+  const [verificationEmail, setVerificationEmail] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
+  const [verificationComplete, setVerificationComplete] = useState(false)
+  const [verificationResent, setVerificationResent] = useState(false)
+  const [resendCooling, setResendCooling] = useState(false)
   const [activationMode, setActivationMode] = useState(false)
   const [activationSetup, setActivationSetup] = useState<MigratedActivationSetup | null>(null)
   const [activationComplete, setActivationComplete] = useState(false)
@@ -58,6 +65,12 @@ export default function CognitoAuthGate() {
       setCognitoProof(null)
       setCognitoChoice(null)
       setActivationMode(false)
+      setVerificationMode(false)
+      setVerificationEmail('')
+      setVerificationCode('')
+      setVerificationComplete(false)
+      setVerificationResent(false)
+      setResendCooling(false)
       setActivationSetup(null)
       setActivationComplete(false)
       setSecurityStatus(null)
@@ -101,6 +114,38 @@ export default function CognitoAuthGate() {
     })
     return () => { active = false }
   }, [account?.enrolled, pathname])
+
+  useEffect(() => {
+    if (!resendCooling) return
+    const timer = setTimeout(() => setResendCooling(false), 60_000)
+    return () => clearTimeout(timer)
+  }, [resendCooling])
+
+  async function verifySignupEmail(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      await confirmSignupCode(config.client, verificationEmail, verificationCode)
+      setVerificationCode('')
+      setVerificationComplete(true)
+    })
+  }
+
+  async function resendSignupEmail() {
+    await run(async () => {
+      if (resendCooling) return
+      await resendSignupCode(config.client, verificationEmail)
+      setVerificationResent(true)
+      setResendCooling(true)
+    })
+  }
+
+  function closeVerification() {
+    setVerificationMode(false)
+    setVerificationCode('')
+    setVerificationComplete(false)
+    setVerificationResent(false)
+    setError('')
+  }
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true); setError('')
@@ -453,6 +498,66 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}
     <App />
   </>
+  if (!account && verificationMode) return <main className="auth-page">
+    <section className="auth-card">
+      <div className="auth-brand">
+        <div className="auth-logo">QF</div>
+        <div>
+          <h1>Quiz From Notes</h1>
+          <p>Resume email confirmation for an account you've already created.</p>
+        </div>
+      </div>
+
+      {error && <div className="auth-error" role="alert">{error}</div>}
+
+      {verificationComplete ? <>
+        <div className="auth-heading">
+          <h2>Email confirmed</h2>
+          <p>Your account is confirmed. You can now sign in using your original email and password.</p>
+        </div>
+        <button type="button" className="auth-submit" disabled={busy} onClick={() => void run(signIn)}>
+          Continue to sign in
+        </button>
+      </> : <>
+        <div className="auth-heading">
+          <h2>Finish email verification</h2>
+          <p>Enter the code from your original signup email, or request another one. You do not need to create a new account.</p>
+        </div>
+        <form className="auth-form" aria-busy={busy} onSubmit={verifySignupEmail}>
+          <label>
+            <span>Account email</span>
+            <input type="email" autoComplete="email" required maxLength={254}
+              placeholder="you@example.com" value={verificationEmail} disabled={busy}
+              onChange={e => { setVerificationEmail(e.target.value); setVerificationResent(false) }} />
+          </label>
+          <label>
+            <span>Email confirmation code</span>
+            <input autoComplete="one-time-code" inputMode="numeric" required
+              minLength={6} maxLength={8} pattern="[A-Za-z0-9]{6,8}"
+              placeholder="Enter your code" value={verificationCode} disabled={busy}
+              onChange={e => setVerificationCode(e.target.value)} />
+          </label>
+          <button className="auth-submit" disabled={busy}>
+            {busy ? 'Confirming…' : 'Confirm my email'}
+          </button>
+        </form>
+        <div className="auth-verification-resend">
+          <p>Didn't receive a code, or has it expired?</p>
+          <button type="button" className="auth-secondary-button"
+            disabled={busy || resendCooling || !verificationEmail.trim()}
+            onClick={() => void resendSignupEmail()}>
+            {resendCooling ? 'Please wait before resending' : 'Resend confirmation code'}
+          </button>
+          {verificationResent && <p role="status">If this account is awaiting confirmation, a new code has been requested. Check your inbox and spam folder.</p>}
+        </div>
+      </>}
+
+      <p className="auth-switch">
+        <button type="button" disabled={busy} onClick={closeVerification}>Back to sign in options</button>
+      </p>
+    </section>
+  </main>
+
   if (!account && activationMode) return <main className="auth-page">
     <section className="auth-card">
       <div className="auth-brand">
@@ -590,6 +695,19 @@ export default function CognitoAuthGate() {
               <span className="auth-cta-arrow" aria-hidden="true">＋</span>
             </button>
           </div>
+
+          <p className="auth-switch">
+            Created an account but didn't confirm your email?
+            {' '}
+            <button type="button" disabled={busy} onClick={() => {
+              setVerificationMode(true)
+              setVerificationComplete(false)
+              setVerificationResent(false)
+              setError('')
+            }}>
+              Finish email verification
+            </button>
+          </p>
 
           <p className="auth-switch">
             Migrated from the old Quiz From Notes login?

@@ -2,6 +2,28 @@
 
 Google sign-in is **disabled by default**. Email/password remains supported.
 
+## Recovering a signup that was never confirmed
+
+An AWS-hosted Cognito sign-in page can show **User is not confirmed** if someone
+leaves the email code step during account creation. The AWS-hosted login HTML is
+not under application control, so the recovery link is on the Quiz From Notes
+landing page, not inside the hosted login form.
+
+Return to the normal website, select **Finish email verification**, and enter
+the original account email plus the existing confirmation code. If needed,
+request a replacement code (at most once a minute from the interface, with
+Cognito's own throttling also in effect). After a successful Cognito
+`ConfirmSignUp`, choose sign-in; the original account is retained and no
+password reset or extra account is created.
+
+The public Cognito `ResendConfirmationCode` / `ConfirmSignUp` calls use only
+the known browser client ID, email, and submitted code. They never require a
+logged-in session, collect or transmit a password, bypass server-side email
+verification, print provider errors, or send credentials to QuizForge. Keep
+the failure message generic except for safe invalid/expired code and throttling
+conditions. Test wrong codes, expired codes, and resending without logging
+account identifiers.
+
 ## Google OAuth client
 
 Create a Google Cloud OAuth client of type **Web application** for Quiz From Notes.
