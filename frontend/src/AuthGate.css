@@ -1169,3 +1169,25 @@
     width: 100%;
   }
 }
+
+/* Signed-out self-service recovery for an abandoned Cognito signup. */
+.auth-verification-resend {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin: 20px 0 10px;
+}
+
+.auth-verification-resend p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.auth-verification-resend p[role="status"] {
+  color: #394c65;
+  font-size: 13px;
+}
+
+.auth-verification-resend .auth-secondary-button {
+  width: 100%;
+}
