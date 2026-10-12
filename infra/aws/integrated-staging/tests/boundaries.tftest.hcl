@@ -65,6 +65,14 @@ run "private_data_and_stopped_tasks" {
     error_message = "Default staging allows admin-created identities, optional TOTP and no public signup."
   }
   assert {
+    condition     = aws_cognito_user_pool.browser.lambda_config[0].post_confirmation == aws_lambda_function.recovery.arn && aws_lambda_function.recovery.handler == "identity_triggers.handler" && aws_lambda_function.recovery.runtime == "python3.13" && aws_lambda_function.recovery.function_name == "quizforge-integrated-staging-recovery"
+    error_message = "Staging password recovery must use production's handler in the isolated staging Lambda."
+  }
+  assert {
+    condition     = aws_lambda_permission.recovery.source_arn == aws_cognito_user_pool.browser.arn && jsondecode(aws_iam_role_policy.recovery.policy).Statement[1].Resource == aws_cognito_user_pool.browser.arn && jsondecode(aws_iam_role_policy.recovery.policy).Statement[1].Action == ["cognito-idp:AdminUserGlobalSignOut"]
+    error_message = "Recovery Lambda may revoke sessions only in the isolated staging user pool."
+  }
+  assert {
     condition     = aws_lb_listener.https.default_action[0].type == "fixed-response" && aws_lb_listener.https.ssl_policy == "ELBSecurityPolicy-TLS13-1-2-2021-06" && !aws_route53_record.api.allow_overwrite
     error_message = "TLS must reject unknown hosts/routes and preserve existing DNS records."
   }
