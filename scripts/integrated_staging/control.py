@@ -415,8 +415,13 @@ def absent():
     assert not client("cognito-idp").describe_user_pool_domain(Domain="quizforge-integrated-" + account).get("DomainDescription", {}).get("UserPoolId")
     for suffix in ("-application", "-identity", "-fixture"):
         hosting.missing(client("secretsmanager").describe_secret, {"ResourceNotFoundException"}, SecretId=NAME + suffix)
-    for suffix in ("-api-exec", "-identity-exec", "-probe-exec", "-setup"):
+    for suffix in ("-api-exec", "-identity-exec", "-probe-exec", "-setup", "-recovery"):
         hosting.missing(client("iam").get_role, {"NoSuchEntity"}, RoleName=NAME + suffix)
+    # The mirrored recovery hook must be absent after the user's manual Stop;
+    # do not accidentally leave a Lambda, role or log group running.
+    hosting.missing(client("lambda").get_function, {"ResourceNotFoundException"},
+                    FunctionName=NAME + "-recovery")
+    assert not client("logs").describe_log_groups(logGroupNamePrefix="/aws/lambda/" + NAME + "-recovery")["logGroups"]
     assert not client("logs").describe_log_groups(logGroupNamePrefix="/quizforge/integrated-staging")["logGroups"]
     ecs = client("ecs")
     for suffix in ("-api", "-identity", "-probe"):
