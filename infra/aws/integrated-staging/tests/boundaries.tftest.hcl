@@ -9,6 +9,18 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/mock-integration" }
   }
+  mock_resource "aws_cognito_user_pool" {
+    override_during = plan
+    defaults        = { arn = "arn:aws:cognito-idp:ca-central-1:123456789012:userpool/ca-central-1_Staging" }
+  }
+  mock_resource "aws_lambda_function" {
+    override_during = plan
+    defaults        = { arn = "arn:aws:lambda:ca-central-1:123456789012:function:quizforge-integrated-staging-recovery" }
+  }
+  mock_resource "aws_cloudwatch_log_group" {
+    override_during = plan
+    defaults        = { arn = "arn:aws:logs:ca-central-1:123456789012:log-group:/aws/lambda/quizforge-integrated-staging-recovery" }
+  }
   mock_resource "aws_lb" {
     defaults = {
       arn      = "arn:aws:elasticloadbalancing:ca-central-1:123456789012:loadbalancer/app/quizforge-integrated-staging/0000000000000000"
@@ -63,6 +75,14 @@ run "private_data_and_stopped_tasks" {
   assert {
     condition     = aws_cognito_user_pool.browser.mfa_configuration == "OPTIONAL" && aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && toset(aws_cognito_user_pool.browser.auto_verified_attributes) == toset(["email"]) && aws_cognito_user_pool_client.browser.enable_token_revocation && !aws_cognito_user_pool_client.browser.generate_secret
     error_message = "Default staging allows admin-created identities, optional TOTP and no public signup."
+  }
+  assert {
+    condition     = aws_cognito_user_pool.browser.lambda_config[0].post_confirmation == aws_lambda_function.recovery.arn && aws_lambda_function.recovery.handler == "identity_triggers.handler" && aws_lambda_function.recovery.runtime == "python3.13" && aws_lambda_function.recovery.function_name == "quizforge-integrated-staging-recovery"
+    error_message = "Staging password recovery must use production's handler in the isolated staging Lambda."
+  }
+  assert {
+    condition     = aws_lambda_permission.recovery.source_arn == aws_cognito_user_pool.browser.arn && jsondecode(aws_iam_role_policy.recovery.policy).Statement[1].Resource == aws_cognito_user_pool.browser.arn && jsondecode(aws_iam_role_policy.recovery.policy).Statement[1].Action == ["cognito-idp:AdminUserGlobalSignOut"]
+    error_message = "Recovery Lambda may revoke sessions only in the isolated staging user pool."
   }
   assert {
     condition     = aws_lb_listener.https.default_action[0].type == "fixed-response" && aws_lb_listener.https.ssl_policy == "ELBSecurityPolicy-TLS13-1-2-2021-06" && !aws_route53_record.api.allow_overwrite

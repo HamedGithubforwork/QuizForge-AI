@@ -73,12 +73,15 @@ jobs:
         run: |
           python -m unittest discover -s scripts/integrated_staging -p 'test_*.py' -v
           python -m unittest discover -s scripts/frontend_staging -p 'test_*.py' -v
+          python scripts/integrated_staging/production_parity.py
           python -m compileall -q scripts/integrated_staging
           node --check scripts/integrated_staging/browser.mjs
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.7"
           terraform_wrapper: false
+      - name: Package recovery trigger from production source
+        run: python scripts/integrated_staging/package_recovery.py
       - name: Validate isolated infrastructure without AWS credentials
         run: |
           terraform -chdir=infra/aws/integrated-staging fmt -check -recursive
@@ -207,6 +210,8 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ca-central-1
+      - name: Package production-identical staging recovery hook
+        run: python scripts/integrated_staging/package_recovery.py
       - name: Initialize only integrated staging state
         run: |
           terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
@@ -304,6 +309,8 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ca-central-1
+      - name: Package production-identical staging recovery hook
+        run: python scripts/integrated_staging/package_recovery.py
       - name: Initialize only integrated staging state
         run: |
           terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
@@ -477,6 +484,8 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ca-central-1
+      - name: Package production-identical staging recovery hook
+        run: python scripts/integrated_staging/package_recovery.py
       - name: Initialize only integrated staging state
         run: |
           terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \

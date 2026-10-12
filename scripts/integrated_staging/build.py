@@ -21,8 +21,15 @@ def main():
     if target.exists():
         shutil.rmtree(target)
     shutil.copytree(source, target, ignore=shutil.ignore_patterns(".env*", "node_modules", "dist", ".git"))
+    # Use the trusted production Cognito-only entry points and auth-session
+    # rewrite. Staging differs only in endpoints, isolated pool and Google flag.
+    production_path = Path(__file__).resolve().parents[1] / "production" / "build.py"
+    prod_spec = spec_from_file_location("trusted_production_auth", production_path)
+    prod_auth = module_from_spec(prod_spec)
+    prod_spec.loader.exec_module(prod_auth)
+    prod_auth.narrow_production_auth_source(target)
     env = {k:os.environ[k] for k in ("PATH", "HOME", "CI") if k in os.environ}
-    env.update(VITE_AUTH_PROVIDER="cognito", VITE_COGNITO_STAGING="true",
+    env.update(VITE_AUTH_PROVIDER="cognito", VITE_COGNITO_STAGING="true", VITE_COGNITO_ENVIRONMENT="production",
                VITE_COGNITO_USER_POOL_ID=config["pool"], VITE_COGNITO_CLIENT_ID=config["client"],
                VITE_COGNITO_DOMAIN=config["auth_origin"], VITE_COGNITO_GOOGLE_SIGNIN_ENABLED="true",
                VITE_API_URL=config["api_url"],

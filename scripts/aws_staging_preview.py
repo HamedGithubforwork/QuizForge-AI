@@ -50,6 +50,18 @@ def github(path):
         return json.load(response)
 
 
+def verify_latest_production_baseline(comparison, requested_sha, production_sha):
+    """Ensure feature head descends from the *current* application branch."""
+    if comparison.get("status") not in {"ahead", "identical"} or comparison.get("behind_by") != 0:
+        raise ValueError("Staging feature branch is behind/diverged from application/production")
+    # The compare URL pins requested_sha; merge-base proves current
+    # production ancestry without relying on optional head_commit metadata.
+    if (comparison.get("base_commit", {}).get("sha") != production_sha
+            or comparison.get("merge_base_commit", {}).get("sha") != production_sha):
+        raise ValueError("Staging PR is not based on the current production application SHA")
+    return requested_sha
+
+
 def checked_pr(number, required):
     if not re.fullmatch(r"[1-9][0-9]*", number):
         raise ValueError("PR numbers must be positive integers.")
@@ -60,7 +72,10 @@ def checked_pr(number, required):
         checks.extend(batch)
         if len(batch) < 100:
             break
-    return resolve(pr, checks, required)
+    resolved = resolve(pr, checks, required)
+    production_sha = github("branches/application/production")["commit"]["sha"]
+    comparison = github(f"compare/{BASE_BRANCH}...{resolved}")
+    return verify_latest_production_baseline(comparison, resolved, production_sha)
 
 
 if __name__ == "__main__":

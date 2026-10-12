@@ -205,6 +205,9 @@ resource "aws_cognito_user_pool" "browser" {
   software_token_mfa_configuration { enabled = true }
   user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
   verification_message_template { default_email_option = "CONFIRM_WITH_CODE" }
+  # The same password-recovery session revocation hook used by production.
+  # Its role can revoke users ONLY in this isolated staging pool.
+  lambda_config { post_confirmation = aws_lambda_function.recovery.arn }
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
@@ -224,6 +227,42 @@ resource "aws_cognito_user_pool" "browser" {
       priority = 1
     }
   }
+}
+# Mirror production's post-confirmation handler, but with disposable staging
+# naming, retention and pool-only permissions. Packaged from the same source.
+resource "aws_cloudwatch_log_group" "recovery" {
+  name              = "/aws/lambda/${local.name}-recovery"
+  retention_in_days = 1
+}
+resource "aws_iam_role" "recovery" {
+  name = "${local.name}-recovery"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole"
+  }] })
+}
+resource "aws_lambda_function" "recovery" {
+  function_name    = "${local.name}-recovery"
+  role             = aws_iam_role.recovery.arn
+  runtime          = "python3.13"
+  handler          = "identity_triggers.handler"
+  filename         = "${path.module}/recovery.zip"
+  source_code_hash = filebase64sha256("${path.module}/recovery.zip")
+  memory_size      = 128
+  timeout          = 5
+}
+resource "aws_iam_role_policy" "recovery" {
+  role = aws_iam_role.recovery.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "${aws_cloudwatch_log_group.recovery.arn}:*" },
+    { Effect = "Allow", Action = ["cognito-idp:AdminUserGlobalSignOut"], Resource = aws_cognito_user_pool.browser.arn }
+  ] })
+}
+resource "aws_lambda_permission" "recovery" {
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.recovery.function_name
+  principal      = "cognito-idp.amazonaws.com"
+  source_arn     = aws_cognito_user_pool.browser.arn
+  source_account = data.aws_caller_identity.current.account_id
 }
 resource "aws_cognito_identity_provider" "google" {
   count         = var.enable_google_signin ? 1 : 0
