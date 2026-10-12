@@ -45,6 +45,59 @@ class GuardedLambdaInstall(unittest.TestCase):
     def test_exact_six_staging_only_changes_pass(self):
         self.assertTrue(verify_plan(plan(), POOL_ID))
 
+    def test_provider_empty_old_block_and_computed_new_arn(self):
+        d = plan()
+        change = d["resource_changes"][0]["change"]
+        change["before"]["lambda_config"] = [{
+            "post_confirmation": "", "pre_authentication": None,
+            "pre_token_generation_config": [], "custom_message": "",
+        }]
+        change["after"]["lambda_config"] = [{
+            "post_confirmation": None, "pre_authentication": "",
+            "pre_token_generation_config": [],
+        }]
+        self.assertTrue(verify_plan(d, POOL_ID))
+
+    def test_provider_computed_new_block_without_literal_after_value(self):
+        d = plan()
+        d["resource_changes"][0]["change"]["after"]["lambda_config"] = []
+        self.assertTrue(verify_plan(d, POOL_ID))
+
+    def test_exact_scoped_lambda_arn_allowed_if_known(self):
+        d = plan()
+        arn = "arn:aws:lambda:ca-central-1:123456789012:function:quizforge-integrated-staging-recovery"
+        change = d["resource_changes"][0]["change"]
+        change["after"]["lambda_config"] = [{"post_confirmation": arn}]
+        change["after_unknown"] = {}
+        self.assertTrue(verify_plan(d, POOL_ID, expected_hook_arn=arn))
+        with self.assertRaises(ValueError):
+            verify_plan(d, POOL_ID, expected_hook_arn=arn.replace("123456789012", "999999999999"))
+
+    def test_extra_existing_or_new_lambda_triggers_fail(self):
+        scenarios = [
+            ("before", [{"post_confirmation": "arn:aws:lambda:ca-central-1:123456789012:function:foreign"}]),
+            ("after", [{"post_confirmation": None, "pre_authentication": "foreign-trigger"}]),
+            ("after", [{"post_confirmation": None, "custom_message": "foreign-trigger"}]),
+        ]
+        for side, value in scenarios:
+            d = plan()
+            d["resource_changes"][0]["change"][side]["lambda_config"] = value
+            with self.subTest(side=side), self.assertRaises(ValueError):
+                verify_plan(d, POOL_ID)
+        d = plan()
+        d["resource_changes"][0]["change"]["after_unknown"] = {
+            "lambda_config": [{"post_confirmation": True, "pre_authentication": True}]}
+        with self.assertRaises(ValueError):
+            verify_plan(d, POOL_ID)
+
+    def test_missing_unproven_post_confirmation_rejected(self):
+        d = plan()
+        change = d["resource_changes"][0]["change"]
+        change["after"]["lambda_config"] = [{"post_confirmation": None}]
+        change["after_unknown"] = {}
+        with self.assertRaises(ValueError):
+            verify_plan(d, POOL_ID)
+
     def test_rejects_foreign_pool_unrelated_resource_and_replacements(self):
         bad = plan()
         bad["resource_changes"].append({"mode": "managed", "address": "aws_db_instance.db",
