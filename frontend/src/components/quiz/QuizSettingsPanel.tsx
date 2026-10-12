@@ -52,7 +52,7 @@ function QuizSettingsPanel({
         remaining?: number
         allowance?: number
       }
-      if (!Number.isInteger(data.remaining) || data.allowance !== 10 ||
+      if (typeof data.remaining !== 'number' || !Number.isInteger(data.remaining) || data.allowance !== 10 ||
           (data.remaining ?? -1) < 0 || (data.remaining ?? 11) > 10) {
         throw new Error('Unexpected allowance response')
       }
