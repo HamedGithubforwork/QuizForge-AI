@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch, Mock
 from botocore.exceptions import ClientError
-from guards import NAME, public_config, permitted_state, owned_task
+from guards import NAME, MANUAL_DEADLINE, public_config, permitted_state, owned_task
 from control import hosting, signup_enabled, state_resources, wait_for_backups_absent
 
 
@@ -35,6 +35,14 @@ class Boundaries(unittest.TestCase):
                        {"pool":"us-east-1_Test"}):
             with self.subTest(change=list(change)), self.assertRaises(AssertionError):
                 public_config(self.config()|change)
+
+    def test_manual_stop_config_requires_exact_marker(self):
+        data = self.config()
+        data["deadline"] = MANUAL_DEADLINE
+        self.assertEqual(public_config(data)["deadline"], MANUAL_DEADLINE)
+        for invalid in ("2099-12-31T23:59:58Z", "2098-12-31T23:59:59Z", "manual", ""):
+            with self.subTest(invalid=invalid), self.assertRaises((ValueError, AssertionError)):
+                public_config({**data, "deadline": invalid})
 
     def test_expired_or_extended_lease_refused(self):
         for delta in (-1, 4):
