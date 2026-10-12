@@ -12,6 +12,10 @@ import os
 
 from redis import Redis
 
+# Shared with the operator-controlled staging lifecycle. Do not accept arbitrary
+# long-lived deadlines: only this exact, explicitly reviewed manual-stop marker.
+from guards import MANUAL_DEADLINE
+
 BUDGET_KEY = "integration:openai:remaining"
 CALLS_KEY = "integration:openai:calls"
 MAX_CALLS = 2
@@ -29,8 +33,10 @@ return 1
 def bounded_request(raw, deadline, now=None):
     now = now or datetime.now(timezone.utc)
     end = datetime.fromisoformat(deadline.replace("Z", "+00:00"))
-    if end.tzinfo is None or not 0 < (end - now).total_seconds() <= 7300:
-        raise ValueError("Expired staging lease")
+    if end.tzinfo is None or not (
+        deadline == MANUAL_DEADLINE or 0 < (end - now).total_seconds() <= 7300
+    ):
+        raise ValueError("Expired or unapproved staging deadline")
     if not 0 < len(raw) <= MAX_BODY_BYTES:
         raise ValueError("Oversized request")
     body = json.loads(raw)
