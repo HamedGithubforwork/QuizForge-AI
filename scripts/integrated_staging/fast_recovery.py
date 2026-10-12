@@ -35,6 +35,8 @@ SAFE_REJECTION_REASONS = frozenset({
     "Unapproved additional Lambda trigger",
     "Planned post-confirmation trigger is not proven",
     "Unexpected staging recovery Lambda ARN",
+    "Staging source defines unreviewed Cognito Lambda triggers",
+    "Unexpected active Lambda trigger after recovery update",
     "Unexpected Lambda triggers",
     "Only post-confirmation recovery trigger is authorized",
     "Recovery migration may only attach one Cognito trigger",
@@ -100,7 +102,14 @@ def _review_lambda_change(change, *, expected_hook_arn=None):
     unknown = computed[0] if computed else {}
     if any(not _blank(v) for k, v in known.items() if k != "post_confirmation"):
         raise ValueError("Unapproved additional Lambda trigger")
-    if any(not _blank(v) for k, v in unknown.items() if k != "post_confirmation"):
+    # Real provider 6.64.0 plans pre_token_generation_config as a
+    # *computed* default when adding post_confirmation. We verified this
+    # attribute name via an approved read-only AWS plan (#49). It is NOT an
+    # approved configured pre-token Lambda: after-known values must be blank,
+    # the reviewed HCL declares only post_confirmation, and the live pool
+    # must have no additional active trigger after apply.
+    if any(not _blank(v) for k, v in unknown.items()
+           if k not in {"post_confirmation", "pre_token_generation_config"}):
         raise ValueError("Unapproved additional Lambda trigger")
 
     arn = known.get("post_confirmation")
@@ -236,10 +245,40 @@ def live_attached(pool_id):
         UserPoolId=pool_id)["UserPool"].get("LambdaConfig") or {}).get("PostConfirmation")
 
 
+def reviewed_lambda_source(source):
+    """Only one exact post-confirmation Terraform block is permissible."""
+    matches = re.findall(r"(?m)^\\s*lambda_config\\s*\\{([^{}]*)\\}", source)
+    if len(matches) != 1 or re.sub(r"\\s+", "", matches[0]) != (
+        "post_confirmation=aws_lambda_function.recovery.arn"
+    ):
+        raise ValueError("Staging source defines unreviewed Cognito Lambda triggers")
+    return True
+
+
+def check_extra_live_hooks(config):
+    """Cognito may report harmless pre-token version metadata, not an ARN."""
+    if not isinstance(config, dict):
+        raise ValueError("Unexpected active Lambda trigger after recovery update")
+    for key, value in config.items():
+        if key == "PostConfirmation":
+            continue
+        if key == "PreTokenGenerationConfig":
+            if isinstance(value, dict) and set(value) <= {"LambdaArn", "LambdaVersion"} and (
+                not value.get("LambdaArn")
+            ):
+                continue
+        if not _blank(value):
+            raise ValueError("Unexpected active Lambda trigger after recovery update")
+    return True
+
+
 def verify_live(pool_id):
     target = expected_arn()
-    if live_attached(pool_id) != target:
+    pool = control.client("cognito-idp").describe_user_pool(UserPoolId=pool_id)["UserPool"]
+    live_config = pool.get("LambdaConfig") or {}
+    if live_config.get("PostConfirmation") != target:
         raise ValueError("Cognito recovery session revocation trigger not attached")
+    check_extra_live_hooks(live_config)
     conf = control.client("lambda").get_function(FunctionName=NAME + "-recovery")["Configuration"]
     expected_digest = base64.b64encode(hashlib.sha256(DEST.read_bytes()).digest()).decode()
     if (conf.get("FunctionArn") != target or conf.get("Runtime") != "python3.13"
@@ -252,6 +291,11 @@ def verify_live(pool_id):
 def update():
     if os.environ.get("STAGING_AUTH_UPDATE") != "align_recovery_hook":
         raise ValueError("Explicit one-time staging recovery authorization is required")
+    # Refuse an added unreviewed HCL trigger even if its ARN is computed.
+    reviewed_lambda_source(
+        (Path(__file__).resolve().parents[2] / "infra/aws/integrated-staging/main.tf")
+        .read_text(encoding="utf-8")
+    )
     checkpoint("package")
     package()
     checkpoint("validate-existing-environment")
