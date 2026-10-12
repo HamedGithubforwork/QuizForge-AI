@@ -84,7 +84,7 @@ class PasswordPolicyParity(unittest.TestCase):
             ("after", "password_policy", policy(6)),
             ("after", "password_policy", policy(10)),
             ("after", "password_policy", [{**policy(8)[0], "require_symbols": False}]),
-            ("after", "mfa_configuration", "OPTIONAL"),
+            ("after", "mfa_configuration", "ON"),
             ("after", "auto_verified_attributes", []),
             ("after", "username_attributes", ["phone_number"]),
             ("before", "password_policy", policy(8)),

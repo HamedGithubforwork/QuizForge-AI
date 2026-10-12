@@ -191,24 +191,25 @@ resource "aws_db_instance" "db" {
   skip_final_snapshot          = true
   delete_automated_backups     = true
 }
-# Ordinary CI staging has no public sign-up. Only explicitly requested manual
-# sessions allow confirmed-email signup; all sessions keep mandatory TOTP,
-# admin-only recovery and automatic short-lived cleanup.
+# CI staging keeps sign-up opt-in. Cognito mirrors production authentication
+# while test identities and data remain isolated and disposable.
 resource "aws_cognito_user_pool" "browser" {
   name                     = local.name
   user_pool_tier           = "LITE"
   deletion_protection      = "INACTIVE"
   username_attributes      = ["email"]
-  auto_verified_attributes = var.enable_test_signup ? ["email"] : []
-  mfa_configuration        = "ON"
+  auto_verified_attributes = ["email"]
+  mfa_configuration        = "OPTIONAL"
   username_configuration { case_sensitive = false }
   admin_create_user_config { allow_admin_create_user_only = !var.enable_test_signup }
   software_token_mfa_configuration { enabled = true }
+  user_attribute_update_settings { attributes_require_verification_before_update = ["email"] }
+  verification_message_template { default_email_option = "CONFIRM_WITH_CODE" }
   email_configuration {
     email_sending_account = "COGNITO_DEFAULT"
   }
   # Match the existing production Cognito password policy exactly.
-  # Staging retains required TOTP and other deliberate isolation boundaries.
+  # Optional TOTP matches production; identity and resource isolation remain.
   password_policy {
     minimum_length                   = 8
     require_lowercase                = true
@@ -219,7 +220,7 @@ resource "aws_cognito_user_pool" "browser" {
   }
   account_recovery_setting {
     recovery_mechanism {
-      name     = "admin_only"
+      name     = "verified_email"
       priority = 1
     }
   }

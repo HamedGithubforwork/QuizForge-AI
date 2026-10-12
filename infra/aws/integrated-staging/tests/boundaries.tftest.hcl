@@ -61,8 +61,8 @@ run "private_data_and_stopped_tasks" {
     error_message = "Application tasks must remain stopped until restricted database roles are seeded."
   }
   assert {
-    condition     = aws_cognito_user_pool.browser.mfa_configuration == "ON" && aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && length(aws_cognito_user_pool.browser.auto_verified_attributes) == 0 && aws_cognito_user_pool_client.browser.enable_token_revocation && !aws_cognito_user_pool_client.browser.generate_secret
-    error_message = "Default staging allows only admin-created identities with mandatory MFA and no public signup."
+    condition     = aws_cognito_user_pool.browser.mfa_configuration == "OPTIONAL" && aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && toset(aws_cognito_user_pool.browser.auto_verified_attributes) == toset(["email"]) && aws_cognito_user_pool_client.browser.enable_token_revocation && !aws_cognito_user_pool_client.browser.generate_secret
+    error_message = "Default staging allows admin-created identities, optional TOTP and no public signup."
   }
   assert {
     condition     = aws_lb_listener.https.default_action[0].type == "fixed-response" && aws_lb_listener.https.ssl_policy == "ELBSecurityPolicy-TLS13-1-2-2021-06" && !aws_route53_record.api.allow_overwrite
@@ -137,15 +137,15 @@ run "manual_signup_is_opt_in_with_email_verification_and_totp" {
     enable_test_signup = true
   }
   assert {
-    condition     = !aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && toset(aws_cognito_user_pool.browser.auto_verified_attributes) == toset(["email"]) && aws_cognito_user_pool.browser.mfa_configuration == "ON" && aws_cognito_user_pool.browser.software_token_mfa_configuration[0].enabled && aws_cognito_user_pool.browser.email_configuration[0].email_sending_account == "COGNITO_DEFAULT"
-    error_message = "Opt-in manual staging signup must verify email with Cognito and require authenticator MFA."
+    condition     = !aws_cognito_user_pool.browser.admin_create_user_config[0].allow_admin_create_user_only && toset(aws_cognito_user_pool.browser.auto_verified_attributes) == toset(["email"]) && aws_cognito_user_pool.browser.mfa_configuration == "OPTIONAL" && aws_cognito_user_pool.browser.software_token_mfa_configuration[0].enabled && aws_cognito_user_pool.browser.email_configuration[0].email_sending_account == "COGNITO_DEFAULT"
+    error_message = "Opt-in manual signup must verify email with Cognito and offer optional authenticator MFA."
   }
   assert {
     condition     = aws_cognito_user_pool.browser.password_policy[0].minimum_length == 8 && aws_cognito_user_pool.browser.password_policy[0].require_lowercase && aws_cognito_user_pool.browser.password_policy[0].require_uppercase && aws_cognito_user_pool.browser.password_policy[0].require_numbers && aws_cognito_user_pool.browser.password_policy[0].require_symbols
     error_message = "Staging Cognito must match production: minimum 8 characters and all four complexity requirements."
   }
   assert {
-    condition     = aws_cognito_user_pool.browser.deletion_protection == "INACTIVE" && toset([for mechanism in aws_cognito_user_pool.browser.account_recovery_setting[0].recovery_mechanism : mechanism.name]) == toset(["admin_only"])
-    error_message = "Manual signup cannot make staging permanent or enable account recovery."
+    condition     = aws_cognito_user_pool.browser.deletion_protection == "INACTIVE" && toset([for mechanism in aws_cognito_user_pool.browser.account_recovery_setting[0].recovery_mechanism : mechanism.name]) == toset(["verified_email"])
+    error_message = "Staging must provide verified-email recovery and remain disposable."
   }
 }

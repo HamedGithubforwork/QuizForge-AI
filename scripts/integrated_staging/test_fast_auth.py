@@ -16,13 +16,13 @@ def pool_state(enabled):
     return {
         "id": POOL, "name": "quizforge-integrated-staging",
         "username_attributes": ["email"],
-        "auto_verified_attributes": ["email"] if enabled else [],
+        "auto_verified_attributes": ["email"],
         "admin_create_user_config": [{"allow_admin_create_user_only": not enabled}],
-        "mfa_configuration": "ON",
+        "mfa_configuration": "OPTIONAL",
         "software_token_mfa_configuration": [{"enabled": True}],
         "deletion_protection": "INACTIVE",
         "email_configuration": [{"email_sending_account": "COGNITO_DEFAULT"}],
-        "account_recovery_setting": [{"recovery_mechanism": [{"name": "admin_only", "priority": 1}]}],
+        "account_recovery_setting": [{"recovery_mechanism": [{"name": "verified_email", "priority": 1}]}],
     }
 
 
@@ -123,8 +123,9 @@ class GuardedAuthPlan(unittest.TestCase):
     def test_living_approved_modes_require_email_confirmation_and_mfa(self):
         verified = {
             "Name": "quizforge-integrated-staging", "UserPoolTier": "LITE",
-            "MfaConfiguration": "ON",
-            "AccountRecoverySetting": {"RecoveryMechanisms": [{"Name": "admin_only", "Priority": 1}]},
+            "MfaConfiguration": "OPTIONAL",
+            "AccountRecoverySetting": {"RecoveryMechanisms": [{"Name": "verified_email", "Priority": 1}]},
+            "AutoVerifiedAttributes": ["email"],
             "EmailConfiguration": {"EmailSendingAccount": "COGNITO_DEFAULT"},
             "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": True},
         }
@@ -132,13 +133,12 @@ class GuardedAuthPlan(unittest.TestCase):
         with patch("control.client") as aws:
             # DescribeUserPool does not include configured TOTP factors.
             aws.return_value.get_user_pool_mfa_config.return_value = {
-                "MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                "MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": True},
             }
             aws.return_value.describe_user_pool.return_value = {"UserPool": verified}
             self.assertFalse(control.signup_policy(values))
             aws.return_value.get_user_pool_mfa_config.assert_called_with(UserPoolId=POOL)
-            new = {**verified, "AutoVerifiedAttributes": ["email"],
-                   "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False}}
+            new = {**verified, "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False}}
             aws.return_value.describe_user_pool.return_value = {"UserPool": new}
             self.assertTrue(control.signup_policy(values))
             for altered in (
@@ -154,13 +154,13 @@ class GuardedAuthPlan(unittest.TestCase):
             aws.return_value.describe_user_pool.return_value = {"UserPool": new}
             for factor in (
                 {},
-                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": True}},
-                {"MfaConfiguration": "ON"},
-                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": False}},
-                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": "true"}},
-                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True}},
+                {"MfaConfiguration": "OPTIONAL"},
+                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": False}},
+                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": "true"}},
+                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": True},
                  "SmsMfaConfiguration": {"SmsAuthenticationMessage": "Not allowed"}},
-                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": True},
                  "EmailMfaConfiguration": {"Subject": "Not allowed"}},
             ):
                 with self.subTest(mfa_config=factor):
