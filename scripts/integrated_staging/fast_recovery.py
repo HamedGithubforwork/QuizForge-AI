@@ -58,7 +58,8 @@ def verify_plan(plan, pool_id):
     ), updated=True)
     existing = before.get("lambda_config") or []
     attached = after.get("lambda_config") or []
-    if existing or not isinstance(attached, list) or len(attached) != 1:
+    if (existing or not isinstance(attached, list) or len(attached) != 1
+            or "post_confirmation" not in attached[0]):
         raise ValueError("Recovery hook must be newly attached")
     if set(attached[0]) - {"post_confirmation", "custom_message", "define_auth_challenge",
                           "create_auth_challenge", "verify_auth_challenge_response",
