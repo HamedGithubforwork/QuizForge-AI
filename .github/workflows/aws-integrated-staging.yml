@@ -89,9 +89,45 @@ jobs:
           terraform -chdir=infra/aws/integrated-staging validate
           terraform -chdir=infra/aws/integrated-staging test
 
+  preflight:
+    name: Preflight staging state and recover expired isolated resources before builds
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      STAGING_PREFLIGHT_ACTION: run
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+      - name: Open only disposable staging Terraform state
+        run: |
+          terraform -chdir=infra/aws/integrated-staging init -reconfigure -lockfile=readonly \
+            -backend-config="bucket=$TF_VAR_foundation_state_bucket" -backend-config="key=quizforge/integrated-staging/terraform.tfstate" \
+            -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
+      - name: Verify state and recover only expired, owned staging before Docker builds
+        run: python scripts/integrated_staging/preflight.py run
+
   images:
     name: Build reviewed API and trusted integration probe
-    needs: validate
+    needs: [validate, preflight]
+    if: always() && needs.validate.result == 'success' && (github.event_name == 'pull_request' || needs.preflight.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -142,8 +178,8 @@ jobs:
 
   provision:
     name: Provision isolated integration with application tasks stopped
-    needs: [validate, images]
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run'
+    needs: [validate, preflight, images]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'run' && needs.preflight.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -413,8 +449,11 @@ jobs:
 
   cleanup:
     name: Stop or recover integrated staging and independently verify absence
-    needs: [validate, images, provision, frontend, live]
-    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))))
+    needs: [validate, preflight, images, provision, frontend, live]
+    # Never destroy an existing ACTIVE session just because preflight refuses
+    # a new run. Only explicit stop, scheduled cleanup, or downstream failure
+    # after a successful preflight may delete staging automatically.
+    if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.operation == 'stop' || (inputs.operation == 'run' && needs.preflight.result == 'success' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))))))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

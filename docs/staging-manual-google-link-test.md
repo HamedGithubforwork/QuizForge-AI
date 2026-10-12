@@ -10,7 +10,7 @@ Use this checklist to test **real Google sign-in → existing Cognito account li
 - Use a **fresh staging session** if the Google account you intend to test has already chosen **Create an empty account** in the previous session. Do not try to merge or relink an already-enrolled Google identity. A newly provisioned staging pool is isolated, so you can reuse the same Google account with the new pool.
 - **Self-registration requires no AWS Secrets Manager access.** The operator-only fixture is a fallback when signup was disabled or Cognito cannot deliver a verification email. Never share your test password, TOTP seed, or bearer tokens.
 
-- If staging has already been cleaned up, first start a fresh [Full Staging](../.github/workflows/aws-integrated-staging.yml) run with backend PR **537** and frontend PR **538**. You can check **Enable test signup** at launch, or use the **enable_test_signup** quick action after the full deployment succeeds.
+- If staging has expired or been cleaned up, start [Full Staging](../.github/workflows/aws-integrated-staging.yml) with backend PR **537** and frontend PR **538**. **Check Enable test signup before running.** Full Staging now checks isolated Terraform state before image builds; it automatically recovers only a positively identified **expired** disposable environment, waits for independent AWS absence verification, and then starts a new stack. An **active** lease or unverified/foreign state is never auto-destroyed and requires explicit stop/review.
 - Wait for the workflow's staging URL; a pull-request validation or a completed quick-update test job alone is **not** evidence the live environment is available.
 
 ## Recommended: create your own staging-only account
