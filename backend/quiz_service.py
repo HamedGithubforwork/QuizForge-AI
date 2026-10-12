@@ -483,6 +483,21 @@ async def generate_quiz_from_pages(
                 error_type=type(error).__name__,
             )
 
+            # Only the authenticated staging sidecar can return this
+            # exact response header. Never mistake upstream provider-wide
+            # rate limits or production responses for a staging budget limit.
+            headers = getattr(getattr(error, "response", None), "headers", {})
+            if (api_key.strip() == "staging-budget-guard"
+                    and getattr(error, "status_code", None) == 429
+                    and headers.get("X-QuizForge-Staging-Budget") == "exhausted"):
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "Staging AI request allowance exhausted. "
+                        "Ask the staging operator to use the GitHub "
+                        "Staging AI allowance refill action."
+                    ),
+                ) from error
             raise HTTPException(
                 status_code=502,
                 detail=(
