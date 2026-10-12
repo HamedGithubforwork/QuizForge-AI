@@ -105,7 +105,8 @@ jobs:
             "api_url": "https://api.quizfromnotes.com",
             "legacy_url": "https://vfxmsvphgcaizqnbyjip.supabase.co",
             "legacy_publishable_key": "sb_publishable_synthetic_public_key_123456789",
-            "sms_mfa_enabled": false
+            "sms_mfa_enabled": false,
+             "google_signin_enabled": false
           }
           JSON
           python scripts/production/build.py \
