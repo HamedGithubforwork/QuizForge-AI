@@ -84,6 +84,17 @@ class Quiz(BaseModel):
     questions: list[QuizQuestion]
 
 
+def is_staging_budget_exhausted(error, api_key: str) -> bool:
+    """Only the staging loopback guard's explicit HTTP header proves exhaustion."""
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", {})
+    return (
+        api_key.strip() == "staging-budget-guard"
+        and getattr(error, "status_code", None) == 429
+        and headers.get("X-QuizForge-Staging-Budget") == "exhausted"
+    )
+
+
 def validate_pdf_content_type(
     content_type: str | None,
 ):
@@ -483,6 +494,18 @@ async def generate_quiz_from_pages(
                 error_type=type(error).__name__,
             )
 
+            # Only the authenticated staging sidecar can return this
+            # exact response header. Never mistake upstream provider-wide
+            # rate limits or production responses for a staging budget limit.
+            if is_staging_budget_exhausted(error, api_key):
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        "Staging AI request allowance exhausted. "
+                        "Ask the staging operator to use the GitHub "
+                        "Staging AI allowance refill action."
+                    ),
+                ) from error
             raise HTTPException(
                 status_code=502,
                 detail=(

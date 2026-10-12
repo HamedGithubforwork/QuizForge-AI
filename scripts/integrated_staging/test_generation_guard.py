@@ -6,7 +6,7 @@ import unittest
 from uuid import uuid4
 
 from redis import Redis
-from generation_guard import bounded_request, MAX_OUTPUT_TOKENS, MAX_BODY_BYTES, RESERVE, MANUAL_DEADLINE
+from generation_guard import bounded_request, MAX_OUTPUT_TOKENS, MAX_BODY_BYTES, RESERVE, MAX_CALLS, MANUAL_DEADLINE
 from guards import MANUAL_DEADLINE as LIFECYCLE_MANUAL_DEADLINE
 from pathlib import Path
 
@@ -77,18 +77,18 @@ class DistributedBudget(unittest.TestCase):
         remaining, calls = prefix + ":remaining", prefix + ":calls"
         try:
             self.assertEqual(clients[0].eval(RESERVE, 2, remaining, calls), 0)
-            clients[0].set(remaining, 2)
+            clients[0].set(remaining, MAX_CALLS)
             with ThreadPoolExecutor(max_workers=16) as workers:
                 results = list(workers.map(lambda c:c.eval(RESERVE, 2, remaining, calls), clients))
-            self.assertEqual(sum(results), 2)
-            self.assertEqual(clients[0].get(calls), b"2")
+            self.assertEqual(sum(results), MAX_CALLS)
+            self.assertEqual(clients[0].get(calls), str(MAX_CALLS).encode())
             self.assertEqual(clients[0].get(remaining), b"0")
             self.assertEqual(clients[0].ttl(remaining), -1)
             with Redis.from_url(os.environ["INTEGRATED_TEST_REDIS_URL"]) as replacement:
                 self.assertEqual(replacement.eval(RESERVE, 2, remaining, calls), 0)
                 replacement.delete(remaining)
                 self.assertEqual(replacement.eval(RESERVE, 2, remaining, calls), 0)
-                self.assertEqual(replacement.get(calls), b"2")
+                self.assertEqual(replacement.get(calls), str(MAX_CALLS).encode())
         finally:
             clients[0].delete(remaining, calls)
             for client in clients:

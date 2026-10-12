@@ -63,7 +63,7 @@ def main(phase):
         assert cache.set(BUDGET_KEY, MAX_CALLS, nx=True), "Generation budget was already initialized"
         assert cache.get(CALLS_KEY) is None
         assert cache.ttl(BUDGET_KEY) == -1
-        print("PASS: private TLS Valkey ready; non-expiring two-request model budget initialized exactly once")
+        print("PASS: private TLS Valkey ready; non-expiring ten-request model budget initialized exactly once")
     with psycopg.connect(**options(os.environ)) as conn:
         assert conn.execute("SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()").fetchone()["ssl"]
         if phase == "seed":

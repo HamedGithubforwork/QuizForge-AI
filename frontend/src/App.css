@@ -1721,3 +1721,27 @@ button {
     scroll-margin-top: 0;
   }
 }
+
+/* Visible only on the explicitly configured disposable Cognito staging build. */
+.staging-allowance {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0;
+  color: #414a66;
+  font-size: 14px;
+}
+
+.staging-allowance button {
+  padding: 6px 12px;
+  border: 1px solid #d4d9eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #303b71;
+  cursor: pointer;
+}
+
+.staging-allowance button:hover {
+  background: #f2f4ff;
+}

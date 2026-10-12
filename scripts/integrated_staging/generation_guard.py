@@ -18,7 +18,7 @@ from guards import MANUAL_DEADLINE
 
 BUDGET_KEY = "integration:openai:remaining"
 CALLS_KEY = "integration:openai:calls"
-MAX_CALLS = 2
+MAX_CALLS = 10
 MAX_BODY_BYTES = 32768
 MAX_OUTPUT_TOKENS = 4096
 RESERVE = """
@@ -60,9 +60,11 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # No request bodies, credentials or upstream error text in logs.
 
-    def reply(self, status, body):
+    def reply(self, status, body, *, budget_exhausted=False):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        if budget_exhausted:
+            self.send_header("X-QuizForge-Staging-Budget", "exhausted")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -82,7 +84,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Incomplete request")
             body = bounded_request(raw, os.environ["STAGING_DEADLINE"])
             if self.server.cache.eval(RESERVE, 2, BUDGET_KEY, CALLS_KEY) != 1:
-                self.reply(429, b'{"error":{"message":"Staging generation budget exhausted"}}')
+                self.reply(429, b'{"error":{"message":"Staging generation budget exhausted"}}', budget_exhausted=True)
                 return
             # Fixed host/path, TLS certificate validation, no redirects or retries.
             upstream = HTTPSConnection("api.openai.com", timeout=100)

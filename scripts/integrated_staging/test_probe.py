@@ -17,6 +17,7 @@ fixtures = importlib.util.module_from_spec(spec)
 sys.modules["probe_fixtures"] = fixtures
 spec.loader.exec_module(fixtures)
 from probe import verify_cache
+from generation_guard import MAX_CALLS
 
 
 @unittest.skipUnless(os.getenv("INTEGRATED_TEST_REDIS_URL"), "Requires disposable CI Valkey")
@@ -45,7 +46,7 @@ class CognitoRateIdentity(unittest.TestCase):
         for name, value in metrics.items():
             self.cache.set("quizforge:metrics:" + name, value)
         self.cache.set("integration:openai:calls", 1)
-        self.cache.set("integration:openai:remaining", 1)
+        self.cache.set("integration:openai:remaining", MAX_CALLS - 1)
         self.cache.lpush("quizforge:metrics:timing:openai_generation_latency_ms", 1)
         # Exact identity format returned by the reviewed application's Cognito auth.
         self.rate = "quizforge:rate:cognito:ca-central-1_ProbeTest:11111111-1111-4111-8111-111111111111"

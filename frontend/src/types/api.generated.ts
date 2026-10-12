@@ -82,6 +82,7 @@ export const API_ROUTES = [
   "GET /api/admin/metrics",
   "GET /api/documents/{document_sha256}/pages/{page_number}",
   "GET /api/health",
+  "GET /api/staging/ai-budget",
   "POST /api/answers/review",
   "POST /api/documents/upload",
   "POST /api/quizzes/generate",
