@@ -9,6 +9,14 @@ mock_provider "aws" {
   mock_resource "aws_iam_role" {
     defaults = { arn = "arn:aws:iam::123456789012:role/mock-integration" }
   }
+  mock_resource "aws_cognito_user_pool" {
+    override_during = plan
+    defaults = { arn = "arn:aws:cognito-idp:ca-central-1:123456789012:userpool/ca-central-1_Staging" }
+  }
+  mock_resource "aws_lambda_function" {
+    override_during = plan
+    defaults = { arn = "arn:aws:lambda:ca-central-1:123456789012:function:quizforge-integrated-staging-recovery" }
+  }
   mock_resource "aws_lb" {
     defaults = {
       arn      = "arn:aws:elasticloadbalancing:ca-central-1:123456789012:loadbalancer/app/quizforge-integrated-staging/0000000000000000"
