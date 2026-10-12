@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock -r scripts/integrated_staging/redis.lock
       - run: python -m unittest discover -s scripts/integrated_staging -p 'test_ai_budget.py' -v
       - run: python -m unittest discover -s scripts/integrated_staging -p 'test_generation_guard.py' -v
 
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
-      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
+      - run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock -r scripts/integrated_staging/redis.lock
       - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.14.7"
