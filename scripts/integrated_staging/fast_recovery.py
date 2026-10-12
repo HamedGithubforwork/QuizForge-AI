@@ -247,8 +247,8 @@ def live_attached(pool_id):
 
 def reviewed_lambda_source(source):
     """Only one exact post-confirmation Terraform block is permissible."""
-    matches = re.findall(r"(?m)^\\s*lambda_config\\s*\\{([^{}]*)\\}", source)
-    if len(matches) != 1 or re.sub(r"\\s+", "", matches[0]) != (
+    matches = re.findall(r"(?m)^\s*lambda_config\s*\{([^{}]*)\}", source)
+    if len(matches) != 1 or re.sub(r"\s+", "", matches[0]) != (
         "post_confirmation=aws_lambda_function.recovery.arn"
     ):
         raise ValueError("Staging source defines unreviewed Cognito Lambda triggers")
