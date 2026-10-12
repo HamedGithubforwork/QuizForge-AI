@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from fast_frontend import REQUIRED, NAME, checked_config, publish
+from guards import MANUAL_DEADLINE
 
 
 class FastFrontendChecks(unittest.TestCase):
@@ -34,6 +35,15 @@ class FastFrontendChecks(unittest.TestCase):
             checked_config(list(REQUIRED) + ["aws_db_instance.production"], self.values())
         with self.assertRaises(ValueError):
             checked_config(list(REQUIRED), {**self.values(), "name": "production"})
+
+    def test_manual_stop_site_allows_quick_updates_without_deadline(self):
+        now = datetime.now(timezone.utc)
+        v = {**self.values(now), "deadline": MANUAL_DEADLINE}
+        self.assertEqual(checked_config(list(REQUIRED), v, now)["deadline"], MANUAL_DEADLINE)
+        self.assertEqual(
+            checked_config(list(REQUIRED), v, now + timedelta(days=40))["deadline"],
+            MANUAL_DEADLINE,
+        )
 
     def test_wrong_api_pool_and_expiring_or_extended_lease_fail_closed(self):
         now = datetime.now(timezone.utc)
