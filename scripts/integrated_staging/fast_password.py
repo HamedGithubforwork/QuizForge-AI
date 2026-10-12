@@ -122,9 +122,9 @@ def update():
             or live_minimum(pool_id) != AFTER):
             raise ValueError("Staging changed unexpectedly during password update")
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
-            out.write("## Staging password policy aligned with production\\n\\n")
-            out.write(f"[Open existing staging site]({config['frontend_url']}/)\\n\\n")
-            out.write("Minimum 14 → 8 characters; all four complexity requirements and mandatory TOTP preserved. No other staging resource or production resource changed.\\n")
+            out.write("## Staging password policy aligned with production\n\n")
+            out.write(f"[Open existing staging site]({config['frontend_url']}/)\n\n")
+            out.write("Minimum 14 → 8 characters; all four complexity requirements and mandatory TOTP preserved. No other staging resource or production resource changed.\n")
         print("PASS: staged Cognito-only password minimum updated from 14 to 8")
     finally:
         temp.unlink(missing_ok=True)
