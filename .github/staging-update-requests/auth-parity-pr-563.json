@@ -1,0 +1,6 @@
+{
+  "operation": "align_auth_parity",
+  "pull_request": 563,
+  "environment": "quizforge-integrated-staging",
+  "mode": "one-time-merge-only"
+}

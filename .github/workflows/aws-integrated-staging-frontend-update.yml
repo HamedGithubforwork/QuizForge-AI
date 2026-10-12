@@ -1,6 +1,11 @@
 name: AWS staging quick update
 
 on:
+  # A specific, reviewed, one-time merge request; not every code push.
+  push:
+    branches: [main]
+    paths:
+      - ".github/staging-update-requests/auth-parity-pr-563.json"
   pull_request:
     paths:
       - ".github/workflows/aws-integrated-staging-frontend-update.yml"
@@ -12,6 +17,9 @@ on:
       - "scripts/integrated_staging/test_fast_password.py"
       - "scripts/integrated_staging/fast_parity.py"
       - "scripts/integrated_staging/test_fast_parity.py"
+      - "scripts/integrated_staging/auto_parity_merge.py"
+      - "scripts/integrated_staging/test_auto_parity_merge.py"
+      - ".github/staging-update-requests/auth-parity-pr-563.json"
       - "scripts/integrated_staging/control.py"
       - "scripts/integrated_staging/build.py"
       - "infra/aws/integrated-staging/main.tf"
@@ -34,7 +42,7 @@ permissions:
 
 # Serialize with full provision/stop/scheduled cleanup. Never extend the lease.
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && 'quizforge-integrated-staging' || format('quizforge-fast-refresh-pr-{0}', github.event.pull_request.number) }}
+  group: ${{ github.event_name == 'pull_request' && format('quizforge-fast-refresh-pr-{0}', github.event.pull_request.number) || 'quizforge-integrated-staging' }}
   cancel-in-progress: false
 
 env:
@@ -65,7 +73,8 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_password.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_parity.py' -v
-          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py
+          python -m unittest discover -s scripts/integrated_staging -p 'test_auto_parity_merge.py' -v
+          python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py scripts/integrated_staging/auto_parity_merge.py
 
   resolve:
     name: Verify exact frontend PR commit
@@ -170,7 +179,7 @@ jobs:
 
   parity:
     name: Align only existing disposable staging Cognito with production auth policy
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'align_auth_parity'
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.operation == 'align_auth_parity') || github.event_name == 'push')
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -183,6 +192,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Verify one-time reviewed main-merge authorization
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/integrated_staging/auto_parity_merge.py
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
