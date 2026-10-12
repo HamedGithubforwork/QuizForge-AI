@@ -23,6 +23,10 @@ on:
         description: "Frontend PR with passing exact-commit checks"
         type: string
         default: "538"
+      enable_test_signup:
+        description: "Allow temporary email-verified account creation for manual Google-linking tests (not production)"
+        type: boolean
+        default: false
   schedule:
     - cron: "47 * * * *"
 
@@ -38,6 +42,9 @@ env:
   TF_VAR_hostname: ${{ vars.AWS_STAGING_API_HOSTNAME }}
   TF_VAR_certificate_arn: ${{ vars.AWS_STAGING_CERTIFICATE_ARN }}
   TF_VAR_zone_id: ${{ vars.AWS_STAGING_ZONE_ID }}
+  # Only an explicitly requested full staging run permits self-registration.
+  TF_VAR_enable_test_signup: ${{ inputs.enable_test_signup && inputs.operation == 'run' && 'true' || 'false' }}
+  STAGING_SELF_SIGNUP: ${{ inputs.enable_test_signup && inputs.operation == 'run' && 'true' || 'false' }}
   # Existing strict HTTPS prerequisite validator reads these names.
   TF_VAR_staging_hostname: ${{ vars.AWS_STAGING_API_HOSTNAME }}
   TF_VAR_staging_certificate_arn: ${{ vars.AWS_STAGING_CERTIFICATE_ARN }}
@@ -394,8 +401,12 @@ jobs:
               summary.write(f"Google OAuth redirect URI: `{auth}/oauth2/idpresponse`\n\n")
               summary.write("Automated checks cover Cognito password/MFA and the quiz flow. Google OAuth and account linking still require the real-provider checklist.\n\n")
               summary.write("## Existing-account Google linking test\n\n")
-              summary.write("Public email/password sign-up is disabled. The workflow already seeded a disposable password+TOTP account.\n\n")
-              summary.write("[Operator instructions: retrieve the staging-only mapped fixture in AWS Secrets Manager and test real Google linking](https://github.com/HamedGithubforwork/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\n\n")
+              if os.environ["STAGING_SELF_SIGNUP"] == "true":
+                  summary.write("**Temporary manual sign-up enabled:** Select Create account, verify the email confirmation code, and complete mandatory authenticator MFA.\n\n")
+                  summary.write("Only this isolated staging pool permits signup; scheduled cleanup deletes its users.\n\n")
+              else:
+                  summary.write("Public email/password sign-up is disabled (default). The workflow seeded a disposable password+TOTP account.\n\n")
+              summary.write("[Manual Google account-linking guide (self-signup or operator fixture)](https://github.com/HamedGithubforwork/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\n\n")
               summary.write("Never print fixture passwords, TOTP seeds, bearer tokens or the full secret in Actions logs.\n\n")
               summary.write("This temporary environment is removed by the hourly cleanup or a manual `stop` run.\n")
           PY
