@@ -172,6 +172,13 @@ def verify_plan(plan, pool_id, *, expected_hook_arn=None):
     # and the new Lambda ARN as after_unknown until the function is created.
     _review_lambda_change(changes[POOL], expected_hook_arn=expected_hook_arn)
     diff = {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)}
+    # Computed nested attributes may be absent from planned `after` even
+    # though after_unknown proves exactly one new post-confirmation binding.
+    pending = (changes[POOL].get("after_unknown") or {}).get("lambda_config") or []
+    if isinstance(pending, list) and len(pending) == 1 and (
+        isinstance(pending[0], dict) and pending[0].get("post_confirmation") is True
+    ):
+        diff.add("lambda_config")
     if diff != {"lambda_config"}:
         raise ValueError("Recovery migration may only attach one Cognito trigger")
     resource = changes["aws_lambda_function.recovery"].get("after") or {}
