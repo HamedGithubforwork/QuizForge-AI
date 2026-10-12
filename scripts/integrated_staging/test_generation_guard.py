@@ -6,7 +6,9 @@ import unittest
 from uuid import uuid4
 
 from redis import Redis
-from generation_guard import bounded_request, MAX_OUTPUT_TOKENS, MAX_BODY_BYTES, RESERVE
+from generation_guard import bounded_request, MAX_OUTPUT_TOKENS, MAX_BODY_BYTES, RESERVE, MANUAL_DEADLINE
+from guards import MANUAL_DEADLINE as LIFECYCLE_MANUAL_DEADLINE
+from pathlib import Path
 
 
 class RequestBoundaries(unittest.TestCase):
@@ -31,6 +33,32 @@ class RequestBoundaries(unittest.TestCase):
                        {"input":[{"role":"assistant", "content":"old"}]}, {"input":[]}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.bounded(self.body | change)
+
+    def test_manual_stop_generation_is_allowed_but_only_for_exact_marker(self):
+        self.assertEqual(MANUAL_DEADLINE, LIFECYCLE_MANUAL_DEADLINE)
+        # Full Staging #112 used this exact deadline; the old 7300-second
+        # check rejected it before invoking the real model.
+        original = json.loads(bounded_request(
+            json.dumps(self.body).encode(), MANUAL_DEADLINE, self.now,
+        ))
+        self.assertEqual(original["model"], "gpt-5.6-luna")
+        self.assertEqual(original["max_output_tokens"], MAX_OUTPUT_TOKENS)
+        self.assertIs(original["store"], False)
+        for bad in ("2099-12-31T23:59:58Z", "2099-12-31T23:59:59+00:00",
+                    "2098-12-31T23:59:59Z", "2100-01-01T00:00:00Z"):
+            with self.subTest(deadline=bad), self.assertRaises(ValueError):
+                bounded_request(json.dumps(self.body).encode(), bad, self.now)
+        with self.assertRaises(ValueError):
+            bounded_request(json.dumps(self.body | {"tools": []}).encode(),
+                            MANUAL_DEADLINE, self.now)
+        with self.assertRaises(ValueError):
+            bounded_request(json.dumps(self.body | {"model": "unapproved-model"}).encode(),
+                            MANUAL_DEADLINE, self.now)
+
+    def test_probe_image_packages_shared_manual_staging_deadline(self):
+        dockerfile = (Path(__file__).resolve().parent / "probe.Dockerfile").read_text()
+        self.assertIn("scripts/integrated_staging/guards.py ", dockerfile)
+        self.assertIn("scripts/integrated_staging/generation_guard.py ", dockerfile)
 
     def test_expiry_extended_lease_and_oversize_fail_closed(self):
         for hours in (-1, 3):
