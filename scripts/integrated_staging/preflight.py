@@ -95,10 +95,10 @@ def run():
     # builds/provisioning. An orphaned stack with no state always fails closed.
     control.absent()
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-        summary.write("## Staging preflight ready\\n\\n")
-        summary.write(f"Previous staging: {'expired isolated stack recovered and independently verified absent' if mode == 'expired' else 'no isolated stack; independently verified absent'}.\\n\\n")
-        summary.write(f"**Create account on staging:** {'ENABLED for this new temporary deployment' if signup else 'DISABLED (default)'}.\\n\\n")
-        summary.write("No production resources or accounts were modified. The new staging pool will be temporary.\\n")
+        summary.write("## Staging preflight ready\n\n")
+        summary.write(f"Previous staging: {'expired isolated stack recovered and independently verified absent' if mode == 'expired' else 'no isolated stack; independently verified absent'}.\n\n")
+        summary.write(f"**Create account on staging:** {'ENABLED for this new temporary deployment' if signup else 'DISABLED (default)'}.\n\n")
+        summary.write("No production resources or accounts were modified. The new staging pool will be temporary.\n")
     print("PASS: owned expired staging recovered or absent; independent absence verified before image builds")
     print("PASS: temporary staging email/password signup " + ("requested" if signup else "disabled (default)"))
 
