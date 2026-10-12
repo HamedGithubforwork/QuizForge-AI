@@ -23,7 +23,9 @@ def public_config(config):
             or not re.fullmatch(r"[a-z0-9]{1,128}",config["client"])
             or not re.fullmatch(r"https://quizforge-[0-9]{12}\.auth\.ca-central-1\.amazoncognito\.com",config["auth_origin"])):
         raise ValueError("Unexpected production endpoint configuration")
-    if type(config["google_signin_enabled"]) is not bool:\n        raise ValueError("Google sign-in availability must be an explicit boolean")\n    key = config["legacy_publishable_key"]
+    if type(config["google_signin_enabled"]) is not bool:
+        raise ValueError("Google sign-in availability must be an explicit boolean")
+    key = config["legacy_publishable_key"]
     if re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}",key):
         return config
     try:
