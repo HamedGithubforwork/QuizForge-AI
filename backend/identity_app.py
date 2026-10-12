@@ -15,7 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from cognito_auth import CognitoSettings, verifier_for
 from history_database import connection_settings
 from identity_database import IdentityRepository, check_identity_role
-from identity_proofs import Identity, supabase_link_proof
+from identity_proofs import Identity, cognito_link_proof, supabase_link_proof
 
 
 class Intent(BaseModel):
@@ -93,7 +93,7 @@ def create_identity_app():
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(CORSMiddleware, allow_origins=[origin], allow_methods=["GET", "POST"],
-                       allow_headers=["Authorization", "Content-Type", "X-Legacy-Authorization"])
+                       allow_headers=["Authorization", "Content-Type", "X-Legacy-Authorization", "X-Cognito-Link-Authorization"])
 
     @app.middleware("http")
     async def protect(request, call_next):
@@ -113,19 +113,27 @@ def create_identity_app():
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
 
-    async def repository(request, authorization, legacy_authorization, mode=None):
+    async def repository(request, authorization, legacy_authorization, mode=None, cognito_link_authorization=None):
         if not authorization or not authorization.startswith("Bearer "):
             raise HTTPException(401, "Sign in to Cognito first.")
-        subject, email = await verifier_for(cognito).verify(authorization[7:], request.app.state.http,
-                                                           max_auth_age=300 if mode else None)
-        legacy = None
+        verifier = verifier_for(cognito)
+        subject, email = await verifier.verify(authorization[7:], request.app.state.http,
+                                               max_auth_age=300 if mode else None)
+        if legacy_authorization is not None and cognito_link_authorization is not None:
+            raise HTTPException(400, "Use one existing-account ownership proof at a time.")
+        existing = None
         if mode == "link":
-            if not legacy_url or not legacy_authorization or not legacy_authorization.startswith("Bearer "):
-                raise HTTPException(401, "A fresh sign-in to the existing account is required.")
-            legacy = await supabase_link_proof(legacy_authorization[7:], request.app.state.http, legacy_url, legacy_key)
-        elif legacy_authorization:
-            raise HTTPException(400, "Legacy proof is only accepted for account linking.")
-        return IdentityRepository(request.app.state.pool, Identity(cognito.issuer, subject), legacy), subject, email
+            if cognito_link_authorization is not None:
+                existing = await cognito_link_proof(cognito_link_authorization, verifier,
+                                                    request.app.state.http, cognito.issuer, subject)
+            else:
+                if not legacy_url or not legacy_authorization or not legacy_authorization.startswith("Bearer "):
+                    raise HTTPException(401, "A fresh sign-in to the existing account is required.")
+                existing = await supabase_link_proof(legacy_authorization[7:], request.app.state.http,
+                                                    legacy_url, legacy_key)
+        elif legacy_authorization is not None or cognito_link_authorization is not None:
+            raise HTTPException(400, "Existing-account proof is only accepted for account linking.")
+        return IdentityRepository(request.app.state.pool, Identity(cognito.issuer, subject), existing), subject, email
 
     @app.get("/identity/session")
     async def session(request: Request, authorization: str | None = Header(default=None)):
@@ -134,14 +142,18 @@ def create_identity_app():
 
     @app.post("/identity/challenge")
     async def challenge(body: Intent, request: Request, authorization: str | None = Header(default=None),
-                        x_legacy_authorization: str | None = Header(default=None)):
-        repo, _, _ = await repository(request, authorization, x_legacy_authorization, body.mode)
+                        x_legacy_authorization: str | None = Header(default=None),
+                        x_cognito_link_authorization: str | None = Header(default=None)):
+        repo, _, _ = await repository(request, authorization, x_legacy_authorization, body.mode,
+                                      x_cognito_link_authorization)
         return {"nonce": await repo.challenge(body.mode), "expires_in": 300}
 
     @app.post("/identity/confirm", status_code=204)
     async def confirm(body: Confirmation, request: Request, authorization: str | None = Header(default=None),
-                      x_legacy_authorization: str | None = Header(default=None)):
-        repo, _, _ = await repository(request, authorization, x_legacy_authorization, body.mode)
+                      x_legacy_authorization: str | None = Header(default=None),
+                      x_cognito_link_authorization: str | None = Header(default=None)):
+        repo, _, _ = await repository(request, authorization, x_legacy_authorization, body.mode,
+                                      x_cognito_link_authorization)
         await repo.confirm(body.nonce, body.mode)
 
     return app
