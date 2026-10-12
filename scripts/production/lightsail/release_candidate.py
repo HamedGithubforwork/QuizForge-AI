@@ -100,6 +100,36 @@ def discover_public_config(source: dict[str, str], sts, cognito) -> dict[str, st
     if description.get("UserPoolId") != pool_id:
         raise ValueError("Production Cognito domain is not attached to expected pool")
 
+    # Google can appear in a production build ONLY after the exact existing
+    # browser client and its live IdP configuration are confirmed. No secrets
+    # are returned or printed. Terraform defaults the provider to disabled.
+    browser = cognito.describe_user_pool_client(
+        UserPoolId=pool_id, ClientId=client_id
+    ).get("UserPoolClient", {})
+    if browser.get("ClientId") != client_id:
+        raise ValueError("Production browser client could not be verified")
+    providers = browser.get("SupportedIdentityProviders") or []
+    if not isinstance(providers, list) or set(providers) not in (
+        {"COGNITO"}, {"COGNITO", "Google"}
+    ):
+        raise ValueError("Unexpected production identity providers")
+    if (browser.get("CallbackURLs") != ["https://quizfromnotes.com/auth/callback"]
+            or browser.get("LogoutURLs") != ["https://quizfromnotes.com/"]
+            or browser.get("AllowedOAuthFlows") != ["code"]
+            or browser.get("GenerateSecret") is True):
+        raise ValueError("Unexpected production OAuth browser configuration")
+    google_enabled = "Google" in providers
+    if google_enabled:
+        provider = cognito.describe_identity_provider(
+            UserPoolId=pool_id, ProviderName="Google"
+        ).get("IdentityProvider", {})
+        details = provider.get("ProviderDetails") or {}
+        if (provider.get("ProviderType") != "Google"
+                or not isinstance(details, dict)
+                or not details.get("client_id", "").endswith(".apps.googleusercontent.com")
+                or details.get("authorize_scopes") != "openid email"):
+            raise ValueError("Production Google provider has not been verified")
+
     mfa = cognito.get_user_pool_mfa_config(UserPoolId=pool_id)
     sms_mfa_enabled = bool(mfa.get("SmsMfaConfiguration"))
 
@@ -111,7 +141,7 @@ def discover_public_config(source: dict[str, str], sts, cognito) -> dict[str, st
         "api_url": "https://api.quizfromnotes.com",
         "legacy_url": source["legacy_url"],
         "legacy_publishable_key": source["legacy_publishable_key"],
-        "sms_mfa_enabled": sms_mfa_enabled,
+        "sms_mfa_enabled": sms_mfa_enabled,\n        "google_signin_enabled": google_enabled,
     }
     return public_config(config)
 
@@ -142,7 +172,7 @@ def safe_public_summary(config: dict[str, str]) -> dict[str, Any]:
                 config.get("legacy_publishable_key", ""),
             )
         ),
-        "sms_mfa_enabled": config.get("sms_mfa_enabled") is True,
+        "sms_mfa_enabled": config.get("sms_mfa_enabled") is True,\n        "google_signin_enabled": config.get("google_signin_enabled") is True,
     }
 
 
