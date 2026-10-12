@@ -7,6 +7,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -29,6 +30,11 @@ SAFE_REJECTION_REASONS = frozenset({
     "Exactly five new hook resources and one pool update required",
     "No old or new Cognito pool configuration",
     "Recovery hook must be newly attached",
+    "Existing staging plan contains an active Lambda trigger",
+    "Unexpected planned Cognito Lambda block shape",
+    "Unapproved additional Lambda trigger",
+    "Planned post-confirmation trigger is not proven",
+    "Unexpected staging recovery Lambda ARN",
     "Unexpected Lambda triggers",
     "Only post-confirmation recovery trigger is authorized",
     "Recovery migration may only attach one Cognito trigger",
@@ -63,7 +69,53 @@ NEW = frozenset({
 })
 
 
-def verify_plan(plan, pool_id):
+def _blank(value):
+    """Empty defaults are not an attached Cognito Lambda trigger."""
+    if value is None or value == "" or value is False:
+        return True
+    if isinstance(value, (list, dict)):
+        values = value.values() if isinstance(value, dict) else value
+        return all(_blank(item) for item in values)
+    return False
+
+
+def _review_lambda_change(change, *, expected_hook_arn=None):
+    before, after = change["before"], change["after"]
+    previous = before.get("lambda_config") or []
+    if not isinstance(previous, list) or len(previous) > 1 or not _blank(previous):
+        raise ValueError("Existing staging plan contains an active Lambda trigger")
+
+    proposed = after.get("lambda_config") or []
+    computed = (change.get("after_unknown") or {}).get("lambda_config") or []
+    if not isinstance(computed, list) or len(computed) > 1 or (
+        len(computed) == 1 and not isinstance(computed[0], dict)
+    ):
+        raise ValueError("Unexpected planned Cognito Lambda block shape")
+    if not isinstance(proposed, list) or len(proposed) > 1 or (
+        len(proposed) == 1 and not isinstance(proposed[0], dict)
+    ) or (not proposed and len(computed) != 1):
+        raise ValueError("Unexpected planned Cognito Lambda block shape")
+
+    known = proposed[0] if proposed else {}
+    unknown = computed[0] if computed else {}
+    if any(not _blank(v) for k, v in known.items() if k != "post_confirmation"):
+        raise ValueError("Unapproved additional Lambda trigger")
+    if any(not _blank(v) for k, v in unknown.items() if k != "post_confirmation"):
+        raise ValueError("Unapproved additional Lambda trigger")
+
+    arn = known.get("post_confirmation")
+    if arn:
+        if not isinstance(arn, str) or not re.fullmatch(
+            r"arn:aws:lambda:ca-central-1:[0-9]{12}:function:quizforge-integrated-staging-recovery",
+            arn,
+        ) or (expected_hook_arn is not None and arn != expected_hook_arn):
+            raise ValueError("Unexpected staging recovery Lambda ARN")
+    elif unknown.get("post_confirmation") is not True:
+        raise ValueError("Planned post-confirmation trigger is not proven")
+    return True
+
+
+def verify_plan(plan, pool_id, *, expected_hook_arn=None):
     if (not isinstance(plan, dict) or plan.get("errored")
             or not plan.get("format_version") or plan.get("resource_drift")):
         raise ValueError("Unexpected Terraform plan or resource drift")
@@ -91,19 +143,9 @@ def verify_plan(plan, pool_id):
     fast_parity._pool(after, pool_id, signup=(
         not before["admin_create_user_config"][0]["allow_admin_create_user_only"]
     ), updated=True)
-    existing = before.get("lambda_config") or []
-    attached = after.get("lambda_config") or []
-    if (existing or not isinstance(attached, list) or len(attached) != 1
-            or "post_confirmation" not in attached[0]):
-        raise ValueError("Recovery hook must be newly attached")
-    if set(attached[0]) - {"post_confirmation", "custom_message", "define_auth_challenge",
-                          "create_auth_challenge", "verify_auth_challenge_response",
-                          "pre_sign_up", "pre_authentication", "post_authentication",
-                          "pre_token_generation", "user_migration", "custom_email_sender",
-                          "custom_sms_sender", "kms_key_id", "pre_token_generation_config"}:
-        raise ValueError("Unexpected Lambda triggers")
-    if any(value for key, value in attached[0].items() if key != "post_confirmation"):
-        raise ValueError("Only post-confirmation recovery trigger is authorized")
+    # Terraform may represent absent Cognito LambdaConfig as one empty map,
+    # and the new Lambda ARN as after_unknown until the function is created.
+    _review_lambda_change(changes[POOL], expected_hook_arn=expected_hook_arn)
     diff = {k for k in before.keys() | after.keys() if before.get(k) != after.get(k)}
     if diff != {"lambda_config"}:
         raise ValueError("Recovery migration may only attach one Cognito trigger")
@@ -185,7 +227,7 @@ def update():
         plan = json.loads(fast_auth._terraform("show", "-json", str(plan_path)))
         checkpoint("audit-targeted-terraform-plan")
         try:
-            verify_plan(plan, pool_id)
+            verify_plan(plan, pool_id, expected_hook_arn=expected_arn())
         except ValueError as error:
             reason = str(error)
             if reason in SAFE_REJECTION_REASONS:
