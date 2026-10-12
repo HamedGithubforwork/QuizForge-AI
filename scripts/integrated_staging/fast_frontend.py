@@ -13,7 +13,7 @@ import time
 from urllib.request import Request, urlopen
 
 import control
-from guards import HOST, NAME, permitted_state, public_config
+from guards import HOST, MANUAL_DEADLINE, NAME, permitted_state, public_config
 
 REQUIRED = {
     "aws_s3_bucket.site", "aws_s3_bucket_policy.site",
@@ -38,11 +38,13 @@ def checked_config(resources, values, now=None):
         "api_url": values["api_url"],
         "deadline": values["deadline"],
     })
-    remaining = datetime.fromisoformat(data["deadline"].replace("Z", "+00:00")) - (
-        now or datetime.now(timezone.utc)
-    )
-    if remaining.total_seconds() < MINIMUM_REMAINING_SECONDS:
-        raise ValueError("Staging lease is nearly expired; start a fresh full run.")
+    if data["deadline"] != MANUAL_DEADLINE:
+        # Legacy two-hour sites must not be refreshed after their app expiry.
+        remaining = datetime.fromisoformat(data["deadline"].replace("Z", "+00:00")) - (
+            now or datetime.now(timezone.utc)
+        )
+        if remaining.total_seconds() < MINIMUM_REMAINING_SECONDS:
+            raise ValueError("Legacy staging app deadline is near; start a manual-stop staging session.")
     return data
 
 
@@ -106,7 +108,7 @@ def live():
 def export():
     _, config = live()
     Path("integration-config.json").write_text(json.dumps(config, sort_keys=True))
-    print("PASS: live disposable staging lease and public frontend settings verified")
+    print("PASS: existing operator-controlled staging and public frontend settings verified")
 
 
 def publish():
@@ -151,7 +153,7 @@ def publish():
         time.sleep(4)
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
         output.write(f"## Fast frontend update succeeded\n\n[Open existing staging URL]({url})\n\n")
-        output.write("No database, Cognito, backend, infrastructure or lease changes.\n")
+        output.write("No database, Cognito, backend or infrastructure changes. Staging continues until manual Stop.\n")
     print("PASS: reviewed frontend published to existing staging URL without infrastructure changes")
 
 
