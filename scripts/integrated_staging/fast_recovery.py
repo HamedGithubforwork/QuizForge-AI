@@ -191,6 +191,12 @@ def update():
             if reason in SAFE_REJECTION_REASONS:
                 print("STAGING_RECOVERY_GUARD=" + reason, flush=True)
             raise
+        # The merge-triggered diagnostic has no apply path. A reviewed,
+        # explicitly marked main push can only report guard status.
+        if os.environ.get("STAGING_RECOVERY_DRY_RUN") == "true":
+            checkpoint("diagnostic-only-no-aws-mutations")
+            print("PASS: recovery Terraform plan meets allowed constraints; no apply attempted", flush=True)
+            return
         checkpoint("recheck-live-environment")
         current, current_config = fast_frontend.live()
         if current != values or current_config != config or live_attached(pool_id):
