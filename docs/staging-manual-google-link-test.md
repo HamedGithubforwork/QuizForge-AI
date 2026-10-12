@@ -1,16 +1,26 @@
 # Manual real-provider Google account-link test (disposable integrated staging)
 
-Use this checklist to test **real Google sign-in → existing Cognito account linking → retained quiz history** without creating a production account or opening public sign-up. This is a **manual acceptance test**; the automated AWS browser tests do not exercise a real Google provider round-trip.
+Use this checklist to test **real Google sign-in → existing Cognito account linking → retained quiz history** without creating a production account. A full staging run can optionally allow **temporary, email-verified signup** for manual testing; this never affects production. This is a **manual acceptance test**; the automated AWS browser tests do not exercise a real Google provider round-trip.
 
 ## Prerequisites
 
-- Run the trusted [AWS Google sign-in staging preview](../.github/workflows/aws-integrated-staging.yml) from `main` with the reviewed backend PR **537** and frontend PR **538**. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
+- Run the trusted [AWS Google sign-in staging preview](../.github/workflows/aws-integrated-staging.yml) from `main` with the reviewed backend PR **537** and frontend PR **538**. For self-service email registration select **Enable test signup** in the Run workflow form. The default is OFF and the choice applies only to a **new full** staging deployment, not to Fast Frontend Update. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
 - Work promptly. The isolated site is destroyed by the hourly cleanup (minute 47) or a manual `stop` run; an edge lease is at most two hours and does not guarantee a two-hour window. Start shortly after a cleanup tick to allow enough manual testing time.
-- The test pool has `allow_admin_create_user_only=true` and no public email delivery. **Do not enable public sign-up**: the full staging workflow *already prepares three disposable password+TOTP users* in `scripts/integrated_staging/control.py::prepare`.
+- Without the explicit **Enable test signup** input, the pool stays administrator-only, with no registration email delivery. When enabled, Cognito requires email confirmation and authenticator MFA; Cognito's built-in email delivery has a limited quota, so a confirmation message may be delayed or unavailable. The full staging workflow still prepares three disposable password+TOTP users as a fallback.
 - Use a **fresh staging session** if the Google account you intend to test has already chosen **Create an empty account** in the previous session. Do not try to merge or relink an already-enrolled Google identity. A newly provisioned staging pool is isolated, so you can reuse the same Google account with the new pool.
-- You need operator access to the owning AWS account's **Secrets Manager** secret in **ca-central-1**. Do not provide passwords, TOTP seeds, access tokens, screenshots of the secret, or full secret JSON to ChatGPT, GitHub issues, PRs, or Actions logs.
+- **Self-registration requires no AWS Secrets Manager access.** The operator-only fixture is a fallback when signup was disabled or Cognito cannot deliver a verification email. Never share your test password, TOTP seed, or bearer tokens.
 
-## Obtain the existing disposable account (operator only)
+## Recommended: create your own staging-only account
+
+1. When starting **Full Staging**, choose operation `run`, backend PR `537`, frontend PR `538`, and check **Enable test signup**. This option is temporary and disabled by default. A frontend-only quick update cannot change a Cognito user pool's registration policy.
+2. Open the fresh staging URL after all live checks pass. Click **Create account** (not Continue with Google yet). Enter a **different email address** from the Google account that you will link to later and choose a unique throwaway password satisfying the displayed Cognito policy.
+3. Confirm the account using the email verification code delivered by Cognito. If no email arrives, check spam; Cognito's built-in email quota is limited. Do **not** disable email confirmation or MFA to get past a failed delivery.
+4. Sign in with that email/password account and follow Cognito's **authenticator app** setup. Save the TOTP entry temporarily; MFA remains mandatory.
+5. Complete the quiz and account-linking checks below. New staging accounts will be deleted by the hourly cleanup. Never use production passwords or expect history to copy from production.
+
+If sign-up is disabled, email delivery fails, or you want the exact synthetic fixture from the automated run, follow the operator-only fallback below.
+
+## Obtain the existing disposable account (operator fallback)
 
 The full workflow generates and stores this secret **only while the disposable staging session exists**:
 
@@ -36,8 +46,8 @@ If the secret is absent, the staging instance has probably been destroyed or `pr
 
 ## Real linking acceptance sequence
 
-1. Open the **new staging CloudFront URL** in a private browser window. Choose normal **Sign in** (not **Sign up**, which is intentionally blocked).
-2. Enter `users.mapped.email` and `users.mapped.password` from the protected fixture; enter the current 6-digit code generated by the authenticator app from `users.mapped.totp`.
+1. Open the **new staging CloudFront URL** in a private browser window. If you registered your own email/password staging account, sign in with that account. Otherwise use the pre-created operator fixture described above. Do not use production credentials.
+2. Complete the normal password and authenticator challenge for the staging account you created. For the operator fixture, use `users.mapped.email`, `users.mapped.password`, and the authenticator entry created from its `totp` seed.
 3. Verify you see a working dashboard. Upload a harmless sample PDF, generate/save a quiz, and record its title and score; this provides existing history to preserve. Do not use production user data. Note: the small shared staging model-call allowance may already be exhausted by automated tests; if so, you can still test linking but must not claim that quiz history preservation was manually proven.
 4. **Sign out** of the disposable password account. Use a fresh browser profile/incognito context if old Cognito sessions persist.
 5. Choose **Continue with Google** using your test Google account. For this scenario it **must not already have completed account setup in this staging pool**. If it is enrolled, start a new isolated staging session; do not attempt to merge two enrolled accounts.
@@ -51,6 +61,6 @@ If the secret is absent, the staging instance has probably been destroyed or `pr
 
 ## Rollback, clean-up and release boundary
 
-The hourly staging cleanup or the workflow's `operation=stop` deletes the isolated user pool, temporary test users, database, cache, CloudFront assets and encrypted fixture secret. Use stop if testing is finished early. Verify the cleanup job reports absence. Never apply a development/staging account to production and never change `application/production`, the production release lock, or Google/OAuth activation flags based solely on staging creation working.
+The hourly staging cleanup or the workflow's `operation=stop` deletes the isolated user pool (including any email-registered test accounts), temporary fixture users, database, cache, CloudFront assets and encrypted fixture secret. Use stop if testing is finished early. Verify the cleanup job reports absence. Never apply a development/staging account to production and never change `application/production`, the production release lock, or Google/OAuth activation flags based solely on staging creation working.
 
 The production backend/frontend changes remain in [PR #537](https://github.com/HamedGithubforwork/QuizForge-AI/pull/537) and [PR #538](https://github.com/HamedGithubforwork/QuizForge-AI/pull/538); public Google login stays off until the real linking test and production release review pass.
