@@ -141,7 +141,8 @@ def discover_public_config(source: dict[str, str], sts, cognito) -> dict[str, st
         "api_url": "https://api.quizfromnotes.com",
         "legacy_url": source["legacy_url"],
         "legacy_publishable_key": source["legacy_publishable_key"],
-        "sms_mfa_enabled": sms_mfa_enabled,\n        "google_signin_enabled": google_enabled,
+        "sms_mfa_enabled": sms_mfa_enabled,
+        "google_signin_enabled": google_enabled,
     }
     return public_config(config)
 
@@ -172,7 +173,8 @@ def safe_public_summary(config: dict[str, str]) -> dict[str, Any]:
                 config.get("legacy_publishable_key", ""),
             )
         ),
-        "sms_mfa_enabled": config.get("sms_mfa_enabled") is True,\n        "google_signin_enabled": config.get("google_signin_enabled") is True,
+        "sms_mfa_enabled": config.get("sms_mfa_enabled") is True,
+        "google_signin_enabled": config.get("google_signin_enabled") is True,
     }
 
 
