@@ -73,6 +73,7 @@ class GuardedLambdaInstall(unittest.TestCase):
             ("mfa_configuration", "ON"),
             ("deletion_protection", "ACTIVE"),
             ("lambda_config", [{"pre_authentication": "foreign-trigger"}]),
+            ("lambda_config", [{}]),
             ("lambda_config", [{"post_confirmation": None, "pre_authentication": "extra"}]),
             ("id", "ca-central-1_OtherPool"),
         ):
