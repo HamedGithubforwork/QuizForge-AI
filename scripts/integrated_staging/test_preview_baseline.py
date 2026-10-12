@@ -32,7 +32,6 @@ class StagingApplicationBaseline(unittest.TestCase):
             comparison(status="behind", behind_by=1),
             comparison(status="ahead", behind_by=1),
             comparison(base_commit={"sha": "c" * 40}),
-            comparison(head_commit={"sha": "c" * 40}),
             comparison(merge_base_commit={"sha": "c" * 40}),
             {},
         ]

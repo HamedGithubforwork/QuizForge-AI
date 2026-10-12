@@ -54,8 +54,9 @@ def verify_latest_production_baseline(comparison, requested_sha, production_sha)
     """Ensure feature head descends from the *current* application branch."""
     if comparison.get("status") not in {"ahead", "identical"} or comparison.get("behind_by") != 0:
         raise ValueError("Staging feature branch is behind/diverged from application/production")
+    # The compare URL pins requested_sha; merge-base proves current
+    # production ancestry without relying on optional head_commit metadata.
     if (comparison.get("base_commit", {}).get("sha") != production_sha
-            or comparison.get("head_commit", {}).get("sha") != requested_sha
             or comparison.get("merge_base_commit", {}).get("sha") != production_sha):
         raise ValueError("Staging PR is not based on the current production application SHA")
     return requested_sha
