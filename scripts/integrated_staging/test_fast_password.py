@@ -110,8 +110,7 @@ class PasswordPolicyParity(unittest.TestCase):
             elif mutation == "extra policy field":
                 document["resource_changes"][0]["change"]["after"]["password_policy"][0]["unknown"] = "changed"
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                verify_password_plan(document, POOL, signup=mutation == "wrong signup" and False or True)
-                # wrong-signup case expects False; all others expect True.
+                verify_password_plan(document, POOL, signup=(mutation != "wrong signup"))
 
     def test_requires_manual_operation_before_any_aws_call(self):
         with patch.dict(os.environ, {"STAGING_AUTH_UPDATE": "frontend"}), (
