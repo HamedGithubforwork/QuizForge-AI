@@ -13,6 +13,15 @@ Use this checklist to test **real Google sign-in → existing Cognito account li
 - If staging is already running, use [Quick Update](../.github/workflows/aws-integrated-staging-frontend-update.yml) instead of deploying another stack. To create a **fresh, isolated Cognito pool**, first run operation `stop`, wait for independently verified resource absence, then start [Full Staging](../.github/workflows/aws-integrated-staging.yml) with backend PR **537**, frontend PR **538**, and **Enable test signup** selected. A second full staging run never deletes an existing site, even if an old deadline has elapsed.
 - Wait for the workflow's staging URL; a pull-request validation or a completed quick-update test job alone is **not** evidence the live environment is available.
 
+## Authentication parity with production
+
+Staging uses a **separate disposable AWS Cognito pool**, not the production user pool. The reviewed application PRs are deployed to it, but staging infrastructure must be explicitly kept in sync with production settings.
+
+- **Matched to production:** Cognito password minimum **8 characters**, with required uppercase, lowercase, number and symbol. A code-level regression test compares both Terraform policies.
+- **Deliberately different:** staging requires TOTP MFA (production MFA is optional), supports Google login before its public release, isolates all identities and test quizzes, and allows operator-only manual shutdown with explicit costs.
+- **Existing staging pool created with the old 14-character requirement:** choose **update_password_policy** in [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml) on `main`. It audits an in-place Terraform plan and rejects all unrelated changes. The policy change does not reset existing users or update production.
+- Existing production accounts do not exist in staging. Never use production passwords for testing.
+
 ## Recommended: create your own staging-only account
 
 1. If staging exists, choose operation **enable_test_signup** in [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml), then wait for the completed success summary. For a new Full Staging run, choose `run`, backend PR `537`, frontend PR `538`, and optionally check **Enable test signup**. Only the guarded auth quick action (not the frontend-file operation) can update a Cognito user pool.
