@@ -111,12 +111,39 @@ def signup_enabled():
     return mode == "true"
 
 
-def verify_config(v):
+def signup_policy(v):
+    """Return the only two approved disposable staging signup modes.
+
+    The live Cognito pool is authoritative after a guarded fast update; never
+    trust a GitHub workflow input or a production pool name for this decision.
+    """
+    pool = client("cognito-idp").describe_user_pool(UserPoolId=v["pool"])["UserPool"]
+    if pool.get("Name") != NAME or pool.get("UserPoolTier") != "LITE" or pool.get("MfaConfiguration") != "ON":
+        raise ValueError("Staging pool ownership or required MFA policy changed")
+    admin = pool.get("AdminCreateUserConfig", {}).get("AllowAdminCreateUserOnly")
+    if type(admin) is not bool:
+        raise ValueError("Unrecognized staging registration policy")
+    enabled = not admin
+    if set(pool.get("AutoVerifiedAttributes", [])) != ({"email"} if enabled else set()):
+        raise ValueError("Staging signup email verification policy changed")
+    if not pool.get("SoftwareTokenMfaConfiguration", {}).get("Enabled"):
+        raise ValueError("Staging authenticator MFA is not enabled")
+    if pool.get("EmailConfiguration", {}).get("EmailSendingAccount", "COGNITO_DEFAULT") != "COGNITO_DEFAULT":
+        raise ValueError("Unrecognized staging email delivery provider")
+    recovery = pool.get("AccountRecoverySetting", {}).get("RecoveryMechanisms", [])
+    if len(recovery) != 1 or recovery[0].get("Name") != "admin_only":
+        raise ValueError("Unexpected staging account recovery configuration")
+    if pool.get("SmsConfiguration"):
+        raise ValueError("Unexpected staging SMS configuration")
+    return enabled
+
+
+def verify_config(v, *, expected_signup=None):
     pool = client("cognito-idp").describe_user_pool(UserPoolId=v["pool"])["UserPool"]
     assert pool["Name"] == NAME and pool["UserPoolTier"] == "LITE" and pool["MfaConfiguration"] == "ON"
-    enabled = signup_enabled()
-    assert pool["AdminCreateUserConfig"]["AllowAdminCreateUserOnly"] is (not enabled)
-    assert set(pool.get("AutoVerifiedAttributes", [])) == ({"email"} if enabled else set())
+    enabled = signup_enabled() if expected_signup is None else expected_signup
+    assert type(enabled) is bool
+    assert signup_policy(v) is enabled
     assert not pool.get("SmsConfiguration")
     app = client("cognito-idp").describe_user_pool_client(UserPoolId=v["pool"], ClientId=v["client"])["UserPoolClient"]
     assert app["CallbackURLs"] == ["https://" + v["domain"] + "/auth/callback"]
