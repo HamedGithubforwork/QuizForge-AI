@@ -316,6 +316,32 @@ async def require_admin(
     return current_user
 
 
+
+@app.get("/api/staging/ai-budget")
+async def staging_ai_budget(
+    _current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    # This is a deliberately shared, non-sensitive *staging-only* counter.
+    # Production never exposes this route even if a Redis key happens to match.
+    if os.getenv("OPENAI_API_KEY", "").strip() != "staging-budget-guard":
+        raise HTTPException(status_code=404, detail="Not found.")
+    if redis_client is None:
+        raise HTTPException(status_code=503, detail="Staging allowance unavailable.")
+    try:
+        raw = await redis_client.get("integration:openai:remaining")
+        if isinstance(raw, bytes):
+            raw = raw.decode("ascii")
+        if not isinstance(raw, str) or not raw.isdecimal():
+            raise ValueError("Invalid staging allowance")
+        remaining = int(raw)
+        if not 0 <= remaining <= 10:
+            raise ValueError("Invalid staging allowance")
+    except Exception:
+        # No Valkey values or connection details in responses or logs.
+        raise HTTPException(status_code=503, detail="Staging allowance unavailable.")
+    return {"remaining": remaining, "allowance": 10}
+
+
 @app.get("/api/admin/metrics")
 async def admin_metrics(
     _current_user: AuthenticatedUser = Depends(
