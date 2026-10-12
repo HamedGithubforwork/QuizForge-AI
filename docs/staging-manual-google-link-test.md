@@ -4,15 +4,18 @@ Use this checklist to test **real Google sign-in → existing Cognito account li
 
 ## Prerequisites
 
-- Run the trusted [AWS Google sign-in staging preview](../.github/workflows/aws-integrated-staging.yml) from `main` with the reviewed backend PR **537** and frontend PR **538**. For self-service email registration select **Enable test signup** in the Run workflow form. The default is OFF and the choice applies only to a **new full** staging deployment, not to Fast Frontend Update. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
+- If staging is **already active**, choose [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml) from trusted `main`, then select operation **enable_test_signup**. This changes only the existing disposable Cognito user pool, with a reviewed in-place Terraform plan. It cannot create or revive staging and does not extend the automatic cleanup deadline. Wait for **Staging is ready for manual Google sign-in verification** and use **that run's published CloudFront URL**, not an old URL. A `pull_request` validation or scheduled cleanup success does **not** mean a site was provisioned.
 - Work promptly. The isolated site is destroyed by the hourly cleanup (minute 47) or a manual `stop` run; an edge lease is at most two hours and does not guarantee a two-hour window. Start shortly after a cleanup tick to allow enough manual testing time.
 - Without the explicit **Enable test signup** input, the pool stays administrator-only, with no registration email delivery. When enabled, Cognito requires email confirmation and authenticator MFA; Cognito's built-in email delivery has a limited quota, so a confirmation message may be delayed or unavailable. The full staging workflow still prepares three disposable password+TOTP users as a fallback.
 - Use a **fresh staging session** if the Google account you intend to test has already chosen **Create an empty account** in the previous session. Do not try to merge or relink an already-enrolled Google identity. A newly provisioned staging pool is isolated, so you can reuse the same Google account with the new pool.
 - **Self-registration requires no AWS Secrets Manager access.** The operator-only fixture is a fallback when signup was disabled or Cognito cannot deliver a verification email. Never share your test password, TOTP seed, or bearer tokens.
 
+- If staging has already been cleaned up, first start a fresh [Full Staging](../.github/workflows/aws-integrated-staging.yml) run with backend PR **537** and frontend PR **538**. You can check **Enable test signup** at launch, or use the **enable_test_signup** quick action after the full deployment succeeds.
+- Wait for the workflow's staging URL; a pull-request validation or a completed quick-update test job alone is **not** evidence the live environment is available.
+
 ## Recommended: create your own staging-only account
 
-1. When starting **Full Staging**, choose operation `run`, backend PR `537`, frontend PR `538`, and check **Enable test signup**. This option is temporary and disabled by default. A frontend-only quick update cannot change a Cognito user pool's registration policy.
+1. If staging exists, choose operation **enable_test_signup** in [AWS staging quick update](../.github/workflows/aws-integrated-staging-frontend-update.yml), then wait for the completed success summary. For a new Full Staging run, choose `run`, backend PR `537`, frontend PR `538`, and optionally check **Enable test signup**. Only the guarded auth quick action (not the frontend-file operation) can update a Cognito user pool.
 2. Open the fresh staging URL after all live checks pass. Click **Create account** (not Continue with Google yet). Enter a **different email address** from the Google account that you will link to later and choose a unique throwaway password satisfying the displayed Cognito policy.
 3. Confirm the account using the email verification code delivered by Cognito. If no email arrives, check spam; Cognito's built-in email quota is limited. Do **not** disable email confirmation or MFA to get past a failed delivery.
 4. Sign in with that email/password account and follow Cognito's **authenticator app** setup. Save the TOTP entry temporarily; MFA remains mandatory.
@@ -42,7 +45,7 @@ aws secretsmanager get-secret-value \
 
 This deliberately prints **only** the three fields needed for manual testing. Treat the output as a secret. The `totp` value is the authenticator-app **manual setup key**; add it as a temporary, time-based 6-digit account in your authenticator app. Do not paste the seed into web searches, password-sharing messages, or this conversation. Delete the temporary authenticator entry after AWS cleanup.
 
-If the secret is absent, the staging instance has probably been destroyed or `prepare` did not finish. Run a **new full staging workflow**, not Fast Frontend Update. No production secret, user pool, or account can substitute for this fixture.
+If the secret is absent, the staging instance may have been destroyed or `prepare` did not finish. A quick update cannot revive an expired staging session: run a **new full staging workflow**. No production secret, user pool, or account can substitute for this fixture.
 
 ## Real linking acceptance sequence
 
