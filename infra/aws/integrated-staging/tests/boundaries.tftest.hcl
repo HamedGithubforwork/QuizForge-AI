@@ -135,7 +135,7 @@ run "manual_signup_is_opt_in_with_email_verification_and_totp" {
     error_message = "Opt-in manual staging signup must verify email with Cognito and require authenticator MFA."
   }
   assert {
-    condition     = aws_cognito_user_pool.browser.deletion_protection == "INACTIVE" && aws_cognito_user_pool.browser.account_recovery_setting[0].recovery_mechanism[0].name == "admin_only"
+    condition     = aws_cognito_user_pool.browser.deletion_protection == "INACTIVE" && toset([for mechanism in aws_cognito_user_pool.browser.account_recovery_setting[0].recovery_mechanism : mechanism.name]) == toset(["admin_only"])
     error_message = "Manual signup cannot make staging permanent or enable account recovery."
   }
 }
