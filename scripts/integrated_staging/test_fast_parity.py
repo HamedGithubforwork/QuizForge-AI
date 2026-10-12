@@ -122,6 +122,28 @@ class StagingParityGuards(unittest.TestCase):
             with self.assertRaises(ValueError):
                 control.signup_policy({"pool": POOL}, legacy_auth=True)
 
+    def test_live_email_controls_verify_effective_provider_settings(self):
+        from fast_parity import live_email_controls
+        verified = {
+            "Name": "quizforge-integrated-staging",
+            "UserAttributeUpdateSettings": {
+                "AttributesRequireVerificationBeforeUpdate": ["email"]},
+            "VerificationMessageTemplate": {"DefaultEmailOption": "CONFIRM_WITH_CODE"},
+        }
+        with patch("fast_parity.control.client") as client:
+            client.return_value.describe_user_pool.return_value = {"UserPool": verified}
+            self.assertTrue(live_email_controls(POOL))
+            for changed in (
+                {**verified, "VerificationMessageTemplate": {
+                    "DefaultEmailOption": "CONFIRM_WITH_LINK"}},
+                {**verified, "UserAttributeUpdateSettings": {
+                    "AttributesRequireVerificationBeforeUpdate": []}},
+                {**verified, "Name": "quizforge-production-lightsail"},
+            ):
+                client.return_value.describe_user_pool.return_value = {"UserPool": changed}
+                with self.assertRaises(ValueError):
+                    live_email_controls(POOL)
+
     def test_requires_operator_dispatch_before_aws(self):
         with patch.dict(os.environ, {"STAGING_AUTH_UPDATE":"frontend"}), (
             patch("fast_parity.control.values")

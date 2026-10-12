@@ -102,6 +102,20 @@ def verify_plan(plan, pool_id, *, signup):
     return True
 
 
+def live_email_controls(pool_id):
+    """Check effective AWS settings rather than trusting Terraform apply output."""
+    pool = control.client("cognito-idp").describe_user_pool(UserPoolId=pool_id)["UserPool"]
+    if pool.get("Name") != NAME:
+        raise ValueError("Effective user pool is not the owned staging pool")
+    attrs = pool.get("UserAttributeUpdateSettings", {})
+    if set(attrs.get("AttributesRequireVerificationBeforeUpdate") or []) != {"email"}:
+        raise ValueError("Live staging email changes are not verification protected")
+    template = pool.get("VerificationMessageTemplate", {})
+    if template.get("DefaultEmailOption") != "CONFIRM_WITH_CODE":
+        raise ValueError("Live staging email confirmation mode differs")
+    return True
+
+
 def update():
     if os.environ.get("STAGING_AUTH_UPDATE") != "align_auth_parity":
         raise ValueError("Missing explicit operator-approved parity action")
@@ -114,6 +128,7 @@ def update():
         _, config = fast_frontend.live()
         if fast_password.live_minimum(v["pool"]) != 8:
             raise ValueError("Existing staging password policy differs")
+        live_email_controls(v["pool"])
         print("PASS: existing staging Cognito already has reviewed production auth settings")
         return
     if mode != "ON":
@@ -147,6 +162,7 @@ def update():
             or fast_password.live_minimum(after["pool"]) != 8
         ):
             raise ValueError("Staging identity or configuration changed during parity update")
+        live_email_controls(after["pool"])
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
             summary.write("## In-place staging Cognito parity verified\n\n")
             summary.write(f"[Open existing staging site]({config['frontend_url']}/)\n\n")
