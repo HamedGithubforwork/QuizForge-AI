@@ -115,6 +115,31 @@ def _review_lambda_change(change, *, expected_hook_arn=None):
     return True
 
 
+def _plan_shape(value):
+    """Expose only one of three fixed categories, never Terraform values."""
+    if value is None or value == []:
+        return "empty"
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], dict):
+        return "blank-block" if _blank(value[0]) else "configured-block"
+    return "other"
+
+
+def _safe_hook_shape(plan):
+    for item in plan.get("resource_changes", []):
+        if item.get("address") == POOL:
+            change = item.get("change", {})
+            old = change.get("before") or {}
+            new = change.get("after") or {}
+            unknown = change.get("after_unknown") or {}
+            labels = (
+                _plan_shape(old.get("lambda_config")),
+                _plan_shape(new.get("lambda_config")),
+                _plan_shape(unknown.get("lambda_config")),
+            )
+            print("STAGING_RECOVERY_PLAN_SHAPE=" + ",".join(labels), flush=True)
+            return
+
+
 def verify_plan(plan, pool_id, *, expected_hook_arn=None):
     if (not isinstance(plan, dict) or plan.get("errored")
             or not plan.get("format_version") or plan.get("resource_drift")):
@@ -226,6 +251,7 @@ def update():
         checkpoint("read-targeted-terraform-plan")
         plan = json.loads(fast_auth._terraform("show", "-json", str(plan_path)))
         checkpoint("audit-targeted-terraform-plan")
+        _safe_hook_shape(plan)
         try:
             verify_plan(plan, pool_id, expected_hook_arn=expected_arn())
         except ValueError as error:
