@@ -107,25 +107,42 @@ class GuardedAuthPlan(unittest.TestCase):
             enable()
             live.assert_not_called()
 
+    def test_auth_check_blocks_signup_mismatch_immediately_after_provisioning(self):
+        for requested, actual in (("true", True), ("false", False)):
+            with patch.dict(os.environ, {"STAGING_SELF_SIGNUP": requested}), (
+                patch("control.values", return_value={"pool": POOL})
+            ), patch("control.signup_policy", return_value=actual) as policy:
+                control.check_auth()
+                policy.assert_called_once_with({"pool": POOL})
+        for requested, actual in (("true", False), ("false", True)):
+            with patch.dict(os.environ, {"STAGING_SELF_SIGNUP": requested}), (
+                patch("control.values", return_value={"pool": POOL})
+            ), patch("control.signup_policy", return_value=actual), self.assertRaises(ValueError):
+                control.check_auth()
+
     def test_living_approved_modes_require_email_confirmation_and_mfa(self):
         verified = {
             "Name": "quizforge-integrated-staging", "UserPoolTier": "LITE",
-            "MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+            "MfaConfiguration": "ON",
             "AccountRecoverySetting": {"RecoveryMechanisms": [{"Name": "admin_only", "Priority": 1}]},
             "EmailConfiguration": {"EmailSendingAccount": "COGNITO_DEFAULT"},
             "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": True},
         }
         values = {"pool": POOL}
         with patch("control.client") as aws:
+            # DescribeUserPool does not include configured TOTP factors.
+            aws.return_value.get_user_pool_mfa_config.return_value = {
+                "MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+            }
             aws.return_value.describe_user_pool.return_value = {"UserPool": verified}
             self.assertFalse(control.signup_policy(values))
+            aws.return_value.get_user_pool_mfa_config.assert_called_with(UserPoolId=POOL)
             new = {**verified, "AutoVerifiedAttributes": ["email"],
                    "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False}}
             aws.return_value.describe_user_pool.return_value = {"UserPool": new}
             self.assertTrue(control.signup_policy(values))
             for altered in (
                 {**new, "MfaConfiguration": "OFF"},
-                {**new, "SoftwareTokenMfaConfiguration": {"Enabled": False}},
                 {**new, "AutoVerifiedAttributes": []},
                 {**new, "AccountRecoverySetting": {"RecoveryMechanisms": []}},
                 {**new, "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": "false"}},
@@ -133,6 +150,23 @@ class GuardedAuthPlan(unittest.TestCase):
                 aws.return_value.describe_user_pool.return_value = {"UserPool": altered}
                 with self.assertRaises(ValueError):
                     control.signup_policy(values)
+
+            aws.return_value.describe_user_pool.return_value = {"UserPool": new}
+            for factor in (
+                {},
+                {"MfaConfiguration": "OPTIONAL", "SoftwareTokenMfaConfiguration": {"Enabled": True}},
+                {"MfaConfiguration": "ON"},
+                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": False}},
+                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": "true"}},
+                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                 "SmsMfaConfiguration": {"SmsAuthenticationMessage": "Not allowed"}},
+                {"MfaConfiguration": "ON", "SoftwareTokenMfaConfiguration": {"Enabled": True},
+                 "EmailMfaConfiguration": {"Subject": "Not allowed"}},
+            ):
+                with self.subTest(mfa_config=factor):
+                    aws.return_value.get_user_pool_mfa_config.return_value = factor
+                    with self.assertRaises(ValueError):
+                        control.signup_policy(values)
 
 
 if __name__ == "__main__":

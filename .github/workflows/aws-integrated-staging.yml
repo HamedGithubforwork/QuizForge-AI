@@ -229,6 +229,8 @@ jobs:
           TF_VAR_google_oauth_client_id: ${{ secrets.STAGING_GOOGLE_OAUTH_CLIENT_ID }}
           TF_VAR_google_oauth_client_secret: ${{ secrets.STAGING_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: terraform -chdir=infra/aws/integrated-staging apply -auto-approve
+      - name: Verify Cognito required TOTP and chosen signup setting before building frontend
+        run: python scripts/integrated_staging/control.py check-auth
       - name: Export public build settings only
         run: python scripts/integrated_staging/control.py export
       - uses: actions/upload-artifact@v7

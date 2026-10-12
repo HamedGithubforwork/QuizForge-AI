@@ -126,8 +126,16 @@ def signup_policy(v):
     enabled = not admin
     if set(pool.get("AutoVerifiedAttributes", [])) != ({"email"} if enabled else set()):
         raise ValueError("Staging signup email verification policy changed")
-    if not pool.get("SoftwareTokenMfaConfiguration", {}).get("Enabled"):
+    # DescribeUserPool reports the required MFA mode but does not return the
+    # SoftwareTokenMfaConfiguration field. Cognito publishes configured MFA
+    # factors through the separate GetUserPoolMfaConfig API.
+    mfa = client("cognito-idp").get_user_pool_mfa_config(UserPoolId=v["pool"])
+    if mfa.get("MfaConfiguration") != "ON":
+        raise ValueError("Staging MFA is not required")
+    if mfa.get("SoftwareTokenMfaConfiguration", {}).get("Enabled") is not True:
         raise ValueError("Staging authenticator MFA is not enabled")
+    if mfa.get("SmsMfaConfiguration") or mfa.get("EmailMfaConfiguration"):
+        raise ValueError("Unexpected additional staging MFA methods")
     if pool.get("EmailConfiguration", {}).get("EmailSendingAccount", "COGNITO_DEFAULT") != "COGNITO_DEFAULT":
         raise ValueError("Unrecognized staging email delivery provider")
     recovery = pool.get("AccountRecoverySetting", {}).get("RecoveryMechanisms", [])
@@ -136,6 +144,14 @@ def signup_policy(v):
     if pool.get("SmsConfiguration"):
         raise ValueError("Unexpected staging SMS configuration")
     return enabled
+
+
+def check_auth():
+    """Check Cognito's authoritative MFA and signup policy immediately after provisioning."""
+    v = values()
+    if not v or signup_policy(v) is not signup_enabled():
+        raise ValueError("Staging signup policy differs from the explicitly requested test mode")
+    print("PASS: Cognito mandatory authenticator MFA and requested signup policy verified before frontend build")
 
 
 def verify_config(v, *, expected_signup=None):
@@ -420,7 +436,7 @@ if __name__ == "__main__":
             run_probe("verify")
         else:
             {"push":push,"configure":configure,"export":export,"prepare":prepare,"publish":publish,
-             "browser":browser,"stop-tasks":stop_tasks,"absent":absent}[action]()
+             "browser":browser,"check-auth":check_auth,"stop-tasks":stop_tasks,"absent":absent}[action]()
     except Exception as error:
         frame = traceback.extract_tb(error.__traceback__)[-1]
         print(f"ERROR: integration {sys.argv[1]} failed ({type(error).__name__} at {Path(frame.filename).name}:{frame.lineno})")
