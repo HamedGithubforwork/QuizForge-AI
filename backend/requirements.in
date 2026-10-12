@@ -6,3 +6,5 @@ openai
 python-dotenv
 httpx
 redis>=5.0,<7.0
+# Security floor: 2.7.0 is flagged by pip-audit (PYSEC-2026-4175/4176/4177).
+urllib3>=2.8.0,<3.0
