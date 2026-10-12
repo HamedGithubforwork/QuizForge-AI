@@ -33,8 +33,8 @@ class ProductionParityAudit(unittest.TestCase):
                 self.assertNotEqual(compare_sources(prod, changed, ops), [])
 
     def test_staging_frontend_uses_same_auth_build_transform_as_production(self):
-        staging_builder = (PROD.parents[2] / "scripts/integrated_staging/build.py").read_text()
-        production_builder = (PROD.parents[2] / "scripts/production/build.py").read_text()
+        staging_builder = (PROD.parents[3] / "scripts/integrated_staging/build.py").read_text()
+        production_builder = (PROD.parents[3] / "scripts/production/build.py").read_text()
         self.assertIn("narrow_production_auth_source(target)", staging_builder)
         self.assertIn("def narrow_production_auth_source(frontend)", production_builder)
         self.assertIn('VITE_COGNITO_GOOGLE_SIGNIN_ENABLED="true"', staging_builder)
