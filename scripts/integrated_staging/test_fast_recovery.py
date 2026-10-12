@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from fast_recovery import NEW, POOL, verify_plan, update
+from fast_recovery import NEW, POOL, verify_plan, update, reviewed_lambda_source, check_extra_live_hooks
 from test_fast_auth import pool_state
 from test_fast_password import policy
 
@@ -42,6 +42,47 @@ def plan():
 
 
 class GuardedLambdaInstall(unittest.TestCase):
+    def test_provider_computed_pre_token_metadata_is_not_an_extra_trigger(self):
+        d = plan()
+        unknown = d["resource_changes"][0]["change"]["after_unknown"]["lambda_config"][0]
+        unknown["pre_token_generation_config"] = True
+        self.assertTrue(verify_plan(d, POOL_ID))
+        # Still refuses a known configured pre-token-generation hook.
+        d["resource_changes"][0]["change"]["after"]["lambda_config"][0][
+            "pre_token_generation_config"
+        ] = [{"lambda_arn": "arn:aws:lambda:ca-central-1:123456789012:function:foreign"}]
+        with self.assertRaises(ValueError):
+            verify_plan(d, POOL_ID)
+
+    def test_source_allows_only_reviewed_single_lambda_hook(self):
+        from pathlib import Path
+        terraform = (Path(__file__).resolve().parents[2] /
+                     "infra/aws/integrated-staging/main.tf").read_text(encoding="utf-8")
+        self.assertTrue(reviewed_lambda_source(terraform))
+        for source in (
+            terraform.replace("aws_lambda_function.recovery.arn",
+                              "aws_lambda_function.unreviewed.arn", 1),
+            terraform.replace(
+                "lambda_config { post_confirmation = aws_lambda_function.recovery.arn }",
+                "lambda_config { post_confirmation = aws_lambda_function.recovery.arn pre_authentication = \"unexpected\" }", 1,
+            ),
+        ):
+            with self.subTest(source=source[-150:]), self.assertRaises(ValueError):
+                reviewed_lambda_source(source)
+
+    def test_live_hook_rejects_any_extra_active_trigger(self):
+        self.assertTrue(check_extra_live_hooks({
+            "PostConfirmation": "reviewed-trigger",
+            "PreTokenGenerationConfig": {"LambdaVersion": "V1_0"},
+        }))
+        for added in (
+            {"PreAuthentication": "unreviewed-hook"},
+            {"PreTokenGenerationConfig": {"LambdaArn": "unreviewed-hook", "LambdaVersion": "V1_0"}},
+            {"CustomMessage": "unreviewed-hook"},
+        ):
+            with self.subTest(added=added), self.assertRaises(ValueError):
+                check_extra_live_hooks({"PostConfirmation": "reviewed-trigger", **added})
+
     def test_exact_six_staging_only_changes_pass(self):
         self.assertTrue(verify_plan(plan(), POOL_ID))
 
