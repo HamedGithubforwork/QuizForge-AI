@@ -136,7 +136,8 @@ def main():
                VITE_COGNITO_DOMAIN=config['auth_origin'],VITE_API_URL=config['api_url'],
                VITE_IDENTITY_API_URL=config['api_url'],VITE_SUPABASE_URL=config['legacy_url'],
                VITE_SUPABASE_PUBLISHABLE_KEY=config['legacy_publishable_key'],
-               VITE_COGNITO_SMS_MFA_ENABLED='true' if config['sms_mfa_enabled'] else 'false',\n               VITE_COGNITO_GOOGLE_SIGNIN_ENABLED='true' if config['google_signin_enabled'] else 'false')
+               VITE_COGNITO_SMS_MFA_ENABLED='true' if config['sms_mfa_enabled'] else 'false',
+               VITE_COGNITO_GOOGLE_SIGNIN_ENABLED='true' if config['google_signin_enabled'] else 'false')
     subprocess.run(['npm','ci','--ignore-scripts'],cwd=destination,env=env,check=True)
     subprocess.run(['npm','run','build'],cwd=destination,env=env,check=True)
     print('PASS: production frontend built with validated public configuration only')
