@@ -1,7 +1,7 @@
 """Synthetic guard tests: never connect to AWS or print OAuth secrets."""
 import copy
 import unittest
-from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT
+from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure
 
 ID = "123456789-synthetic.apps.googleusercontent.com"
 SECRET = "synthetic-test-only-secret"
@@ -81,3 +81,15 @@ class TestGoogleOnlyPlan(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestSafePlanDiagnostics(unittest.TestCase):
+    def test_only_known_nonsecret_categories_are_exposed(self):
+        raw = "Error: AccessDenied: very-private-access-token-value"
+        self.assertEqual(classify_plan_failure(raw, 1), "AWS_READ_PERMISSION_DENIED")
+        self.assertEqual(classify_plan_failure("Error: Missing required argument\nsecret=123", 1),
+                         "TERRAFORM_MISSING_ARGUMENT")
+        self.assertEqual(classify_plan_failure("Error: Invalid function argument", 1),
+                         "TERRAFORM_FUNCTION_INVALID")
+        self.assertEqual(classify_plan_failure("secretOnlyXYZ", 1), "OTHER_TERRAFORM_PLAN_FAILURE")
+        self.assertEqual(classify_plan_failure("secretOnlyXYZ", 0), "NO_CHANGES")
+        self.assertEqual(classify_plan_failure("secretOnlyXYZ", 77), "UNEXPECTED_PLAN_EXIT")
