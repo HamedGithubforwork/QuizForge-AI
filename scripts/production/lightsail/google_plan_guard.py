@@ -144,6 +144,22 @@ def safe_plan_error_hints(log_text: str) -> list[str]:
     return hints or ["unrecognized_terraform_error"]
 
 
+
+def safe_plan_log_metrics(log_text: str) -> dict:
+    """Fixed-key numeric/boolean metrics only; not one byte of raw log content."""
+    from collections import Counter
+    import re
+    words = Counter(w.lower() for w in re.findall(r"[A-Za-z]+", log_text)
+                    if w.lower() in SAFE_ERROR_WORDS)
+    return {
+        "bytes": len(log_text.encode("utf-8", errors="replace")),
+        "lines": len(log_text.splitlines()),
+        "terraform_error_prefix": bool(re.search(r"(?i)\berror\b", log_text)),
+        "terraform_panic_prefix": bool(re.search(r"(?i)\bpanic\b", log_text)),
+        "permitted_error_word_counts": {word: words[word] for word in sorted(words) if words[word] > 0},
+    }
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python -m scripts.production.lightsail.google_plan_guard <tfplan.json>")

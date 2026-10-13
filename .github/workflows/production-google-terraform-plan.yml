@@ -144,12 +144,13 @@ jobs:
             PYTHONPATH="$GITHUB_WORKSPACE" PLAN_EXIT_CODE="$result" python - <<'PY'
           import os
           from pathlib import Path
-          from scripts.production.lightsail.google_plan_guard import classify_plan_failure, safe_plan_error_hints
+          from scripts.production.lightsail.google_plan_guard import classify_plan_failure, safe_plan_error_hints, safe_plan_log_metrics
           log = Path(os.environ["RUNNER_TEMP"]) / "terraform-plan.log"
           raw = log.read_text(encoding="utf-8", errors="replace")
           print("FAIL: production Terraform scope not reviewed; category=" +
                 classify_plan_failure(raw, int(os.environ["PLAN_EXIT_CODE"])))
           print("Safe Terraform error-title hints: " + ", ".join(safe_plan_error_hints(raw)))
+          print("Safe plan-log metrics: " + __import__("json").dumps(safe_plan_log_metrics(raw), sort_keys=True))
           print("No apply made.")
           PY
             exit 1
