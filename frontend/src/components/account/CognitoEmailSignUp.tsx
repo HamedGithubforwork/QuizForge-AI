@@ -9,6 +9,7 @@ type Stage = 'create' | 'confirm' | 'complete'
 export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
   const [email, setEmail] = useState('')
   const [registeredEmail, setRegisteredEmail] = useState('')
+  const [existingSignup, setExistingSignup] = useState(false)
   const [password, setPassword] = useState('')
   const [repeatPassword, setRepeatPassword] = useState('')
   const [code, setCode] = useState('')
@@ -61,6 +62,7 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
         const result = await signUpWithEmail(config.client, email, chosenPassword)
         if (!active.current) return
         setRegisteredEmail(result.email)
+        setExistingSignup(false)
         setStage(result.confirmed ? 'complete' : 'confirm')
       } catch (caught) {
         if (!(caught instanceof ExistingCognitoAccountError)) throw caught
@@ -68,6 +70,7 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
         // Verification still requires the email code; no password is retained.
         if (!active.current) return
         setRegisteredEmail(normalizedVerificationEmail(email))
+        setExistingSignup(true)
         setCode('')
         setStage('confirm')
         setNotice('If you registered before, enter your original email code or request a new one. Already verified? Sign in instead.')
@@ -92,7 +95,9 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
     <div className="auth-heading">
       <h2>{complete ? 'Email verified' : confirming ? 'Verify your email' : 'Create your account'}</h2>
       {confirming && <p>Enter the confirmation code for <strong>{registeredEmail}</strong>. You can use your original code or request a new one. Already verified your email? Choose Sign in below.</p>}
-      {complete && <p>Your account is ready. Sign in with your password to continue.</p>}
+      {complete && <p>{existingSignup
+        ? 'Your email is verified. Sign in using the password from your original registration. The password you just entered did not replace it.'
+        : 'Your account is ready. Sign in with your password to continue.'}</p>}
       {stage === 'create' && <p>You'll verify your email before signing in. Already started registration? Use Sign in to resume verification.</p>}
     </div>
     {error && <div className="auth-error" role="alert">{error}</div>}
