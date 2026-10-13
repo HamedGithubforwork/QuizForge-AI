@@ -27,6 +27,16 @@ jobs:
         run: |
           python -m py_compile scripts/production/lightsail/google_provider_readiness.py
           python -m unittest scripts.production.lightsail.test_google_provider_readiness -v
+      - name: Prevent an invalid production OIDC role duration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          workflow = Path(".github/workflows/production-google-oauth-readiness.yml").read_text()
+          match = re.search(r"^\s*role-duration-seconds:\s*(\d+)\s*$", workflow, flags=re.MULTILINE)
+          assert match, "Missing OIDC session duration"
+          assert 900 <= int(match.group(1)) <= 3600, "AWS OIDC sessions require 900-3600 seconds"
+          PY
 
   production-readonly:
     name: Check existing production Cognito provider without changes
@@ -60,7 +70,8 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: qf-protected-production-google-readiness
-          role-duration-seconds: 600
+          # AWS STS AssumeRoleWithWebIdentity requires at least 900 seconds.
+          role-duration-seconds: 900
           aws-region: ca-central-1
           mask-aws-account-id: true
           unset-current-credentials: true
