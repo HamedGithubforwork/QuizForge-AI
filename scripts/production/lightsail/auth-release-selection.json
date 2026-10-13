@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "application_candidate_sha": "77a060cce504008a4479deacdc31279633d0fe4f",
+  "reviewed_source_tree_sha": "8016b2fce8056bd642bd615eef71eab106ae3800",
+  "rollout_stage": "build-only-google-disabled",
+  "reviewed_pr": 579
+}
