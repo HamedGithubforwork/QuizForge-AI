@@ -6,6 +6,7 @@ const sub = '00000000-0000-0000-0000-000000000101'
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' }
 async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolean; invalidIdentity?: boolean; revokeFails?: boolean; alreadyRegistered?: boolean } = {}) {
   let confirmed = Boolean(options.confirmed)
+  let registeredPassword = 'synthetic-password'
   let wrongCode = true
   let refreshes = 0
   const operations: string[] = []
@@ -22,6 +23,7 @@ async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolea
       expect(body.ClientId).toBe('browserclient123')
       expect(body.Username).toBe('learner@example.invalid')
       expect(body.Password).toBe('SyntheticPassword1!')
+      if (!options.alreadyRegistered) registeredPassword = body.Password
       expect(body.UserAttributes).toEqual([{ Name: 'email', Value: 'learner@example.invalid' }])
       expect(body).not.toHaveProperty('SecretHash')
       return options.alreadyRegistered ? fail('UsernameExistsException') : ok({ UserConfirmed: false })
@@ -32,7 +34,7 @@ async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolea
       expect(body.AuthFlow).toBe('USER_PASSWORD_AUTH')
       expect(body.AuthParameters.USERNAME).toBe('learner@example.invalid')
       if (body.AuthParameters.PASSWORD === 'wrong') return fail('NotAuthorizedException')
-      expect(body.AuthParameters.PASSWORD).toBe('synthetic-password')
+      expect(body.AuthParameters.PASSWORD).toBe(registeredPassword)
       if (!confirmed) return fail('UserNotConfirmedException')
       return options.mfa ? ok({ ChallengeName: 'SELECT_MFA_TYPE', Session: 'choice',
         ChallengeParameters: { USERNAME: 'canonical', MFAS_CAN_CHOOSE: '["SOFTWARE_TOKEN_MFA","SMS_MFA"]' } }) : ok(tokens())
@@ -209,7 +211,7 @@ test('create account stays on our site and verifies email without hosted Cognito
   await expect(page.getByRole('heading', { name: 'Sign in with email' })).toBeVisible()
   await expect(page.getByLabel('Email', { exact: true })).toHaveValue('learner@example.invalid')
   await noStoredSecrets(page)
-  await submitPassword(page)
+  await submitPassword(page, 'SyntheticPassword1!')
   await expect(page.getByText('Signed in as learner@example.invalid')).toBeVisible()
   expect(operations.filter(x => x === 'SignUp')).toHaveLength(1)
 })
@@ -225,13 +227,13 @@ test('abandoned signup resumes verification at next app sign-in without another 
   await expect(page.getByRole('heading', { name: 'Verify your email', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Back to sign in options' }).click()
   await openEmail(page)
-  await submitPassword(page)
+  await submitPassword(page, 'SyntheticPassword1!')
   await expect(page.getByRole('heading', { name: 'Verify your email to continue' })).toBeVisible()
   await page.getByRole('button', { name: 'Resend confirmation code' }).click()
   await expect(page.getByRole('status')).toContainText('A new code has been requested')
   await page.getByLabel('Email confirmation code').fill('123456')
   await page.getByRole('button', { name: 'Confirm my email' }).click()
-  await submitPassword(page)
+  await submitPassword(page, 'SyntheticPassword1!')
   await expect(page.getByText('Signed in as learner@example.invalid')).toBeVisible()
   expect(operations.filter(x => x === 'SignUp')).toHaveLength(1)
   await noStoredSecrets(page)
