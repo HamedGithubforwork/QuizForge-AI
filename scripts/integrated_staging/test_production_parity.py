@@ -38,7 +38,10 @@ class ProductionParityAudit(unittest.TestCase):
         self.assertIn("narrow_production_auth_source(target)", staging_builder)
         self.assertIn("def narrow_production_auth_source(frontend)", production_builder)
         self.assertIn('VITE_COGNITO_GOOGLE_SIGNIN_ENABLED="true"', staging_builder)
-        self.assertIn('VITE_COGNITO_ENVIRONMENT="production"', staging_builder)
+        # The reviewed production auth *source* must be reused, but staging
+        # must never build with production-specific domain/identity rules.
+        self.assertIn('VITE_COGNITO_ENVIRONMENT="staging"', staging_builder)
+        self.assertNotIn('VITE_COGNITO_ENVIRONMENT="production"', staging_builder)
 
     def test_exact_production_recovery_source_and_deterministic_archive(self):
         with tempfile.TemporaryDirectory() as directory:
