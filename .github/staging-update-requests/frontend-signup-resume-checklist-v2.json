@@ -1,0 +1,7 @@
+{
+  "operation": "frontend",
+  "frontend_pr": 538,
+  "frontend_sha": "af9393ac74301f1e298b11f83a32a620bd7fdac3",
+  "environment": "quizforge-integrated-staging",
+  "mode": "one-time-reviewed-main-merge"
+}
