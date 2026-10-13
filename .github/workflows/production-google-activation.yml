@@ -1,0 +1,304 @@
+name: Production Google sign-in guarded activation
+'on':
+  pull_request:
+    paths:
+    - .github/workflows/production-google-activation.yml
+    - scripts/production/lightsail/google_activation.py
+    - scripts/production/lightsail/test_google_activation.py
+  workflow_dispatch:
+    inputs:
+      backend_preflight_run_id:
+        description: Successful fresh inspect-only promotion run verifying the reviewed backend is live
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  validate:
+    name: Validate planned change boundaries without AWS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - uses: actions/setup-python@v7
+      with:
+        python-version: 3.11.16
+    - name: Test fail-closed Google-only plan
+      run: |-
+        python -m unittest scripts.production.lightsail.test_google_plan_guard scripts.production.lightsail.test_package_recovery scripts.production.lightsail.test_google_activation -v
+  activate:
+    name: Activate reviewed production Google provider after backend verification
+    needs: validate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'HamedGithubforwork/QuizForge-AI' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: production
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    concurrency:
+      group: quizforge-permanent-existing-release-promotion
+      cancel-in-progress: false
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+    - name: Read exact retained production recovery source
+      uses: actions/checkout@v7
+      with:
+        ref: 43894cc78eaa4b7da94fd4375bd929d64addca6b
+        path: retained-recovery-source
+        sparse-checkout: scripts/cognito_browser
+        persist-credentials: false
+    - uses: actions/setup-python@v7
+      with:
+        python-version: 3.11.16
+    - uses: hashicorp/setup-terraform@v4
+      with:
+        terraform_version: 1.14.7
+        terraform_wrapper: false
+    - name: Install reviewed AWS dependencies
+      run: |-
+        python -m pip install --require-hashes -r scripts/production/requirements.lock
+    - name: Read trusted backend inspection run metadata
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        PREFLIGHT_RUN_ID: ${{ inputs.backend_preflight_run_id }}
+      run: |-
+        python - <<'PY'
+        import json,os,re,urllib.request
+        from pathlib import Path
+        run=os.environ["PREFLIGHT_RUN_ID"]
+        assert re.fullmatch(r"[0-9]{1,20}",run)
+        request=urllib.request.Request("https://api.github.com/repos/HamedGithubforwork/QuizForge-AI/actions/runs/"+run,
+         headers={"Authorization":"Bearer "+os.environ["GITHUB_TOKEN"],"Accept":"application/vnd.github+json"})
+        with urllib.request.urlopen(request,timeout=30) as response:
+         data=json.loads(response.read(262144))
+        assert str(data["id"])==run
+        path=Path(os.environ["RUNNER_TEMP"])/"backend-preflight-run.json"
+        path.write_text(json.dumps(data)); path.chmod(0o600)
+        PY
+    - name: Read sanitized backend inspection evidence
+      uses: actions/download-artifact@v8
+      with:
+        name: permanent-lightsail-release-promotion
+        run-id: ${{ inputs.backend_preflight_run_id }}
+        github-token: ${{ github.token }}
+        path: backend-preflight-evidence
+    - name: Require freshly verified live reviewed backend
+      run: |-
+        python -m scripts.production.lightsail.google_activation preflight "$RUNNER_TEMP/backend-preflight-run.json" backend-preflight-evidence/summary.json scripts/production/lightsail/release-lock.json
+    - name: Assume read-only production planning role
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: qf-prod-google-only-terraform-plan
+        role-duration-seconds: 900
+        aws-region: ca-central-1
+        mask-aws-account-id: true
+        unset-current-credentials: true
+        inline-session-policy: "{\"Version\":\"2012-10-17\",\"Statement\":[\n  {\"Effect\":\"Allow\",\"Action\":[\"lambda:GetFunctionConfiguration\"],\n   \"Resource\":\"arn:aws:lambda:ca-central-1:399311815467:function:quizforge-production-lightsail-recovery\"\
+          },\n  {\"Effect\":\"Allow\",\"Action\":[\n    \"sts:GetCallerIdentity\",\n    \"cognito-idp:ListUserPools\",\n    \"cognito-idp:ListUserPoolClients\",\n    \"cognito-idp:DescribeUserPoolClient\"\
+          ,\n    \"cognito-idp:DescribeIdentityProvider\"\n  ],\"Resource\":\"*\"},\n  {\"Effect\":\"Allow\",\"Action\":[\"s3:ListBucket\",\"s3:GetBucketLocation\"],\n   \"Resource\":\"arn:aws:s3:::${{\
+          \ vars.TF_STATE_BUCKET }}\"},\n  {\"Effect\":\"Allow\",\"Action\":[\"s3:GetObject\"],\n   \"Resource\":\"arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate\"\
+          }\n]}"
+    - name: Verify provider is absent and scope the exact existing production pool
+      id: scope
+      env:
+        PROD_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+        PROD_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+      run: |-
+        set -euo pipefail
+        python -m scripts.production.lightsail.google_provider_readiness > "$RUNNER_TEMP/provider-before.txt"
+        grep -Fxq 'PASS: production Google OAuth status: not_connected_ready_for_review' "$RUNNER_TEMP/provider-before.txt"
+        python -m scripts.production.lightsail.google_activation scope
+    - name: Assume only exact-pool Google activation and state-lock permissions
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: qf-prod-reviewed-google-activation
+        role-duration-seconds: 1200
+        aws-region: ca-central-1
+        mask-aws-account-id: true
+        unset-current-credentials: true
+        inline-session-policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["sts:GetCallerIdentity","cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeIdentityProvider"],"Resource":"*"},{"Effect":"Allow","Action":["lambda:GetFunctionConfiguration"],"Resource":"arn:aws:lambda:ca-central-1:399311815467:function:quizforge-production-lightsail-recovery"},{"Effect":"Allow","Action":["cognito-idp:CreateIdentityProvider","cognito-idp:UpdateUserPoolClient","cognito-idp:DeleteIdentityProvider"],"Resource":"${{
+          steps.scope.outputs.pool_arn }}"},{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":"arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}"},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::${{
+          vars.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate","arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"]},{"Effect":"Allow","Action":["s3:DeleteObject"],"Resource":"arn:aws:s3:::${{
+          vars.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate.tflock"}]}'
+    - name: Apply only the reviewed Google plan and verify or roll back
+      env:
+        TF_IN_AUTOMATION: 'true'
+        TF_INPUT: 'false'
+        TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        PROD_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+        PROD_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+        TF_VAR_enable_google_signin: 'true'
+        TF_VAR_google_oauth_client_id: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+        TF_VAR_google_oauth_client_secret: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+        TF_VAR_alert_email: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+        TF_VAR_ssh_public_key: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+        TF_VAR_admin_ipv4_cidr: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+        PRODUCTION_POOL_ID: ${{ steps.scope.outputs.pool_id }}
+      run: |
+        set -euo pipefail
+        set +x
+        trap 'rm -f "$RUNNER_TEMP/google-apply.log" "$RUNNER_TEMP/google-rollback.log" "$RUNNER_TEMP/google-rollback" "$RUNNER_TEMP/google-rollback.json" "$RUNNER_TEMP/provider-before.txt" "$RUNNER_TEMP/provider-after.txt" "$RUNNER_TEMP/backend-preflight-run.json" "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/terraform-baseline" "$RUNNER_TEMP/terraform-baseline.log" "$RUNNER_TEMP/terraform-provider-probe.log" "$RUNNER_TEMP/terraform-browser-probe.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
+        test -n "$TF_STATE_BUCKET" || { echo 'FAIL: approved state bucket not configured'; exit 1; }
+        for name in PROD_GOOGLE_OAUTH_CLIENT_ID PROD_GOOGLE_OAUTH_CLIENT_SECRET TF_VAR_alert_email TF_VAR_ssh_public_key TF_VAR_admin_ipv4_cidr; do
+          test -n "${!name}" || { echo "FAIL: protected production input missing"; exit 1; }
+        done
+        # Verify the live pool/client and absence of provider; credentials are
+        # validated in memory, not displayed.
+        python -m scripts.production.lightsail.google_provider_readiness > "$RUNNER_TEMP/readiness.txt" || exit 1
+        grep -Fxq 'PASS: production Google OAuth status: not_connected_ready_for_review' "$RUNNER_TEMP/readiness.txt" || {
+          echo 'FAIL: production provider state changed since readiness'; exit 1;
+        }
+        aws s3api head-object --bucket "$TF_STATE_BUCKET" --key quizforge/lightsail-production/terraform.tfstate >/dev/null 2>&1 || {
+          echo 'FAIL: existing production Terraform state unavailable; no plan generated'; exit 1;
+        }
+        python scripts/production/lightsail/package_recovery.py \
+          --retained-production-source "$GITHUB_WORKSPACE/retained-recovery-source/scripts/cognito_browser" \
+          --verify-deployed
+        cd infra/aws/lightsail-production
+        terraform fmt -check -recursive >/dev/null 2>&1
+        terraform init -reconfigure -input=false -lockfile=readonly -no-color \
+          -backend-config="bucket=$TF_STATE_BUCKET" \
+          -backend-config="key=quizforge/lightsail-production/terraform.tfstate" \
+          -backend-config="region=ca-central-1" \
+          -backend-config="encrypt=true" \
+          -backend-config="use_lockfile=true" > /dev/null 2>&1 || {
+            echo 'FAIL: existing production Terraform backend cannot be initialized read-only'; exit 1;
+          }
+        terraform state list > "$RUNNER_TEMP/state-entries.txt" 2>/dev/null || {
+          echo 'FAIL: existing production Terraform state could not be read'; exit 1;
+        }
+        grep -Fxq 'aws_cognito_user_pool.browser' "$RUNNER_TEMP/state-entries.txt" || exit 1
+        grep -Fxq 'aws_cognito_user_pool_client.browser' "$RUNNER_TEMP/state-entries.txt" || exit 1
+        set +e
+        terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+          -out="$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/terraform-plan.log" 2>&1
+        result=$?
+        set -e
+        if [ "$result" -ne 2 ]; then
+          # Never print the Terraform log: it may contain sensitive planned values.
+          # Only publish a fixed, nonsecret failure category.
+          PYTHONPATH="$GITHUB_WORKSPACE" PLAN_EXIT_CODE="$result" python - <<'PY'
+        import os
+        from pathlib import Path
+        from scripts.production.lightsail.google_plan_guard import classify_plan_failure, safe_plan_error_hints, safe_plan_log_metrics, safe_json_plan_diagnostics
+        log = Path(os.environ["RUNNER_TEMP"]) / "terraform-plan.log"
+        raw = log.read_text(encoding="utf-8", errors="replace")
+        print("FAIL: production Terraform scope not reviewed; category=" +
+              classify_plan_failure(raw, int(os.environ["PLAN_EXIT_CODE"])))
+        print("Safe Terraform error-title hints: " + ", ".join(safe_plan_error_hints(raw)))
+        print("Safe plan-log metrics: " + __import__("json").dumps(safe_plan_log_metrics(raw), sort_keys=True))
+        print("Sanitized Terraform JSON diagnostics: " + __import__("json").dumps(safe_json_plan_diagnostics(raw), sort_keys=True))
+        print("No apply made.")
+        PY
+          # Distinguish a broken existing production baseline from a problem
+          # specific to opting into Google. This is an additional *read-only*
+          # plan with Google explicitly disabled; never apply either plan.
+          # Both Terraform output streams remain private, and are wiped.
+          set +e
+          terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+            -var=enable_google_signin=false \
+            -out="$RUNNER_TEMP/terraform-baseline" > "$RUNNER_TEMP/terraform-baseline.log" 2>&1
+          baseline_result=$?
+          set -e
+          PYTHONPATH="$GITHUB_WORKSPACE" BASELINE_EXIT_CODE="$baseline_result" python - <<'PY'
+        import os
+        from pathlib import Path
+        from scripts.production.lightsail.google_plan_guard import (
+            classify_google_disabled_baseline, safe_json_plan_diagnostics
+        )
+        private_log = (Path(os.environ["RUNNER_TEMP"]) /
+                       "terraform-baseline.log").read_text(encoding="utf-8", errors="replace")
+        status = classify_google_disabled_baseline(int(os.environ["BASELINE_EXIT_CODE"]), private_log)
+        print("Google-disabled baseline read-only comparison: " + status)
+        if int(os.environ["BASELINE_EXIT_CODE"]) == 1:
+            import json
+            print("Sanitized baseline diagnostics: " +
+                  json.dumps(safe_json_plan_diagnostics(private_log), sort_keys=True))
+        print("No plan applied; any existing differences require separate review.")
+        PY
+          if [ "$baseline_result" -eq 1 ]; then
+            # Diagnostic-only isolation; targeted plans are never release
+            # approval. Full-plan verification remains mandatory.
+            # NO DEPLOYMENT APPROVAL is inferred from a targeted result.
+            set +e
+            terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+              -var=enable_google_signin=false \
+              -target=data.aws_caller_identity.current \
+              > "$RUNNER_TEMP/terraform-provider-probe.log" 2>&1
+            provider_result=$?
+            terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+              -var=enable_google_signin=false \
+              -target=aws_cognito_user_pool_client.browser \
+              > "$RUNNER_TEMP/terraform-browser-probe.log" 2>&1
+            browser_result=$?
+            set -e
+            PYTHONPATH="$GITHUB_WORKSPACE" PROVIDER_RESULT="$provider_result" BROWSER_RESULT="$browser_result" python - <<'PY'
+        import os
+        from pathlib import Path
+        from scripts.production.lightsail.google_plan_guard import (
+            classify_targeted_readonly_probe, safe_json_plan_diagnostics
+        )
+        directory = Path(os.environ["RUNNER_TEMP"])
+        for label, name, code in (
+            ("AWS provider identity scope", "terraform-provider-probe.log", "PROVIDER_RESULT"),
+            ("Cognito browser scope", "terraform-browser-probe.log", "BROWSER_RESULT"),
+        ):
+            raw = (directory / name).read_text(encoding="utf-8", errors="replace")
+            exit_code = int(os.environ[code])
+            print(label + " (read-only diagnostic; NO DEPLOYMENT APPROVAL): " +
+                  classify_targeted_readonly_probe(exit_code, raw))
+            if exit_code == 1:
+                import json
+                print(label + " safe diagnostics: " +
+                      json.dumps(safe_json_plan_diagnostics(raw), sort_keys=True))
+        PY
+          fi
+          exit 1
+        fi
+        terraform show -json "$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/terraform-plan.json" 2>/dev/null || {
+          echo 'FAIL: Terraform plan cannot be inspected safely'; exit 1;
+        }
+        cd "$GITHUB_WORKSPACE"
+        python -m scripts.production.lightsail.google_plan_guard "$RUNNER_TEMP/terraform-plan.json"
+        if ! terraform -chdir=infra/aws/lightsail-production apply -input=false -auto-approve -lock-timeout=60s "$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/google-apply.log" 2>&1; then
+          set +e
+          terraform -chdir=infra/aws/lightsail-production plan -lock=false -refresh=false -input=false -detailed-exitcode -var=enable_google_signin=false -out="$RUNNER_TEMP/google-rollback" > "$RUNNER_TEMP/google-rollback.log" 2>&1
+          rollback_result=$?
+          set -e
+          test "$rollback_result" = 0 -o "$rollback_result" = 2 || { echo 'FAIL: activation failed; rollback plan requires inspection'; exit 1; }
+          terraform -chdir=infra/aws/lightsail-production show -json "$RUNNER_TEMP/google-rollback" > "$RUNNER_TEMP/google-rollback.json"
+          python -m scripts.production.lightsail.google_activation rollback "$RUNNER_TEMP/google-rollback.json"
+          terraform -chdir=infra/aws/lightsail-production apply -input=false -auto-approve -lock-timeout=60s "$RUNNER_TEMP/google-rollback" > "$RUNNER_TEMP/google-rollback.log" 2>&1 || { echo 'FAIL: activation failed; automatic rollback needs inspection'; exit 1; }
+          python -m scripts.production.lightsail.google_provider_readiness > "$RUNNER_TEMP/provider-after.txt"
+          grep -Fxq 'PASS: production Google OAuth status: not_connected_ready_for_review' "$RUNNER_TEMP/provider-after.txt" || { echo 'FAIL: rollback provider state not verified'; exit 1; }
+          echo 'FAIL: Google activation failed; original password-only provider state restored'
+          exit 1
+        fi
+        python -m scripts.production.lightsail.google_provider_readiness > "$RUNNER_TEMP/provider-after.txt"
+        grep -Fxq 'PASS: production Google OAuth status: google_provider_and_client_configured' "$RUNNER_TEMP/provider-after.txt"
+        echo 'PASS: production Google provider and existing browser client configured; password login preserved'
+        mkdir -p google-signin-activation
+        python - <<'PY'
+        import json
+        from pathlib import Path
+        lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
+        report={"schema":1,"google_provider_and_client_verified":True,"password_login_preserved":True,
+                "backend_release_sha":lock["release_sha"],"application_candidate_sha":lock["application_candidate_sha"]}
+        Path("google-signin-activation/summary.json").write_text(json.dumps(report,sort_keys=True)+"\n")
+        PY
+    - name: Publish sanitized verified activation
+      uses: actions/upload-artifact@v7
+      with:
+        name: production-google-signin-activation
+        path: google-signin-activation/summary.json
+        if-no-files-found: error
+        retention-days: 30
