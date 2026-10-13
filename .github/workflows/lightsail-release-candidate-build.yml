@@ -6,6 +6,7 @@ on:
       - ".github/workflows/lightsail-release-candidate-build.yml"
       - "scripts/production/lightsail/release-lock.json"
       - "scripts/production/lightsail/auth-release-selection.json"
+      - "scripts/production/lightsail/desktop-activation.json"
       - "scripts/production/lightsail/test_auth_release_selection.py"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
@@ -24,6 +25,7 @@ on:
     paths:
       - ".github/workflows/lightsail-release-candidate-build.yml"
       - "scripts/production/lightsail/auth-release-selection.json"
+      - "scripts/production/lightsail/desktop-activation.json"
       - "scripts/production/lightsail/test_auth_release_selection.py"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
@@ -107,6 +109,8 @@ jobs:
           test -f application-candidate/backend/identity_app.py
           test -f application-candidate/backend/identity_database.py
           test -f application-candidate/backend/identity_proofs.py
+          test -f application-candidate/desktop/src/native-runtime.json
+          test -f application-candidate/desktop/scripts/native-client-config.cjs
       - name: Rehearse narrowed Cognito production frontend build
         env:
           CI: "true"

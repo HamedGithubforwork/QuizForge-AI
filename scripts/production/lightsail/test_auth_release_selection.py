@@ -38,6 +38,16 @@ class TestAuthReleaseSelection(unittest.TestCase):
         self.assertIn("google_signin_enabled", workflow)
         self.assertIn('"google_signin_enabled": false', workflow)
 
+    def test_auth_release_preserves_existing_native_client_activation(self):
+        selected = json.loads((ROOT / "scripts/production/lightsail/auth-release-selection.json").read_text())
+        desktop = json.loads((ROOT / "scripts/production/lightsail/desktop-activation.json").read_text())
+        self.assertEqual(desktop, {"schema": 1,
+                                 "application_candidate_sha": selected["application_candidate_sha"]})
+        workflow = (ROOT / ".github/workflows/lightsail-release-candidate-build.yml").read_text()
+        self.assertEqual(workflow.count('      - "scripts/production/lightsail/desktop-activation.json"'), 2)
+        self.assertIn("application-candidate/desktop/src/native-runtime.json", workflow)
+        self.assertIn("application-candidate/desktop/scripts/native-client-config.cjs", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
