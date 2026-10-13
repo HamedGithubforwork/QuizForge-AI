@@ -74,7 +74,13 @@ resource "aws_lightsail_instance" "server" {
   ip_address_type   = "ipv4"
   key_pair_name     = aws_lightsail_key_pair.operator.name
   user_data         = file("${path.module}/../../../scripts/production/lightsail/bootstrap.sh")
-  lifecycle { prevent_destroy = true }
+  lifecycle {
+    prevent_destroy = true
+    # Cloud-init user data runs only when the permanent host is created.
+    # Later host maintenance is handled by the guarded repair/deploy workflows;
+    # changing this file must never propose replacing the live server.
+    ignore_changes = [user_data]
+  }
 }
 resource "aws_lightsail_static_ip" "server" {
   name = local.name
