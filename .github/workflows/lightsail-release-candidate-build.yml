@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/lightsail-release-candidate-build.yml"
       - "scripts/production/lightsail/release-lock.json"
+      - "scripts/production/lightsail/auth-release-selection.json"
+      - "scripts/production/lightsail/test_auth_release_selection.py"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
@@ -15,10 +17,14 @@ on:
   push:
     branches:
       - main
+    # This builder can prepare a new tested release without changing the live lock.
     # A promoted release-lock is output from this workflow and must not
     # recursively create a new release SHA. Candidate builds after a lock pin
     # are started explicitly with workflow_dispatch.
     paths:
+      - ".github/workflows/lightsail-release-candidate-build.yml"
+      - "scripts/production/lightsail/auth-release-selection.json"
+      - "scripts/production/lightsail/test_auth_release_selection.py"
       - "scripts/production/lightsail/public-source.json"
       - "scripts/production/lightsail/release_candidate.py"
       - "scripts/production/lightsail/test_release_candidate.py"
@@ -56,7 +62,7 @@ jobs:
       - name: Validate public release configuration code
         run: |
           python -m py_compile scripts/production/build.py scripts/production/lightsail/release_candidate.py
-          python -m unittest scripts.production.test_build scripts.production.lightsail.test_release_candidate -v
+          python -m unittest scripts.production.test_build scripts.production.lightsail.test_release_candidate scripts.production.lightsail.test_auth_release_selection -v
       - name: Require public source configuration only
         run: |
           python - <<'PY'
@@ -67,17 +73,22 @@ jobs:
           assert value["legacy_url"]=="https://vfxmsvphgcaizqnbyjip.supabase.co"
           assert re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{20,}", value["legacy_publishable_key"])
           PY
-      - name: Read currently pinned production application candidate
+      - name: Select reviewed merged auth candidate without touching live release lock
         id: candidate
         run: |
           python - <<'PY'
-          import json, os, re
+          import json, os
           from pathlib import Path
           lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
-          sha=lock.get("application_candidate_sha","")
-          assert re.fullmatch(r"[0-9a-f]{40}",sha)
+          selection=json.loads(Path("scripts/production/lightsail/auth-release-selection.json").read_text())
+          assert lock["application_candidate_sha"]=="953c4c41322707ff60d5825caa314f58b4bc5b27", "Live lock unexpectedly changed"
+          assert set(selection)=={"schema","application_candidate_sha","reviewed_source_tree_sha","rollout_stage","reviewed_pr"}
+          assert selection["schema"]==1 and selection["reviewed_pr"]==579
+          assert selection["rollout_stage"]=="build-only-google-disabled"
+          assert selection["application_candidate_sha"]=="77a060cce504008a4479deacdc31279633d0fe4f"
+          assert selection["reviewed_source_tree_sha"]=="8016b2fce8056bd642bd615eef71eab106ae3800"
           with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
-              out.write("application_sha="+sha+"\n")
+              out.write("application_sha="+selection["application_candidate_sha"]+"\n")
           PY
       - name: Verify exact pinned production application candidate
         uses: actions/checkout@v7
@@ -85,6 +96,10 @@ jobs:
           ref: ${{ steps.candidate.outputs.application_sha }}
           path: application-candidate
           persist-credentials: false
+      - name: Verify exact reviewed source tree
+        run: |
+          test "$(git -C application-candidate rev-parse HEAD^{tree})" = "8016b2fce8056bd642bd615eef71eab106ae3800"
+          test "$(git -C application-candidate rev-parse HEAD)" = "77a060cce504008a4479deacdc31279633d0fe4f"
       - name: Require identity-capable backend candidate
         run: |
           test -f application-candidate/backend/Dockerfile
