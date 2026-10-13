@@ -400,6 +400,20 @@ jobs:
         run: python -m pip install --require-hashes -r scripts/rds_rehearsal/requirements.lock
       - name: Build reviewed frontend using only public staging settings
         run: python scripts/integrated_staging/build.py preview-source/frontend
+      # A successful npm build does not prove the lazy Cognito bundle can
+      # initialize; previous HTML/CSS checks missed a blank live page.
+      - name: Install locked browser pre-publish checks
+        run: |
+          npm ci --prefix e2e --ignore-scripts
+          npx --prefix e2e playwright install --with-deps chromium
+      - name: Refuse a blank or crashing staging frontend before upload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m http.server 4179 --bind 127.0.0.1 --directory hosting-dist > /dev/null 2>&1 &
+          local_server=$!
+          trap 'kill "$local_server" 2>/dev/null || true' EXIT
+          node e2e/staging-build-smoke.mjs
       - uses: actions/upload-artifact@v7
         with:
           name: fast-update-built-site
