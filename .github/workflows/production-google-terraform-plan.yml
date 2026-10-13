@@ -103,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          trap 'rm -f "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/terraform-baseline" "$RUNNER_TEMP/terraform-baseline.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
+          trap 'rm -f "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/terraform-baseline" "$RUNNER_TEMP/terraform-baseline.log" "$RUNNER_TEMP/terraform-provider-probe.log" "$RUNNER_TEMP/terraform-browser-probe.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
           test -n "$TF_STATE_BUCKET" || { echo 'FAIL: approved state bucket not configured'; exit 1; }
           for name in PROD_GOOGLE_OAUTH_CLIENT_ID PROD_GOOGLE_OAUTH_CLIENT_SECRET TF_VAR_alert_email TF_VAR_ssh_public_key TF_VAR_admin_ipv4_cidr; do
             test -n "${!name}" || { echo "FAIL: protected production input missing"; exit 1; }
@@ -180,6 +180,43 @@ jobs:
                     json.dumps(safe_json_plan_diagnostics(private_log), sort_keys=True))
           print("No plan applied; any existing differences require separate review.")
           PY
+            if [ "$baseline_result" -eq 1 ]; then
+              # Diagnostic-only isolation; targeted plans are never release
+              # approval. Full-plan verification remains mandatory.
+              # NO DEPLOYMENT APPROVAL is inferred from a targeted result.
+              set +e
+              terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+                -var=enable_google_signin=false \
+                -target=data.aws_caller_identity.current \
+                > "$RUNNER_TEMP/terraform-provider-probe.log" 2>&1
+              provider_result=$?
+              terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+                -var=enable_google_signin=false \
+                -target=aws_cognito_user_pool_client.browser \
+                > "$RUNNER_TEMP/terraform-browser-probe.log" 2>&1
+              browser_result=$?
+              set -e
+              PYTHONPATH="$GITHUB_WORKSPACE" PROVIDER_RESULT="$provider_result" BROWSER_RESULT="$browser_result" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.production.lightsail.google_plan_guard import (
+              classify_targeted_readonly_probe, safe_json_plan_diagnostics
+          )
+          directory = Path(os.environ["RUNNER_TEMP"])
+          for label, name, code in (
+              ("AWS provider identity scope", "terraform-provider-probe.log", "PROVIDER_RESULT"),
+              ("Cognito browser scope", "terraform-browser-probe.log", "BROWSER_RESULT"),
+          ):
+              raw = (directory / name).read_text(encoding="utf-8", errors="replace")
+              exit_code = int(os.environ[code])
+              print(label + " (read-only diagnostic; NO DEPLOYMENT APPROVAL): " +
+                    classify_targeted_readonly_probe(exit_code, raw))
+              if exit_code == 1:
+                  import json
+                  print(label + " safe diagnostics: " +
+                        json.dumps(safe_json_plan_diagnostics(raw), sort_keys=True))
+          PY
+            fi
             exit 1
           fi
           terraform show -json "$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/terraform-plan.json" 2>/dev/null || {

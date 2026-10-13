@@ -206,3 +206,42 @@ class TestGoogleDisabledProductionBaselineProbe(unittest.TestCase):
         self.assertIn('-refresh=false', workflow)
         self.assertIn('-lock=false', workflow)
         self.assertNotIn("terraform apply", workflow)
+
+class TestProductionScopeDiagnostics(unittest.TestCase):
+    def test_only_source_files_from_static_allowlist(self):
+        from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
+        private = "private-project-file-name-secret-token"
+        for filename, expected in [
+            ("auth.tf", "auth.tf"),
+            ("main.tf", "main.tf"),
+            ("operations.tf", "operations.tf"),
+            ("secret/" + private + "/auth.tf", "UNSPECIFIED"),
+            (private, "UNSPECIFIED"),
+            (None, "UNSPECIFIED"),
+        ]:
+            event = json.dumps({"type":"diagnostic", "diagnostic":{
+                "severity":"error", "summary":"Cannot evaluate", "detail":"",
+                "range":{"filename":filename} if filename is not None else None
+            }})
+            result = safe_json_plan_diagnostics(event)
+            self.assertEqual(result[0]["source_file"], expected)
+            self.assertNotIn(private, str(result))
+
+    def test_targeted_plans_are_diagnostics_only(self):
+        from pathlib import Path
+        from scripts.production.lightsail.google_plan_guard import classify_targeted_readonly_probe
+        secret = "private-secret-XYZ123456789"
+        self.assertEqual(classify_targeted_readonly_probe(0, secret),
+                         "TARGETED_SCOPE_NO_CHANGES_NOT_RELEASE_APPROVAL")
+        self.assertEqual(classify_targeted_readonly_probe(2, secret),
+                         "TARGETED_SCOPE_HAS_CHANGES_NOT_RELEASE_APPROVAL")
+        self.assertEqual(classify_targeted_readonly_probe(1, secret),
+                         "TARGETED_SCOPE_ERROR_OTHER_TERRAFORM_PLAN_FAILURE")
+        self.assertNotIn(secret, classify_targeted_readonly_probe(1, secret))
+        workflow = (Path(__file__).parents[3] /
+                    ".github/workflows/production-google-terraform-plan.yml").read_text()
+        self.assertIn('-target=data.aws_caller_identity.current', workflow)
+        self.assertIn('-target=aws_cognito_user_pool_client.browser', workflow)
+        self.assertIn('classify_targeted_readonly_probe', workflow)
+        self.assertIn('NO DEPLOYMENT APPROVAL', workflow)
+        self.assertNotIn('terraform apply', workflow)

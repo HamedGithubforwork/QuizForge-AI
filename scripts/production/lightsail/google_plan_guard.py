@@ -213,11 +213,16 @@ def safe_json_plan_diagnostics(log_text: str) -> list[dict]:
             term.lower() for term in re.findall(r"[A-Za-z]+", detail)
             if term.lower() in SAFE_ERROR_WORDS
         ][:32]
+        source = diagnostic.get("range")
+        known_files = {"auth.tf", "main.tf", "operations.tf"}
+        filename = source.get("filename") if isinstance(source, dict) else None
+        source_file = filename if filename in known_files else "UNSPECIFIED"
         results.append({
             "category": classify_plan_failure("Error: " + summary + "\n" + detail, 1),
             "summary_terms": safe_words,
             "detail_terms": detail_words,
             "summary_present": bool(summary.strip()),
+            "source_file": source_file,
         })
         if len(results) >= 4:
             break
@@ -239,6 +244,17 @@ def classify_google_disabled_baseline(exit_code: int, diagnostic_text: str) -> s
     if exit_code == 1:
         return "BASELINE_FAILED_" + classify_plan_failure(diagnostic_text, exit_code)
     return "BASELINE_UNEXPECTED_EXIT"
+
+
+def classify_targeted_readonly_probe(exit_code: int, private_log: str) -> str:
+    """Diagnostic-only: a targeted Terraform plan NEVER authorizes deployment."""
+    if exit_code == 0:
+        return "TARGETED_SCOPE_NO_CHANGES_NOT_RELEASE_APPROVAL"
+    if exit_code == 2:
+        return "TARGETED_SCOPE_HAS_CHANGES_NOT_RELEASE_APPROVAL"
+    if exit_code == 1:
+        return "TARGETED_SCOPE_ERROR_" + classify_plan_failure(private_log, 1)
+    return "TARGETED_SCOPE_UNEXPECTED_EXIT"
 
 def main():
     if len(sys.argv) != 2:
