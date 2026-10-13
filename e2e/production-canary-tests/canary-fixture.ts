@@ -116,11 +116,11 @@ export async function signInAndEnrollCanary(
 
   const usernameInput =
     page.locator(
-      'input[name="username"]:visible',
+      'input[type="email"][autocomplete="username"]:visible,input[name="username"]:visible',
     )
   const passwordInput =
     page.locator(
-      'input[name="password"]:visible',
+      'input[type="password"]:visible',
     )
 
   await usernameInput.waitFor({
@@ -130,14 +130,20 @@ export async function signInAndEnrollCanary(
   await usernameInput.fill(fixture.email)
   await passwordInput.fill(fixture.password)
 
-  await page
-    .locator(
+  const firstParty = await page.getByRole('heading', {
+    name: 'Sign in with email', exact: true,
+  }).isVisible()
+  if (firstParty) {
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  } else {
+    await page.locator(
       'input[name="signInSubmitButton"]:visible,button[name="signInSubmitButton"]:visible',
-    )
-    .click()
+    ).click()
+  }
 
-  const totpInput =
-    page.locator(
+  const totpInput = firstParty
+    ? page.getByLabel('Sign-in verification code', { exact: true })
+    : page.locator(
       'input[name="authentication_code"][id="totpCodeInput"]:visible',
     )
 
@@ -154,11 +160,13 @@ export async function signInAndEnrollCanary(
     currentTotp(fixture.totp),
   )
 
-  await page
-    .locator(
+  if (firstParty) {
+    await page.getByRole('button', { name: 'Verify and sign in', exact: true }).click()
+  } else {
+    await page.locator(
       'input[type="submit"]:visible,button[type="submit"]:visible',
-    )
-    .click()
+    ).click()
+  }
 
   const productionOrigin =
     new URL(frontendUrl).origin
