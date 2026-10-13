@@ -5,12 +5,13 @@ import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
-import { config, identityRequest, initialize, manager, session, signInWithGoogle, signOut, signUp } from './lib/cognitoBrowser'
+import { config, identityRequest, initialize, manager, session, signInWithGoogle, signOut } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 import CognitoEmailSignIn from './components/account/CognitoEmailSignIn'
+import CognitoEmailSignUp from './components/account/CognitoEmailSignUp'
 
 const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 
@@ -26,6 +27,8 @@ export default function CognitoAuthGate() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [emailSignIn, setEmailSignIn] = useState(false)
+  const [emailSignUp, setEmailSignUp] = useState(false)
+  const [prefillEmail, setPrefillEmail] = useState('')
   const [activationMode, setActivationMode] = useState(false)
   const [activationSetup, setActivationSetup] = useState<MigratedActivationSetup | null>(null)
   const [activationComplete, setActivationComplete] = useState(false)
@@ -61,6 +64,8 @@ export default function CognitoAuthGate() {
       setCognitoChoice(null)
       setActivationMode(false)
       setEmailSignIn(false)
+      setEmailSignUp(false)
+      setPrefillEmail('')
       setActivationSetup(null)
       setActivationComplete(false)
       setSecurityStatus(null)
@@ -456,7 +461,17 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}
     <App />
   </>
+  if (!account && emailSignUp) return <CognitoEmailSignUp
+    onBack={() => { setEmailSignUp(false); setError('') }}
+    onSignIn={(emailAddress) => {
+      setPrefillEmail(emailAddress)
+      setEmailSignUp(false)
+      setEmailSignIn(true)
+      setError('')
+    }}
+  />
   if (!account && emailSignIn) return <CognitoEmailSignIn
+    initialEmail={prefillEmail}
     onComplete={async () => {
       try { await load() }
       catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-in could not be verified.'); throw caught }
@@ -574,7 +589,7 @@ export default function CognitoAuthGate() {
 
           <div className="auth-entry-actions">
             <button className="auth-entry-action auth-entry-action-primary" aria-label="Sign in" disabled={busy}
-              onClick={() => { setActivationMode(false); setEmailSignIn(true); setError('') }}>
+              onClick={() => { setActivationMode(false); setEmailSignUp(false); setEmailSignIn(true); setError('') }}>
               <span className="auth-entry-action-copy">
                 <strong>Sign in</strong>
                 <small>Continue to your existing account</small>
@@ -594,7 +609,7 @@ export default function CognitoAuthGate() {
             )}
 
             <button className="auth-entry-action auth-entry-action-secondary" aria-label="Create account" disabled={busy}
-              onClick={() => void run(signUp)}>
+              onClick={() => { setEmailSignIn(false); setEmailSignUp(true); setError('') }}>
               <span className="auth-entry-action-copy">
                 <strong>Create account</strong>
                 <small>New here? Start with a fresh account</small>
