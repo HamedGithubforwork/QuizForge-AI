@@ -8,6 +8,13 @@ on:
     paths:
       - "frontend/src/AuthGate.tsx"
       - "frontend/src/CognitoAuthGate.tsx"
+      - "frontend/src/components/account/CognitoEmailSignIn.tsx"
+      - "frontend/src/components/account/CognitoEmailSignUp.tsx"
+      - "frontend/src/lib/cognitoPasswordSession.ts"
+      - "frontend/src/lib/cognitoPasswordSession.test.ts"
+      - "frontend/src/lib/cognitoSignupRecovery.ts"
+      - "frontend/src/lib/cognitoSignupRecovery.test.ts"
+      - "frontend/src/lib/cognitoRequest.ts"
       - "frontend/src/AuthGate.css"
       - "frontend/src/lib/authConfig.ts"
       - "frontend/src/lib/authConfig.test.ts"
