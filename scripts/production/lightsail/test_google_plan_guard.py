@@ -138,7 +138,7 @@ class TestStructuredTerraformDiagnostics(unittest.TestCase):
     def test_safely_classifies_json_events(self):
         from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
         private = "HiddenOAuthSecret-do-not-print-123"
-        events = "\\n".join([
+        events = "\n".join([
             json.dumps({"@level": "info", "type": "planned_change", "diagnostic": {"severity": "error", "summary": "ignored"}}),
             json.dumps({"@level": "error", "type": "diagnostic", "diagnostic": {
                 "severity": "error", "summary": "Unsupported argument " + private,
@@ -154,5 +154,5 @@ class TestStructuredTerraformDiagnostics(unittest.TestCase):
 
     def test_non_json_and_non_errors_remain_private(self):
         from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
-        self.assertEqual(safe_json_plan_diagnostics("not-json\\n{}\\n"), [])
+        self.assertEqual(safe_json_plan_diagnostics("not-json\n{}\n"), [])
 
