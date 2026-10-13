@@ -8,10 +8,12 @@ on:
       - ".github/staging-update-requests/auth-parity-pr-563.json"
       - ".github/staging-update-requests/recovery-diagnostic-pr-568.json"
       - ".github/staging-update-requests/frontend-signup-fix-pr-538.json"
+      - ".github/staging-update-requests/frontend-signup-resume-checklist-v2.json"
   pull_request:
     paths:
       - ".github/workflows/aws-integrated-staging-frontend-update.yml"
       - ".github/staging-update-requests/frontend-signup-fix-pr-538.json"
+      - ".github/staging-update-requests/frontend-signup-resume-checklist-v2.json"
       - "scripts/integrated_staging/auto_frontend_merge.py"
       - "scripts/integrated_staging/test_auto_frontend_merge.py"
       - "e2e/staging-live-auth-smoke.mjs"
@@ -331,8 +333,10 @@ jobs:
 
   recovery_diagnostic:
     name: Read-only review-gated recovery Lambda plan diagnosis
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: test
+    if: >-
+      github.ref == 'refs/heads/main' && github.event_name == 'push' &&
+      needs.intent.outputs.approved != 'true'
+    needs: [test, intent]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

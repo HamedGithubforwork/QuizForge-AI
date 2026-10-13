@@ -25,7 +25,7 @@ def merged():
 class OneTimeStagingPublication(unittest.TestCase):
     def test_pins_only_approved_frontend_pr_and_commit(self):
         self.assertEqual(FRONTEND_PR, "538")
-        self.assertEqual(FRONTEND_SHA, "01092b65f4c0ae65830282bf9463373574981446")
+        self.assertEqual(FRONTEND_SHA, "af9393ac74301f1e298b11f83a32a620bd7fdac3")
         self.assertEqual(REQUEST["operation"], "frontend")
         self.assertEqual(REQUEST["environment"], "quizforge-integrated-staging")
         self.assertEqual(REQUEST["frontend_sha"], FRONTEND_SHA)
@@ -38,7 +38,7 @@ class OneTimeStagingPublication(unittest.TestCase):
             [], sorted(CHANGES - {f"A\t{MARKER}"}),
             sorted(CHANGES | {"A\tfrontend/src/App.tsx"}),
             sorted(CHANGES - {f"A\t{MARKER}"} | {f"M\t{MARKER}"}),
-            sorted(CHANGES - {"A\te2e/staging-live-auth-smoke.mjs"}),
+            sorted(CHANGES - {"M\te2e/staging-live-auth-smoke.mjs"}),
         ):
             with self.subTest(changed=changed), self.assertRaises(ValueError):
                 authorize(event(), changed, merged(), REQUEST)
