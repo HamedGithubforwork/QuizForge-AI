@@ -1,7 +1,7 @@
 """Synthetic guard tests: never connect to AWS or print OAuth secrets."""
 import copy
 import unittest
-from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure
+from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure, safe_plan_error_hints
 
 ID = "123456789-synthetic.apps.googleusercontent.com"
 SECRET = "synthetic-test-only-secret"
@@ -93,3 +93,14 @@ class TestSafePlanDiagnostics(unittest.TestCase):
         self.assertEqual(classify_plan_failure("secretOnlyXYZ", 1), "OTHER_TERRAFORM_PLAN_FAILURE")
         self.assertEqual(classify_plan_failure("secretOnlyXYZ", 0), "NO_CHANGES")
         self.assertEqual(classify_plan_failure("secretOnlyXYZ", 77), "UNEXPECTED_PLAN_EXIT")
+
+class TestAllowlistedDiagnosticTitles(unittest.TestCase):
+    def test_only_allowlisted_tokens_escape_error_titles(self):
+        title = "Error: Invalid AWS provider configuration - stolen-personalSecretBearerToken-ABCD12345"
+        safe = safe_plan_error_hints(title)
+        self.assertTrue(safe)
+        self.assertNotIn("stolen", str(safe))
+        self.assertNotIn("bearer", str(safe).lower())
+        self.assertNotIn("12345", str(safe))
+        self.assertIn("invalid", safe[0])
+        self.assertEqual(safe_plan_error_hints("Nothing here"), ["unrecognized_terraform_error"])
