@@ -13,14 +13,29 @@ cooldown plus Cognito throttling. After confirmation, the form returns to email
 sign-in with the email retained and password cleared. No new account is created.
 The separate **Finish email verification** landing-page shortcut has been removed.
 
+Choose **Create account** on the Quiz From Notes homepage for first-party signup.
+After creating an account, enter the code on the site, then choose **Continue to
+sign in**. Leaving verification does not strand the account: return to the
+homepage, choose **Sign in**, and authenticate with the original password to
+resume code confirmation. If signup reports an account may already exist, do
+not register again; use Sign in and the original account. The hosted Cognito
+signup and login loop is no longer part of the email signup path.
+
+New passwords go directly to regional Cognito over TLS and are cleared from UI
+state after submission. Neither account credentials nor verification codes are
+sent to QuizForge services or saved in browser storage or URLs. Successful
+verification never signs someone in without separate password and MFA checks.
+
+
 Passwords go directly over HTTPS to Cognito, never to the QuizForge API, storage,
 URLs or logs. Passwords are cleared from the form on submission; confirmation
 never establishes a login by itself. Subsequent password authentication must
 complete any MFA challenge. Authenticator, SMS/email codes and factor selection
 are supported; unsupported challenges fail closed. Imported accounts can still
-use **Finish first-time setup**. Forgot-password and new signup use Cognito's
-existing hosted flows with a PKCE transaction. Google remains on its unchanged
-OIDC authorization-code + PKCE flow.
+use **Finish first-time setup**. Forgot-password still uses Cognito's hosted recovery with PKCE. New signup
+uses the site's own email/password and confirmation-code forms, calling only
+Cognito's public SignUp, ConfirmSignUp, and ResendConfirmationCode operations.
+Google remains on its unchanged OIDC authorization-code + PKCE flow.
 
 Password sessions stay in memory. Cognito `GetUser` checks the verified email and
 subject before accepting a session; the QuizForge identity API independently
