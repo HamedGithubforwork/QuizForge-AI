@@ -33,6 +33,8 @@ class TestAuthReleaseSelection(unittest.TestCase):
         self.assertIn("Verify exact reviewed source tree", workflow)
         self.assertNotIn("terraform apply", workflow)
         self.assertNotIn("promote_release", workflow)
+        self.assertIn("cognito-idp:DescribeUserPoolClient", workflow)
+        self.assertIn("cognito-idp:DescribeIdentityProvider", workflow)
         self.assertIn("google_signin_enabled", workflow)
         self.assertIn('"google_signin_enabled": false', workflow)
 

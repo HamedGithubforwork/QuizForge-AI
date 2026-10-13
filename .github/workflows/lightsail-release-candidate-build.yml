@@ -189,6 +189,8 @@ jobs:
                 "sts:GetCallerIdentity",
                 "cognito-idp:ListUserPools",
                 "cognito-idp:ListUserPoolClients",
+                "cognito-idp:DescribeUserPoolClient",
+                "cognito-idp:DescribeIdentityProvider",
                 "cognito-idp:GetUserPoolMfaConfig",
                 "cognito-idp:DescribeUserPoolDomain",
                 "ecr:GetAuthorizationToken",
