@@ -77,6 +77,41 @@ def authorize(document: dict, expected_google_client_id: str) -> dict:
     ], "production_changes_applied": False}
 
 
+def classify_plan_failure(log_text: str, exit_code: int) -> str:
+    """Whitelist stable error categories; never include raw Terraform diagnostics."""
+    if exit_code == 0:
+        return "NO_CHANGES"
+    if exit_code != 1:
+        return "UNEXPECTED_PLAN_EXIT"
+    tests = [
+        ("AccessDenied", "AWS_READ_PERMISSION_DENIED"),
+        ("Access Denied", "AWS_READ_PERMISSION_DENIED"),
+        ("UnauthorizedOperation", "AWS_READ_PERMISSION_DENIED"),
+        ("not authorized", "AWS_READ_PERMISSION_DENIED"),
+        ("Error: Missing required argument", "TERRAFORM_MISSING_ARGUMENT"),
+        ("Error: Unsupported argument", "TERRAFORM_UNSUPPORTED_ARGUMENT"),
+        ("Error: Invalid value for input variable", "TERRAFORM_INPUT_INVALID"),
+        ("Error: Invalid value for variable", "TERRAFORM_INPUT_INVALID"),
+        ("Error: Invalid function argument", "TERRAFORM_FUNCTION_INVALID"),
+        ("Error: Invalid for_each argument", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Reference to undeclared resource", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Inconsistent dependency lock file", "TERRAFORM_DEPENDENCY_LOCK_INVALID"),
+        ("Error: Failed to load state", "TERRAFORM_STATE_ERROR"),
+        ("Error: Error loading state", "TERRAFORM_STATE_ERROR"),
+        ("Error: Invalid provider configuration", "TERRAFORM_PROVIDER_CONFIGURATION_INVALID"),
+        ("Error: Error in function call", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Invalid resource instance data", "TERRAFORM_STATE_ERROR"),
+        ("Error: Incorrect attribute value type", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Invalid index", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Invalid resource instance key", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Call to unknown function", "TERRAFORM_CONFIGURATION_INVALID"),
+    ]
+    for term, category in tests:
+        if term.lower() in log_text.lower():
+            return category
+    return "OTHER_TERRAFORM_PLAN_FAILURE"
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python -m scripts.production.lightsail.google_plan_guard <tfplan.json>")
