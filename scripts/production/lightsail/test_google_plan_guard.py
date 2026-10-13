@@ -104,3 +104,13 @@ class TestAllowlistedDiagnosticTitles(unittest.TestCase):
         self.assertNotIn("12345", str(safe))
         self.assertIn("invalid", safe[0])
         self.assertEqual(safe_plan_error_hints("Nothing here"), ["unrecognized_terraform_error"])
+
+class TestTerraformBoxedDiagnostics(unittest.TestCase):
+    def test_box_characters_do_not_hide_errors(self):
+        raw = "╷\n│ Error: Invalid function argument\n│\n╵\n"
+        self.assertEqual(safe_plan_error_hints(raw), ["invalid_function_argument"])
+        secret = "not_allowed_secret_value_ABCXYZ999"
+        raw = "│ Error: Invalid variable " + secret
+        safe = safe_plan_error_hints(raw)
+        self.assertNotIn(secret, str(safe))
+        self.assertIn("invalid", safe[0])
