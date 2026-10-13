@@ -1,7 +1,7 @@
 """Synthetic guard tests: never connect to AWS or print OAuth secrets."""
 import copy
 import unittest
-from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure, safe_plan_error_hints
+from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure, safe_plan_error_hints, safe_plan_log_metrics
 
 ID = "123456789-synthetic.apps.googleusercontent.com"
 SECRET = "synthetic-test-only-secret"
@@ -114,3 +114,12 @@ class TestTerraformBoxedDiagnostics(unittest.TestCase):
         safe = safe_plan_error_hints(raw)
         self.assertNotIn(secret, str(safe))
         self.assertIn("invalid", safe[0])
+
+class TestPrivateLogMetrics(unittest.TestCase):
+    def test_fixed_key_log_metrics_do_not_echo_secret(self):
+        private = "shhh-randomOAuthKey-ABC123456"
+        m = safe_plan_log_metrics("Terraform ERROR: " + private)
+        self.assertGreater(m["bytes"], 10)
+        self.assertTrue(m["terraform_error_prefix"])
+        self.assertNotIn(private, str(m))
+        self.assertEqual(m["permitted_error_word_counts"].get("error"), 1)
