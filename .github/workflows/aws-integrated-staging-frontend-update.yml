@@ -7,9 +7,14 @@ on:
     paths:
       - ".github/staging-update-requests/auth-parity-pr-563.json"
       - ".github/staging-update-requests/recovery-diagnostic-pr-568.json"
+      - ".github/staging-update-requests/frontend-signup-fix-pr-538.json"
   pull_request:
     paths:
       - ".github/workflows/aws-integrated-staging-frontend-update.yml"
+      - ".github/staging-update-requests/frontend-signup-fix-pr-538.json"
+      - "scripts/integrated_staging/auto_frontend_merge.py"
+      - "scripts/integrated_staging/test_auto_frontend_merge.py"
+      - "e2e/staging-live-auth-smoke.mjs"
       - "scripts/integrated_staging/fast_frontend.py"
       - "scripts/integrated_staging/test_fast_frontend.py"
       - "scripts/integrated_staging/ai_budget.py"
@@ -103,6 +108,7 @@ jobs:
       - name: Exercise lease, artifact, ownership and fail-closed checks
         run: |
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_frontend.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_auto_frontend_merge.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_ai_budget.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_staging_build_env.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
@@ -119,10 +125,33 @@ jobs:
           python -m unittest discover -s scripts/integrated_staging -p 'test_auto_parity_merge.py' -v
           python -m compileall -q scripts/integrated_staging/fast_frontend.py scripts/integrated_staging/fast_auth.py scripts/integrated_staging/fast_password.py scripts/integrated_staging/fast_parity.py scripts/integrated_staging/auto_parity_merge.py scripts/integrated_staging/production_parity.py scripts/integrated_staging/package_recovery.py scripts/aws_staging_preview.py
 
+  intent:
+    name: Authorize only one reviewed main merge for staging frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      approved: ${{ steps.guard.outputs.approved }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Deny unrelated and unreviewed staging publication
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/integrated_staging/auto_frontend_merge.py
+
   resolve:
     name: Verify exact frontend PR commit
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'frontend'
-    needs: test
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.operation == 'frontend') ||
+       (github.event_name == 'push' && needs.intent.outputs.approved == 'true'))
+    needs: [test, intent]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -139,12 +168,16 @@ jobs:
         id: review
         env:
           GH_TOKEN: ${{ github.token }}
-          PREVIEW_FRONTEND_PR: ${{ inputs.frontend_pr }}
+          PREVIEW_FRONTEND_PR: ${{ github.event_name == 'push' && '538' || inputs.frontend_pr }}
         run: |
           python - <<'PY'
           import os
           from scripts.aws_staging_preview import FRONTEND_REQUIRED, checked_pr
           sha = checked_pr(os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED)
+          if os.environ.get("GITHUB_EVENT_NAME") == "push":
+              from scripts.integrated_staging.auto_frontend_merge import FRONTEND_SHA
+              if sha != FRONTEND_SHA:
+                  raise ValueError("Staging release target changed after review")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"sha={sha}\n")
           print("PASS: exact same-repository frontend PR and required checks verified")
@@ -460,3 +493,26 @@ jobs:
             -backend-config="region=ca-central-1" -backend-config="encrypt=true" -backend-config="use_lockfile=true"
       - name: Recheck lease and update existing S3 frontend
         run: python scripts/integrated_staging/fast_frontend.py publish
+
+  live_browser:
+    name: Verify published staging registration in real Chromium
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install locked browser tools
+        run: |
+          npm ci --prefix e2e --ignore-scripts
+          npx --prefix e2e playwright install --with-deps chromium
+      - name: Check live signup and sign-in screens without user account
+        run: node e2e/staging-live-auth-smoke.mjs
