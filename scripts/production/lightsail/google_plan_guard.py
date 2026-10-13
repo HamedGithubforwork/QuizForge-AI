@@ -151,7 +151,20 @@ def safe_plan_log_metrics(log_text: str) -> dict:
     import re
     words = Counter(w.lower() for w in re.findall(r"[A-Za-z]+", log_text)
                     if w.lower() in SAFE_ERROR_WORDS)
+    lines = log_text.splitlines()
+    # Emit only allowlisted words from lines containing 'error' and their next
+    # line. Never emit raw text, arbitrary tokens, URLs, IDs or secret values.
+    context = []
+    for index, line in enumerate(lines):
+        if re.search(r"\berror\b", line, re.IGNORECASE):
+            excerpt = " ".join(lines[index:index+2])
+            terms = [w.lower() for w in re.findall(r"[A-Za-z]+", excerpt)
+                     if w.lower() in SAFE_ERROR_WORDS]
+            context.append({"line": index + 1, "safe_terms": terms[:16]})
+        if len(context) == 4:
+            break
     return {
+        "error_context": context,
         "bytes": len(log_text.encode("utf-8", errors="replace")),
         "lines": len(log_text.splitlines()),
         "terraform_error_prefix": bool(re.search(r"(?i)\berror\b", log_text)),

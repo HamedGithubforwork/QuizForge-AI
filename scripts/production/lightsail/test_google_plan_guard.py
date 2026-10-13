@@ -123,3 +123,12 @@ class TestPrivateLogMetrics(unittest.TestCase):
         self.assertTrue(m["terraform_error_prefix"])
         self.assertNotIn(private, str(m))
         self.assertEqual(m["permitted_error_word_counts"].get("error"), 1)
+
+class TestSafelyRedactedErrorContext(unittest.TestCase):
+    def test_no_sensitive_values_can_escape_near_errors(self):
+        private = "DoNotPrintOAuthSecretXYZ987"
+        m = safe_plan_log_metrics("line\nError: Invalid provider details " + private +
+                                  "\nsecret " + private + " cannot be read")
+        self.assertEqual(m["error_context"][0]["line"], 2)
+        self.assertIn("invalid", m["error_context"][0]["safe_terms"])
+        self.assertNotIn(private, str(m))
