@@ -8,7 +8,7 @@ ROOT = Path(__file__).parents[3]
 
 
 class TestAuthReleaseSelection(unittest.TestCase):
-    def test_candidate_and_backend_first_release_are_immutable(self):
+    def test_candidate_and_google_enabled_release_are_immutable(self):
         selected = json.loads((ROOT / "scripts/production/lightsail/auth-release-selection.json").read_text())
         live = json.loads((ROOT / "scripts/production/lightsail/release-lock.json").read_text())
         self.assertEqual(set(selected), {
@@ -24,7 +24,7 @@ class TestAuthReleaseSelection(unittest.TestCase):
                          "8016b2fce8056bd642bd615eef71eab106ae3800")
         self.assertEqual(live["application_candidate_sha"],
                          "77a060cce504008a4479deacdc31279633d0fe4f")
-        self.assertEqual(live["release_sha"], "27b4d377b30873330ca4ff521ffde517f03569ca")
+        self.assertEqual(live["release_sha"], "1bab85a588e2eb82f9f44d4b3f7ab7fcfa5ee405")
         self.assertRegex(selected["application_candidate_sha"], r"^[0-9a-f]{40}$")
 
     def test_builder_must_not_deploy_or_auto_promote(self):
