@@ -243,8 +243,29 @@ class TestProductionScopeDiagnostics(unittest.TestCase):
                     contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as error:
                 main()
         self.assertIn("NO APPLY made", str(error.exception))
+        self.assertIn("BROWSER_CONFIGURATION_CHANGE", output.getvalue())
         self.assertIn("callback_urls", output.getvalue())
         self.assertNotIn("private.example", output.getvalue())
+        self.assertNotIn(SECRET, output.getvalue())
+
+    def test_cli_unknown_error_text_stays_private(self):
+        import contextlib
+        import io
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from scripts.production.lightsail.google_plan_guard import main
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            path.write_text(json.dumps(plan()))
+            with patch("sys.argv", ["guard", str(path)]), \
+                    patch.dict("os.environ", {"PROD_GOOGLE_OAUTH_CLIENT_ID": ID}), \
+                    patch("scripts.production.lightsail.google_plan_guard.authorize",
+                          side_effect=ValueError(SECRET)), \
+                    contextlib.redirect_stdout(output), self.assertRaises(SystemExit):
+                main()
+        self.assertIn("UNCLASSIFIED_FAILURE", output.getvalue())
         self.assertNotIn(SECRET, output.getvalue())
 
     def test_untrusted_names_actions_fields_and_values_cannot_escape(self):

@@ -281,6 +281,22 @@ lambda_config password_policy mfa_configuration username_configuration
 admin_create_user_config email_configuration tags tags_all policy assume_role_policy
 port_info runtime handler layers environment code_sha256
 """.split())
+SCOPE_REJECTION_CODES = {
+    "Unexpected Terraform plan format": "PLAN_FORMAT",
+    "No Terraform resource change details": "MISSING_CHANGES",
+    "Malformed Terraform change": "MALFORMED_CHANGE",
+    "Plan has a non-Google or destructive production change": "NON_GOOGLE_OR_DESTRUCTIVE_CHANGE",
+    "Expected one directly scoped Cognito change": "MISSING_AFTER_STATE",
+    "Google provider must be new and separate": "PROVIDER_NOT_NEW",
+    "Unexpected Google provider type": "PROVIDER_TYPE",
+    "Google OAuth settings mismatch": "OAUTH_SETTINGS",
+    "Google claim mapping mismatch": "CLAIM_MAPPING",
+    "Missing current browser app-client state": "MISSING_BROWSER_STATE",
+    "Must preserve existing password sign-in": "PASSWORD_PROVIDER_BOUNDARY",
+    "Unreviewed app-client configuration change": "BROWSER_CONFIGURATION_CHANGE",
+    "Expected precisely one provider creation and one app-client update": "EXPECTED_RESOURCE_PAIR",
+    "Unexpected Terraform drift during read-only review": "RESOURCE_DRIFT",
+}
 
 
 def safe_scope_change_summary(document: dict) -> list[dict]:
@@ -321,7 +337,9 @@ def main():
         expected_id = os.environ["PROD_GOOGLE_OAUTH_CLIENT_ID"]
         document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
         report = authorize(document, expected_id)
-    except Exception:
+    except Exception as error:
+        print("Plan rejection category: " +
+              SCOPE_REJECTION_CODES.get(str(error), "UNCLASSIFIED_FAILURE"))
         if isinstance(document, dict):
             print("Sanitized rejected plan changes: " +
                   json.dumps(safe_scope_change_summary(document), sort_keys=True))
