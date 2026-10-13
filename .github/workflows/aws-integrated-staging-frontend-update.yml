@@ -53,6 +53,8 @@ on:
       - ".github/staging-update-requests/auth-parity-pr-563.json"
       - "scripts/integrated_staging/control.py"
       - "scripts/integrated_staging/build.py"
+      - "scripts/integrated_staging/test_staging_build_env.py"
+      - "e2e/staging-build-smoke.mjs"
       - "infra/aws/integrated-staging/main.tf"
   workflow_dispatch:
     inputs:
@@ -102,6 +104,7 @@ jobs:
         run: |
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_frontend.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_ai_budget.py' -v
+          python -m unittest discover -s scripts/integrated_staging -p 'test_staging_build_env.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_auth.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_password.py' -v
           python -m unittest discover -s scripts/integrated_staging -p 'test_fast_parity.py' -v
