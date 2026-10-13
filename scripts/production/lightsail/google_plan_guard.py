@@ -104,6 +104,12 @@ def classify_plan_failure(log_text: str, exit_code: int) -> str:
         ("Error: Incorrect attribute value type", "TERRAFORM_CONFIGURATION_INVALID"),
         ("Error: Invalid index", "TERRAFORM_CONFIGURATION_INVALID"),
         ("Error: Invalid resource instance key", "TERRAFORM_CONFIGURATION_INVALID"),
+        ("Error: Cycle", "TERRAFORM_DEPENDENCY_CYCLE"),
+        ("context deadline exceeded", "AWS_PROVIDER_TIMEOUT"),
+        ("deadline exceeded", "AWS_PROVIDER_TIMEOUT"),
+        ("request timed out", "AWS_PROVIDER_TIMEOUT"),
+        ("Error: Plugin did not respond", "TERRAFORM_PROVIDER_PLUGIN_ERROR"),
+        ("Error: Provider produced", "TERRAFORM_PROVIDER_PLAN_ERROR"),
         ("Error: Call to unknown function", "TERRAFORM_CONFIGURATION_INVALID"),
     ]
     for term, category in tests:
@@ -125,7 +131,7 @@ length list lock locked missing module name not object operation optional
 output parameter permission permissions plan policy provider produced read reference result
 required resource resources role s3 schema secret state string terraform type
 unauthorized unauthorizedoperation unexpected unknown unsupported user value
-variable variables version with
+variable variables version with aws assume callback canceled cancelled cannot circular context deadline denied detail diagnostic disabled empty exceeded expired expiredtoken fetch field google identity invalid login mismatch network no out permission plan plugin produced provider read request response retry returned scope service session state sts timed timeout token unknown unavailable unexpected
 """.split())
 
 
@@ -203,9 +209,15 @@ def safe_json_plan_diagnostics(log_text: str) -> list[dict]:
             term.lower() for term in re.findall(r"[A-Za-z]+", summary)
             if term.lower() in SAFE_ERROR_WORDS
         ][:12]
+        detail_words = [
+            term.lower() for term in re.findall(r"[A-Za-z]+", detail)
+            if term.lower() in SAFE_ERROR_WORDS
+        ][:32]
         results.append({
             "category": classify_plan_failure("Error: " + summary + "\n" + detail, 1),
             "summary_terms": safe_words,
+            "detail_terms": detail_words,
+            "summary_present": bool(summary.strip()),
         })
         if len(results) >= 4:
             break
