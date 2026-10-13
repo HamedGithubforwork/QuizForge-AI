@@ -3,11 +3,11 @@ import { config, passwordSession, resetPassword } from '../../lib/cognitoBrowser
 import { confirmSignupCode, resendSignupCode } from '../../lib/cognitoSignupRecovery'
 import type { PasswordStep } from '../../lib/cognitoPasswordSession'
 
-type Props = { onComplete: () => Promise<void>; onBack: () => void; onActivation: () => void }
+type Props = { initialEmail?: string; onComplete: () => Promise<void>; onBack: () => void; onActivation: () => void }
 
 /** Email confirmation is a step of sign-in, never a separate recovery destination. */
-export default function CognitoEmailSignIn({ onComplete, onBack, onActivation }: Props) {
-  const [email, setEmail] = useState('')
+export default function CognitoEmailSignIn({ initialEmail = '', onComplete, onBack, onActivation }: Props) {
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [step, setStep] = useState<PasswordStep | null>(null)
