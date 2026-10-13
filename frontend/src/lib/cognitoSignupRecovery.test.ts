@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { confirmSignupCode, resendSignupCode, normalizedVerificationEmail } from './cognitoSignupRecovery.ts'
+import { confirmSignupCode, resendSignupCode, signUpWithEmail, normalizedVerificationEmail } from './cognitoSignupRecovery.ts'
 
 type Reply = { status: number; data?: object }
 async function withCognito(responses: Reply[], run: (requests: Array<{
@@ -99,5 +99,57 @@ test('network and malformed provider responses fail closed', async () => {
   }
   await withCognito([{ status: 500, data: { message: 'private credential' } }], async () => {
     await assert.rejects(confirmSignupCode('browserclient123', 'learner@example.com', '123456'), /Could not complete verification/)
+  })
+})
+
+test('signup uses only the public Cognito client and a single direct user registration request', async () => {
+  await withCognito([{ status: 200, data: { UserConfirmed: false, UserSub: 'synthetic' } }], async requests => {
+    const result = await signUpWithEmail('browserclient123', ' Learner@Example.com ', 'SyntheticPassword1!')
+    assert.deepEqual(result, { email: 'learner@example.com', confirmed: false })
+    assert.deepEqual(requests, [{ operation: 'SignUp', body: {
+      ClientId: 'browserclient123', Username: 'learner@example.com', Password: 'SyntheticPassword1!',
+      UserAttributes: [{ Name: 'email', Value: 'learner@example.com' }],
+    } }])
+    assert.ok(!('SecretHash' in requests[0].body))
+  })
+})
+
+test('signup cannot silently accept a malformed success and preserves confirmed accounts', async () => {
+  await withCognito([
+    { status: 200, data: { UserConfirmed: true } },
+    { status: 200, data: {} },
+  ], async requests => {
+    assert.deepEqual(await signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'),
+      { email: 'learner@example.com', confirmed: true })
+    await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'),
+      /could not be verified/)
+    assert.equal(requests.length, 2)
+  })
+})
+
+test('duplicate users and password-policy failures get safe corrective guidance', async () => {
+  await withCognito([
+    { status: 400, data: { __type: 'UsernameExistsException', message: 'private account detail' } },
+    { status: 400, data: { __type: 'InvalidPasswordException', message: 'private password detail' } },
+    { status: 400, data: { __type: 'InternalErrorException', message: 'private provider error' } },
+  ], async () => {
+    await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'), error => {
+      assert.ok(error instanceof Error)
+      assert.match(error.message, /Choose Sign in/)
+      assert.doesNotMatch(error.message, /private account detail/)
+      return true
+    })
+    await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'),
+      /requirements/)
+    await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'), error => {
+      assert.ok(error instanceof Error)
+      assert.doesNotMatch(error.message, /private provider error/)
+      return true
+    })
+  })
+  await withCognito([], async () => {
+    await assert.rejects(signUpWithEmail('browserclient123', 'bad email', 'ValidPassword1!'))
+    await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'short'))
+    await assert.rejects(signUpWithEmail('invalid-client', 'learner@example.com', 'ValidPassword1!'))
   })
 })
