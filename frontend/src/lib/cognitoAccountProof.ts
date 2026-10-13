@@ -27,7 +27,7 @@ async function cognitoRequest(operation: string, body: Record<string, unknown>):
   return value as CognitoReply
 }
 
-function parseProof(response: CognitoReply, username: string): CognitoAccountProof {
+export function parseCognitoProof(response: CognitoReply, username: string): CognitoAccountProof {
   const result = response.AuthenticationResult
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     const token = (result as Record<string, unknown>).AccessToken
@@ -38,7 +38,7 @@ function parseProof(response: CognitoReply, username: string): CognitoAccountPro
 
   const challenge = response.ChallengeName
   if (challenge === 'MFA_SETUP') {
-    throw new Error('Finish your existing account’s first-time security setup, then return to link Google.')
+    throw new Error('Finish your account’s first-time security setup, then sign in again.')
   }
   if (challenge === 'SELECT_MFA_TYPE' || challenge === 'SOFTWARE_TOKEN_MFA' ||
       challenge === 'SMS_MFA' || challenge === 'EMAIL_OTP') {
@@ -77,7 +77,7 @@ export async function beginCognitoAccountProof(clientId: string, email: string, 
     AuthFlow: 'USER_PASSWORD_AUTH', ClientId: clientId,
     AuthParameters: { USERNAME: username, PASSWORD: password },
   })
-  return parseProof(response, username)
+  return parseCognitoProof(response, username)
 }
 
 export async function finishCognitoAccountProof(clientId: string, proof: Extract<CognitoAccountProof, {kind: 'mfa'}>,
@@ -89,7 +89,7 @@ export async function finishCognitoAccountProof(clientId: string, proof: Extract
     ClientId: clientId, ChallengeName: proof.challenge, Session: proof.session,
     ChallengeResponses: { USERNAME: proof.username, [key]: code },
   })
-  const result = parseProof(response, proof.username)
+  const result = parseCognitoProof(response, proof.username)
   if (result.kind !== 'ready') throw new Error('Existing-account verification did not complete.')
   return result
 }
@@ -103,7 +103,7 @@ export async function chooseCognitoAccountMfa(clientId: string,
     ClientId: clientId, ChallengeName: 'SELECT_MFA_TYPE', Session: proof.session,
     ChallengeResponses: { USERNAME: proof.username, ANSWER: method },
   })
-  const result = parseProof(response, proof.username)
+  const result = parseCognitoProof(response, proof.username)
   if (result.kind !== 'mfa' || result.challenge !== method) {
     throw new Error('Existing-account MFA selection did not produce the requested verification challenge.')
   }

@@ -124,7 +124,7 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
 
 async function login(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue with Google', exact: true }).click()
 }
 
 async function createAccount(page: Page) {
@@ -282,70 +282,6 @@ test('Google account linking resolves a Cognito MFA factor-choice challenge befo
   const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(JSON.stringify(storage)).not.toContain('synthetic-cognito-local')
   expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
-})
-
-test('abandoned Cognito signup can resume email confirmation or safely resend', async ({ page }) => {
-  await setup(page)
-  const operations: string[] = []
-  await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
-    if (route.request().method() === 'OPTIONS') {
-      return route.fulfill({ status: 204, headers: {
-        'access-control-allow-origin': '*',
-        'access-control-allow-headers': '*',
-        'access-control-allow-methods': 'POST, OPTIONS',
-      } })
-    }
-    const operation = String(route.request().headers()['x-amz-target']).split('.').pop()!
-    const body = route.request().postDataJSON()
-    expect(body.ClientId).toBe('browserclient123')
-    expect(body.Username).toBe('learner@example.invalid')
-    expect(Object.keys(body)).not.toContain('Password')
-    operations.push(operation)
-    if (operation === 'ResendConfirmationCode') {
-      expect(body.ConfirmationCode).toBeUndefined()
-      return route.fulfill({ json: { CodeDeliveryDetails: {} },
-        headers: { 'access-control-allow-origin': '*' } })
-    }
-    expect(operation).toBe('ConfirmSignUp')
-    expect(body.ConfirmationCode).toBe('123456')
-    if (operations.filter(value => value === 'ConfirmSignUp').length === 1) {
-      return route.fulfill({ status: 400, json: { __type: 'CodeMismatchException' },
-        headers: { 'access-control-allow-origin': '*' } })
-    }
-    return route.fulfill({ json: {}, headers: { 'access-control-allow-origin': '*' } })
-  })
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Finish email verification' }).click()
-  await expect(page.getByRole('heading', { name: 'Finish email verification' })).toBeVisible()
-  await page.getByLabel('Account email').fill(' Learner@Example.invalid '.trim())
-  await page.getByRole('button', { name: 'Resend confirmation code' }).click()
-  await expect(page.getByRole('status')).toContainText('a new code has been requested')
-  await expect(page.getByRole('button', { name: 'Please wait before resending' })).toBeDisabled()
-  await page.getByLabel('Email confirmation code').fill('123456')
-  await page.getByRole('button', { name: 'Confirm my email' }).click()
-  await expect(page.getByRole('alert')).toContainText('not accepted')
-  await page.getByRole('button', { name: 'Confirm my email' }).click()
-  await expect(page.getByRole('heading', { name: 'Email confirmed' })).toBeVisible()
-  expect(operations).toEqual(['ResendConfirmationCode', 'ConfirmSignUp', 'ConfirmSignUp'])
-  await page.getByRole('button', { name: 'Back to sign in options' }).click()
-  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
-})
-
-test('email confirmation screen can use original code without resending', async ({ page }) => {
-  await setup(page)
-  await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
-    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204,
-      headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } })
-    expect(route.request().headers()['x-amz-target']).toBe('AWSCognitoIdentityProviderService.ConfirmSignUp')
-    expect(route.request().postDataJSON().ConfirmationCode).toBe('234567')
-    return route.fulfill({ json: {}, headers: { 'access-control-allow-origin': '*' } })
-  })
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Finish email verification' }).click()
-  await page.getByLabel('Account email').fill('learner@example.invalid')
-  await page.getByLabel('Email confirmation code').fill('234567')
-  await page.getByRole('button', { name: 'Confirm my email' }).click()
-  await expect(page.getByRole('heading', { name: 'Email confirmed' })).toBeVisible()
 })
 
 test('create account starts at the dedicated Cognito signup endpoint with PKCE', async ({ page }) => {

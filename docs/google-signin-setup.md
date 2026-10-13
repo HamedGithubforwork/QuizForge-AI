@@ -2,27 +2,39 @@
 
 Google sign-in is **disabled by default**. Email/password remains supported.
 
-## Recovering a signup that was never confirmed
+## Email sign-in and unfinished signup
 
-An AWS-hosted Cognito sign-in page can show **User is not confirmed** if someone
-leaves the email code step during account creation. The AWS-hosted login HTML is
-not under application control, so the recovery link is on the Quiz From Notes
-landing page, not inside the hosted login form.
+Choose **Sign in** on Quiz From Notes, then enter email and password. Email sign-in
+uses Cognito's existing public browser client directly. When Cognito returns
+`UserNotConfirmedException`, the same form advances to **Verify your email to
+continue** with the email retained. Enter the original signup code, or request a
+replacement. Wrong/expired codes remain retryable; resending has a 60-second UI
+cooldown plus Cognito throttling. After confirmation, the form returns to email
+sign-in with the email retained and password cleared. No new account is created.
+The separate **Finish email verification** landing-page shortcut has been removed.
 
-Return to the normal website, select **Finish email verification**, and enter
-the original account email plus the existing confirmation code. If needed,
-request a replacement code (at most once a minute from the interface, with
-Cognito's own throttling also in effect). After a successful Cognito
-`ConfirmSignUp`, choose sign-in; the original account is retained and no
-password reset or extra account is created.
+Passwords go directly over HTTPS to Cognito, never to the QuizForge API, storage,
+URLs or logs. Passwords are cleared from the form on submission; confirmation
+never establishes a login by itself. Subsequent password authentication must
+complete any MFA challenge. Authenticator, SMS/email codes and factor selection
+are supported; unsupported challenges fail closed. Imported accounts can still
+use **Finish first-time setup**. Forgot-password and new signup use Cognito's
+existing hosted flows with a PKCE transaction. Google remains on its unchanged
+OIDC authorization-code + PKCE flow.
 
-The public Cognito `ResendConfirmationCode` / `ConfirmSignUp` calls use only
-the known browser client ID, email, and submitted code. They never require a
-logged-in session, collect or transmit a password, bypass server-side email
-verification, print provider errors, or send credentials to QuizForge. Keep
-the failure message generic except for safe invalid/expired code and throttling
-conditions. Test wrong codes, expired codes, and resending without logging
-account identifiers.
+Password sessions stay in memory. Cognito `GetUser` checks the verified email and
+subject before accepting a session; the QuizForge identity API independently
+checks token signature, issuer/client, revocation and enrollment. Refresh uses
+`REFRESH_TOKEN_AUTH`, with one request shared by concurrent callers and a
+same-subject check. Sign-out clears the local session and calls `RevokeToken`;
+late sign-in/refresh results cannot resurrect a cancelled session. No new client,
+secret, IAM grant or pool change is needed where `ALLOW_USER_PASSWORD_AUTH` and
+`ALLOW_REFRESH_TOKEN_AUTH` are already enabled. Verify those live settings before
+release. This frontend update does not deploy to production.
+
+Acceptance: test abandoning signup, automatic confirmation on later sign-in,
+original/resend/incorrect/expired codes, wrong credentials, MFA-on/off, refresh,
+sign-out, and Google callback/linking. Mocked tests are not real-provider evidence.
 
 ## Google OAuth client
 
@@ -71,4 +83,4 @@ Before public activation, require exact-head CI to pass, review backend identity
 
 ## Cognito-managed email example
 
-Changing `name@host.com` in Cognito's built-in classic sign-in input is not supported by its normal style configuration. The app-owned account setup and linking inputs use the conventional `you@example.com` example instead.
+Changing `name@host.com` in Cognito's built-in classic sign-in input is not supported by its normal style configuration. The app-owned email sign-in, account setup and linking inputs use `you@example.com` instead.
