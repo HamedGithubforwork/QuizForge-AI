@@ -181,3 +181,28 @@ class TestReadOnlyTerraformErrorCategories(unittest.TestCase):
         self.assertIn("timed", report[0]["detail_terms"])
         self.assertNotIn(private, str(report))
         self.assertNotIn("ABCDEFG12345", str(report))
+
+class TestGoogleDisabledProductionBaselineProbe(unittest.TestCase):
+    def test_classification_discloses_no_private_values(self):
+        from scripts.production.lightsail.google_plan_guard import classify_google_disabled_baseline
+        token = "very-private-client-secret-ABC123456"
+        self.assertEqual(classify_google_disabled_baseline(0, token), "BASELINE_UNCHANGED")
+        self.assertEqual(classify_google_disabled_baseline(2, token),
+                         "BASELINE_HAS_UNREVIEWED_CHANGES")
+        self.assertEqual(classify_google_disabled_baseline(1, "Error: Missing required argument " + token),
+                         "BASELINE_FAILED_TERRAFORM_MISSING_ARGUMENT")
+        self.assertEqual(classify_google_disabled_baseline(1, token),
+                         "BASELINE_FAILED_OTHER_TERRAFORM_PLAN_FAILURE")
+        self.assertNotIn(token, classify_google_disabled_baseline(1, token))
+        self.assertEqual(classify_google_disabled_baseline(77, token), "BASELINE_UNEXPECTED_EXIT")
+
+    def test_workflow_comparison_is_read_only_and_explicitly_disables_google(self):
+        from pathlib import Path
+        workflow = (Path(__file__).parents[3] /
+                    ".github/workflows/production-google-terraform-plan.yml").read_text()
+        self.assertIn("-var=enable_google_signin=false", workflow)
+        self.assertIn('terraform-baseline.log', workflow)
+        self.assertIn('classify_google_disabled_baseline', workflow)
+        self.assertIn('-refresh=false', workflow)
+        self.assertIn('-lock=false', workflow)
+        self.assertNotIn("terraform apply", workflow)
