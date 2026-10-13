@@ -4,13 +4,15 @@
  */
 const endpoint = 'https://cognito-idp.ca-central-1.amazonaws.com/'
 
-type VerificationOperation = 'ResendConfirmationCode' | 'ConfirmSignUp'
+type VerificationOperation = 'ResendConfirmationCode' | 'ConfirmSignUp' | 'SignUp'
 
 const ERRORS: Record<string, string> = {
   CodeMismatchException: 'That confirmation code was not accepted. Check the latest email and try again.',
   ExpiredCodeException: 'That confirmation code has expired. Request a new code.',
   TooManyRequestsException: 'Too many attempts. Wait a few minutes before trying again.',
   LimitExceededException: 'Too many attempts. Wait a few minutes before trying again.',
+  UsernameExistsException: 'An account may already exist. Choose Sign in to continue or finish email verification.',
+  InvalidPasswordException: 'Choose a password that meets the requirements, then try again.',
 }
 
 function validatedClient(client: string) {
@@ -34,7 +36,7 @@ function validatedCode(code: string) {
   return value
 }
 
-async function callCognito(operation: VerificationOperation, body: Record<string, string>) {
+async function callCognito(operation: VerificationOperation, body: Record<string, unknown>): Promise<Record<string, unknown>> {
   let response: Response
   try {
     response = await fetch(endpoint, {
@@ -52,7 +54,15 @@ async function callCognito(operation: VerificationOperation, body: Record<string
   } catch {
     throw new Error('Could not contact account verification. Please try again later.')
   }
-  if (response.ok) return
+  if (response.ok) {
+    if (operation !== 'SignUp') return {}
+    const result: unknown = await response.json().catch(() => null)
+    if (!result || typeof result !== 'object' || Array.isArray(result) ||
+        typeof (result as Record<string, unknown>).UserConfirmed !== 'boolean') {
+      throw new Error('Account creation could not be verified. Sign in to check your account status.')
+    }
+    return result as Record<string, unknown>
+  }
   // Never print or surface Cognito's raw provider response: it can contain
   // account existence details. Only safe, allowlisted code errors are shown.
   let type = ''
@@ -81,4 +91,18 @@ export async function confirmSignupCode(client: string, email: string, code: str
     Username: normalizedVerificationEmail(email),
     ConfirmationCode: validatedCode(code),
   })
+}
+
+/** Signup through the public Cognito browser client, not a hosted form or QuizForge API. */
+export async function signUpWithEmail(client: string, email: string, password: string) {
+  const publicClient = validatedClient(client)
+  const username = normalizedVerificationEmail(email)
+  if (password.length < 8 || password.length > 256) {
+    throw new Error('Use a password with at least 8 characters.')
+  }
+  const result = await callCognito('SignUp', {
+    ClientId: publicClient, Username: username, Password: password,
+    UserAttributes: [{ Name: 'email', Value: username }],
+  })
+  return { email: username, confirmed: result.UserConfirmed === true }
 }
