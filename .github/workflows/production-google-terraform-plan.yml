@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - ".github/workflows/production-google-terraform-plan.yml"
+      - "infra/aws/lightsail-production/*.tf"
       - "scripts/production/lightsail/google_plan_guard.py"
       - "scripts/production/lightsail/test_google_plan_guard.py"
   push:
     branches: [main]
     paths:
       - ".github/workflows/production-google-terraform-plan.yml"
+      - "infra/aws/lightsail-production/*.tf"
       - "scripts/production/lightsail/google_plan_guard.py"
       - "scripts/production/lightsail/test_google_plan_guard.py"
 
