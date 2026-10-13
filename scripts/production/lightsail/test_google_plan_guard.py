@@ -208,6 +208,15 @@ class TestGoogleDisabledProductionBaselineProbe(unittest.TestCase):
         self.assertNotIn("terraform apply", workflow)
 
 class TestProductionScopeDiagnostics(unittest.TestCase):
+    def test_live_server_ignores_one_time_bootstrap_drift(self):
+        from pathlib import Path
+        terraform = (Path(__file__).parents[3] /
+                     "infra/aws/lightsail-production/main.tf").read_text()
+        server = terraform.split('resource "aws_lightsail_instance" "server" {', 1)[1]
+        server = server.split('resource "aws_lightsail_static_ip" "server" {', 1)[0]
+        self.assertIn("prevent_destroy = true", server)
+        self.assertIn("ignore_changes = [user_data]", server)
+
     def test_only_source_files_from_static_allowlist(self):
         from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
         private = "private-project-file-name-secret-token"
