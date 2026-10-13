@@ -7,6 +7,8 @@ on:
       - "infra/aws/lightsail-production/*.tf"
       - "scripts/production/lightsail/google_plan_guard.py"
       - "scripts/production/lightsail/test_google_plan_guard.py"
+      - "scripts/production/lightsail/package_recovery.py"
+      - "scripts/production/lightsail/test_package_recovery.py"
   push:
     branches: [main]
     paths:
@@ -14,6 +16,8 @@ on:
       - "infra/aws/lightsail-production/*.tf"
       - "scripts/production/lightsail/google_plan_guard.py"
       - "scripts/production/lightsail/test_google_plan_guard.py"
+      - "scripts/production/lightsail/package_recovery.py"
+      - "scripts/production/lightsail/test_package_recovery.py"
 
 permissions:
   contents: read
@@ -33,7 +37,7 @@ jobs:
       - name: Test fail-closed Google-only plan
         run: |
           python -m py_compile scripts/production/lightsail/google_plan_guard.py
-          python -m unittest scripts.production.lightsail.test_google_plan_guard -v
+          python -m unittest scripts.production.lightsail.test_google_plan_guard scripts.production.lightsail.test_package_recovery -v
 
   protected-plan:
     name: Inspect existing production state and proposed Cognito-only changes
@@ -57,6 +61,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Read exact retained production recovery source
+        uses: actions/checkout@v7
+        with:
+          ref: 43894cc78eaa4b7da94fd4375bd929d64addca6b
+          path: retained-recovery-source
+          sparse-checkout: scripts/cognito_browser
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11.16"
@@ -77,6 +88,8 @@ jobs:
           unset-current-credentials: true
           inline-session-policy: >-
             {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":["lambda:GetFunctionConfiguration"],
+               "Resource":"arn:aws:lambda:ca-central-1:399311815467:function:quizforge-production-lightsail-recovery"},
               {"Effect":"Allow","Action":[
                 "sts:GetCallerIdentity",
                 "cognito-idp:ListUserPools",
@@ -119,7 +132,9 @@ jobs:
           aws s3api head-object --bucket "$TF_STATE_BUCKET" --key quizforge/lightsail-production/terraform.tfstate >/dev/null 2>&1 || {
             echo 'FAIL: existing production Terraform state unavailable; no plan generated'; exit 1;
           }
-          python scripts/production/lightsail/package_recovery.py >/dev/null 2>&1
+          python scripts/production/lightsail/package_recovery.py \
+            --retained-production-source "$GITHUB_WORKSPACE/retained-recovery-source/scripts/cognito_browser" \
+            --verify-deployed
           cd infra/aws/lightsail-production
           terraform fmt -check -recursive >/dev/null 2>&1
           terraform init -reconfigure -input=false -lockfile=readonly -no-color \
