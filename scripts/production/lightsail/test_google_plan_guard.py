@@ -208,6 +208,60 @@ class TestGoogleDisabledProductionBaselineProbe(unittest.TestCase):
         self.assertNotIn("terraform apply", workflow)
 
 class TestProductionScopeDiagnostics(unittest.TestCase):
+    def test_rejected_plan_summary_shows_known_changes_without_values(self):
+        from scripts.production.lightsail.google_plan_guard import safe_scope_change_summary
+        p = plan()
+        p["resource_changes"].append({
+            "address": "aws_lambda_function.recovery",
+            "change": {"actions": ["update"],
+                       "before": {"source_code_hash": "private-old-hash"},
+                       "after": {"source_code_hash": "private-new-hash"}},
+        })
+        report = safe_scope_change_summary(p)
+        self.assertEqual(report[-1], {"resource": "aws_lambda_function.recovery",
+                                     "actions": ["update"],
+                                     "changed_fields": ["source_code_hash"]})
+        self.assertNotIn(SECRET, str(report))
+        self.assertNotIn("private-", str(report))
+        self.assertNotIn("aws_cognito_user_pool.browser", str(report))
+
+    def test_cli_diagnostic_preserves_rejection_and_never_prints_values(self):
+        import contextlib
+        import io
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from scripts.production.lightsail.google_plan_guard import main
+        p = plan()
+        p["resource_changes"][1]["change"]["after"]["callback_urls"] = ["https://private.example/secret"]
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            path.write_text(json.dumps(p))
+            with patch("sys.argv", ["guard", str(path)]), \
+                    patch.dict("os.environ", {"PROD_GOOGLE_OAUTH_CLIENT_ID": ID}), \
+                    contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as error:
+                main()
+        self.assertIn("NO APPLY made", str(error.exception))
+        self.assertIn("callback_urls", output.getvalue())
+        self.assertNotIn("private.example", output.getvalue())
+        self.assertNotIn(SECRET, output.getvalue())
+
+    def test_untrusted_names_actions_fields_and_values_cannot_escape(self):
+        from scripts.production.lightsail.google_plan_guard import safe_scope_change_summary
+        private = "do-not-print-this-secret-987654321"
+        p = {"resource_changes": [{"address": private,
+             "change": {"actions": [private], "before": {private: "old"},
+                        "after": {private: private}}}]}
+        report = safe_scope_change_summary(p)
+        self.assertEqual(report, [{"resource": "UNLISTED_RESOURCE",
+                                  "actions": ["UNLISTED_ACTION"],
+                                  "changed_fields": ["UNLISTED_FIELD"]}])
+        self.assertNotIn(private, str(report))
+        for malformed in ({}, {"resource_changes": None},
+                          {"resource_changes": [None, {}, {"change": None}]}):
+            self.assertEqual(safe_scope_change_summary(malformed), [])
+
     def test_live_server_ignores_one_time_bootstrap_drift(self):
         from pathlib import Path
         terraform = (Path(__file__).parents[3] /

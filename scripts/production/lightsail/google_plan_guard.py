@@ -256,14 +256,75 @@ def classify_targeted_readonly_probe(exit_code: int, private_log: str) -> str:
         return "TARGETED_SCOPE_ERROR_" + classify_plan_failure(private_log, 1)
     return "TARGETED_SCOPE_UNEXPECTED_EXIT"
 
+
+SCOPE_RESOURCES = frozenset({
+    IDENTITY_PROVIDER, BROWSER_CLIENT, USER_POOL,
+    "data.aws_caller_identity.current", "aws_cognito_user_pool_domain.browser",
+    "aws_lightsail_key_pair.operator", "aws_lightsail_instance.server",
+    "aws_lightsail_static_ip.server", "aws_lightsail_static_ip_attachment.server",
+    "aws_lightsail_instance_public_ports.server", "aws_sns_topic.alerts",
+    "aws_sns_topic_policy.alerts", "aws_sns_topic_subscription.operator",
+    "aws_cloudwatch_metric_alarm.status", "aws_cloudwatch_log_group.recovery",
+    "aws_iam_role.recovery", "aws_lambda_function.recovery",
+    "aws_iam_role_policy.recovery", "aws_lambda_permission.recovery",
+    "aws_iam_policy.host_health",
+})
+SCOPE_FIELDS = frozenset("""
+client_id name user_pool_id callback_urls logout_urls allowed_oauth_flows
+allowed_oauth_flows_user_pool_client allowed_oauth_scopes explicit_auth_flows
+refresh_token_validity access_token_validity id_token_validity token_validity_units
+supported_identity_providers read_attributes write_attributes generate_secret
+enable_token_revocation prevent_user_existence_errors auth_session_validity
+provider_name provider_type provider_details attribute_mapping user_data
+source_code_hash filename last_modified qualified_arn qualified_invoke_arn
+lambda_config password_policy mfa_configuration username_configuration
+admin_create_user_config email_configuration tags tags_all policy assume_role_policy
+port_info runtime handler layers environment code_sha256
+""".split())
+
+
+def safe_scope_change_summary(document: dict) -> list[dict]:
+    """Fixed resource/field vocabulary only; never disclose planned values."""
+    changes = document.get("resource_changes")
+    if not isinstance(changes, list):
+        return []
+    result = []
+    for resource in changes[:100]:
+        if not isinstance(resource, dict):
+            continue
+        change = resource.get("change")
+        if not isinstance(change, dict) or change.get("actions") == ["no-op"]:
+            continue
+        address = resource.get("address")
+        address = address if isinstance(address, str) and address in SCOPE_RESOURCES else "UNLISTED_RESOURCE"
+        actions = change.get("actions")
+        actions = actions if isinstance(actions, list) else []
+        actions = [a if isinstance(a, str) and a in {"create", "update", "delete", "read", "no-op"}
+                   else "UNLISTED_ACTION" for a in actions[:4]]
+        before, after = change.get("before"), change.get("after")
+        fields = []
+        if isinstance(before, dict) and isinstance(after, dict):
+            changed = {key for key in before.keys() | after.keys()
+                       if before.get(key) != after.get(key)}
+            fields = sorted(changed & SCOPE_FIELDS)
+            if changed - SCOPE_FIELDS:
+                fields.append("UNLISTED_FIELD")
+        result.append({"resource": address, "actions": actions, "changed_fields": fields})
+    return result
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python -m scripts.production.lightsail.google_plan_guard <tfplan.json>")
+    document = None
     try:
         expected_id = os.environ["PROD_GOOGLE_OAUTH_CLIENT_ID"]
         document = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
         report = authorize(document, expected_id)
     except Exception:
+        if isinstance(document, dict):
+            print("Sanitized rejected plan changes: " +
+                  json.dumps(safe_scope_change_summary(document), sort_keys=True))
         raise SystemExit("FAIL: Google-only Terraform scope not verified; NO APPLY made") from None
     # Output contains only the stable, nonsecret resource names and action types.
     print(json.dumps(report, sort_keys=True))
