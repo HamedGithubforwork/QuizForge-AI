@@ -23,7 +23,6 @@ function createManager(authorizationEndpoint: string) {
 }
 
 export const manager = createManager(config.domain + '/oauth2/authorize')
-const signupManager = createManager(config.domain + '/signup')
 const resetManager = createManager(config.domain + '/forgotPassword')
 
 export async function resetPassword() {
@@ -58,11 +57,6 @@ export async function signInWithGoogle() {
     nonce: crypto.randomUUID(),
     extraQueryParams: { identity_provider: 'Google' },
   })
-}
-
-export async function signUp() {
-  await manager.clearStaleState()
-  await signupManager.signinRedirect({ nonce: crypto.randomUUID() })
 }
 
 export async function session(refresh = false): Promise<AuthSession | null> {
