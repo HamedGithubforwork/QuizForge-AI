@@ -1,0 +1,150 @@
+name: Production Google federation Terraform plan (read only)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/production-google-terraform-plan.yml"
+      - "scripts/production/lightsail/google_plan_guard.py"
+      - "scripts/production/lightsail/test_google_plan_guard.py"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-google-terraform-plan.yml"
+      - "scripts/production/lightsail/google_plan_guard.py"
+      - "scripts/production/lightsail/test_google_plan_guard.py"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate planned change boundaries without AWS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Test fail-closed Google-only plan
+        run: |
+          python -m py_compile scripts/production/lightsail/google_plan_guard.py
+          python -m unittest scripts.production.lightsail.test_google_plan_guard -v
+
+  protected-plan:
+    name: Inspect existing production state and proposed Cognito-only changes
+    needs: validate
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: production
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-production-google-provider-readonly-plan
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.14.7"
+          terraform_wrapper: false
+      - name: Install reviewed AWS dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - name: Assume read-only production planning role
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-prod-google-only-terraform-plan
+          role-duration-seconds: 900
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[
+              {"Effect":"Allow","Action":[
+                "sts:GetCallerIdentity",
+                "cognito-idp:ListUserPools",
+                "cognito-idp:ListUserPoolClients",
+                "cognito-idp:DescribeUserPoolClient",
+                "cognito-idp:DescribeIdentityProvider"
+              ],"Resource":"*"},
+              {"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],
+               "Resource":"arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}"},
+              {"Effect":"Allow","Action":["s3:GetObject"],
+               "Resource":"arn:aws:s3:::${{ vars.TF_STATE_BUCKET }}/quizforge/lightsail-production/terraform.tfstate"}
+            ]}
+      - name: Inspect production state and secret-protected plan without publishing sensitive output
+        env:
+          TF_IN_AUTOMATION: "true"
+          TF_INPUT: "false"
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          PROD_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+          PROD_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+          TF_VAR_enable_google_signin: "true"
+          TF_VAR_google_oauth_client_id: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+          TF_VAR_google_oauth_client_secret: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+          TF_VAR_alert_email: ${{ secrets.AWS_BUDGET_ALERT_EMAIL }}
+          TF_VAR_ssh_public_key: ${{ secrets.LIGHTSAIL_SSH_PUBLIC_KEY }}
+          TF_VAR_admin_ipv4_cidr: ${{ secrets.LIGHTSAIL_ADMIN_IPV4_CIDR }}
+        run: |
+          set -euo pipefail
+          set +x
+          trap 'rm -f "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
+          test -n "$TF_STATE_BUCKET" || { echo 'FAIL: approved state bucket not configured'; exit 1; }
+          for name in PROD_GOOGLE_OAUTH_CLIENT_ID PROD_GOOGLE_OAUTH_CLIENT_SECRET TF_VAR_alert_email TF_VAR_ssh_public_key TF_VAR_admin_ipv4_cidr; do
+            test -n "${!name}" || { echo "FAIL: protected production input missing"; exit 1; }
+          done
+          # Verify the live pool/client and absence of provider; credentials are
+          # validated in memory, not displayed.
+          python -m scripts.production.lightsail.google_provider_readiness > "$RUNNER_TEMP/readiness.txt" || exit 1
+          grep -Fxq 'PASS: production Google OAuth status: not_connected_ready_for_review' "$RUNNER_TEMP/readiness.txt" || {
+            echo 'FAIL: production provider state changed since readiness'; exit 1;
+          }
+          aws s3api head-object --bucket "$TF_STATE_BUCKET" --key quizforge/lightsail-production/terraform.tfstate >/dev/null 2>&1 || {
+            echo 'FAIL: existing production Terraform state unavailable; no plan generated'; exit 1;
+          }
+          python scripts/production/lightsail/package_recovery.py >/dev/null 2>&1
+          cd infra/aws/lightsail-production
+          terraform fmt -check -recursive >/dev/null 2>&1
+          terraform init -reconfigure -input=false -lockfile=readonly -no-color \
+            -backend-config="bucket=$TF_STATE_BUCKET" \
+            -backend-config="key=quizforge/lightsail-production/terraform.tfstate" \
+            -backend-config="region=ca-central-1" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true" > /dev/null 2>&1 || {
+              echo 'FAIL: existing production Terraform backend cannot be initialized read-only'; exit 1;
+            }
+          terraform state list > "$RUNNER_TEMP/state-entries.txt" 2>/dev/null || {
+            echo 'FAIL: existing production Terraform state could not be read'; exit 1;
+          }
+          grep -Fxq 'aws_cognito_user_pool.browser' "$RUNNER_TEMP/state-entries.txt" || exit 1
+          grep -Fxq 'aws_cognito_user_pool_client.browser' "$RUNNER_TEMP/state-entries.txt" || exit 1
+          set +e
+          terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -no-color \
+            -out="$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/terraform-plan.log" 2>&1
+          result=$?
+          set -e
+          if [ "$result" -ne 2 ]; then
+            echo 'FAIL: Terraform did not produce exactly the expected pending changes; no apply made'
+            exit 1
+          fi
+          terraform show -json "$RUNNER_TEMP/terraform-plan" > "$RUNNER_TEMP/terraform-plan.json" 2>/dev/null || {
+            echo 'FAIL: Terraform plan cannot be inspected safely'; exit 1;
+          }
+          cd "$GITHUB_WORKSPACE"
+          python -m scripts.production.lightsail.google_plan_guard "$RUNNER_TEMP/terraform-plan.json"
+          echo 'PASS: Google-only plan was reviewed, secrets/state were not uploaded, and no changes applied.'
