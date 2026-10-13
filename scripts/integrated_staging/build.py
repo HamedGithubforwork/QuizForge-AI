@@ -29,7 +29,8 @@ def main():
     prod_spec.loader.exec_module(prod_auth)
     prod_auth.narrow_production_auth_source(target)
     env = {k:os.environ[k] for k in ("PATH", "HOME", "CI") if k in os.environ}
-    env.update(VITE_AUTH_PROVIDER="cognito", VITE_COGNITO_STAGING="true", VITE_COGNITO_ENVIRONMENT="production",
+    env.update(VITE_AUTH_PROVIDER="cognito", VITE_COGNITO_STAGING="true",
+               VITE_COGNITO_ENVIRONMENT="staging", VITE_COGNITO_ENVIRONMENT="production",
                VITE_COGNITO_USER_POOL_ID=config["pool"], VITE_COGNITO_CLIENT_ID=config["client"],
                VITE_COGNITO_DOMAIN=config["auth_origin"], VITE_COGNITO_GOOGLE_SIGNIN_ENABLED="true",
                VITE_API_URL=config["api_url"],
