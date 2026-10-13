@@ -284,12 +284,15 @@ test('Google account linking resolves a Cognito MFA factor-choice challenge befo
   expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
 })
 
-test('create account starts at the dedicated Cognito signup endpoint with PKCE', async ({ page }) => {
+test('create account stays on the website without starting a hosted Cognito login', async ({ page }) => {
   const state = await setup(page)
   await createAccount(page)
-  expect(state.counts().authorizationPath).toBe('/signup')
-  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
-  expect(state.counts().tokenCalls).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Confirm password')).toBeVisible()
+  expect(page.url()).toBe('http://localhost:4174/')
+  expect(state.counts().authorizationPath).toBe('')
+  expect(state.counts().tokenCalls).toBe(0)
 })
 
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
