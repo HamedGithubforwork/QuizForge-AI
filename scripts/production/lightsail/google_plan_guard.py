@@ -112,6 +112,38 @@ def classify_plan_failure(log_text: str, exit_code: int) -> str:
     return "OTHER_TERRAFORM_PLAN_FAILURE"
 
 
+
+# Literal allowlist only: private text, identifiers and URL tokens in an error
+# are *never* included in log messages or uploaded artifacts.
+SAFE_ERROR_WORDS = frozenset("""
+access accessdenied accessdeniedexception account already argument arguments
+attribute attributes authentication authorization authorized backend block
+bucket client code condition configuration connection credentials database
+delete dependency describe detail drift duplicate error failed file for function
+get google iam id identity import incorrect index insufficient invalid kms
+length list lock locked missing module name not object operation optional
+output parameter permission permissions plan policy provider read reference
+required resource resources role s3 schema secret state string terraform type
+unauthorized unauthorizedoperation unexpected unknown unsupported user value
+variable variables version with
+""".split())
+
+
+def safe_plan_error_hints(log_text: str) -> list[str]:
+    """Inspect Terraform's one-line *titles*, publishing only allowlisted words."""
+    import re
+    hints = []
+    for title in re.findall(r"(?m)^Error:\s*(.{1,240})\s*$", log_text)[:4]:
+        words = [
+            word.lower() for word in re.findall(r"[A-Za-z]+", title)
+            if word.lower() in SAFE_ERROR_WORDS
+        ]
+        hint = "_".join(words[:9])
+        if hint and hint not in hints:
+            hints.append(hint)
+    return hints or ["unrecognized_terraform_error"]
+
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python -m scripts.production.lightsail.google_plan_guard <tfplan.json>")
