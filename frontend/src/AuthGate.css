@@ -1191,3 +1191,34 @@
 .auth-verification-resend .auth-secondary-button {
   width: 100%;
 }
+
+
+/* Password policy feedback stays legible before and after a requirement is met. */
+.signup-password-rules {
+  display: grid;
+  gap: 5px;
+  margin: -5px 0 3px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.signup-password-rules li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #747c8c;
+  transition: color 150ms ease;
+}
+
+.signup-password-rules li[data-met="true"] {
+  color: #20814e;
+}
+
+.signup-rule-mark {
+  width: 14px;
+  flex: 0 0 14px;
+  text-align: center;
+  font-weight: 800;
+}
