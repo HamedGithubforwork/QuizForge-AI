@@ -122,7 +122,7 @@ bucket client code condition configuration connection credentials database
 delete dependency describe detail drift duplicate error failed file for function
 get google iam id identity import incorrect index insufficient invalid kms
 length list lock locked missing module name not object operation optional
-output parameter permission permissions plan policy provider read reference
+output parameter permission permissions plan policy provider produced read reference result
 required resource resources role s3 schema secret state string terraform type
 unauthorized unauthorizedoperation unexpected unknown unsupported user value
 variable variables version with
@@ -172,6 +172,44 @@ def safe_plan_log_metrics(log_text: str) -> dict:
         "permitted_error_word_counts": {word: words[word] for word in sorted(words) if words[word] > 0},
     }
 
+
+
+def safe_json_plan_diagnostics(log_text: str) -> list[dict]:
+    """Summarize machine-readable Terraform errors without exposing diagnostic strings.
+
+    Terraform's -json output can contain private values in both summary and
+    detail. Only a fixed vocabulary and a fixed failure category leave this
+    function. Never upload the original event stream.
+    """
+    import re
+    results = []
+    for line in log_text.splitlines():
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(event, dict) or event.get("type") != "diagnostic":
+            continue
+        diagnostic = event.get("diagnostic")
+        if not isinstance(diagnostic, dict) or diagnostic.get("severity") != "error":
+            continue
+        summary = diagnostic.get("summary")
+        detail = diagnostic.get("detail", "")
+        if not isinstance(summary, str):
+            continue
+        if not isinstance(detail, str):
+            detail = ""
+        safe_words = [
+            term.lower() for term in re.findall(r"[A-Za-z]+", summary)
+            if term.lower() in SAFE_ERROR_WORDS
+        ][:12]
+        results.append({
+            "category": classify_plan_failure("Error: " + summary + "\n" + detail, 1),
+            "summary_terms": safe_words,
+        })
+        if len(results) >= 4:
+            break
+    return results
 
 def main():
     if len(sys.argv) != 2:

@@ -1,5 +1,6 @@
 """Synthetic guard tests: never connect to AWS or print OAuth secrets."""
 import copy
+import json
 import unittest
 from scripts.production.lightsail.google_plan_guard import authorize, IDENTITY_PROVIDER, BROWSER_CLIENT, classify_plan_failure, safe_plan_error_hints, safe_plan_log_metrics
 
@@ -132,3 +133,26 @@ class TestSafelyRedactedErrorContext(unittest.TestCase):
         self.assertEqual(m["error_context"][0]["line"], 2)
         self.assertIn("invalid", m["error_context"][0]["safe_terms"])
         self.assertNotIn(private, str(m))
+
+class TestStructuredTerraformDiagnostics(unittest.TestCase):
+    def test_safely_classifies_json_events(self):
+        from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
+        private = "HiddenOAuthSecret-do-not-print-123"
+        events = "\n".join([
+            json.dumps({"@level": "info", "type": "planned_change", "diagnostic": {"severity": "error", "summary": "ignored"}}),
+            json.dumps({"@level": "error", "type": "diagnostic", "diagnostic": {
+                "severity": "error", "summary": "Unsupported argument " + private,
+                "detail": "Google OAuth token: " + private,
+            }}),
+        ])
+        safe = safe_json_plan_diagnostics(events)
+        self.assertEqual(len(safe), 1)
+        self.assertEqual(safe[0]["category"], "TERRAFORM_UNSUPPORTED_ARGUMENT")
+        self.assertIn("unsupported", safe[0]["summary_terms"])
+        self.assertNotIn(private, str(safe))
+        self.assertNotIn("oauth", str(safe).lower())
+
+    def test_non_json_and_non_errors_remain_private(self):
+        from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
+        self.assertEqual(safe_json_plan_diagnostics("not-json\n{}\n"), [])
+
