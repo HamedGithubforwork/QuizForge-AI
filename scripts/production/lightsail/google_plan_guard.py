@@ -133,7 +133,7 @@ def safe_plan_error_hints(log_text: str) -> list[str]:
     """Inspect Terraform's one-line *titles*, publishing only allowlisted words."""
     import re
     hints = []
-    for title in re.findall(r"(?m)^Error:\s*(.{1,240})\s*$", log_text)[:4]:
+    for title in re.findall(r"(?m)^[^\r\n]*?Error:\s*([^\r\n]{1,240})", log_text)[:4]:
         words = [
             word.lower() for word in re.findall(r"[A-Za-z]+", title)
             if word.lower() in SAFE_ERROR_WORDS
