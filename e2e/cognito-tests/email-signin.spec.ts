@@ -4,7 +4,7 @@ const endpoint = 'https://cognito-idp.ca-central-1.amazonaws.com/'
 const domain = 'https://quizforge-test.auth.ca-central-1.amazoncognito.com'
 const sub = '00000000-0000-0000-0000-000000000101'
 const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST, OPTIONS' }
-async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolean; invalidIdentity?: boolean; revokeFails?: boolean } = {}) {
+async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolean; invalidIdentity?: boolean; revokeFails?: boolean; alreadyRegistered?: boolean } = {}) {
   let confirmed = Boolean(options.confirmed)
   let wrongCode = true
   let refreshes = 0
@@ -18,6 +18,14 @@ async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolea
     const body = route.request().postDataJSON()
     const ok = (json: object) => route.fulfill({ json, headers: cors })
     const fail = (__type: string) => route.fulfill({ status: 400, json: { __type, message: 'secret provider detail' }, headers: cors })
+    if (operation === 'SignUp') {
+      expect(body.ClientId).toBe('browserclient123')
+      expect(body.Username).toBe('learner@example.invalid')
+      expect(body.Password).toBe('SyntheticPassword1!')
+      expect(body.UserAttributes).toEqual([{ Name: 'email', Value: 'learner@example.invalid' }])
+      expect(body).not.toHaveProperty('SecretHash')
+      return options.alreadyRegistered ? fail('UsernameExistsException') : ok({ UserConfirmed: false })
+    }
     if (operation === 'InitiateAuth') {
       expect(body.ClientId).toBe('browserclient123')
       if (body.AuthFlow === 'REFRESH_TOKEN_AUTH') { refreshes++; expect(body.AuthParameters.REFRESH_TOKEN).toBe('synthetic-refresh'); return ok(tokens()) }
@@ -176,4 +184,73 @@ test('forgot password preserves a PKCE transaction through Cognito recovery', as
   await page.getByRole('button', { name: 'Forgot your password?' }).click()
   await expect(page.getByRole('heading', { name: 'Password recovery' })).toBeVisible()
   expect(called).toBe(true)
+})
+
+test('create account stays on our site and verifies email without hosted Cognito signup', async ({ page }) => {
+  const operations = await provider(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible()
+  await expect(page).not.toHaveURL(/amazoncognito\.com/)
+  await page.getByLabel('Email', { exact: true }).fill('Learner@Example.invalid')
+  await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
+  await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('heading', { name: 'Verify your email', exact: true })).toBeVisible()
+  expect(operations).toEqual(['SignUp'])
+  await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0)
+  await page.getByLabel('Email confirmation code').fill('000000')
+  await page.getByRole('button', { name: 'Confirm my email' }).click()
+  await expect(page.getByRole('alert')).toContainText('not accepted')
+  await page.getByLabel('Email confirmation code').fill('123456')
+  await page.getByRole('button', { name: 'Confirm my email' }).click()
+  await expect(page.getByRole('heading', { name: 'Email verified' })).toBeVisible()
+  await page.getByRole('button', { name: 'Continue to sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'Sign in with email' })).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('learner@example.invalid')
+  await noStoredSecrets(page)
+  await submitPassword(page)
+  await expect(page.getByText('Signed in as learner@example.invalid')).toBeVisible()
+  expect(operations.filter(x => x === 'SignUp')).toHaveLength(1)
+})
+
+test('abandoned signup resumes verification at next app sign-in without another signup', async ({ page }) => {
+  const operations = await provider(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await page.getByLabel('Email', { exact: true }).fill('learner@example.invalid')
+  await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
+  await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('heading', { name: 'Verify your email', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Back to sign in options' }).click()
+  await openEmail(page)
+  await submitPassword(page)
+  await expect(page.getByRole('heading', { name: 'Verify your email to continue' })).toBeVisible()
+  await page.getByRole('button', { name: 'Resend confirmation code' }).click()
+  await expect(page.getByRole('status')).toContainText('A new code has been requested')
+  await page.getByLabel('Email confirmation code').fill('123456')
+  await page.getByRole('button', { name: 'Confirm my email' }).click()
+  await submitPassword(page)
+  await expect(page.getByText('Signed in as learner@example.invalid')).toBeVisible()
+  expect(operations.filter(x => x === 'SignUp')).toHaveLength(1)
+  await noStoredSecrets(page)
+})
+
+test('duplicate email never creates another user and offers local sign-in with verification', async ({ page }) => {
+  const operations = await provider(page, { alreadyRegistered: true })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await page.getByLabel('Email', { exact: true }).fill('learner@example.invalid')
+  await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
+  await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
+  await page.getByRole('button', { name: 'Create account' }).click()
+  await expect(page.getByRole('alert')).toContainText('Choose Sign in')
+  await page.getByRole('button', { name: 'Already registered? Sign in' }).click()
+  await expect(page.getByRole('heading', { name: 'Sign in with email' })).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toHaveValue('learner@example.invalid')
+  await submitPassword(page)
+  await expect(page.getByRole('heading', { name: 'Verify your email to continue' })).toBeVisible()
+  expect(operations.filter(x => x === 'SignUp')).toHaveLength(1)
+  await noStoredSecrets(page)
 })
