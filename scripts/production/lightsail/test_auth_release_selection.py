@@ -17,7 +17,7 @@ class TestAuthReleaseSelection(unittest.TestCase):
         })
         self.assertEqual(selected["schema"], 1)
         self.assertEqual(selected["reviewed_pr"], 579)
-        self.assertEqual(selected["rollout_stage"], "build-only-google-disabled")
+        self.assertEqual(selected["rollout_stage"], "google-enabled-release")
         self.assertEqual(selected["application_candidate_sha"],
                          "77a060cce504008a4479deacdc31279633d0fe4f")
         self.assertEqual(selected["reviewed_source_tree_sha"],
@@ -29,14 +29,15 @@ class TestAuthReleaseSelection(unittest.TestCase):
 
     def test_builder_must_not_deploy_or_auto_promote(self):
         workflow = (ROOT / ".github/workflows/lightsail-release-candidate-build.yml").read_text()
-        self.assertIn("build-only-google-disabled", workflow)
+        self.assertIn("google-enabled-release", workflow)
         self.assertIn("Verify exact reviewed source tree", workflow)
         self.assertNotIn("terraform apply", workflow)
         self.assertNotIn("promote_release", workflow)
         self.assertIn("cognito-idp:DescribeUserPoolClient", workflow)
         self.assertIn("cognito-idp:DescribeIdentityProvider", workflow)
         self.assertIn("google_signin_enabled", workflow)
-        self.assertIn('"google_signin_enabled": false', workflow)
+        self.assertIn('"google_signin_enabled": true', workflow)
+        self.assertIn('public.get("google_signin_enabled") is True', workflow)
 
     def test_auth_release_preserves_existing_native_client_activation(self):
         selected = json.loads((ROOT / "scripts/production/lightsail/auth-release-selection.json").read_text())
