@@ -141,7 +141,7 @@ jobs:
           if [ "$result" -ne 2 ]; then
             # Never print the Terraform log: it may contain sensitive planned values.
             # Only publish a fixed, nonsecret failure category.
-            PLAN_EXIT_CODE="$result" python - <<'PY'
+            PYTHONPATH="$GITHUB_WORKSPACE" PLAN_EXIT_CODE="$result" python - <<'PY'
           import os
           from pathlib import Path
           from scripts.production.lightsail.google_plan_guard import classify_plan_failure
