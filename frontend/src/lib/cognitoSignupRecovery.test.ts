@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { confirmSignupCode, resendSignupCode, signUpWithEmail, normalizedVerificationEmail } from './cognitoSignupRecovery.ts'
+import { confirmSignupCode, resendSignupCode, signUpWithEmail, normalizedVerificationEmail, ExistingCognitoAccountError, passwordRequirements } from './cognitoSignupRecovery.ts'
 
 type Reply = { status: number; data?: object }
 async function withCognito(responses: Reply[], run: (requests: Array<{
@@ -135,7 +135,8 @@ test('duplicate users and password-policy failures get safe corrective guidance'
   ], async () => {
     await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'ValidPassword1!'), error => {
       assert.ok(error instanceof Error)
-      assert.match(error.message, /Choose Sign in/)
+      assert.ok(error instanceof ExistingCognitoAccountError)
+      assert.match(error.message, /original email code|earlier verification code/)
       assert.doesNotMatch(error.message, /private account detail/)
       return true
     })
@@ -152,4 +153,22 @@ test('duplicate users and password-policy failures get safe corrective guidance'
     await assert.rejects(signUpWithEmail('browserclient123', 'learner@example.com', 'short'))
     await assert.rejects(signUpWithEmail('invalid-client', 'learner@example.com', 'ValidPassword1!'))
   })
+})
+
+test('live password requirements match staging Cognito policy and permit interior spaces only', () => {
+  const rules = passwordRequirements('')
+  assert.deepEqual(rules, { lowercase: false, uppercase: false, number: false,
+    length: false, symbol: false, noEdgeSpaces: true })
+  assert.deepEqual(passwordRequirements('Abcdef1!'), { lowercase: true, uppercase: true, number: true,
+    length: true, symbol: true, noEdgeSpaces: true })
+  assert.equal(passwordRequirements('Abcdef1 ').noEdgeSpaces, false)
+  assert.equal(passwordRequirements(' Abcdef1').noEdgeSpaces, false)
+  assert.equal(passwordRequirements('Abc def1').symbol, true)
+  assert.equal(passwordRequirements('Abc def1').noEdgeSpaces, true)
+  assert.equal(passwordRequirements('abcdefgh').uppercase, false)
+  assert.equal(passwordRequirements('ABCDEFGH1!').lowercase, false)
+  assert.equal(passwordRequirements('Abcdefgh!').number, false)
+  assert.equal(passwordRequirements('Abcdef1').symbol, false)
+  assert.equal(passwordRequirements('Abcd1!').length, false)
+  assert.equal(passwordRequirements('Ébcdef12').symbol, false)
 })
