@@ -103,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           set +x
-          trap 'rm -f "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
+          trap 'rm -f "$RUNNER_TEMP/terraform-plan" "$RUNNER_TEMP/terraform-plan.json" "$RUNNER_TEMP/terraform-plan.log" "$RUNNER_TEMP/terraform-baseline" "$RUNNER_TEMP/terraform-baseline.log" "$RUNNER_TEMP/state-entries.txt" "$RUNNER_TEMP/readiness.txt"' EXIT
           test -n "$TF_STATE_BUCKET" || { echo 'FAIL: approved state bucket not configured'; exit 1; }
           for name in PROD_GOOGLE_OAUTH_CLIENT_ID PROD_GOOGLE_OAUTH_CLIENT_SECRET TF_VAR_alert_email TF_VAR_ssh_public_key TF_VAR_admin_ipv4_cidr; do
             test -n "${!name}" || { echo "FAIL: protected production input missing"; exit 1; }
@@ -153,6 +153,32 @@ jobs:
           print("Safe plan-log metrics: " + __import__("json").dumps(safe_plan_log_metrics(raw), sort_keys=True))
           print("Sanitized Terraform JSON diagnostics: " + __import__("json").dumps(safe_json_plan_diagnostics(raw), sort_keys=True))
           print("No apply made.")
+          PY
+            # Distinguish a broken existing production baseline from a problem
+            # specific to opting into Google. This is an additional *read-only*
+            # plan with Google explicitly disabled; never apply either plan.
+            # Both Terraform output streams remain private, and are wiped.
+            set +e
+            terraform plan -lock=false -refresh=false -detailed-exitcode -input=false -json \
+              -var=enable_google_signin=false \
+              -out="$RUNNER_TEMP/terraform-baseline" > "$RUNNER_TEMP/terraform-baseline.log" 2>&1
+            baseline_result=$?
+            set -e
+            PYTHONPATH="$GITHUB_WORKSPACE" BASELINE_EXIT_CODE="$baseline_result" python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.production.lightsail.google_plan_guard import (
+              classify_google_disabled_baseline, safe_json_plan_diagnostics
+          )
+          private_log = (Path(os.environ["RUNNER_TEMP"]) /
+                         "terraform-baseline.log").read_text(encoding="utf-8", errors="replace")
+          status = classify_google_disabled_baseline(int(os.environ["BASELINE_EXIT_CODE"]), private_log)
+          print("Google-disabled baseline read-only comparison: " + status)
+          if int(os.environ["BASELINE_EXIT_CODE"]) == 1:
+              import json
+              print("Sanitized baseline diagnostics: " +
+                    json.dumps(safe_json_plan_diagnostics(private_log), sort_keys=True))
+          print("No plan applied; any existing differences require separate review.")
           PY
             exit 1
           fi
