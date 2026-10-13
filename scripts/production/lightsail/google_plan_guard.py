@@ -223,6 +223,23 @@ def safe_json_plan_diagnostics(log_text: str) -> list[dict]:
             break
     return results
 
+
+def classify_google_disabled_baseline(exit_code: int, diagnostic_text: str) -> str:
+    """Fixed, secret-free diagnostic of the pre-existing production plan.
+
+    This probe never authorizes a Google plan or a Terraform apply. A clean
+    baseline means that the original Google-enabled plan failure needs
+    investigation within the opt-in configuration. Nonzero changes with
+    Google disabled are *not* authorized by this report.
+    """
+    if exit_code == 0:
+        return "BASELINE_UNCHANGED"
+    if exit_code == 2:
+        return "BASELINE_HAS_UNREVIEWED_CHANGES"
+    if exit_code == 1:
+        return "BASELINE_FAILED_" + classify_plan_failure(diagnostic_text, exit_code)
+    return "BASELINE_UNEXPECTED_EXIT"
+
 def main():
     if len(sys.argv) != 2:
         raise SystemExit("Usage: python -m scripts.production.lightsail.google_plan_guard <tfplan.json>")
