@@ -58,7 +58,7 @@ jobs:
       - name: Assume read-only Cognito AWS permissions
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: \${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           role-session-name: qf-protected-production-google-readiness
           role-duration-seconds: 600
           aws-region: ca-central-1
@@ -78,8 +78,8 @@ jobs:
             }]}
       - name: Check production Google OAuth credentials and Cognito wiring safely
         env:
-          PROD_GOOGLE_OAUTH_CLIENT_ID: \${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
-          PROD_GOOGLE_OAUTH_CLIENT_SECRET: \${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
+          PROD_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_ID }}
+          PROD_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.PROD_GOOGLE_OAUTH_CLIENT_SECRET }}
         run: |
           set +x
           python -m scripts.production.lightsail.google_provider_readiness
