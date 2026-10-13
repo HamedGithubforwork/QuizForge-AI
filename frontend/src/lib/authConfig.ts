@@ -4,6 +4,16 @@ export function providerFrom(value: string | undefined) {
   return provider
 }
 
+export type AccountSetupMode = 'enroll' | 'link' | 'link-cognito'
+
+/** Pick an available account-setup flow; disposable staging has no production history to link. */
+export function initialAccountSetupMode(environment: string, googleEnabled: boolean,
+  legacyLinkingAvailable: boolean): AccountSetupMode {
+  if (environment === 'staging' && !legacyLinkingAvailable) return 'enroll'
+  if (googleEnabled) return 'link-cognito'
+  return legacyLinkingAvailable ? 'link' : 'enroll'
+}
+
 export function secureEndpoint(value: string) {
   const url = new URL(value)
   if (url.username || url.password || url.search || url.hash ||
@@ -32,6 +42,10 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
   if (smsFlag !== undefined && smsFlag !== 'true' && smsFlag !== 'false') {
     throw new Error('Invalid Cognito SMS MFA configuration.')
   }
+  const googleFlag = env.VITE_COGNITO_GOOGLE_SIGNIN_ENABLED
+  if (googleFlag !== undefined && googleFlag !== 'true' && googleFlag !== 'false') {
+    throw new Error('Invalid Cognito Google sign-in configuration.')
+  }
   const base = secureEndpoint(origin)
   return {
     pool, client, domain, environment, authority: `https://cognito-idp.ca-central-1.amazonaws.com/${pool}`,
@@ -39,6 +53,7 @@ export function cognitoConfiguration(env: Record<string, string | undefined>, or
     identityApi: secureEndpoint(env.VITE_IDENTITY_API_URL || ''),
     api: secureEndpoint(env.VITE_API_URL || ''),
     smsMfaEnabled: smsFlag === 'true',
+    googleSignInEnabled: googleFlag === 'true',
   }
 }
 

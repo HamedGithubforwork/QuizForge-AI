@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cognitoConfiguration, providerFrom, publicLegacyKey, secureEndpoint } from './authConfig.ts'
+import { cognitoConfiguration, initialAccountSetupMode, providerFrom, publicLegacyKey, secureEndpoint } from './authConfig.ts'
 
 const valid = { VITE_COGNITO_STAGING: 'true', VITE_COGNITO_USER_POOL_ID: 'ca-central-1_Test',
   VITE_COGNITO_CLIENT_ID: 'client123', VITE_COGNITO_DOMAIN: 'https://test.auth.ca-central-1.amazoncognito.com',
@@ -73,9 +73,31 @@ test('SMS MFA feature flag is explicit and boolean', () => {
   )
 })
 
+test('Google sign-in requires explicit opt-in and rejects malformed settings', () => {
+  assert.equal(cognitoConfiguration(valid, 'https://staging.example.test').googleSignInEnabled, false)
+  assert.equal(cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: 'false' },
+    'https://staging.example.test').googleSignInEnabled, false)
+  assert.equal(cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: 'true' },
+    'https://staging.example.test').googleSignInEnabled, true)
+  for (const flag of ['', 'TRUE', 'yes', '1']) {
+    assert.throws(() => cognitoConfiguration({ ...valid, VITE_COGNITO_GOOGLE_SIGNIN_ENABLED: flag },
+      'https://staging.example.test'))
+  }
+})
+
 test('Production configuration accepts only public legacy key types', () => {
   const token = (role: string, ref = 'vfxmsvphgcaizqnbyjip') => `header.${btoa(JSON.stringify({ role, ref }))}.signature`
   assert.equal(publicLegacyKey(token('anon')), true)
   for (const key of [token('service_role'), token('authenticated'), token('anon', 'foreign'),
     'sb_secret_synthetic_secret_key_12345', 'bad', 'header.bnVsbA.signature']) assert.equal(publicLegacyKey(key), false)
+})
+
+
+test('Account setup selects only usable linking methods and keeps disposable staging distinct', () => {
+  assert.equal(initialAccountSetupMode('staging', true, false), 'enroll')
+  assert.equal(initialAccountSetupMode('staging', false, false), 'enroll')
+  assert.equal(initialAccountSetupMode('staging', true, true), 'link-cognito')
+  assert.equal(initialAccountSetupMode('staging', false, true), 'link')
+  assert.equal(initialAccountSetupMode('production', true, true), 'link-cognito')
+  assert.equal(initialAccountSetupMode('production', false, true), 'link')
 })

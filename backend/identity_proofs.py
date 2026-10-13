@@ -15,6 +15,22 @@ class Identity:
     subject: str
 
 
+async def cognito_link_proof(authorization, verifier, client, issuer, active_subject):
+    """Authenticate an *independent* existing Cognito account, not its email.
+
+    The primary bearer identifies the new account through the identity service.
+    This additional bearer must be fresh and online-verified by the SAME
+    configured Cognito pool, including MFA requirements enforced by Cognito.
+    """
+    if (not authorization or not authorization.startswith("Bearer ")
+            or not 0 < len(authorization[7:]) <= 16_384):
+        raise invalid_session()
+    subject, _ = await verifier.verify(authorization[7:], client, max_auth_age=300)
+    if subject == active_subject:
+        raise HTTPException(409, "Choose a different existing account to link.")
+    return Identity(issuer, subject)
+
+
 async def supabase_link_proof(token, client, url, publishable_key):
     if not token or len(token) > 16_384:
         raise invalid_session()

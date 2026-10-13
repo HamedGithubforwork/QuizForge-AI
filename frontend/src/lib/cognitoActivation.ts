@@ -194,8 +194,8 @@ export async function finishMigratedActivation(
   }
 
   // This direct API session exists only to complete the imported-account
-  // MFA setup. Do not retain it; the normal app session is always obtained
-  // through the reviewed PKCE/OIDC redirect flow.
+  // MFA setup. Do not retain it; a fresh app sign-in must follow
+  // completion so activation credentials cannot become an application session.
   await cognitoRequest(
     'GlobalSignOut',
     { AccessToken: accessToken },
