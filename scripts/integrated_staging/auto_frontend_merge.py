@@ -11,10 +11,10 @@ import re
 import subprocess
 
 REPOSITORY = "HamedGithubforwork/QuizForge-AI"
-TRIGGER_BRANCH = "ops/staging-signup-fix-538-one-time"
-MARKER = ".github/staging-update-requests/frontend-signup-fix-pr-538.json"
+TRIGGER_BRANCH = "ops/staging-signup-resume-checklist-v2"
+MARKER = ".github/staging-update-requests/frontend-signup-resume-checklist-v2.json"
 FRONTEND_PR = "538"
-FRONTEND_SHA = "01092b65f4c0ae65830282bf9463373574981446"
+FRONTEND_SHA = "af9393ac74301f1e298b11f83a32a620bd7fdac3"
 REQUEST = {
     "operation": "frontend",
     "frontend_pr": 538,
@@ -25,9 +25,9 @@ REQUEST = {
 CHANGES = {
     f"A\t{MARKER}",
     "M\t.github/workflows/aws-integrated-staging-frontend-update.yml",
-    "A\tscripts/integrated_staging/auto_frontend_merge.py",
-    "A\tscripts/integrated_staging/test_auto_frontend_merge.py",
-    "A\te2e/staging-live-auth-smoke.mjs",
+    "M\tscripts/integrated_staging/auto_frontend_merge.py",
+    "M\tscripts/integrated_staging/test_auto_frontend_merge.py",
+    "M\te2e/staging-live-auth-smoke.mjs",
 }
 SHA = re.compile(r"[0-9a-f]{40}")
 
