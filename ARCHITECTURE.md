@@ -191,3 +191,15 @@ The syntax-aware checker handles static imports, side-effect imports, re-exports
 These are architecture checks for the repository's current module conventions, not a malicious-code sandbox or a complete data-flow/module-resolution analyzer. Review newly introduced aliases, loaders or executable code generation explicitly; do not assume these guards prove runtime security. Add narrowly scoped guard tests when a real boundary changes rather than weakening enforcement or reorganizing unrelated features.
 
 CI runs both guard self-tests and repository scans. The required PR gate explicitly requires architecture success; skipped, missing, cancelled or failed architecture checks cannot pass as an intentional skip. Existing generated-contract, backend, frontend, PostgreSQL, browser and Windows tests remain separate evidence for behavior.
+
+## Browser Cognito sessions
+
+`CognitoAuthGate` routes signed-out email sign-in to `CognitoEmailSignIn`, which owns
+password, MFA and signup-confirmation UI state. `cognitoPasswordSession` owns the
+memory-only direct Cognito session and its cancellation, refresh and revocation.
+It reuses the linking proof challenge parser, but never replaces a Google session
+while proving an existing account for linking. `cognitoBrowser` remains the single
+browser auth adapter consumed by `authSession` and identity requests; Google and
+hosted signup/recovery continue through the OIDC manager. The backend remains the
+authoritative verifier for access-token signature, identity, enrollment and data
+ownership. UI confirmation and decoded/browser state never authorize API access.

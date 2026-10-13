@@ -5,20 +5,30 @@ import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
-import { config, identityRequest, initialize, manager, session, signIn, signOut, signUp } from './lib/cognitoBrowser'
+import { config, identityRequest, initialize, manager, session, signInWithGoogle, signOut } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
-import { secureEndpoint } from './lib/authConfig'
+import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
+import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
+import CognitoEmailSignIn from './components/account/CognitoEmailSignIn'
+import CognitoEmailSignUp from './components/account/CognitoEmailSignUp'
+
+const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
 
 export default function CognitoAuthGate() {
   const [account, setAccount] = useState<{ email: string; enrolled: boolean } | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [mode, setMode] = useState<'enroll' | 'link'>('link')
+  const [mode, setMode] = useState<'enroll' | 'link' | 'link-cognito'>(
+    initialAccountSetupMode(config.environment, config.googleSignInEnabled, linkingAvailable)
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
+  const [emailSignIn, setEmailSignIn] = useState(false)
+  const [emailSignUp, setEmailSignUp] = useState(false)
+  const [prefillEmail, setPrefillEmail] = useState('')
   const [activationMode, setActivationMode] = useState(false)
   const [activationSetup, setActivationSetup] = useState<MigratedActivationSetup | null>(null)
   const [activationComplete, setActivationComplete] = useState(false)
@@ -30,9 +40,10 @@ export default function CognitoAuthGate() {
   const [totpSecret, setTotpSecret] = useState('')
   const [totpCode, setTotpCode] = useState('')
   const [legacy, setLegacy] = useState<{ client: SupabaseClient; factor: string } | null>(null)
-  const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string } | null>(null)
-  const linkingAvailable = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY)
-
+  const [cognitoProof, setCognitoProof] = useState<Extract<CognitoAccountProof, { kind: 'mfa' }> | null>(null)
+  const [cognitoChoice, setCognitoChoice] = useState<Extract<CognitoAccountProof, { kind: 'select-mfa' }> | null>(null)
+  const [selectedMfa, setSelectedMfa] = useState<CognitoMfaMethod>('SOFTWARE_TOKEN_MFA')
+  const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string; cognitoToken?: string } | null>(null)
   async function load() {
     if (await session()) setAccount(await identityRequest('/identity/session'))
     else setAccount(null)
@@ -49,7 +60,12 @@ export default function CognitoAuthGate() {
       setAccount(null)
       setConfirmation(null)
       setLegacy(null)
+      setCognitoProof(null)
+      setCognitoChoice(null)
       setActivationMode(false)
+      setEmailSignIn(false)
+      setEmailSignUp(false)
+      setPrefillEmail('')
       setActivationSetup(null)
       setActivationComplete(false)
       setSecurityStatus(null)
@@ -99,14 +115,28 @@ export default function CognitoAuthGate() {
     try { await action() } catch (e) { setError(e instanceof Error ? e.message : 'Please try again.') }
     finally { setBusy(false) }
   }
-  async function requestConfirmation(token?: string) {
-    const result = await identityRequest('/identity/challenge', { mode }, token)
-    setConfirmation({ nonce: result.nonce, mode, token })
+  async function requestConfirmation(token?: string, cognitoToken?: string) {
+    const linkMode = mode === 'enroll' ? 'enroll' : 'link'
+    const result = await identityRequest('/identity/challenge', { mode: linkMode }, token, cognitoToken)
+    setConfirmation({ nonce: result.nonce, mode: linkMode, token, cognitoToken })
   }
   async function begin(event: FormEvent) {
     event.preventDefault()
     await run(async () => {
       if (mode === 'enroll') return requestConfirmation()
+      if (mode === 'link-cognito') {
+        if (!config.googleSignInEnabled) throw new Error('Google account linking is not enabled.')
+        let proof: CognitoAccountProof
+        try { proof = await beginCognitoAccountProof(config.client, email, password) }
+        finally { setPassword('') }
+        if (proof.kind === 'select-mfa') {
+          setSelectedMfa(proof.methods.includes('SOFTWARE_TOKEN_MFA') ? 'SOFTWARE_TOKEN_MFA' : proof.methods[0])
+          setCognitoChoice(proof); setCode(''); return
+        }
+        if (proof.kind === 'mfa') { setCognitoProof(proof); setCode(''); return }
+        await requestConfirmation(undefined, proof.accessToken)
+        return
+      }
       if (!linkingAvailable) throw new Error('Existing-account linking is not configured.')
       const { createClient } = await import('@supabase/supabase-js')
       // A separate, non-persistent client never changes the production browser session.
@@ -132,6 +162,28 @@ export default function CognitoAuthGate() {
       if (result.error) throw new Error('Authenticator verification failed.')
       setLegacy(null)
       await requestConfirmation(result.data.access_token)
+    })
+  }
+
+  async function selectCognitoMfa(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      if (!cognitoChoice) return
+      const next = await chooseCognitoAccountMfa(config.client, cognitoChoice, selectedMfa)
+      setCognitoChoice(null)
+      setCognitoProof(next)
+      setCode('')
+    })
+  }
+
+  async function verifyCognitoAccount(event: FormEvent) {
+    event.preventDefault()
+    await run(async () => {
+      if (!cognitoProof) return
+      const result = await finishCognitoAccountProof(config.client, cognitoProof, code)
+      setCode('')
+      setCognitoProof(null)
+      await requestConfirmation(undefined, result.accessToken)
     })
   }
 
@@ -409,6 +461,25 @@ export default function CognitoAuthGate() {
     {error && <p role="alert">{error}</p>}
     <App />
   </>
+  if (!account && emailSignUp) return <CognitoEmailSignUp
+    onBack={() => { setEmailSignUp(false); setError('') }}
+    onSignIn={(emailAddress) => {
+      setPrefillEmail(emailAddress)
+      setEmailSignUp(false)
+      setEmailSignIn(true)
+      setError('')
+    }}
+  />
+  if (!account && emailSignIn) return <CognitoEmailSignIn
+    initialEmail={prefillEmail}
+    onComplete={async () => {
+      try { await load() }
+      catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-in could not be verified.'); throw caught }
+    }}
+    onBack={() => { setEmailSignIn(false); setError('') }}
+    onActivation={() => { setEmailSignIn(false); setActivationMode(true); setError('') }}
+  />
+
   if (!account && activationMode) return <main className="auth-page">
     <section className="auth-card">
       <div className="auth-brand">
@@ -426,7 +497,7 @@ export default function CognitoAuthGate() {
           <h2>Security setup complete</h2>
           <p>Your existing password is ready in Cognito. Sign in normally and use your new authenticator code when prompted.</p>
         </div>
-        <button className="auth-submit" disabled={busy} onClick={() => void run(signIn)}>Continue to Sign in</button>
+        <button className="auth-submit" disabled={busy} onClick={() => { setActivationMode(false); setEmailSignIn(true); setError('') }}>Continue to Sign in</button>
       </> : activationSetup ? <>
         <div className="auth-heading">
           <h2>Set up your authenticator</h2>
@@ -461,7 +532,7 @@ export default function CognitoAuthGate() {
         <form className="auth-form" aria-busy={busy} onSubmit={beginActivation}>
           <label>
             <span>Existing account email</span>
-            <input type="email" autoComplete="username" required value={email} disabled={busy}
+            <input type="email" autoComplete="username" required placeholder="you@example.com" value={email} disabled={busy}
               onChange={e => setEmail(e.target.value)} />
           </label>
           <label>
@@ -518,7 +589,7 @@ export default function CognitoAuthGate() {
 
           <div className="auth-entry-actions">
             <button className="auth-entry-action auth-entry-action-primary" aria-label="Sign in" disabled={busy}
-              onClick={() => void run(signIn)}>
+              onClick={() => { setActivationMode(false); setEmailSignUp(false); setEmailSignIn(true); setError('') }}>
               <span className="auth-entry-action-copy">
                 <strong>Sign in</strong>
                 <small>Continue to your existing account</small>
@@ -526,8 +597,19 @@ export default function CognitoAuthGate() {
               <span className="auth-cta-arrow" aria-hidden="true">→</span>
             </button>
 
+            {config.googleSignInEnabled && (
+              <button className="auth-entry-action auth-entry-action-secondary" type="button"
+                aria-label="Continue with Google" disabled={busy} onClick={() => void run(signInWithGoogle)}>
+                <span className="auth-entry-action-copy">
+                  <strong>Continue with Google</strong>
+                  <small>Use your Google account through secure Cognito sign-in</small>
+                </span>
+                <span className="auth-cta-arrow" aria-hidden="true">→</span>
+              </button>
+            )}
+
             <button className="auth-entry-action auth-entry-action-secondary" aria-label="Create account" disabled={busy}
-              onClick={() => void run(signUp)}>
+              onClick={() => { setEmailSignIn(false); setEmailSignUp(true); setError('') }}>
               <span className="auth-entry-action-copy">
                 <strong>Create account</strong>
                 <small>New here? Start with a fresh account</small>
@@ -563,35 +645,70 @@ export default function CognitoAuthGate() {
   return <main className="auth-page"><section className="auth-card">
     <h1>{config.environment === 'staging' ? 'Quiz From Notes staging' : 'Quiz From Notes'}</h1>
     {error && <p role="alert">{error}</p>}
-    <p>Signed in as {account.email}</p>
+    <div className="auth-account-setup-session">
+      <p>Signed in as <strong>{account.email}</strong></p>
+      {logout}
+    </div>
     <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
-    {confirmation ? <>
+    {confirmation ? <div className="auth-account-setup-confirmation">
       <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
         : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
-      <button className="auth-submit" disabled={busy} onClick={() => void run(async () => {
-        await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token)
-        setConfirmation(null); await load()
-      })}>Confirm account setup</button>
-      <button disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
-    </> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
+      <div className="auth-account-setup-actions">
+        <button type="button" className="auth-submit" disabled={busy} onClick={() => void run(async () => {
+          await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token, confirmation.cognitoToken)
+          setConfirmation(null); await load()
+        })}>Confirm account setup</button>
+        <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => setConfirmation(null)}>Cancel</button>
+      </div>
+    </div> : cognitoChoice ? <form className="auth-form" aria-busy={busy} onSubmit={selectCognitoMfa}>
+      <p>Choose how to verify your existing account. Your Google session stays active.</p>
+      <label>Existing-account verification method
+        <select value={selectedMfa} disabled={busy} onChange={e => setSelectedMfa(e.target.value as CognitoMfaMethod)}>
+          {cognitoChoice.methods.map(method => (
+            <option key={method} value={method}>
+              {method === 'SOFTWARE_TOKEN_MFA' ? 'Authenticator app' : 'Text message'}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button className="auth-submit" disabled={busy}>Continue to verification</button>
+      <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => { setCognitoChoice(null); setCode('') }}>Cancel</button>
+    </form> : cognitoProof ? <form className="auth-form" aria-busy={busy} onSubmit={verifyCognitoAccount}>
+      <p>Confirm ownership of your existing Quiz From Notes account. This does not change your Google session.</p>
+      <label>Existing-account verification code<input autoComplete="one-time-code" inputMode="numeric" required
+        pattern="[0-9]{6,8}" value={code} disabled={busy} onChange={e => setCode(e.target.value)} /></label>
+      <button className="auth-submit" disabled={busy}>Verify existing account</button>
+      <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => { setCognitoProof(null); setCode('') }}>Cancel</button>
+    </form> : legacy ? <form className="auth-form" aria-busy={busy} onSubmit={verifyMfa}>
       <label>Existing-account authenticator code<input autoComplete="one-time-code" inputMode="numeric" required
         pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
       <button className="auth-submit" disabled={busy}>Verify authenticator</button>
     </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
       <label htmlFor="account-setup">Account setup</label>
       <select id="account-setup" value={mode} disabled={busy} onChange={e => {
-        setMode(e.target.value as 'enroll' | 'link'); setPassword(''); setError('')
+        setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
+        setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
       }}>
-        <option value="link">Link my existing account</option><option value="enroll">Create an empty account</option>
+        {linkingAvailable && <option value="link">Link my old account (before Cognito migration)</option>}
+        {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}
+        <option value="enroll">Create an empty account</option>
       </select>
+      {config.environment === 'staging' && !linkingAvailable && <p className="auth-account-setup-note">This is a temporary test site, separate from the live Quiz From Notes accounts. Your usual website password cannot verify an account here.</p>}
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
-        {!linkingAvailable && <p>Existing-account linking is currently unavailable.</p>}
-        <label>Existing account email<input type="email" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} /></label>
+        <label>Existing account email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing account password<input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} /></label>
-      </> : <p>Your new account will start with empty history. Choose linking if you have existing quizzes.</p>}
+      </> : mode === 'link-cognito' ? <>
+        <p>Sign in again with your existing Quiz From Notes email and password to keep your saved quizzes. Verification of both accounts is required; an email match alone is not enough.</p>
+        <p className="auth-message" role="note">After linking, Google handles sign-in security. Quiz From Notes will not prompt for its own MFA during Google sign-ins. Google 2-Step Verification applies only if you enable it on your Google account.</p>
+        <label>Existing Quiz From Notes email<input type="email" autoComplete="username" required placeholder="you@example.com" value={email}
+          disabled={busy} onChange={e => setEmail(e.target.value)} /></label>
+        <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
+          value={password} disabled={busy} onChange={e => setPassword(e.target.value)} /></label>
+      </> : <p>{config.environment === 'staging'
+        ? 'Continue with a temporary test account and empty quiz history. No production quizzes will be transferred.'
+        : 'Your new account will start with empty history. Choose linking if you have existing quizzes.'}</p>}
       <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
     </form>}
-    {logout}
   </section></main>
 }

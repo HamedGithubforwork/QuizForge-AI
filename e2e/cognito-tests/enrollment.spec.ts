@@ -6,9 +6,10 @@ const subject = '00000000-0000-0000-0000-000000000101'
 const jwt = (claims: object) => [Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url'),
   Buffer.from(JSON.stringify(claims)).toString('base64url'), 'test-signature'].join('.')
 
-async function setup(page: Page, options: { badNonce?: boolean; badState?: boolean; staleState?: boolean; wrongIdentity?: boolean; enrolled?: boolean; unverified?: boolean; revokeFails?: boolean } = {}) {
+async function setup(page: Page, options: { badNonce?: boolean; badState?: boolean; staleState?: boolean; wrongIdentity?: boolean; enrolled?: boolean; unverified?: boolean; revokeFails?: boolean; googleExistingLink?: boolean } = {}) {
   let authorize: URL
   let authorizationPath = ''
+  let googleProvider = false
   let tokenCalls = 0
   let refreshCalls = 0
   let revoked = false
@@ -30,6 +31,7 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
   const completeAuthorization = async (route: Route) => {
     authorize = new URL(route.request().url())
     authorizationPath = authorize.pathname
+    googleProvider = authorize.searchParams.get('identity_provider') === 'Google'
     expect(['/oauth2/authorize', '/signup']).toContain(authorizationPath)
     expect(authorize.searchParams.get('response_type')).toBe('code')
     expect(authorize.searchParams.get('code_challenge_method')).toBe('S256')
@@ -85,13 +87,24 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     expect(data.user_id).toBeUndefined()
     if (path.endsWith('/challenge')) {
       challengeCount++; mode = data.mode
-      if (mode === 'link') expect(route.request().headers()['x-legacy-authorization']).toBe('Bearer synthetic-legacy')
-      else expect(route.request().headers()['x-legacy-authorization']).toBeUndefined()
+      if (mode === 'link' && options.googleExistingLink) {
+        expect(route.request().headers()['x-cognito-link-authorization']).toBe('Bearer synthetic-cognito-local')
+        expect(route.request().headers()['x-legacy-authorization']).toBeUndefined()
+      } else if (mode === 'link') {
+        expect(route.request().headers()['x-legacy-authorization']).toBe('Bearer synthetic-legacy')
+      } else {
+        expect(route.request().headers()['x-legacy-authorization']).toBeUndefined()
+      }
       return route.fulfill({ json: { nonce: 'n'.repeat(43), expires_in: 300 } })
     }
     expect(path).toMatch(/\/confirm$/)
     expect(data).toEqual({ mode, nonce: 'n'.repeat(43) })
-    if (mode === 'link') expect(route.request().headers()['x-legacy-authorization']).toBe('Bearer synthetic-legacy')
+    if (mode === 'link' && options.googleExistingLink) {
+      expect(route.request().headers()['x-cognito-link-authorization']).toBe('Bearer synthetic-cognito-local')
+      expect(route.request().headers()['x-legacy-authorization']).toBeUndefined()
+    } else if (mode === 'link') {
+      expect(route.request().headers()['x-legacy-authorization']).toBe('Bearer synthetic-legacy')
+    }
     confirmationCount++; enrolled = true
     await route.fulfill({ status: 204 })
   })
@@ -106,12 +119,12 @@ async function setup(page: Page, options: { badNonce?: boolean; badState?: boole
     expect(route.request().headers().authorization).toBe('Bearer synthetic-refreshed-access')
     await route.fulfill({ json: { items: [], totalCount: 0, hasMore: false, nextCursor: null } })
   })
-  return { counts: () => ({ authorizationPath, tokenCalls, refreshCalls, revoked, challengeCount, confirmationCount, historyCalls }) }
+  return { counts: () => ({ authorizationPath, googleProvider, tokenCalls, refreshCalls, revoked, challengeCount, confirmationCount, historyCalls }) }
 }
 
 async function login(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue with Google', exact: true }).click()
 }
 
 async function createAccount(page: Page) {
@@ -124,12 +137,25 @@ test('PKCE callback enrolls only after confirmation, refreshes bearer and revoke
   await login(page)
   expect(state.counts().authorizationPath).toBe('/oauth2/authorize')
   await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
+  await expect(page.locator('.auth-account-setup-session').getByRole('button', { name: 'Sign out' })).toBeVisible()
   expect(page.url()).toBe('http://localhost:4174/')
   await page.getByLabel('Account setup', { exact: true }).selectOption('enroll')
   await page.getByRole('button', { name: 'Continue account setup' }).click()
   await expect(page.getByText('Create a separate account with empty history?', { exact: false })).toBeVisible()
+  const actions = page.locator('.auth-account-setup-actions')
+  await expect(actions.getByRole('button', { name: 'Confirm account setup' })).toBeVisible()
+  await expect(actions.getByRole('button', { name: 'Cancel' })).toBeVisible()
+  const spaced = await actions.evaluate(element => {
+    const [primary, secondary] = [...element.querySelectorAll('button')].map(button => button.getBoundingClientRect())
+    return secondary.left >= primary.right + 8 || secondary.top >= primary.bottom + 8
+  })
+  expect(spaced).toBe(true)
   expect(state.counts().confirmationCount).toBe(0)
-  await page.getByRole('button', { name: 'Confirm account setup' }).click()
+  await actions.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByLabel('Account setup', { exact: true })).toBeVisible()
+  expect(state.counts().confirmationCount).toBe(0)
+  await page.getByRole('button', { name: 'Continue account setup' }).click()
+  await actions.getByRole('button', { name: 'Confirm account setup' }).click()
   await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
   await page.getByRole('button', { name: 'My Quiz History', exact: false }).click()
   await expect.poll(() => state.counts().historyCalls).toBeGreaterThan(0)
@@ -143,17 +169,136 @@ test('PKCE callback enrolls only after confirmation, refreshes bearer and revoke
   expect(state.counts().confirmationCount).toBe(1)
 })
 
-test('create account starts at the dedicated Cognito signup endpoint with PKCE', async ({ page }) => {
+test('Google login links an existing Cognito account only after password and MFA verification', async ({ page }) => {
+  const state = await setup(page, { googleExistingLink: true })
+  let directAuthCalls = 0
+  let mfaCalls = 0
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST, OPTIONS' }
+  await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const target = route.request().headers()['x-amz-target']
+    const body = route.request().postDataJSON()
+    if (target === 'AWSCognitoIdentityProviderService.InitiateAuth') {
+      directAuthCalls++
+      expect(body.AuthFlow).toBe('USER_PASSWORD_AUTH')
+      expect(body.AuthParameters).toEqual({ USERNAME: 'existing@example.invalid', PASSWORD: 'synthetic-test-password' })
+      return route.fulfill({ json: { ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 'mfa-session',
+        ChallengeParameters: { USERNAME: 'existing@example.invalid' } }, headers: cors })
+    }
+    if (target === 'AWSCognitoIdentityProviderService.RespondToAuthChallenge') {
+      mfaCalls++
+      expect(body.ChallengeName).toBe('SOFTWARE_TOKEN_MFA')
+      expect(body.Session).toBe('mfa-session')
+      expect(body.ChallengeResponses).toEqual({ USERNAME: 'existing@example.invalid', SOFTWARE_TOKEN_MFA_CODE: '123456' })
+      return route.fulfill({ json: { AuthenticationResult: { AccessToken: 'synthetic-cognito-local' } }, headers: cors })
+    }
+    throw new Error('Unexpected direct Cognito request')
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue with Google' }).click()
+  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
+  expect(state.counts().googleProvider).toBe(true)
+  await expect(page.getByLabel('Account setup', { exact: true })).toHaveValue('link-cognito')
+  await expect(page.locator('.auth-account-setup-session').getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue account setup' })).toBeEnabled()
+  await expect(page.getByRole('note')).toContainText('Google 2-Step Verification applies only if you enable it on your Google account')
+  await expect(page.getByLabel('Existing Quiz From Notes email')).toHaveAttribute('placeholder', 'you@example.com')
+  await page.getByLabel('Existing Quiz From Notes email').fill('existing@example.invalid')
+  await page.getByLabel('Existing Quiz From Notes password').fill('synthetic-test-password')
+  await page.getByRole('button', { name: 'Continue account setup' }).click()
+  await expect(page.getByText('Confirm ownership of your existing Quiz From Notes account')).toBeVisible()
+  expect(state.counts().challengeCount).toBe(0)
+  await page.getByLabel('Existing-account verification code').fill('123456')
+  await page.getByRole('button', { name: 'Verify existing account' }).click()
+  await expect(page.getByText('Link this Cognito account', { exact: false })).toBeVisible()
+  expect(state.counts().challengeCount).toBe(1)
+  await page.getByRole('button', { name: 'Confirm account setup' }).click()
+  await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
+  expect(state.counts().confirmationCount).toBe(1)
+  expect(directAuthCalls).toBe(1)
+  expect(mfaCalls).toBe(1)
+  const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(JSON.stringify(storage)).not.toContain('synthetic-cognito-local')
+  expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
+})
+
+test('Google account linking resolves a Cognito MFA factor-choice challenge before code verification', async ({ page }) => {
+  const state = await setup(page, { googleExistingLink: true })
+  let choices = 0
+  let codes = 0
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*',
+    'access-control-allow-methods': 'POST, OPTIONS' }
+  await page.route('https://cognito-idp.ca-central-1.amazonaws.com/', async route => {
+    if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    const target = route.request().headers()['x-amz-target']
+    const body = route.request().postDataJSON()
+    if (target === 'AWSCognitoIdentityProviderService.InitiateAuth') {
+      expect(body.AuthFlow).toBe('USER_PASSWORD_AUTH')
+      return route.fulfill({ json: { ChallengeName: 'SELECT_MFA_TYPE', Session: 'choice-session',
+        ChallengeParameters: { USERNAME: 'existing@example.invalid',
+          MFAS_CAN_CHOOSE: '["SMS_MFA","SOFTWARE_TOKEN_MFA"]' } }, headers: cors })
+    }
+    if (target === 'AWSCognitoIdentityProviderService.RespondToAuthChallenge') {
+      if (body.ChallengeName === 'SELECT_MFA_TYPE') {
+        choices++
+        expect(body.Session).toBe('choice-session')
+        expect(body.ChallengeResponses).toEqual({ USERNAME: 'existing@example.invalid', ANSWER: 'SOFTWARE_TOKEN_MFA' })
+        return route.fulfill({ json: { ChallengeName: 'SOFTWARE_TOKEN_MFA', Session: 'code-session',
+          ChallengeParameters: { USERNAME: 'existing@example.invalid' } }, headers: cors })
+      }
+      if (body.ChallengeName === 'SOFTWARE_TOKEN_MFA') {
+        codes++
+        expect(body.Session).toBe('code-session')
+        expect(body.ChallengeResponses).toEqual({ USERNAME: 'existing@example.invalid',
+          SOFTWARE_TOKEN_MFA_CODE: '123456' })
+        return route.fulfill({ json: { AuthenticationResult: { AccessToken: 'synthetic-cognito-local' } }, headers: cors })
+      }
+    }
+    throw new Error('Unexpected direct Cognito authentication challenge')
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue with Google' }).click()
+  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
+  await page.getByLabel('Account setup', { exact: true }).selectOption('link-cognito')
+  await page.getByLabel('Existing Quiz From Notes email').fill('existing@example.invalid')
+  await page.getByLabel('Existing Quiz From Notes password').fill('synthetic-test-password')
+  await page.getByRole('button', { name: 'Continue account setup' }).click()
+  await expect(page.getByLabel('Existing-account verification method')).toBeVisible()
+  expect(state.counts().challengeCount).toBe(0)
+  await page.getByLabel('Existing-account verification method').selectOption('SOFTWARE_TOKEN_MFA')
+  await page.getByRole('button', { name: 'Continue to verification' }).click()
+  expect(choices).toBe(1)
+  await expect(page.getByLabel('Existing-account verification code')).toBeVisible()
+  expect(state.counts().challengeCount).toBe(0)
+  await page.getByLabel('Existing-account verification code').fill('123456')
+  await page.getByRole('button', { name: 'Verify existing account' }).click()
+  await expect(page.getByText('Link this Cognito account', { exact: false })).toBeVisible()
+  expect(codes).toBe(1)
+  expect(state.counts().challengeCount).toBe(1)
+  await page.getByRole('button', { name: 'Confirm account setup' }).click()
+  await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
+  expect(state.counts().confirmationCount).toBe(1)
+  const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
+  expect(JSON.stringify(storage)).not.toContain('synthetic-cognito-local')
+  expect(JSON.stringify(storage)).not.toContain('synthetic-test-password')
+})
+
+test('create account stays on the website without starting a hosted Cognito login', async ({ page }) => {
   const state = await setup(page)
   await createAccount(page)
-  expect(state.counts().authorizationPath).toBe('/signup')
-  await expect(page.getByRole('heading', { name: 'Set up your staging account' })).toBeVisible()
-  expect(state.counts().tokenCalls).toBe(1)
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Confirm password')).toBeVisible()
+  expect(page.url()).toBe('http://localhost:4174/')
+  expect(state.counts().authorizationPath).toBe('')
+  expect(state.counts().tokenCalls).toBe(0)
 })
 
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
   const state = await setup(page)
   await login(page)
+  await page.getByLabel('Account setup', { exact: true }).selectOption('link')
   await page.getByLabel('Existing account email').fill('legacy@example.invalid')
   await page.getByLabel('Existing account password').fill('synthetic-test-password')
   await page.getByRole('button', { name: 'Continue account setup' }).click()

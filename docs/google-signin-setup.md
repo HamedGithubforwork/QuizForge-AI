@@ -1,0 +1,101 @@
+# Google sign-in setup
+
+Google sign-in is **disabled by default**. Email/password remains supported.
+
+## Email sign-in and unfinished signup
+
+Choose **Sign in** on Quiz From Notes, then enter email and password. Email sign-in
+uses Cognito's existing public browser client directly. When Cognito returns
+`UserNotConfirmedException`, the same form advances to **Verify your email to
+continue** with the email retained. Enter the original signup code, or request a
+replacement. Wrong/expired codes remain retryable; resending has a 60-second UI
+cooldown plus Cognito throttling. After confirmation, the form returns to email
+sign-in with the email retained and password cleared. No new account is created.
+The separate **Finish email verification** landing-page shortcut has been removed.
+
+Choose **Create account** on the Quiz From Notes homepage for first-party signup.
+After creating an account, enter the code on the site, then choose **Continue to
+sign in**. Leaving verification does not strand the account: return to the
+homepage, choose **Sign in**, and authenticate with the original password to
+resume code confirmation. If signup reports an account may already exist, do
+not register again; use Sign in and the original account. The hosted Cognito
+signup and login loop is no longer part of the email signup path.
+
+New passwords go directly to regional Cognito over TLS and are cleared from UI
+state after submission. Neither account credentials nor verification codes are
+sent to QuizForge services or saved in browser storage or URLs. Successful
+verification never signs someone in without separate password and MFA checks.
+
+
+Passwords go directly over HTTPS to Cognito, never to the QuizForge API, storage,
+URLs or logs. Passwords are cleared from the form on submission; confirmation
+never establishes a login by itself. Subsequent password authentication must
+complete any MFA challenge. Authenticator, SMS/email codes and factor selection
+are supported; unsupported challenges fail closed. Imported accounts can still
+use **Finish first-time setup**. Forgot-password still uses Cognito's hosted recovery with PKCE. New signup
+uses the site's own email/password and confirmation-code forms, calling only
+Cognito's public SignUp, ConfirmSignUp, and ResendConfirmationCode operations.
+Google remains on its unchanged OIDC authorization-code + PKCE flow.
+
+Password sessions stay in memory. Cognito `GetUser` checks the verified email and
+subject before accepting a session; the QuizForge identity API independently
+checks token signature, issuer/client, revocation and enrollment. Refresh uses
+`REFRESH_TOKEN_AUTH`, with one request shared by concurrent callers and a
+same-subject check. Sign-out clears the local session and calls `RevokeToken`;
+late sign-in/refresh results cannot resurrect a cancelled session. No new client,
+secret, IAM grant or pool change is needed where `ALLOW_USER_PASSWORD_AUTH` and
+`ALLOW_REFRESH_TOKEN_AUTH` are already enabled. Verify those live settings before
+release. This frontend update does not deploy to production.
+
+Acceptance: test abandoning signup, automatic confirmation on later sign-in,
+original/resend/incorrect/expired codes, wrong credentials, MFA-on/off, refresh,
+sign-out, and Google callback/linking. Mocked tests are not real-provider evidence.
+
+## Google OAuth client
+
+Create a Google Cloud OAuth client of type **Web application** for Quiz From Notes.
+
+- Authorized JavaScript origin: the Cognito domain from the Terraform `auth_origin` output.
+- Authorized redirect URI: that same Cognito domain followed by `/oauth2/idpresponse`.
+- Cognito callback to the browser: `https://quizfromnotes.com/auth/callback`.
+
+The Google redirect goes to Cognito; Cognito then returns the browser to the app callback.
+
+## Private configuration
+
+The Lightsail Cognito Terraform stack has these variables:
+
+- `enable_google_signin` (defaults to `false`)
+- `google_oauth_client_id`
+- `google_oauth_client_secret` (sensitive)
+
+Supply the credentials only to the protected Terraform execution environment, for example through `TF_VAR_google_oauth_client_id` and `TF_VAR_google_oauth_client_secret`. Never commit them, paste them into chat, or print them in CI logs. Terraform state can contain the secret, so restrict state access even when its storage is encrypted.
+
+The frontend also hides the button unless `VITE_COGNITO_GOOGLE_SIGNIN_ENABLED=true`. Keep both settings disabled until all release checks below pass.
+
+## Account linking and MFA behavior
+
+Cognito gives an unlinked Google identity a new user subject. Existing quiz history remains attached to the user's existing Cognito subject. Do not link based on matching email addresses.
+
+To link existing history, the user must authenticate the existing Cognito account with its password and any configured MFA, then confirm the one-time link. The Google session remains active during this proof.
+
+After linking, later Google sign-ins use Google's authentication and security settings. Quiz From Notes does not enforce Google 2-Step Verification; it applies only when a person has enabled it on their Google account. Cognito MFA is not prompted on Google-federated sign-ins. The account-linking screen discloses this. The owner has accepted Google's account security settings for Google sign-ins; 2-Step Verification is not guaranteed unless enabled or required on that Google account. If the policy changes to require an app-controlled second factor on every login, design and test that separately.
+
+Google OAuth itself does not require SMS production access. If the existing Cognito account uses SMS MFA, the SMS sandbox can be used for testing with a verified destination number; sending to arbitrary customer numbers requires production access.
+
+## Pre-activation test checklist
+
+Run this against the configured provider in a production-like environment, with test accounts and no real user data:
+
+1. Sign in with Google for a new account. Confirm Cognito creates one new account with no prior quiz history.
+2. Sign in with Google for an account that has existing Quiz From Notes history. Link by entering the existing Cognito password and completing its configured MFA; confirm the old history appears under the linked identity.
+3. Try an incorrect password and an incorrect or expired MFA code. Confirm linking does not occur. Cancel the flow and confirm the account remains unlinked.
+4. Verify existing email/password sign-in, its MFA challenge, session refresh, logout, and API authorization still work.
+5. Confirm passwords and proof tokens are not stored in local or session storage and are not sent in URLs.
+6. Confirm the Google sign-in button is absent when `VITE_COGNITO_GOOGLE_SIGNIN_ENABLED=false`.
+
+Before public activation, require exact-head CI to pass, review backend identity-linking changes, complete this real-provider test under the accepted Google security policy, and review the active production release lock. Keep OAuth credentials in private configuration throughout.
+
+## Cognito-managed email example
+
+Changing `name@host.com` in Cognito's built-in classic sign-in input is not supported by its normal style configuration. The app-owned email sign-in, account setup and linking inputs use `you@example.com` instead.

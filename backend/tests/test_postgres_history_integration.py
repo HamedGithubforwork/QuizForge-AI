@@ -1,5 +1,6 @@
 """Real TLS PostgreSQL and FastAPI auth; only Supabase's HTTP response is mocked."""
 import asyncio
+from datetime import datetime
 import hashlib
 from contextlib import asynccontextmanager
 import os
@@ -13,6 +14,7 @@ import pytest
 
 import app_shared
 import history_database
+import study_analytics_postgres
 from history_postgres import PostgresHistoryRepository
 from quiz_history import router
 from decks import router as decks_router
@@ -274,6 +276,41 @@ def test_identity_link_requires_dual_proof_confirmation_and_cannot_reassign(enro
     asyncio.run(scenario())
     assert owner.execute('SELECT user_id FROM app.user_identities WHERE issuer=%s',(cognito.settings.issuer,)).fetchone()[0] == USERS[0]
     assert owner.execute('SELECT count(*) FROM app.quiz_history').fetchone()[0] == 1
+
+
+def test_two_recent_cognito_sessions_link_without_changing_existing_history(enrollment, owner, cognito):
+    # The destination is already enrolled. Its email can match the new identity;
+    # only independently verified Cognito subjects authorize the same app user.
+    original_subject = str(UUID(int=222))
+    owner.execute("INSERT INTO app.user_identities(issuer,subject,user_id) VALUES (%s,%s,%s)",
+                  (cognito.settings.issuer, original_subject, USERS[0]))
+    original = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(original_subject)}
+    stale = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(original_subject,
+             changes={"auth_time": int(__import__("time").time()) - 600})}
+
+    async def scenario():
+        async with enrollment() as (client, _, _):
+            assert (await client.get("/identity/session")).json()["enrolled"] is False
+            assert (await client.post("/identity/challenge", json={"mode":"link"}, headers=stale)).status_code == 401
+            result = await client.post("/identity/challenge", json={"mode":"link"}, headers=original)
+            assert result.status_code == 200, result.text
+            nonce = result.json()["nonce"]
+            wrong = {"X-Cognito-Link-Authorization": "Bearer " + cognito.sign(str(UUID(int=999)))}
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=wrong)).status_code == 409
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=stale)).status_code == 401
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=original)).status_code == 204
+            assert (await client.post("/identity/confirm", json={"mode":"link", "nonce":nonce},
+                                      headers=original)).status_code == 409
+            assert (await client.get("/identity/session")).json()["enrolled"] is True
+    asyncio.run(scenario())
+    rows = owner.execute("SELECT issuer, subject, user_id FROM app.user_identities "
+                         "WHERE issuer=%s ORDER BY subject", (cognito.settings.issuer,)).fetchall()
+    assert len(rows) == 2 and {row[2] for row in rows} == {USERS[0]}
+    assert owner.execute("SELECT count(*) FROM app.users").fetchone()[0] == 1
+    assert owner.execute("SELECT count(*) FROM app.quiz_history WHERE user_id=%s", (USERS[0],)).fetchone()[0] == 1
 
 
 def test_identity_new_account_has_no_email_based_history_and_serializes_confirmation(enrollment, owner):
@@ -1037,7 +1074,7 @@ def test_move_card_preserves_review_state_and_owner_boundary(api, owner):
 
     asyncio.run(scenario())
 
-def test_study_analytics_aggregate_owner_review_data(api, owner):
+def test_study_analytics_aggregate_owner_review_data(api, owner, monkeypatch):
     async def scenario():
         async with api() as (client, _):
             created = await client.post(
@@ -1119,6 +1156,24 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                 (suspended_card_id,),
             )
 
+            analytics_now = owner.execute(
+                "SELECT date_trunc('day', now() AT TIME ZONE 'UTC') "
+                "AT TIME ZONE 'UTC' + interval '12 hours'"
+            ).fetchone()[0]
+
+            class FixedAnalyticsClock:
+                @staticmethod
+                def now(tz=None):
+                    return analytics_now.astimezone(tz) if tz else analytics_now
+
+                combine = staticmethod(datetime.combine)
+
+            monkeypatch.setattr(
+                study_analytics_postgres,
+                "datetime",
+                FixedAnalyticsClock,
+            )
+
             review_rows = [
                 (
                     learning_card_id,
@@ -1151,9 +1206,7 @@ def test_study_analytics_aggregate_owner_review_data(api, owner):
                     difficult_card_id,
                     USERS[0],
                     4,
-                    owner.execute(
-                        "SELECT now()-interval '10 minutes'"
-                    ).fetchone()[0],
+                    analytics_now,
                     60000,
                 ),
             ]
