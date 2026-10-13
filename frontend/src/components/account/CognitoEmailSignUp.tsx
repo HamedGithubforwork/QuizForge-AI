@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { config } from '../../lib/cognitoBrowser'
-import { confirmSignupCode, normalizedVerificationEmail, resendSignupCode, signUpWithEmail } from '../../lib/cognitoSignupRecovery'
+import { confirmSignupCode, ExistingCognitoAccountError, normalizedVerificationEmail, passwordRequirements, resendSignupCode, signUpWithEmail } from '../../lib/cognitoSignupRecovery'
 
 type Props = { onBack: () => void; onSignIn: (email: string) => void }
 type Stage = 'create' | 'confirm' | 'complete'
@@ -57,21 +57,41 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
       const chosenPassword = password
       setPassword(''); setRepeatPassword('')
       if (chosenPassword !== repeatPassword) throw new Error('Passwords do not match. Please try again.')
-      const result = await signUpWithEmail(config.client, email, chosenPassword)
-      if (!active.current) return
-      setRegisteredEmail(result.email)
-      setStage(result.confirmed ? 'complete' : 'confirm')
+      try {
+        const result = await signUpWithEmail(config.client, email, chosenPassword)
+        if (!active.current) return
+        setRegisteredEmail(result.email)
+        setStage(result.confirmed ? 'complete' : 'confirm')
+      } catch (caught) {
+        if (!(caught instanceof ExistingCognitoAccountError)) throw caught
+        // Cognito never says whether the existing account has been verified.
+        // Verification still requires the email code; no password is retained.
+        if (!active.current) return
+        setRegisteredEmail(normalizedVerificationEmail(email))
+        setCode('')
+        setStage('confirm')
+        setNotice('If you registered before, enter your original email code or request a new one. Already verified? Sign in instead.')
+      }
     })
   }
 
   const confirming = stage === 'confirm'
   const complete = stage === 'complete'
+  const passwordChecks = passwordRequirements(password)
+  const checklist = [
+    { met: passwordChecks.lowercase, label: 'Password contains a lowercase letter' },
+    { met: passwordChecks.uppercase, label: 'Password contains an uppercase letter' },
+    { met: passwordChecks.number, label: 'Password contains a number' },
+    { met: passwordChecks.length, label: 'Password contains at least 8 characters' },
+    { met: passwordChecks.symbol, label: 'Password contains a special character or space' },
+    { met: passwordChecks.noEdgeSpaces, label: 'Password has no leading or trailing spaces' },
+  ]
   const signInEmail = registeredEmail || normalizedEmailOrEmpty(email)
   return <main className="auth-page"><section className="auth-card">
     <div className="auth-brand"><div className="auth-logo">QF</div><h1>Quiz From Notes</h1></div>
     <div className="auth-heading">
       <h2>{complete ? 'Email verified' : confirming ? 'Verify your email' : 'Create your account'}</h2>
-      {confirming && <p>Enter the code sent to <strong>{registeredEmail}</strong>. If you leave, sign in with this email and password to finish verification.</p>}
+      {confirming && <p>Enter the confirmation code for <strong>{registeredEmail}</strong>. You can use your original code or request a new one. Already verified your email? Choose Sign in below.</p>}
       {complete && <p>Your account is ready. Sign in with your password to continue.</p>}
       {stage === 'create' && <p>You'll verify your email before signing in. Already started registration? Use Sign in to resume verification.</p>}
     </div>
@@ -88,7 +108,12 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
           maxLength={256} disabled={busy} value={password} onChange={e => setPassword(e.target.value)} /></label>
         <label><span>Confirm password</span><input type="password" autoComplete="new-password" required minLength={8}
           maxLength={256} disabled={busy} value={repeatPassword} onChange={e => setRepeatPassword(e.target.value)} /></label>
-        <p>Use at least 8 characters with uppercase, lowercase, a number, and a special character or space.</p>
+        <ul className="signup-password-rules" aria-label="Password requirements">
+          {checklist.map(rule => <li key={rule.label} data-met={rule.met}>
+            <span className="signup-rule-mark" aria-hidden="true">{rule.met ? '✓' : '○'}</span>
+            <span>{rule.label}</span>
+          </li>)}
+        </ul>
       </>}
       <button className="auth-submit" disabled={busy}>{busy ? 'Please wait…' : confirming ? 'Confirm my email' : 'Create account'}</button>
     </form>}
@@ -105,7 +130,7 @@ export default function CognitoEmailSignUp({ onBack, onSignIn }: Props) {
       {complete ? <button type="button" className="auth-secondary-button" onClick={() => onSignIn(registeredEmail)}>
         Continue to sign in
       </button> : <button type="button" disabled={busy} onClick={() => onSignIn(signInEmail)}>
-        {confirming ? 'Already have your password? Sign in to finish verification' : 'Already registered? Sign in'}
+        {confirming ? 'Already verified? Sign in' : 'Already registered? Sign in'}
       </button>}
     </p>
     <p className="auth-switch"><button type="button" disabled={busy} onClick={onBack}>Back to sign in options</button></p>
