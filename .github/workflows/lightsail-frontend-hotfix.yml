@@ -11,10 +11,6 @@ on:
       - ".github/workflows/lightsail-release-candidate-build.yml"
       - ".github/workflows/lightsail-app-stage.yml"
       - "scripts/production/lightsail/release-lock.json"
-  push:
-    branches: [main]
-    paths:
-      - "scripts/production/lightsail/release-lock.json"
   workflow_dispatch:
 permissions:
   contents: read
@@ -38,16 +34,17 @@ jobs:
   deploy:
     needs: validate
     if: >-
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
-      github.repository == 'HamedGithubforwork/QuizForge-AI'
+      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
       contents: read
       id-token: write
     concurrency:
-      group: quizforge-permanent-cognito-frontend-correction
+      group: quizforge-permanent-existing-release-promotion
       cancel-in-progress: false
     env:
       AWS_EC2_METADATA_DISABLED: "true"
@@ -94,6 +91,7 @@ jobs:
             {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":[
               "sts:GetCallerIdentity",
               "cognito-idp:ListUserPools","cognito-idp:ListUserPoolClients","cognito-idp:DescribeUserPoolDomain","cognito-idp:GetUserPoolMfaConfig",
+              "cognito-idp:DescribeUserPoolClient","cognito-idp:DescribeIdentityProvider",
               "lightsail:GetInstance","lightsail:GetStaticIp","lightsail:GetInstancePortStates",
               "lightsail:OpenInstancePublicPorts","lightsail:CloseInstancePublicPorts","lightsail:GetInstanceAccessDetails"
             ],"Resource":"*"}]}

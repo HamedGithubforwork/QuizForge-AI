@@ -77,6 +77,14 @@ class GoogleActivationTests(unittest.TestCase):
                           "cognito-idp:DeleteUserPool\"", "s3:DeleteBucket"):
             self.assertNotIn(forbidden, workflow)
 
+    def test_frontend_repair_cannot_publish_on_release_lock_push(self):
+        workflow = (Path(__file__).parents[3] / ".github/workflows/lightsail-frontend-hotfix.yml").read_text()
+        self.assertNotIn("  push:", workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
+        self.assertIn("quizforge-permanent-existing-release-promotion", workflow)
+        self.assertIn("cognito-idp:DescribeUserPoolClient", workflow)
+        self.assertIn("cognito-idp:DescribeIdentityProvider", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
