@@ -6,12 +6,30 @@ const endpoint = 'https://cognito-idp.ca-central-1.amazonaws.com/'
 
 type VerificationOperation = 'ResendConfirmationCode' | 'ConfirmSignUp' | 'SignUp'
 
+/** A duplicate signup may be confirmed or unconfirmed. Never assume either. */
+export class ExistingCognitoAccountError extends Error {
+  constructor() {
+    super('An account may already exist. You can enter an earlier verification code or sign in.')
+    this.name = 'ExistingCognitoAccountError'
+  }
+}
+
+export function passwordRequirements(value: string) {
+  return {
+    lowercase: /[a-z]/.test(value),
+    uppercase: /[A-Z]/.test(value),
+    number: /[0-9]/.test(value),
+    length: value.length >= 8,
+    symbol: value.includes(' ') || /[^\p{L}\p{N}\s]/u.test(value),
+    noEdgeSpaces: !value.startsWith(' ') && !value.endsWith(' '),
+  }
+}
+
 const ERRORS: Record<string, string> = {
   CodeMismatchException: 'That confirmation code was not accepted. Check the latest email and try again.',
   ExpiredCodeException: 'That confirmation code has expired. Request a new code.',
   TooManyRequestsException: 'Too many attempts. Wait a few minutes before trying again.',
   LimitExceededException: 'Too many attempts. Wait a few minutes before trying again.',
-  UsernameExistsException: 'An account may already exist. Choose Sign in to continue or finish email verification.',
   InvalidPasswordException: 'Choose a password that meets the requirements, then try again.',
 }
 
@@ -74,6 +92,9 @@ async function callCognito(operation: VerificationOperation, body: Record<string
     }
   } catch {
     // No provider diagnostics should reach the UI.
+  }
+  if (operation === 'SignUp' && type === 'UsernameExistsException') {
+    throw new ExistingCognitoAccountError()
   }
   throw new Error(ERRORS[type] || 'Could not complete verification. Check your email and try again.')
 }
