@@ -149,6 +149,9 @@ class TestStructuredTerraformDiagnostics(unittest.TestCase):
         self.assertEqual(len(safe), 1)
         self.assertEqual(safe[0]["category"], "TERRAFORM_UNSUPPORTED_ARGUMENT")
         self.assertIn("unsupported", safe[0]["summary_terms"])
+        self.assertTrue(safe[0]["summary_present"])
+        self.assertIn("google", safe[0]["detail_terms"])
+        self.assertNotIn("HiddenOAuthSecret", str(safe))
         self.assertNotIn(private, str(safe))
         self.assertNotIn("oauth", str(safe).lower())
 
@@ -156,3 +159,25 @@ class TestStructuredTerraformDiagnostics(unittest.TestCase):
         from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
         self.assertEqual(safe_json_plan_diagnostics("not-json\n{}\n"), [])
 
+
+class TestReadOnlyTerraformErrorCategories(unittest.TestCase):
+    def test_whitelisted_timeout_and_cycle_classification(self):
+        self.assertEqual(classify_plan_failure("Error: Cycle: no resource changes", 1),
+                         "TERRAFORM_DEPENDENCY_CYCLE")
+        self.assertEqual(classify_plan_failure("request timed out", 1),
+                         "AWS_PROVIDER_TIMEOUT")
+        self.assertEqual(classify_plan_failure("Error: Plugin did not respond", 1),
+                         "TERRAFORM_PROVIDER_PLUGIN_ERROR")
+
+    def test_diagnostic_details_expose_allowlisted_words_only(self):
+        from scripts.production.lightsail.google_plan_guard import safe_json_plan_diagnostics
+        private = "myprivate-token-ABCDEFG12345"
+        data = json.dumps({"type": "diagnostic", "diagnostic": {
+            "severity": "error", "summary": "opaque",
+            "detail": "request timed out; Google provider " + private,
+        }})
+        report = safe_json_plan_diagnostics(data)
+        self.assertEqual(report[0]["category"], "AWS_PROVIDER_TIMEOUT")
+        self.assertIn("timed", report[0]["detail_terms"])
+        self.assertNotIn(private, str(report))
+        self.assertNotIn("ABCDEFG12345", str(report))
