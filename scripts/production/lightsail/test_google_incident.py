@@ -21,7 +21,7 @@ class IncidentTests(unittest.TestCase):
         }}
         cognito.describe_identity_provider.return_value = {"IdentityProvider": {
             "ProviderDetails": {"client_id": GOOGLE_ID, "client_secret": SECRET},
-            "AttributeMapping": {"email": "email", "email_verified": "email_verified"},
+            "AttributeMapping": {"email": "email", "email_verified": "email_verified", "username": "sub"},
         }}
         cognito.describe_user_pool_client.return_value = {"UserPoolClient": {
             "SupportedIdentityProviders": ["COGNITO", "Google"], "WriteAttributes": ["email"],
@@ -42,6 +42,7 @@ class IncidentTests(unittest.TestCase):
         self.assertTrue(result["recent_rehearsal_signup_rejection"])
         self.assertTrue(result["log_scan_complete"])
         self.assertTrue(result["google_client_secret_matches"])
+        self.assertTrue(result["google_mapping_matches"])
         self.assertTrue(all(type(value) is bool for value in result.values()))
         text = json.dumps(result)
         for private in (SECRET, GOOGLE_ID, FUNCTION_ARN):
@@ -74,18 +75,25 @@ class IncidentTests(unittest.TestCase):
         self.assertTrue(result["recent_unsupported_trigger_rejection"])
         self.assertEqual(args["logs"].filter_log_events.call_args.kwargs["nextToken"], "page-two")
 
-    def test_automatic_username_mapping_does_not_hide_correct_required_mappings(self):
+    def test_default_username_mapping_is_part_of_the_expected_mapping(self):
         args = self.inputs()
-        mapping = args["cognito"].describe_identity_provider.return_value["IdentityProvider"]["AttributeMapping"]
-        mapping["username"] = "sub"
         result = evidence(**args)
-        self.assertFalse(result["google_mapping_matches"])
+        self.assertTrue(result["google_mapping_matches"])
         self.assertTrue(result["google_email_mapping_matches"])
         self.assertTrue(result["google_verified_email_mapping_matches"])
         self.assertTrue(result["google_default_username_mapping"])
         self.assertFalse(result["google_unexpected_mapping_present"])
         self.assertTrue(result["email_schema_mutable"])
         self.assertFalse(result["unmapped_required_schema_attribute"])
+
+
+    def test_wrong_email_mapping_is_reported_as_mismatch(self):
+        args = self.inputs()
+        mapping = args["cognito"].describe_identity_provider.return_value["IdentityProvider"]["AttributeMapping"]
+        mapping["email"] = "preferred_username"
+        result = evidence(**args)
+        self.assertFalse(result["google_mapping_matches"])
+        self.assertFalse(result["google_email_mapping_matches"])
 
     def test_unknown_mapping_names_and_required_schema_only_emit_booleans(self):
         args = self.inputs()
