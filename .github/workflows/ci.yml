@@ -188,6 +188,21 @@ jobs:
       - name: Verify generated API contract
         run: python scripts/generate_api_contract.py --check
 
+
+  backend-image-ocr:
+    name: Backend image and OCR runtime
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
       - name: Build backend Docker image
         run: docker build -t quizforge-backend-ci .
 
@@ -344,6 +359,7 @@ jobs:
       - changes
       - architecture
       - backend-tests
+      - backend-image-ocr
       - postgres-history
       - frontend-checks
       - playwright-e2e
@@ -358,6 +374,7 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          BACKEND_IMAGE_RESULT: ${{ needs.backend-image-ocr.result }}
           POSTGRES_RESULT: ${{ needs.postgres-history.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
@@ -368,6 +385,7 @@ jobs:
           echo "Change detection: ${CHANGES_RESULT}"
           echo "Architecture:    ${ARCHITECTURE_RESULT}"
           echo "Backend tests:   ${BACKEND_RESULT}"
+          echo "Backend image:   ${BACKEND_IMAGE_RESULT}"
           echo "PostgreSQL API:  ${POSTGRES_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
@@ -383,7 +401,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${COGNITO_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${BACKEND_IMAGE_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${COGNITO_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
