@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "application_candidate_sha": "f61e9b463ba67929ab44699e9920ea300a372842",
-  "reviewed_source_tree_sha": "03d04a8f854fe192b92555b795fb279944f10bef",
+  "application_candidate_sha": "4e2790aa08900e3da477df4191a7429b63fb2846",
+  "reviewed_source_tree_sha": "cbc1738f4e7a3cd343ae416b89f32a1e123ed947",
   "rollout_stage": "google-enabled-release",
-  "reviewed_pr": 604
+  "reviewed_pr": 607
 }

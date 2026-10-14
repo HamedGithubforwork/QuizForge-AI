@@ -85,10 +85,10 @@ jobs:
           selection=json.loads(Path("scripts/production/lightsail/auth-release-selection.json").read_text())
           assert lock["application_candidate_sha"]=="f61e9b463ba67929ab44699e9920ea300a372842", "Reviewed auth lock unexpectedly changed"
           assert set(selection)=={"schema","application_candidate_sha","reviewed_source_tree_sha","rollout_stage","reviewed_pr"}
-          assert selection["schema"]==1 and selection["reviewed_pr"]==604
+          assert selection["schema"]==1 and selection["reviewed_pr"]==607
           assert selection["rollout_stage"]=="google-enabled-release"
-          assert selection["application_candidate_sha"]=="f61e9b463ba67929ab44699e9920ea300a372842"
-          assert selection["reviewed_source_tree_sha"]=="03d04a8f854fe192b92555b795fb279944f10bef"
+          assert selection["application_candidate_sha"]=="4e2790aa08900e3da477df4191a7429b63fb2846"
+          assert selection["reviewed_source_tree_sha"]=="cbc1738f4e7a3cd343ae416b89f32a1e123ed947"
           with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as out:
               out.write("application_sha="+selection["application_candidate_sha"]+"\n")
           PY
@@ -100,8 +100,8 @@ jobs:
           persist-credentials: false
       - name: Verify exact reviewed source tree
         run: |
-          test "$(git -C application-candidate rev-parse HEAD^{tree})" = "03d04a8f854fe192b92555b795fb279944f10bef"
-          test "$(git -C application-candidate rev-parse HEAD)" = "f61e9b463ba67929ab44699e9920ea300a372842"
+          test "$(git -C application-candidate rev-parse HEAD^{tree})" = "cbc1738f4e7a3cd343ae416b89f32a1e123ed947"
+          test "$(git -C application-candidate rev-parse HEAD)" = "4e2790aa08900e3da477df4191a7429b63fb2846"
       - name: Require identity-capable backend candidate
         run: |
           test -f application-candidate/backend/Dockerfile
