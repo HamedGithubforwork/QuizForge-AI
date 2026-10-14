@@ -9,6 +9,7 @@ import { config, identityRequest, initialize, manager, session, signInWithGoogle
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
+import { authStartupFailure } from './lib/authStartupFailure'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 import CognitoEmailSignIn from './components/account/CognitoEmailSignIn'
 import CognitoEmailSignUp from './components/account/CognitoEmailSignUp'
@@ -50,12 +51,25 @@ export default function CognitoAuthGate() {
   }
   useEffect(() => {
     let active = true
-    void initialize().then(async () => {
-      const current = await session()
-      const next = current ? await identityRequest('/identity/session') : null
-      if (active) setAccount(next)
-    }).catch(() => { if (active) setError('Sign-in could not be verified. Sign out and start again.') })
-      .finally(() => { if (active) setLoading(false) })
+    void (async () => {
+      try { await initialize() }
+      catch (caught) {
+        if (active) setError(authStartupFailure('callback', caught))
+        return
+      }
+      let current
+      try { current = await session() }
+      catch (caught) {
+        if (active) setError(authStartupFailure('session', caught))
+        return
+      }
+      try {
+        const next = current ? await identityRequest('/identity/session') : null
+        if (active) setAccount(next)
+      } catch (caught) {
+        if (active) setError(authStartupFailure('identity', caught))
+      }
+    })().finally(() => { if (active) setLoading(false) })
     const unloaded = () => {
       setAccount(null)
       setConfirmation(null)
