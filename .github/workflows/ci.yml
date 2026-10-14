@@ -302,7 +302,7 @@ jobs:
         run: npm ci --prefix e2e
 
       - name: Install Chromium
-        run: npx --prefix e2e playwright install --with-deps chromium
+        run: npx --prefix e2e playwright install chromium
 
       - name: Run Playwright E2E tests
         run: npm --prefix e2e test
@@ -348,7 +348,7 @@ jobs:
         run: npm ci --prefix e2e
 
       - name: Install Chromium
-        run: npx --prefix e2e playwright install --with-deps chromium
+        run: npx --prefix e2e playwright install chromium
 
       - name: Test Cognito PKCE and enrollment browser flow
         run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
