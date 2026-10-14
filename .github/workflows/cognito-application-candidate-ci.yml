@@ -69,5 +69,5 @@ jobs:
             e2e/package-lock.json
       - run: npm ci --prefix frontend
       - run: npm ci --prefix e2e
-      - run: npx --prefix e2e playwright install --with-deps chromium
+      - run: npx --prefix e2e playwright install chromium
       - run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
