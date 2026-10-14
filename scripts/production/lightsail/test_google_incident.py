@@ -16,7 +16,7 @@ class IncidentTests(unittest.TestCase):
         cognito.list_user_pool_clients.side_effect = base.list_user_pool_clients
         cognito.describe_user_pool.return_value = {"UserPool": {
             "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False},
-            "LambdaConfig": {"PreSignUp": FUNCTION_ARN, "PostConfirmation": FUNCTION_ARN},
+            "LambdaConfig": {"PostConfirmation": FUNCTION_ARN},
             "SchemaAttributes": [{"Name": "email", "Mutable": True, "Required": True}],
         }}
         cognito.describe_identity_provider.return_value = {"IdentityProvider": {
@@ -38,7 +38,7 @@ class IncidentTests(unittest.TestCase):
     def test_attached_guard_and_recent_rejection_are_identified_without_private_data(self):
         args = self.inputs()
         result = evidence(**args)
-        self.assertTrue(result["pre_signup_is_recovery_function"])
+        self.assertTrue(result["pre_signup_trigger_absent_as_expected"])
         self.assertTrue(result["recent_rehearsal_signup_rejection"])
         self.assertTrue(result["log_scan_complete"])
         self.assertTrue(result["google_client_secret_matches"])
@@ -55,7 +55,7 @@ class IncidentTests(unittest.TestCase):
         args["secret"] = "different-sensitive-secret"
         result = evidence(**args)
         self.assertFalse(result["google_client_secret_matches"])
-        self.assertFalse(result["pre_signup_trigger_attached"])
+        self.assertTrue(result["pre_signup_trigger_absent_as_expected"])
         self.assertFalse(result["public_signup_enabled"])
 
     def test_pagination_is_bounded_and_does_not_claim_complete_on_truncation(self):
@@ -94,6 +94,13 @@ class IncidentTests(unittest.TestCase):
         result = evidence(**args)
         self.assertFalse(result["google_mapping_matches"])
         self.assertFalse(result["google_email_mapping_matches"])
+
+    def test_pre_signup_trigger_is_unexpected_for_recovery_lambda(self):
+        args = self.inputs()
+        args["cognito"].describe_user_pool.return_value["UserPool"]["LambdaConfig"]["PreSignUp"] = FUNCTION_ARN
+        result = evidence(**args)
+        self.assertFalse(result["pre_signup_trigger_absent_as_expected"])
+        self.assertTrue(result["post_confirmation_is_recovery_function"])
 
     def test_unknown_mapping_names_and_required_schema_only_emit_booleans(self):
         args = self.inputs()
