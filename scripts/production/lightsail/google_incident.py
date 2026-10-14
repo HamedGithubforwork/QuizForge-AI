@@ -42,7 +42,7 @@ def evidence(*, sts, cognito, functions, logs, client_id, secret, now=None):
         "google_client_secret_matches": isinstance(stored_secret, str) and
             hmac.compare_digest(stored_secret.encode(), secret.encode()),
         "google_mapping_matches": provider.get("AttributeMapping") ==
-            {"email": "email", "email_verified": "email_verified"},
+            {"email": "email", "email_verified": "email_verified", "username": "sub"},
         "google_email_mapping_matches": mapping.get("email") == "email",
         "google_verified_email_mapping_matches": mapping.get("email_verified") == "email_verified",
         "google_default_username_mapping": mapping.get("username") == "sub",
