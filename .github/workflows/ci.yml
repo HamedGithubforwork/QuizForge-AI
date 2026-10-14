@@ -292,8 +292,6 @@ jobs:
       - name: Run Playwright E2E tests
         run: npm --prefix e2e test
 
-      - name: Test Cognito PKCE and enrollment browser flow
-        run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
 
       - name: Validate deployed canary test discovery
         run: >-
@@ -309,6 +307,37 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
 
+  cognito-e2e:
+    name: Cognito browser E2E
+    needs: changes
+    if: needs.changes.outputs.playwright == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            e2e/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Install E2E dependencies
+        run: npm ci --prefix e2e
+
+      - name: Install Chromium
+        run: npx --prefix e2e playwright install --with-deps chromium
+
+      - name: Test Cognito PKCE and enrollment browser flow
+        run: npx --prefix e2e playwright test --config=e2e/playwright.cognito.config.ts
+
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -318,6 +347,7 @@ jobs:
       - postgres-history
       - frontend-checks
       - playwright-e2e
+      - cognito-e2e
     if: always()
     runs-on: ubuntu-latest
 
@@ -331,6 +361,7 @@ jobs:
           POSTGRES_RESULT: ${{ needs.postgres-history.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          COGNITO_RESULT: ${{ needs.cognito-e2e.result }}
         run: |
           set -euo pipefail
 
@@ -340,6 +371,7 @@ jobs:
           echo "PostgreSQL API:  ${POSTGRES_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
+          echo "Cognito E2E:     ${COGNITO_RESULT}"
 
           if [[ "${CHANGES_RESULT}" != "success" ]]; then
             echo "Change detection did not succeed."
@@ -351,7 +383,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${COGNITO_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
