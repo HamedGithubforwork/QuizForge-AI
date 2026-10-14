@@ -712,8 +712,9 @@ export default function CognitoAuthGate() {
       <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
       <div className="auth-account-setup-actions">
         {mode === 'enroll' ? <>
-          {config.googleSignInEnabled && <button type="button" className="auth-secondary-button" disabled={busy}
-            onClick={() => chooseSetupMode('link-cognito')}>I already have a Quiz From Notes account</button>}
+          {config.googleSignInEnabled && <button type="button" className="auth-secondary-button"
+            aria-label="I already have a Quiz From Notes account" disabled={busy}
+            onClick={() => chooseSetupMode('link-cognito')}>Link an existing account</button>}
           {linkingAvailable && <button type="button" className="auth-secondary-button" disabled={busy}
             onClick={() => chooseSetupMode('link')}>I used my old account before the Cognito migration</button>}
         </> : <>
