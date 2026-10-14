@@ -5,6 +5,7 @@ import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
+import { authStartupFailure } from './lib/authStartupFailure'
 import { config, identityRequest, initialize, manager, session, signInWithGoogle, signOut } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
@@ -60,12 +61,25 @@ export default function CognitoAuthGate() {
   }
   useEffect(() => {
     let active = true
-    void initialize().then(async () => {
-      const current = await session()
-      const next = current ? await identityRequest('/identity/session') : null
-      if (active) setAccount(next)
-    }).catch(() => { if (active) setError('Sign-in could not be verified. Sign out and start again.') })
-      .finally(() => { if (active) setLoading(false) })
+    void (async () => {
+      try { await initialize() }
+      catch (caught) {
+        if (active) setError(authStartupFailure('callback', caught))
+        return
+      }
+      let current
+      try { current = await session() }
+      catch (caught) {
+        if (active) setError(authStartupFailure('session', caught))
+        return
+      }
+      try {
+        const next = current ? await identityRequest('/identity/session') : null
+        if (active) setAccount(next)
+      } catch (caught) {
+        if (active) setError(authStartupFailure('identity', caught))
+      }
+    })().finally(() => { if (active) setLoading(false) })
     const unloaded = () => {
       setAccount(null)
       setConfirmation(null)

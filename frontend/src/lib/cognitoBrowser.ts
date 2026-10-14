@@ -2,6 +2,7 @@ import { InMemoryWebStorage, UserManager, WebStorageStateStore } from 'oidc-clie
 import { cognitoConfiguration } from './authConfig'
 import type { AuthSession } from './authSession'
 import { CognitoPasswordSession } from './cognitoPasswordSession'
+import { classifyOidcCallbackFailure, IdentitySessionHttpError } from './authStartupFailure'
 
 export const config = cognitoConfiguration(import.meta.env, window.location.origin)
 export const passwordSession = new CognitoPasswordSession(config.client, config.pool)
@@ -39,9 +40,15 @@ export function initialize() {
       const callback = window.location.href
       // Remove authorization codes/errors before network requests or rendering.
       window.history.replaceState({}, '', '/')
-      await manager.clearStaleState()
-      try { await manager.signinRedirectCallback(callback) }
-      catch { await manager.removeUser(); throw new Error('Sign-in could not be verified. Please start again.') }
+      try {
+        await manager.clearStaleState()
+        await manager.signinRedirectCallback(callback)
+      } catch (error) {
+        // Keep callback errors non-sensitive and do not affect PKCE/token checks.
+        const diagnostic = classifyOidcCallbackFailure(callback, error)
+        await manager.removeUser()
+        throw diagnostic
+      }
     }
     await manager.clearStaleState()
   })()
@@ -100,6 +107,9 @@ export async function identityRequest(path: string, body?: object, legacyToken?:
     body: body ? JSON.stringify(body) : undefined, credentials: 'omit', cache: 'no-store', redirect: 'error',
     signal: AbortSignal.timeout(15_000) })
   if (!response.ok) {
+    // Report only the HTTP status for login diagnostics. Never show provider
+    // responses, cookies, tokens, or account-specific server details.
+    if (path === '/identity/session') throw new IdentitySessionHttpError(response.status)
     const value = await response.json().catch(() => ({}))
     throw new Error(typeof value.detail === 'string' ? value.detail : 'Account enrollment could not be completed.')
   }
