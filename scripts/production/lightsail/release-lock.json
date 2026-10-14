@@ -1,22 +1,23 @@
 {
   "ai_enabled": false,
-  "application_candidate_sha": "f61e9b463ba67929ab44699e9920ea300a372842",
+  "application_candidate_sha": "4e2790aa08900e3da477df4191a7429b63fb2846",
   "ecr_repository": "quizforge-api",
   "ecr_tags": {
-    "api": "lightsail-api-d4c06645d29ca9aa1af370e57d6f12ee91f5ee43",
-    "caddy": "lightsail-caddy-d4c06645d29ca9aa1af370e57d6f12ee91f5ee43",
-    "operations": "lightsail-operations-d4c06645d29ca9aa1af370e57d6f12ee91f5ee43"
+    "api": "lightsail-api-8fcee6de6fa4f880d3e60661493c1a00d6f4e919",
+    "caddy": "lightsail-caddy-8fcee6de6fa4f880d3e60661493c1a00d6f4e919",
+    "operations": "lightsail-operations-8fcee6de6fa4f880d3e60661493c1a00d6f4e919"
   },
-  "frontend_archive_sha256": "6700a7ef77381c7fa1b75cc01ff93da182ff517ff1a59f7711ebfcd4de2338f7",
+  "frontend_archive_sha256": "52b22e33198cffe60d4ddaa87518d56ea44ad828bc334257479671493ea059c3",
   "image_digests": {
-    "api": "sha256:f31a938836cccb98cd57b2e30fdc85337607c79219b27f353352d0932c1c6ac3",
-    "caddy": "sha256:0607df97d876faeb1dddf85a6a9788039d09a950b743bd30d68aa96cb7d38853",
-    "caddy_base": "sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772",
-    "operations": "sha256:579df84c16cf00d6f4a1d888d41b25c6bd9580666c8cd1f5278792b9160d72e7",
+    "api": "sha256:5c65db6f1c3f91f955c9f3fefe430359c0a63607bb45c19ec915e98e233c2d78",
+    "caddy": "sha256:8a207d12f843d93b95a6c76f0d8ff85e90e3a75f4805e34e1b7863889707fed1",
+    "caddy_base": "sha256:685ae3d7c34d9b5f8caeddc5d14051db7bbd88ff1f5a2fa0c16bd8ca328fb7af",
+    "operations": "sha256:706705c5552b178542ca19867c08069f5a54ee8d98fea690823de652faeda73b",
     "postgres": "sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3",
     "redis": "sha256:4fa24486b8bcca8eec45ee0eb166edc674795e53a2b53d1a9ef263eecebaac85"
   },
   "public_configuration_validated": true,
-  "release_sha": "d4c06645d29ca9aa1af370e57d6f12ee91f5ee43",
+  "release_sha": "8fcee6de6fa4f880d3e60661493c1a00d6f4e919",
   "schema": 1
 }
+

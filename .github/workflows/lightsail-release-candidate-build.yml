@@ -83,7 +83,7 @@ jobs:
           from pathlib import Path
           lock=json.loads(Path("scripts/production/lightsail/release-lock.json").read_text())
           selection=json.loads(Path("scripts/production/lightsail/auth-release-selection.json").read_text())
-          assert lock["application_candidate_sha"]=="f61e9b463ba67929ab44699e9920ea300a372842", "Reviewed auth lock unexpectedly changed"
+          assert lock["application_candidate_sha"]=="4e2790aa08900e3da477df4191a7429b63fb2846", "Reviewed auth lock unexpectedly changed"
           assert set(selection)=={"schema","application_candidate_sha","reviewed_source_tree_sha","rollout_stage","reviewed_pr"}
           assert selection["schema"]==1 and selection["reviewed_pr"]==607
           assert selection["rollout_stage"]=="google-enabled-release"
