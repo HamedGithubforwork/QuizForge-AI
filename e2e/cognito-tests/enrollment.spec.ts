@@ -301,7 +301,8 @@ test('create account stays on the website without starting a hosted Cognito logi
 test('existing history linking sends fresh dual proof without storing legacy session', async ({ page }) => {
   const state = await setup(page)
   await login(page)
-  await page.getByLabel('Account setup', { exact: true }).selectOption('link')
+  await expect(page.getByLabel('Account setup', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'I used my old account before the Cognito migration' }).click()
   await page.getByLabel('Existing account email').fill('legacy@example.invalid')
   await page.getByLabel('Existing account password').fill('synthetic-test-password')
   await page.getByRole('button', { name: 'Continue account setup' }).click()
