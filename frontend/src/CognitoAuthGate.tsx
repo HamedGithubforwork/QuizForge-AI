@@ -5,11 +5,11 @@ import DecksPage from './components/decks/DecksPage'
 import ProgressPage from './components/progress/ProgressPage'
 import SettingsPage, { type SettingsSection } from './components/account/SettingsPage'
 import './AuthGate.css'
+import { authStartupFailure } from './lib/authStartupFailure'
 import { config, identityRequest, initialize, manager, session, signInWithGoogle, signOut } from './lib/cognitoBrowser'
 import { authenticatorSetupUri, beginMigratedActivation, finishMigratedActivation, type MigratedActivationSetup } from './lib/cognitoActivation'
 import { beginPhoneVerification, beginTotpEnrollment, disableMfa, getMfaSecurityStatus, setMfaPreference, totpSetupUri, updateMfaMethods, verifyPhoneNumber, verifyTotpEnrollment, type MfaSecurityStatus } from './lib/cognitoMfa'
 import { initialAccountSetupMode, secureEndpoint } from './lib/authConfig'
-import { authStartupFailure } from './lib/authStartupFailure'
 import { beginCognitoAccountProof, chooseCognitoAccountMfa, finishCognitoAccountProof, type CognitoAccountProof, type CognitoMfaMethod } from './lib/cognitoAccountProof'
 import CognitoEmailSignIn from './components/account/CognitoEmailSignIn'
 import CognitoEmailSignUp from './components/account/CognitoEmailSignUp'
@@ -45,6 +45,16 @@ export default function CognitoAuthGate() {
   const [cognitoChoice, setCognitoChoice] = useState<Extract<CognitoAccountProof, { kind: 'select-mfa' }> | null>(null)
   const [selectedMfa, setSelectedMfa] = useState<CognitoMfaMethod>('SOFTWARE_TOKEN_MFA')
   const [confirmation, setConfirmation] = useState<{ nonce: string; mode: 'enroll' | 'link'; token?: string; cognitoToken?: string } | null>(null)
+
+  function chooseSetupMode(next: 'enroll' | 'link' | 'link-cognito') {
+    setMode(next)
+    setPassword('')
+    setCognitoProof(null)
+    setCognitoChoice(null)
+    setCode('')
+    setError('')
+  }
+
   async function load() {
     if (await session()) setAccount(await identityRequest('/identity/session'))
     else setAccount(null)
@@ -666,7 +676,7 @@ export default function CognitoAuthGate() {
     <h2>{config.environment === 'staging' ? 'Set up your staging account' : 'Set up your account'}</h2>
     {confirmation ? <div className="auth-account-setup-confirmation">
       <p>{confirmation.mode === 'link' ? 'Link this Cognito account to the existing account you just verified?'
-        : 'Create a separate account with empty history? You cannot attach existing history to it later.'}</p>
+        : 'Start a new account? Saved quizzes from another account will not appear here. Cancel to link an existing account first.'}</p>
       <div className="auth-account-setup-actions">
         <button type="button" className="auth-submit" disabled={busy} onClick={() => void run(async () => {
           await identityRequest('/identity/confirm', { mode: confirmation.mode, nonce: confirmation.nonce }, confirmation.token, confirmation.cognitoToken)
@@ -698,15 +708,6 @@ export default function CognitoAuthGate() {
         pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
       <button className="auth-submit" disabled={busy}>Verify authenticator</button>
     </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
-      <label htmlFor="account-setup">Account setup</label>
-      <select id="account-setup" value={mode} disabled={busy} onChange={e => {
-        setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
-        setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
-      }}>
-        {linkingAvailable && <option value="link">Link my old account (before Cognito migration)</option>}
-        {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}
-        <option value="enroll">Create an empty account</option>
-      </select>
       {config.environment === 'staging' && !linkingAvailable && <p className="auth-account-setup-note">This is a temporary test site, separate from the live Quiz From Notes accounts. Your usual website password cannot verify an account here.</p>}
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
@@ -720,9 +721,23 @@ export default function CognitoAuthGate() {
         <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
           value={password} disabled={busy} onChange={e => setPassword(e.target.value)} /></label>
       </> : <p>{config.environment === 'staging'
-        ? 'Continue with a temporary test account and empty quiz history. No production quizzes will be transferred.'
-        : 'Your new account will start with empty history. Choose linking if you have existing quizzes.'}</p>}
+        ? 'Continue with Google to create a new account with empty quiz history. No production quizzes will be transferred.'
+        : 'Continue with Google to create a new account. If you already have saved quizzes, link your existing account first.'}</p>}
       <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
+      <div className="auth-account-setup-actions">
+        {mode === 'enroll' ? <>
+          {config.googleSignInEnabled && <button type="button" className="auth-secondary-button"
+            aria-label="I already have a Quiz From Notes account" disabled={busy}
+            onClick={() => chooseSetupMode('link-cognito')}>Link an existing account</button>}
+          {linkingAvailable && <button type="button" className="auth-secondary-button" disabled={busy}
+            onClick={() => chooseSetupMode('link')}>I used my old account before the Cognito migration</button>}
+        </> : <>
+          <button type="button" className="auth-secondary-button" disabled={busy}
+            onClick={() => chooseSetupMode('enroll')}>Continue with a new account</button>
+          {mode === 'link' && config.googleSignInEnabled && <button type="button" className="auth-secondary-button" disabled={busy}
+            onClick={() => chooseSetupMode('link-cognito')}>Link my Cognito account instead</button>}
+        </>}
+      </div>
     </form>}
   </section></main>
 }
