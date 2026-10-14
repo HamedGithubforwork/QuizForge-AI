@@ -17,6 +17,7 @@ class IncidentTests(unittest.TestCase):
         cognito.describe_user_pool.return_value = {"UserPool": {
             "AdminCreateUserConfig": {"AllowAdminCreateUserOnly": False},
             "LambdaConfig": {"PreSignUp": FUNCTION_ARN, "PostConfirmation": FUNCTION_ARN},
+            "SchemaAttributes": [{"Name": "email", "Mutable": True, "Required": True}],
         }}
         cognito.describe_identity_provider.return_value = {"IdentityProvider": {
             "ProviderDetails": {"client_id": GOOGLE_ID, "client_secret": SECRET},
@@ -72,6 +73,31 @@ class IncidentTests(unittest.TestCase):
         result = evidence(**args)
         self.assertTrue(result["recent_unsupported_trigger_rejection"])
         self.assertEqual(args["logs"].filter_log_events.call_args.kwargs["nextToken"], "page-two")
+
+    def test_automatic_username_mapping_does_not_hide_correct_required_mappings(self):
+        args = self.inputs()
+        mapping = args["cognito"].describe_identity_provider.return_value["IdentityProvider"]["AttributeMapping"]
+        mapping["username"] = "sub"
+        result = evidence(**args)
+        self.assertFalse(result["google_mapping_matches"])
+        self.assertTrue(result["google_email_mapping_matches"])
+        self.assertTrue(result["google_verified_email_mapping_matches"])
+        self.assertTrue(result["google_default_username_mapping"])
+        self.assertFalse(result["google_unexpected_mapping_present"])
+        self.assertTrue(result["email_schema_mutable"])
+        self.assertFalse(result["unmapped_required_schema_attribute"])
+
+    def test_unknown_mapping_names_and_required_schema_only_emit_booleans(self):
+        args = self.inputs()
+        args["cognito"].describe_identity_provider.return_value["IdentityProvider"]["AttributeMapping"][SECRET] = SECRET
+        schema = args["cognito"].describe_user_pool.return_value["UserPool"]["SchemaAttributes"]
+        schema[0]["Mutable"] = False
+        schema.append({"Name": SECRET + "-required", "Required": True})
+        result = evidence(**args)
+        self.assertTrue(result["google_unexpected_mapping_present"])
+        self.assertTrue(result["unmapped_required_schema_attribute"])
+        self.assertFalse(result["email_schema_mutable"])
+        self.assertNotIn(SECRET, json.dumps(result))
 
     def test_fail_closed_account_function_and_permissions(self):
         for fault in ("account", "function", "permission"):
