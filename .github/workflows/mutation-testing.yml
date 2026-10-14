@@ -6,11 +6,35 @@ on:
     - cron: "17 13 * * 0"
   pull_request:
     paths:
-      - .github/workflows/mutation-testing.yml
       - frontend/stryker.config.json
       - frontend/package.json
       - frontend/package-lock.json
-      - frontend/src/lib/*.ts
+      - frontend/src/lib/answerFallback.ts
+      - frontend/src/lib/answerFallback.test.ts
+      - frontend/src/lib/adPresentationPolicy.ts
+      - frontend/src/lib/adPresentationPolicy.test.ts
+      - frontend/src/lib/accountEntitlements.ts
+      - frontend/src/lib/accountEntitlements.test.ts
+      - frontend/src/lib/documentIdentity.ts
+      - frontend/src/lib/documentIdentity.test.ts
+      - frontend/src/lib/historyQuestionGrader.ts
+      - frontend/src/lib/historyQuestionGrader.test.ts
+      - frontend/src/lib/masteryAnalytics.ts
+      - frontend/src/lib/masteryAnalytics.test.ts
+      - frontend/src/lib/numericUnits.ts
+      - frontend/src/lib/numericUnitGrading.test.ts
+      - frontend/src/lib/quizAttempt.ts
+      - frontend/src/lib/quizAttempt.test.ts
+      - frontend/src/lib/quizGenerationPolicy.ts
+      - frontend/src/lib/quizGenerationPolicy.test.ts
+      - frontend/src/lib/quizHistoryAnalytics.ts
+      - frontend/src/lib/quizHistoryAnalytics.test.ts
+      - frontend/src/lib/quizHistoryPagination.ts
+      - frontend/src/lib/quizHistoryPagination.test.ts
+      - frontend/src/lib/shortAnswerGrader.ts
+      - frontend/src/lib/shortAnswerGrader.test.ts
+      - frontend/src/lib/weakAreaAnalytics.ts
+      - frontend/src/lib/weakAreaAnalytics.test.ts
 
 permissions:
   contents: read
