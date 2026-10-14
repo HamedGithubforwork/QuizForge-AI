@@ -35,12 +35,22 @@ def evidence(*, sts, cognito, functions, logs, client_id, secret, now=None):
     triggers = pool.get("LambdaConfig", {})
     details = provider.get("ProviderDetails", {})
     stored_secret = details.get("client_secret")
+    mapping = provider.get("AttributeMapping", {})
+    schema = {item.get("Name"): item for item in pool.get("SchemaAttributes", [])}
     report = {
         "google_client_id_matches": details.get("client_id") == client_id,
         "google_client_secret_matches": isinstance(stored_secret, str) and
             hmac.compare_digest(stored_secret.encode(), secret.encode()),
         "google_mapping_matches": provider.get("AttributeMapping") ==
             {"email": "email", "email_verified": "email_verified"},
+        "google_email_mapping_matches": mapping.get("email") == "email",
+        "google_verified_email_mapping_matches": mapping.get("email_verified") == "email_verified",
+        "google_default_username_mapping": mapping.get("username") == "sub",
+        "google_unexpected_mapping_present": bool(set(mapping) - {"email", "email_verified", "username"}),
+        "email_schema_mutable": schema.get("email", {}).get("Mutable") is True,
+        "unmapped_required_schema_attribute": any(
+            item.get("Required") is True and name not in mapping and name != "sub"
+            for name, item in schema.items()),
         "google_client_authorized": "Google" in app.get("SupportedIdentityProviders", []),
         "email_write_permission": "email" in app.get("WriteAttributes", []),
         "public_signup_enabled": not pool.get("AdminCreateUserConfig", {}).get("AllowAdminCreateUserOnly", True),
