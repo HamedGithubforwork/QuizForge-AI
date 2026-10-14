@@ -2,7 +2,7 @@ import { InMemoryWebStorage, UserManager, WebStorageStateStore } from 'oidc-clie
 import { cognitoConfiguration } from './authConfig'
 import type { AuthSession } from './authSession'
 import { CognitoPasswordSession } from './cognitoPasswordSession'
-import { IdentitySessionHttpError } from './authStartupFailure'
+import { classifyOidcCallbackFailure, IdentitySessionHttpError } from './authStartupFailure'
 
 export const config = cognitoConfiguration(import.meta.env, window.location.origin)
 export const passwordSession = new CognitoPasswordSession(config.client, config.pool)
@@ -40,9 +40,15 @@ export function initialize() {
       const callback = window.location.href
       // Remove authorization codes/errors before network requests or rendering.
       window.history.replaceState({}, '', '/')
-      await manager.clearStaleState()
-      try { await manager.signinRedirectCallback(callback) }
-      catch (error) { await manager.removeUser(); throw error }
+      try {
+        await manager.clearStaleState()
+        await manager.signinRedirectCallback(callback)
+      } catch (error) {
+        // Keep callback errors non-sensitive and do not affect PKCE/token checks.
+        const diagnostic = classifyOidcCallbackFailure(callback, error)
+        await manager.removeUser()
+        throw diagnostic
+      }
     }
     await manager.clearStaleState()
   })()
