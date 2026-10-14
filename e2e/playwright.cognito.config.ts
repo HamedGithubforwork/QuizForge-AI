@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 const baseURL = 'http://localhost:4174'
 export default defineConfig({
-  testDir: './cognito-tests', fullyParallel: false, workers: 2, forbidOnly: Boolean(process.env.CI),
+  testDir: './cognito-tests', fullyParallel: true, workers: 2, forbidOnly: Boolean(process.env.CI),
   retries: 0, reporter: 'list',
   // Never record tokens/passwords in network traces, screenshots or videos.
   use: { baseURL, trace: 'off', screenshot: 'off', video: 'off' },
