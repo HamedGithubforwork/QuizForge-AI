@@ -6,6 +6,8 @@ on:
       - ".github/workflows/production-google-incident.yml"
       - "scripts/production/lightsail/google_incident.py"
       - "scripts/production/lightsail/test_google_incident.py"
+      - "scripts/production/lightsail/google_client_probe.py"
+      - "scripts/production/lightsail/test_google_client_probe.py"
   workflow_dispatch:
 
 permissions:
@@ -26,7 +28,7 @@ jobs:
       - name: Run no-cloud tests without OAuth secrets or AWS permissions
         run: |
           python -m py_compile scripts/production/lightsail/google_incident.py
-          python -m unittest scripts.production.lightsail.test_google_incident -v
+          python -m unittest scripts.production.lightsail.test_google_incident scripts.production.lightsail.test_google_client_probe -v
       - name: Prevent an invalid production OIDC role duration
         run: |
           python - <<'PY'
@@ -98,3 +100,4 @@ jobs:
         run: |
           set +x
           python -m scripts.production.lightsail.google_incident
+          python -m scripts.production.lightsail.google_client_probe
