@@ -96,8 +96,8 @@ test('Production configuration accepts only public legacy key types', () => {
 test('Account setup selects only usable linking methods and keeps disposable staging distinct', () => {
   assert.equal(initialAccountSetupMode('staging', true, false), 'enroll')
   assert.equal(initialAccountSetupMode('staging', false, false), 'enroll')
-  assert.equal(initialAccountSetupMode('staging', true, true), 'link-cognito')
+  assert.equal(initialAccountSetupMode('staging', true, true), 'enroll')
   assert.equal(initialAccountSetupMode('staging', false, true), 'link')
-  assert.equal(initialAccountSetupMode('production', true, true), 'link-cognito')
+  assert.equal(initialAccountSetupMode('production', true, true), 'enroll')
   assert.equal(initialAccountSetupMode('production', false, true), 'link')
 })

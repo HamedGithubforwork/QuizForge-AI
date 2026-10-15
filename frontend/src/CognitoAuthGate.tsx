@@ -698,15 +698,35 @@ export default function CognitoAuthGate() {
         pattern="[0-9]{6}" value={code} onChange={e => setCode(e.target.value)} /></label>
       <button className="auth-submit" disabled={busy}>Verify authenticator</button>
     </form> : <form className="auth-form" aria-busy={busy} onSubmit={begin}>
-      <label htmlFor="account-setup">Account setup</label>
-      <select id="account-setup" value={mode} disabled={busy} onChange={e => {
-        setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
-        setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
-      }}>
-        {linkingAvailable && <option value="link">Link my old account (before Cognito migration)</option>}
-        {config.googleSignInEnabled && <option value="link-cognito">Link my existing Quiz From Notes login</option>}
-        <option value="enroll">Create an empty account</option>
-      </select>
+      {config.googleSignInEnabled ? <>
+        {mode === 'enroll' ? <>
+          <p>Create your Quiz From Notes account with Google. Your new account starts with empty quiz history.</p>
+          <p className="auth-account-setup-note">Already have saved quizzes? Link your existing account first so your history stays with you.</p>
+          <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => {
+            setMode('link-cognito'); setPassword(''); setCode(''); setError('')
+          }}>I already have an account</button>
+        </> : <>
+          <p>Link Google to your existing Quiz From Notes account to keep your saved quizzes.</p>
+          {linkingAvailable && mode === 'link-cognito' && <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => {
+            setMode('link'); setPassword(''); setCode(''); setError('')
+          }}>My account still uses the old sign-in</button>}
+          {linkingAvailable && mode === 'link' && <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => {
+            setMode('link-cognito'); setPassword(''); setCode(''); setError('')
+          }}>Use my current Quiz From Notes sign-in</button>}
+          <button type="button" className="auth-secondary-button" disabled={busy} onClick={() => {
+            setMode('enroll'); setPassword(''); setCode(''); setError('')
+          }}>Create a new account instead</button>
+        </>}
+      </> : <>
+        <label htmlFor="account-setup">Account setup</label>
+        <select id="account-setup" value={mode} disabled={busy} onChange={e => {
+          setMode(e.target.value as 'enroll' | 'link' | 'link-cognito')
+          setPassword(''); setCognitoProof(null); setCognitoChoice(null); setCode(''); setError('')
+        }}>
+          {linkingAvailable && <option value="link">Link my old account (before Cognito migration)</option>}
+          <option value="enroll">Create an empty account</option>
+        </select>
+      </>}
       {config.environment === 'staging' && !linkingAvailable && <p className="auth-account-setup-note">This is a temporary test site, separate from the live Quiz From Notes accounts. Your usual website password cannot verify an account here.</p>}
       {mode === 'link' ? <>
         <p>Sign in to your existing Quiz From Notes account to prove ownership. Email addresses alone cannot link accounts.</p>
@@ -719,10 +739,12 @@ export default function CognitoAuthGate() {
           disabled={busy} onChange={e => setEmail(e.target.value)} /></label>
         <label>Existing Quiz From Notes password<input type="password" autoComplete="current-password" required
           value={password} disabled={busy} onChange={e => setPassword(e.target.value)} /></label>
-      </> : <p>{config.environment === 'staging'
+      </> : !config.googleSignInEnabled ? <p>{config.environment === 'staging'
         ? 'Continue with a temporary test account and empty quiz history. No production quizzes will be transferred.'
-        : 'Your new account will start with empty history. Choose linking if you have existing quizzes.'}</p>}
-      <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>Continue account setup</button>
+        : 'Your new account will start with empty history. Choose linking if you have existing quizzes.'}</p> : null}
+      <button className="auth-submit" disabled={busy || (mode === 'link' && !linkingAvailable)}>
+        {config.googleSignInEnabled && mode === 'enroll' ? 'Create account' : 'Continue account setup'}
+      </button>
     </form>}
   </section></main>
 }

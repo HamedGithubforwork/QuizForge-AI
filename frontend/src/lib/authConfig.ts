@@ -10,7 +10,9 @@ export type AccountSetupMode = 'enroll' | 'link' | 'link-cognito'
 export function initialAccountSetupMode(environment: string, googleEnabled: boolean,
   legacyLinkingAvailable: boolean): AccountSetupMode {
   if (environment === 'staging' && !legacyLinkingAvailable) return 'enroll'
-  if (googleEnabled) return 'link-cognito'
+  // A first-time Google user should land on the normal create-account path.
+  // Existing users can explicitly switch to linking so their saved history stays attached.
+  if (googleEnabled) return 'enroll'
   return legacyLinkingAvailable ? 'link' : 'enroll'
 }
 
