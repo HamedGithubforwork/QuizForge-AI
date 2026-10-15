@@ -121,7 +121,7 @@ for (const resend of [false, true]) test(`sign-in automatically resumes abandone
   await expect(page.getByText('No saved quizzes yet')).toBeVisible()
   await noStoredSecrets(page)
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Choose how to continue.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sign in or create an account.' })).toBeVisible()
   expect(operations.at(-1)).toBe('RevokeToken')
 })
 
