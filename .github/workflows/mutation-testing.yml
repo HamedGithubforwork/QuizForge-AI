@@ -6,11 +6,35 @@ on:
     - cron: "17 13 * * 0"
   pull_request:
     paths:
-      - .github/workflows/mutation-testing.yml
       - frontend/stryker.config.json
       - frontend/package.json
       - frontend/package-lock.json
-      - frontend/src/lib/*.ts
+      - frontend/src/lib/answerFallback.ts
+      - frontend/src/lib/answerFallback.test.ts
+      - frontend/src/lib/adPresentationPolicy.ts
+      - frontend/src/lib/adPresentationPolicy.test.ts
+      - frontend/src/lib/accountEntitlements.ts
+      - frontend/src/lib/accountEntitlements.test.ts
+      - frontend/src/lib/documentIdentity.ts
+      - frontend/src/lib/documentIdentity.test.ts
+      - frontend/src/lib/historyQuestionGrader.ts
+      - frontend/src/lib/historyQuestionGrader.test.ts
+      - frontend/src/lib/masteryAnalytics.ts
+      - frontend/src/lib/masteryAnalytics.test.ts
+      - frontend/src/lib/numericUnits.ts
+      - frontend/src/lib/numericUnitGrading.test.ts
+      - frontend/src/lib/quizAttempt.ts
+      - frontend/src/lib/quizAttempt.test.ts
+      - frontend/src/lib/quizGenerationPolicy.ts
+      - frontend/src/lib/quizGenerationPolicy.test.ts
+      - frontend/src/lib/quizHistoryAnalytics.ts
+      - frontend/src/lib/quizHistoryAnalytics.test.ts
+      - frontend/src/lib/quizHistoryPagination.ts
+      - frontend/src/lib/quizHistoryPagination.test.ts
+      - frontend/src/lib/shortAnswerGrader.ts
+      - frontend/src/lib/shortAnswerGrader.test.ts
+      - frontend/src/lib/weakAreaAnalytics.ts
+      - frontend/src/lib/weakAreaAnalytics.test.ts
 
 permissions:
   contents: read
@@ -20,11 +44,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  frontend-mutation:
-    name: Frontend StrykerJS
+  frontend-mutation-pr:
+    name: Frontend StrykerJS shard ${{ matrix.shard }}
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            mutate: >-
+              src/lib/shortAnswerGrader.ts
+          - shard: 2
+            mutate: >-
+              src/lib/numericUnits.ts,src/lib/quizAttempt.ts
+          - shard: 3
+            mutate: >-
+              src/lib/masteryAnalytics.ts,src/lib/quizHistoryPagination.ts
+          - shard: 4
+            mutate: >-
+              src/lib/quizHistoryAnalytics.ts,src/lib/documentIdentity.ts,src/lib/accountEntitlements.ts
+          - shard: 5
+            mutate: >-
+              src/lib/weakAreaAnalytics.ts,src/lib/answerFallback.ts,src/lib/adPresentationPolicy.ts,src/lib/historyQuestionGrader.ts,src/lib/quizGenerationPolicy.ts
     runs-on: ubuntu-24.04
-    # The full suite is now near the previous 45-minute ceiling; keep a bounded
-    # margin so added protected modules can finish instead of being cancelled.
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run StrykerJS mutation shard
+        working-directory: frontend
+        run: npm run test:mutation -- --mutate "${{ matrix.mutate }}"
+
+      - name: Upload mutation shard report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: stryker-mutation-report-${{ matrix.shard }}
+          path: |
+            frontend/reports/mutation.html
+            frontend/reports/mutation.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  frontend-mutation:
+    if: github.event_name != 'pull_request'
+    name: Frontend StrykerJS full run
+    runs-on: ubuntu-24.04
+    # The weekly/manual full suite took about 58 minutes in the latest run.
     timeout-minutes: 60
 
     steps:
