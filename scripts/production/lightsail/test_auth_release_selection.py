@@ -23,8 +23,8 @@ class TestAuthReleaseSelection(unittest.TestCase):
         self.assertEqual(selected["reviewed_source_tree_sha"],
                          "8fc456918041a04344e695a17f00461344e053bb")
         self.assertEqual(live["application_candidate_sha"],
-                         "4e2790aa08900e3da477df4191a7429b63fb2846")
-        self.assertEqual(live["release_sha"], "8fcee6de6fa4f880d3e60661493c1a00d6f4e919")
+                         "93da9064bf8956b4a5280555e7d12083e8f86a60")
+        self.assertEqual(live["release_sha"], "4be1685ac7d1204c92b93fdaa8f02dc31f684e7b")
         self.assertRegex(selected["application_candidate_sha"], r"^[0-9a-f]{40}$")
 
     def test_builder_must_not_deploy_or_auto_promote(self):
