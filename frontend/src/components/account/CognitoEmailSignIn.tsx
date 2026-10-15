@@ -3,10 +3,10 @@ import { config, passwordSession, resetPassword } from '../../lib/cognitoBrowser
 import { confirmSignupCode, resendSignupCode } from '../../lib/cognitoSignupRecovery'
 import type { PasswordStep } from '../../lib/cognitoPasswordSession'
 
-type Props = { initialEmail?: string; onComplete: () => Promise<void>; onBack: () => void; onActivation: () => void }
+type Props = { initialEmail?: string; onComplete: () => Promise<void>; onBack: () => void; onActivation: () => void; onSignUp: () => void }
 
 /** Email confirmation is a step of sign-in, never a separate recovery destination. */
-export default function CognitoEmailSignIn({ initialEmail = '', onComplete, onBack, onActivation }: Props) {
+export default function CognitoEmailSignIn({ initialEmail = '', onComplete, onBack, onActivation, onSignUp }: Props) {
   const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
@@ -123,6 +123,9 @@ export default function CognitoEmailSignIn({ initialEmail = '', onComplete, onBa
       {step ? <button type="button" disabled={busy} onClick={restart}>Back to email sign in</button>
         : <button type="button" disabled={busy} onClick={() => void run(resetPassword)}>Forgot your password?</button>}
     </p>
+    {!step && <p className="auth-switch">New to Quiz From Notes?{' '}
+      <button type="button" disabled={busy} onClick={onSignUp}>Create an account</button>
+    </p>}
     {error.includes('first-time security setup') && <p className="auth-switch">
       <button type="button" disabled={busy} onClick={onActivation}>Finish first-time setup</button>
     </p>}
