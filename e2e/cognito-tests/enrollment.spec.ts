@@ -129,7 +129,8 @@ async function login(page: Page) {
 
 async function createAccount(page: Page) {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Create account', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
+  await page.getByRole('button', { name: 'Create an account', exact: true }).click()
 }
 
 test('PKCE callback enrolls only after confirmation, refreshes bearer and revokes on logout', async ({ page }) => {
@@ -163,7 +164,7 @@ test('PKCE callback enrolls only after confirmation, refreshes bearer and revoke
   const storage = await page.evaluate(() => ({ local: { ...localStorage }, session: { ...sessionStorage } }))
   expect(JSON.stringify(storage)).not.toMatch(/synthetic-(access|refresh|legacy)|code_verifier|synthetic-code/)
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with email', exact: true })).toBeVisible()
   expect(state.counts().revoked).toBe(true)
   expect(state.counts().confirmationCount).toBe(1)
 })
@@ -328,7 +329,7 @@ test('revocation failure clears local account and reports the failure', async ({
   await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('session revocation failed')
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with email', exact: true })).toBeVisible()
 })
 
 for (const hasExistingDeck of [false, true]) {

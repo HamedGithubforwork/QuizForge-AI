@@ -492,6 +492,7 @@ export default function CognitoAuthGate() {
     }}
     onBack={() => { setEmailSignIn(false); setError('') }}
     onActivation={() => { setEmailSignIn(false); setActivationMode(true); setError('') }}
+    onSignUp={() => { setEmailSignIn(false); setEmailSignUp(true); setError('') }}
   />
 
   if (!account && activationMode) return <main className="auth-page">
@@ -593,42 +594,33 @@ export default function CognitoAuthGate() {
       <section className="auth-login-panel">
         <div className="auth-login-panel-inner">
           <span className="auth-login-kicker">WELCOME TO QUIZ FROM NOTES</span>
-          <h2>Choose how to continue.</h2>
+          <h2>Sign in or create an account.</h2>
           <p className="auth-login-copy">
-            Use your existing account or start a new one. Both paths use Cognito
-            for secure email verification, with optional two-factor authentication.
+            Continue with Google or use your email. New users can create an account from the email sign-in screen.
           </p>
 
           {error && <div className="auth-error auth-login-error" role="alert">{error}</div>}
 
           <div className="auth-entry-actions">
-            <button className="auth-entry-action auth-entry-action-primary" aria-label="Sign in" disabled={busy}
-              onClick={() => { setActivationMode(false); setEmailSignUp(false); setEmailSignIn(true); setError('') }}>
-              <span className="auth-entry-action-copy">
-                <strong>Sign in</strong>
-                <small>Continue to your existing account</small>
-              </span>
-              <span className="auth-cta-arrow" aria-hidden="true">→</span>
-            </button>
-
             {config.googleSignInEnabled && (
-              <button className="auth-entry-action auth-entry-action-secondary" type="button"
+              <button className="auth-entry-action auth-entry-action-primary" type="button"
                 aria-label="Continue with Google" disabled={busy} onClick={() => void run(signInWithGoogle)}>
                 <span className="auth-entry-action-copy">
                   <strong>Continue with Google</strong>
-                  <small>Use your Google account through secure Cognito sign-in</small>
+                  <small>Quick, secure sign-in with your Google account</small>
                 </span>
                 <span className="auth-cta-arrow" aria-hidden="true">→</span>
               </button>
             )}
 
-            <button className="auth-entry-action auth-entry-action-secondary" aria-label="Create account" disabled={busy}
-              onClick={() => { setEmailSignIn(false); setEmailSignUp(true); setError('') }}>
+            <button className={`auth-entry-action ${config.googleSignInEnabled ? 'auth-entry-action-secondary' : 'auth-entry-action-primary'}`}
+              type="button" aria-label="Continue with email" disabled={busy}
+              onClick={() => { setActivationMode(false); setEmailSignUp(false); setEmailSignIn(true); setError('') }}>
               <span className="auth-entry-action-copy">
-                <strong>Create account</strong>
-                <small>New here? Start with a fresh account</small>
+                <strong>Continue with email</strong>
+                <small>Sign in or create an account with your email</small>
               </span>
-              <span className="auth-cta-arrow" aria-hidden="true">＋</span>
+              <span className="auth-cta-arrow" aria-hidden="true">→</span>
             </button>
           </div>
 
