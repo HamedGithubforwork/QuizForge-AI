@@ -75,9 +75,14 @@ async function provider(page: Page, options: { confirmed?: boolean; mfa?: boolea
 async function openEmail(page: Page) {
   await page.goto('/')
   await expect(page.getByRole('button', { name: 'Finish email verification' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Sign in with email' })).toBeVisible()
   await page.getByLabel('Email', { exact: true }).fill('learner@example.invalid')
+}
+async function openEmailSignup(page: Page) {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Continue with email', exact: true }).click()
+  await page.getByRole('button', { name: 'Create an account', exact: true }).click()
 }
 async function submitPassword(page: Page, password = 'synthetic-password') {
   await page.getByLabel('Password', { exact: true }).fill(password)
@@ -190,8 +195,7 @@ test('forgot password preserves a PKCE transaction through Cognito recovery', as
 
 test('create account stays on our site and verifies email without hosted Cognito signup', async ({ page }) => {
   const operations = await provider(page)
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await openEmailSignup(page)
   await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible()
   await expect(page).not.toHaveURL(/amazoncognito\.com/)
   await page.getByLabel('Email', { exact: true }).fill('Learner@Example.invalid')
@@ -218,8 +222,7 @@ test('create account stays on our site and verifies email without hosted Cognito
 
 test('abandoned signup resumes verification at next app sign-in without another signup', async ({ page }) => {
   const operations = await provider(page)
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await openEmailSignup(page)
   await page.getByLabel('Email', { exact: true }).fill('learner@example.invalid')
   await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
   await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
@@ -241,8 +244,7 @@ test('abandoned signup resumes verification at next app sign-in without another 
 
 
 test('signup checklist turns green as requirements are met, including interior spaces', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await openEmailSignup(page)
   const rules = page.getByRole('list', { name: 'Password requirements' })
   await expect(rules.locator('li')).toHaveCount(6)
   await expect(rules.locator('li[data-met="true"]')).toHaveCount(1)
@@ -260,8 +262,7 @@ test('signup checklist turns green as requirements are met, including interior s
 
 test('existing unfinished signup opens email confirmation directly without a second account', async ({ page }) => {
   const operations = await provider(page, { alreadyRegistered: true })
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await openEmailSignup(page)
   await page.getByLabel('Email', { exact: true }).fill('Learner@Example.invalid')
   await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
   await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
@@ -287,8 +288,7 @@ test('existing unfinished signup opens email confirmation directly without a sec
 
 test('already confirmed account can leave signup verification and sign in normally', async ({ page }) => {
   const operations = await provider(page, { alreadyRegistered: true, confirmed: true })
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Create account' }).click()
+  await openEmailSignup(page)
   await page.getByLabel('Email', { exact: true }).fill('learner@example.invalid')
   await page.getByLabel('Password', { exact: true }).fill('SyntheticPassword1!')
   await page.getByLabel('Confirm password').fill('SyntheticPassword1!')
