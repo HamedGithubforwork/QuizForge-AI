@@ -310,11 +310,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          7,
+          8,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          7,
+          8,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
