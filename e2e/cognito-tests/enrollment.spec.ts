@@ -329,7 +329,7 @@ test('revocation failure clears local account and reports the failure', async ({
   await expect(page.getByText('Signed in as cognito@example.invalid')).toBeVisible()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('session revocation failed')
-  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with email', exact: true })).toBeVisible()
 })
 
 for (const hasExistingDeck of [false, true]) {
