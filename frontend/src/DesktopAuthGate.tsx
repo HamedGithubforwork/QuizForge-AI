@@ -4,7 +4,7 @@ import DecksPage from './components/decks'
 import ProgressPage from './components/progress/ProgressPage'
 import StudyNotificationsSettings from './components/account/StudyNotificationsSettings'
 import LocalAiSettings from './components/account/LocalAiSettings'
-import { desktopBridge, desktopLocalAiBridge, type DesktopAccount } from './lib/desktop'
+import { desktopBridge, desktopLocalAiBridge, type DesktopAccount, type DesktopSignInMethod } from './lib/desktop'
 import './AuthGate.css'
 
 const bridge = desktopBridge()!
@@ -13,6 +13,7 @@ export default function DesktopAuthGate() {
   const [account, setAccount] = useState<DesktopAccount | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [signInMethod, setSignInMethod] = useState<DesktopSignInMethod | null>(null)
   const [error, setError] = useState('')
   const [pathname, setPathname] = useState(window.location.pathname)
   useEffect(() => {
@@ -36,6 +37,15 @@ export default function DesktopAuthGate() {
     setBusy(true); setError('')
     try { await action() } catch (e) { setError(e instanceof Error ? e.message : 'Please try again.') }
     finally { setBusy(false) }
+  }
+  async function startSignIn(method: DesktopSignInMethod) {
+    setSignInMethod(method)
+    await run(async () => {
+      const revision = ++authRevision.current
+      const next = await bridge.signIn(method)
+      if (revision === authRevision.current) setAccount(next)
+    })
+    setSignInMethod(null)
   }
   async function signOut() {
     authRevision.current++
@@ -74,14 +84,19 @@ export default function DesktopAuthGate() {
       <p className="auth-login-copy">Sign in securely in your browser, then come back here.</p>
       {error && <p className="auth-error auth-login-error" role="alert">{error}</p>}
       <div className="auth-entry-actions">
-        <button aria-label={busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'} className="auth-entry-action auth-entry-action-primary" disabled={busy} onClick={() => void run(async () => {
-          const revision = ++authRevision.current
-          const next = await bridge.signIn()
-          if (revision === authRevision.current) setAccount(next)
-        })}>
+        <button aria-label={busy && signInMethod === 'google' ? 'Waiting for Google sign-in…' : 'Continue with Google'} className="auth-entry-action auth-entry-action-google" disabled={busy} onClick={() => void startSignIn('google')}>
+          <span className="auth-google-mark" aria-hidden="true">G</span>
           <span className="auth-entry-action-copy">
-            <strong>{busy ? 'Waiting for browser sign-in…' : 'Sign in with browser'}</strong>
-            <small>Securely connect your account</small>
+            <strong>{busy && signInMethod === 'google' ? 'Waiting for Google sign-in…' : 'Continue with Google'}</strong>
+            <small>Use your Google account</small>
+          </span>
+          {!busy && <span className="auth-cta-arrow" aria-hidden="true">→</span>}
+        </button>
+        <div className="auth-login-divider"><span>or</span></div>
+        <button aria-label={busy && signInMethod === 'default' ? 'Waiting for sign-in…' : 'Sign in with email or password'} className="auth-entry-action auth-entry-action-primary" disabled={busy} onClick={() => void startSignIn('default')}>
+          <span className="auth-entry-action-copy">
+            <strong>{busy && signInMethod === 'default' ? 'Waiting for sign-in…' : 'Sign in with email or password'}</strong>
+            <small>Continue with your regular account</small>
           </span>
           {!busy && <span className="auth-cta-arrow" aria-hidden="true">→</span>}
         </button>

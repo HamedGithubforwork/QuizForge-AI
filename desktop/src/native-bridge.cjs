@@ -49,12 +49,14 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
   }
   const handlers = {
     status: async () => ({ available: !!getSession(), account: getAccount()?.current() ?? null }),
-    signIn: async () => {
+    signIn: async provider => {
+      if (provider !== undefined && !['default', 'google'].includes(provider))
+        throw new Error('Unsupported desktop sign-in method.')
       const session = getSession(), account = getAccount()
       if (session?.status().signingIn || !canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
       account.clear()
-      const operation = session.signIn()
+      const operation = session.signIn(provider)
       const generation = session.generation()
       await operation
       try { return await account.verify() }
@@ -156,7 +158,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),
   }
-  const argumentCounts = Object.freeze({ request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
+  const argumentCounts = Object.freeze({ signIn: 1, request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('qfn:' + name, async (event, ...args) => {
       if (!trusted(event) || args.length !== (argumentCounts[name] ?? 0)) throw new Error('Desktop command is not permitted.')

@@ -7,7 +7,7 @@ if (process.isMainFrame && trustedRenderer) {
   contextBridge.exposeInMainWorld('quizFromNotesDesktop', Object.freeze({
     version: 1,
     status: () => ipcRenderer.invoke('qfn:status'),
-    signIn: () => ipcRenderer.invoke('qfn:signIn'),
+    signIn: provider => ipcRenderer.invoke('qfn:signIn', provider === undefined ? 'default' : provider),
     signOut: () => ipcRenderer.invoke('qfn:signOut'),
     request: value => ipcRenderer.invoke('qfn:request', value),
     loadSourcePageText: value => ipcRenderer.invoke('qfn:loadSourcePageText', value),

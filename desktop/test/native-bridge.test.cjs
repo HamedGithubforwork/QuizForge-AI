@@ -227,3 +227,18 @@ test('source-page cache IPC is fixed, single-argument and does not expose a writ
   await assert.rejects(handlers['qfn:loadSourcePageText'](event, value, value), /not permitted/)
   assert.equal(handlers['qfn:saveSourcePageText'], undefined)
 })
+
+
+test('desktop sign-in accepts only the fixed Google and default methods', async () => {
+  const handlers = {}, frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let provider
+  const session = { status: () => ({ signingIn: false }), signIn: async value => { provider = value }, generation: () => 1 }
+  const account = { clear: () => {}, verify: async () => ({ userId: 'user', email: 'user@example.invalid', enrolled: true }) }
+  installNativeBridge({ ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }), getSession: () => session, getAccount: () => account, openAccountWebsite: () => {} })
+  const event = { sender: contents, senderFrame: frame }
+  assert.equal((await handlers['qfn:signIn'](event, 'google')).userId, 'user')
+  assert.equal(provider, 'google')
+  await assert.rejects(handlers['qfn:signIn'](event, 'https://evil.invalid'), /Unsupported desktop sign-in method/)
+})

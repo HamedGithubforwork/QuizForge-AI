@@ -12,6 +12,7 @@ test('generates the secretless code-only native client and accepts matching AWS 
   const config = expectedConfiguration(pool)
   assert.equal(config.GenerateSecret, false)
   assert.deepEqual(config.AllowedOAuthFlows, ['code'])
+  assert.deepEqual(config.SupportedIdentityProviders, ['COGNITO', 'Google'])
   assert.equal(validateDescription(fixture(), pool, 'web123'), true)
   const reordered = fixture()
   reordered.UserPoolClient.AllowedOAuthScopes.reverse()
@@ -28,7 +29,7 @@ test('rejects callback, client, secret, flow, permission and lifetime drift gene
     c => { c.EnableTokenRevocation = false }, c => { c.PreventUserExistenceErrors = 'LEGACY' },
     c => { c.AccessTokenValidity = 60 }, c => { c.RefreshTokenValidity = 30 },
     c => { c.TokenValidityUnits.AccessToken = 'hours' }, c => { delete c.ReadAttributes },
-    c => { c.WriteAttributes.push('custom:role') }, c => { c.SupportedIdentityProviders.push('Google') },
+    c => { c.WriteAttributes.push('custom:role') }, c => { c.SupportedIdentityProviders.push('Facebook') },
     c => { c.RefreshTokenRotation.Feature = 'ENABLED' }, c => { c.AnalyticsConfiguration = {} },
     c => { c.DefaultRedirectURI = 'https://untrusted.invalid' }, c => { c.EnablePropagateAdditionalUserContextData = true },
   ]) {

@@ -144,13 +144,14 @@ export type DesktopLocalAiStatus = {
   }
 }
 export type DesktopAccount = { userId: string; email: string; enrolled: boolean }
+export type DesktopSignInMethod = 'default' | 'google'
 type DesktopRequest = { path: string; method: string; body?: string; form?: Array<
   { name: string; value: string } | { name: string; bytes: Uint8Array; filename: string }
 > }
 export type DesktopBridge = {
   version: 1
   status(): Promise<{ available: boolean; account: DesktopAccount | null }>
-  signIn(): Promise<DesktopAccount>
+  signIn(method?: DesktopSignInMethod): Promise<DesktopAccount>
   signOut(): Promise<void>
   request(request: DesktopRequest): Promise<{ status: number; body: string; contentType: string }>
   loadSourcePageText?(request: { documentSha256: string; pageNumber: number }): Promise<string>

@@ -42,10 +42,11 @@ function createNativeSession({ clientId, client, openBrowser, onChange = () => {
     return old
   }
   return {
-    signIn() {
+    signIn(provider = 'default') {
+      if (!['default', 'google'].includes(provider)) throw new Error('Unsupported desktop sign-in method.')
       const old = invalidate()
       void revoke(old)
-      const attempt = createAuthorizationAttempt({ clientId })
+      const attempt = createAuthorizationAttempt({ clientId, provider })
       const operationEpoch = epoch
       const completion = new Promise((resolve, reject) => {
         const entry = { attempt, resolve, reject, epoch: operationEpoch, timer: null }
