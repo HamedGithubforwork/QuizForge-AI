@@ -16,12 +16,12 @@ class TestAuthReleaseSelection(unittest.TestCase):
             "rollout_stage", "reviewed_pr",
         })
         self.assertEqual(selected["schema"], 1)
-        self.assertEqual(selected["reviewed_pr"], 537)
+        self.assertEqual(selected["reviewed_pr"], 619)
         self.assertEqual(selected["rollout_stage"], "google-enabled-release")
         self.assertEqual(selected["application_candidate_sha"],
-                         "93da9064bf8956b4a5280555e7d12083e8f86a60")
+                         "730027a5027e7479e67ad5ddb660b32b74eab322")
         self.assertEqual(selected["reviewed_source_tree_sha"],
-                         "8fc456918041a04344e695a17f00461344e053bb")
+                         "0fc2e41634629af2dce84ba4dbb45d9a15190169")
         self.assertEqual(live["application_candidate_sha"],
                          "93da9064bf8956b4a5280555e7d12083e8f86a60")
         self.assertEqual(live["release_sha"], "4be1685ac7d1204c92b93fdaa8f02dc31f684e7b")
