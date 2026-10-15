@@ -355,9 +355,10 @@ test('targeted practice keeps prior questions bounded, separate from source, and
           request.messages.at(-1).content,
           /selected correct choice must be a concise phrase copied verbatim from that source_fact/i,
         )
-        assert.match(
-          request.messages.at(-1).content,
-          /exact prior question texts to exclude are JSON data: \["Question 1\\?","Question 2\\?"\]/i,
+        assert.ok(
+          request.messages.at(-1).content.includes(
+            'JSON data: ["Question 1?","Question 2?"]',
+          ),
         )
         return {
           text: JSON.stringify(quiz),
