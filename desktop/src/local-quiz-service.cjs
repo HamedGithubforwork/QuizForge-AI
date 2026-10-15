@@ -8,12 +8,12 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
-const TARGETED_PRIMARY_CANDIDATES = 7
+const TARGETED_PRIMARY_CANDIDATES = 8
 const TARGETED_RETRY_CANDIDATES = 5
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
-const TARGETED_PRIMARY_MAX_TOKENS = 1150
+const TARGETED_PRIMARY_MAX_TOKENS = 1300
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 160
 const TARGETED_RETRY_TOKEN_OVERHEAD = 60
 const MAX_COMBINED_TARGETED_CANDIDATES =
@@ -703,10 +703,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven compact candidate questions. Candidates 1–5 must each use a different source fact; candidates 6–7 are backups. Keep each question under 72 characters, each choice under 24 characters, and each explanation under 40 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly eight compact candidate questions. Candidates 1–5 must each use a different source fact; candidates 6–8 are backups. Keep each question under 72 characters, each choice under 24 characters, and each explanation under 40 characters.',
                 'Return source_fact for every candidate as one exact supporting source sentence or bullet line copied verbatim from one cited PAGE. Do not paraphrase source_fact.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact sentence, and the question must ask about the same fact.',
-                'Before writing, make a five-fact plan for candidates 1–5 and a backup plan for candidates 6–7. Use different source facts and distinct question wordings across the pool wherever the notes allow. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. When a prior fact must be reused, ask a clearly different question-answer direction. Do not fill any slot with a prior or in-pool repeat.',
+                'Before writing, make a five-fact plan for candidates 1–5 and a backup plan for candidates 6–8. Use different source facts and distinct question wordings across the pool wherever the notes allow. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. When a prior fact must be reused, ask a clearly different question-answer direction. Do not fill any slot with a prior or in-pool repeat.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',
