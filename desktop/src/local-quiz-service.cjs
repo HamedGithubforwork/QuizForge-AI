@@ -8,12 +8,12 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
-const TARGETED_PRIMARY_CANDIDATES = 10
+const TARGETED_PRIMARY_CANDIDATES = 8
 const TARGETED_RETRY_CANDIDATES = 5
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
-const TARGETED_PRIMARY_MAX_TOKENS = 1550
+const TARGETED_PRIMARY_MAX_TOKENS = 1300
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
 const TARGETED_RETRY_TOKEN_OVERHEAD = 50
 const MAX_COMBINED_TARGETED_CANDIDATES =
@@ -703,10 +703,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request uses an over-complete candidate pool so exact prior-question repeats can be removed deterministically before the user sees the quiz.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly ten compact candidate questions. Candidates 1–5 must each use a different source fact; candidates 6–10 are backups. For each backup, use a source fact not yet used when one remains; after all available facts have appeared, use a clearly different question-answer direction. Keep all question wordings distinct. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly eight compact candidate questions. Candidates 1–5 must each use a different source fact; candidates 6–8 are backups. For each backup, use a source fact not yet used when one remains; otherwise use a clearly different question-answer direction. Give every candidate distinct question wording and vary question structure across the pool. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
                 'Return source_fact for every candidate as the shortest exact contiguous excerpt from one cited PAGE that identifies the subject and fact and includes the selected answer. Do not paraphrase source_fact; keep it under 160 characters.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt, and the question must ask about the same fact.',
-                'Before writing, plan five different source facts for candidates 1–5, then plan backups 6–10. Backups must first use unused source facts; when all distinct facts have a candidate, ask a different question-answer direction about an already-covered fact. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. Do not fill any slot with a prior or in-pool question repeat.',
+                'Before writing, plan five different source facts for candidates 1–5, then plan backups 6–8. Backups must first use unused source facts; when all distinct facts have a candidate, ask a different question-answer direction about an already-covered fact. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. Do not fill any slot with a prior or in-pool question repeat.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',
@@ -791,7 +791,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 ? `quiz-mcq-targeted-retry-v${Math.min(targetedRetryAttempt++, 4) + 1}`
                 : retryReason
                   ? 'quiz-mcq-retry-v1'
-                  : 'quiz-mcq-v1',
+                  : request.practice
+                    ? 'quiz-mcq-targeted-primary-v1'
+                    : 'quiz-mcq-v1',
           }, { signal })
         } catch (error) {
           if (error instanceof LocalAiError) throw error

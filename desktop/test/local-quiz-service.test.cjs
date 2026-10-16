@@ -310,11 +310,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          10,
+          8,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          10,
+          8,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
@@ -328,7 +328,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
           32,
         )
-        assert.equal(request.maxTokens, 1550)
+        assert.equal(request.maxTokens, 1300)
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
@@ -337,11 +337,15 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /exactly ten compact candidate questions/i,
+          /exactly eight compact candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /plan five different source facts for candidates 1–5, then plan backups 6–10/i,
+          /plan five different source facts for candidates 1–5, then plan backups 6–8/i,
+        )
+        assert.equal(
+          request.generationProfile,
+          'quiz-mcq-targeted-primary-v1',
         )
         assert.match(
           request.messages.at(-1).content,
@@ -443,7 +447,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
         if (calls === 1) {
           assert.equal(
             request.generationProfile,
-            'quiz-mcq-v1',
+            'quiz-mcq-targeted-primary-v1',
           )
         }
         if (calls === 2) {
