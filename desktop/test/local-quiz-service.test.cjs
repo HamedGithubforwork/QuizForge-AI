@@ -310,25 +310,25 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          8,
+          6,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          8,
+          6,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
-          72,
+          64,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.choices.items.maxLength,
-          24,
+          20,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
-          40,
+          32,
         )
-        assert.equal(request.maxTokens, 1300)
+        assert.equal(request.maxTokens, 1050)
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
@@ -337,11 +337,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /exactly eight compact candidate questions/i,
+          /exactly six compact candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /make a five-fact plan for candidates 1–5 and a backup plan for candidates 6–8/i,
+          /make a five-fact plan for candidates 1–5 and one backup plan for candidate 6/i,
         )
         assert.match(
           request.messages.at(-1).content,
@@ -353,7 +353,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /selected correct choice must be a concise phrase copied verbatim from that source_fact/i,
+          /selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt/i,
         )
         assert.ok(
           request.messages.at(-1).content.includes(
@@ -674,7 +674,7 @@ test('targeted retry batches backup candidates when one question remains', async
             ),
             true,
           )
-          assert.equal(request.maxTokens, 540)
+          assert.equal(request.maxTokens, 455)
           assert.match(
             request.messages.at(-1).content,
             /exactly 3 additional candidate questions/i,
@@ -685,7 +685,7 @@ test('targeted retry batches backup candidates when one question remains', async
           )
           assert.match(
             request.messages.at(-1).content,
-            /verbatim as source_fact/i,
+            /exact contiguous source excerpt.*as source_fact/i,
           )
         }
         if (calls === 3) {
@@ -695,7 +695,7 @@ test('targeted retry batches backup candidates when one question remains', async
           )
           assert.equal(request.jsonSchema.properties.questions.minItems, 2)
           assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
-          assert.equal(request.maxTokens, 380)
+          assert.equal(request.maxTokens, 320)
           assert.match(
             request.messages.at(-1).content,
             /exactly 2 additional candidate questions/i,

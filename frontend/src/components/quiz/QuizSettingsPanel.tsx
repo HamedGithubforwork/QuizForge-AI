@@ -213,18 +213,23 @@ function QuizSettingsPanel({
                     multiple-choice questions on this
                     computer. The original PDF is not
                     uploaded in Local mode. Account
-                    sign-in still needs internet, and
-                    the optional model must be installed
-                    first. Cloud AI uploads the PDF for
-                    online processing and generation.
+                    sign-in and saving results to your
+                    account history need internet.
+                    Offline results are not queued for
+                    later sync yet. The optional model
+                    must be installed first. Cloud AI
+                    uploads the PDF for online processing
+                    and generation.
                   </>
                 )
                 : (
                   <>
-                    Local AI is unavailable and will
-                    not switch to Cloud automatically.
-                    Choose Cloud AI explicitly to use
-                    online PDF processing and generation.
+                    Local AI runs only in the desktop
+                    app and is unavailable in this
+                    browser. It will not switch to Cloud
+                    automatically. Choose Cloud AI
+                    explicitly to use online PDF
+                    processing and generation.
                   </>
                 )}
             </p>
