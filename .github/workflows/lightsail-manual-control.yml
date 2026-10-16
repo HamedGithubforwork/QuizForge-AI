@@ -1,0 +1,90 @@
+name: Lightsail production manual start or stop
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lightsail-manual-control.yml"
+      - "scripts/production/lightsail/manual_instance_control.py"
+      - "scripts/production/lightsail/test_manual_instance_control.py"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Stop makes the main website and API unavailable; start brings the host back. Stopped Lightsail instances still incur charges."
+        type: choice
+        required: true
+        default: stop
+        options: [stop, start]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Test guarded start and stop decisions without AWS credentials
+        run: |
+          python -m py_compile scripts/production/lightsail/manual_instance_control.py
+          python -m unittest scripts.production.lightsail.test_manual_instance_control -v
+
+  control:
+    needs: validate
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.repository == 'HamedGithubforwork/QuizForge-AI'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    concurrency:
+      group: quizforge-lightsail-manual-instance-control
+      cancel-in-progress: false
+    env:
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11.16"
+      - name: Install existing hash-locked AWS SDK dependencies
+        run: python -m pip install --require-hashes -r scripts/production/requirements.lock
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: qf-lightsail-manual-control
+          role-duration-seconds: 1200
+          aws-region: ca-central-1
+          mask-aws-account-id: true
+          unset-current-credentials: true
+          inline-session-policy: >-
+            {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["lightsail:GetInstance","lightsail:GetStaticIp","lightsail:StartInstance","lightsail:StopInstance"],"Resource":"*"}]}
+      - name: Apply the requested operation to the verified production host
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: python -m scripts.production.lightsail.manual_instance_control "$OPERATION"
+      - name: Explain service and billing effects
+        env:
+          OPERATION: ${{ inputs.operation }}
+        run: |
+          {
+            echo "## Lightsail manual control complete"
+            if [ "$OPERATION" = "stop" ]; then
+              echo "The production Lightsail host has been stopped. The website, API, database, and scheduled host jobs are offline."
+              echo "The instance and its persistent disk were retained. Lightsail continues billing for a stopped instance; this action does not remove the monthly instance charge."
+              echo "Host-based scheduled backups pause while the VM is stopped. Existing backup objects are untouched."
+            else
+              echo "The production Lightsail host has been started. Its attached static IP was verified before the operation."
+              echo "The host OS should restart the enabled application and scheduled services. Verify the website and API before relying on them."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
