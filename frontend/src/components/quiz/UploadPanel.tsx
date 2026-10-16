@@ -24,6 +24,8 @@ type UploadPanelProps = {
   pageSelection: string
   onPageSelectionChange: (value: string) => void
   supportsPageSelection: boolean
+  localProcessing: boolean
+  processedLocally: boolean
   selectionDisabled: boolean
   hidePageSelection: boolean
   isChangingPages: boolean
@@ -42,6 +44,8 @@ function UploadPanel({
   pageSelection,
   onPageSelectionChange,
   supportsPageSelection,
+  localProcessing,
+  processedLocally,
   selectionDisabled,
   hidePageSelection,
   isChangingPages,
@@ -62,6 +66,12 @@ function UploadPanel({
             Select a PDF containing your
             notes.
           </p>
+          {localProcessing && (
+            <p className="local-processing-note">Local mode extracts this PDF on your computer. The PDF is not uploaded for processing.</p>
+          )}
+          {processedLocally && (
+            <p className="local-processing-note" role="status">Processed on this computer. The PDF has not been uploaded.</p>
+          )}
         </div>
       </div>
 
@@ -128,7 +138,7 @@ function UploadPanel({
       >
         {isProcessing
           ? 'Processing PDF...'
-          : 'Process PDF'}
+          : localProcessing ? 'Process PDF on this computer' : 'Process PDF'}
       </button>
       {job && (
         <div className="pdf-job-status">
@@ -150,7 +160,7 @@ function UploadPanel({
           {!!recentJob.selected_pages?.length && <p>Selected pages: {recentJob.selected_pages.join(', ')}.</p>}
         </div>
       )}
-      {((isProcessing && job) || (!isProcessing && recentJob)) && (
+      {((isProcessing && (job || localProcessing)) || (!isProcessing && recentJob)) && (
         <button className="button secondary-button" type="button" onClick={onCancel}>
           {isChangingPages ? 'Cancel page change' : 'Cancel and discard PDF'}
         </button>

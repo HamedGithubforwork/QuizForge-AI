@@ -276,7 +276,14 @@ Generated questions are not accepted merely because they satisfy JSON structure.
 Each question must map to exactly one unique synthetic source fact by its question /
 explanation context, selected correct answer, and cited source page. Five distinct
 facts must be tested. Injection/noise/unselected decoy terms are separately
-forbidden in the accepted quiz output.
+forbidden in the accepted quiz output. Generated questions, choices, and
+explanations must also stay within writing systems present in the supplied study
+material; targeted-practice candidates that switch to an unsupported script are
+filtered before bounded recovery. If only an explanation contains an unsupported
+script, the service falls back to the grounded correct answer for that explanation
+instead of spending another inference call. Bounded recovery requests up to three
+backup candidates per inference call, including when only one final question is
+missing, to avoid serial model calls for filtered duplicates.
 
 The product quiz service uses the named `quiz-mcq-v1` generation profile. The
 Windows adapter maps that name to the previously evaluated Qwen non-thinking

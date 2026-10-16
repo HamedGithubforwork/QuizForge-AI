@@ -215,6 +215,79 @@ test('service repairs a selected index only when cited source and explanation un
   )
 })
 
+test('service replaces an unsupported-script explanation with the grounded answer', async () => {
+  const quiz = rawQuiz()
+  quiz.questions[0].explanation += ' 七小时'
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(
+    result.questions[0].explanation,
+    result.questions[0].correct_answer,
+  )
+})
+
+test('service rejects question text that switches to an unsupported writing system', async () => {
+  const quiz = rawQuiz()
+  quiz.questions[0].question += ' 七小时'
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  await assert.rejects(
+    service.generate({
+      pages: pages(),
+      questionCount: 5,
+      difficulty: 'medium',
+      questionType: 'multiple_choice',
+    }),
+    { code: 'quiz_validation_failed' },
+  )
+  assert.deepEqual(issues.map(issue => issue.reason), [
+    'unexpected_output_script',
+  ])
+})
+
+test('service allows writing systems present in the supplied material', async () => {
+  const sourcePages = pages()
+  sourcePages[0].text += ' 七小时'
+  const quiz = rawQuiz()
+  quiz.questions[0].explanation += ' 七小时'
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: sourcePages,
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].explanation, quiz.questions[0].explanation)
+})
+
 test('validator rejects wrong citations, duplicate questions/choices and truncated generation', async () => {
   const invalidPage = rawQuiz()
   invalidPage.questions[0].source_pages = [99]
@@ -310,25 +383,25 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          7,
+          5,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          7,
+          5,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
-          128,
+          64,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.choices.items.maxLength,
-          48,
+          20,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
-          90,
+          32,
         )
-        assert.equal(request.maxTokens, 1400)
+        assert.equal(request.maxTokens, 900)
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
@@ -337,7 +410,19 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /exactly seven candidate questions/i,
+          /generate exactly five compact candidate questions/i,
+        )
+        assert.match(
+          request.messages.at(-1).content,
+          /plan five different source facts and one distinct question wording for each/i,
+        )
+        assert.equal(
+          request.generationProfile,
+          'quiz-mcq-targeted-primary-v1',
+        )
+        assert.match(
+          request.messages.at(-1).content,
+          /Never copy any wording from PRIOR QUESTIONS TO AVOID/i,
         )
         assert.match(
           request.messages.at(-1).content,
@@ -345,7 +430,12 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /selected correct choice must be a concise phrase copied verbatim from that source_fact/i,
+          /selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt/i,
+        )
+        assert.ok(
+          request.messages.at(-1).content.includes(
+            'JSON data: ["Question 1?","Question 2?"]',
+          ),
         )
         return {
           text: JSON.stringify(quiz),
@@ -430,7 +520,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
         if (calls === 1) {
           assert.equal(
             request.generationProfile,
-            'quiz-mcq-v1',
+            'quiz-mcq-targeted-primary-v1',
           )
         }
         if (calls === 2) {
@@ -506,6 +596,135 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
   )
 })
 
+test('targeted practice filters foreign-script output and recovers the missing candidate', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].question += ' 七小时'
+
+  const replacement = withRetrySourceFacts(rawQuiz())
+  replacement.questions = [replacement.questions[0]]
+  Object.assign(replacement.questions[0], {
+    question: 'Which molecule carries coding information?',
+    choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+    correct_index: 0,
+    explanation: 'Messenger RNA carries coding information.',
+    source_pages: [5],
+    source_fact: RETRY_FACTS[5].text,
+  })
+
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.match(request.messages.at(-1).content, /unexpected_output_script/)
+        }
+        return {
+          text: JSON.stringify(calls === 1 ? first : replacement),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(
+      question =>
+        question.question.includes('七小时') ||
+        question.explanation.includes('七小时'),
+    ),
+    false,
+  )
+  assert.equal(issues[0].details.unexpectedOutputScripts, 1)
+})
+
+test('targeted practice gets one bounded reserve candidate after a script rejection', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].question += ' 七小时'
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 1) {
+          return { text: JSON.stringify(first), finishReason: 'stop', usage: null }
+        }
+        if (calls <= 3) {
+          const candidateCount = request.jsonSchema.properties.questions.maxItems
+          const candidates = Array.from({ length: candidateCount }, (_, index) => {
+            if (calls === 3 && index === candidateCount - 1) {
+              const replacement = withRetrySourceFacts(rawQuiz()).questions[0]
+              Object.assign(replacement, {
+                question: 'Which molecule carries coding information?',
+                choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+                correct_index: 0,
+                explanation: 'Messenger RNA carries coding information.',
+                source_pages: [5],
+                source_fact: RETRY_FACTS[5].text,
+              })
+              return replacement
+            }
+            const duplicate = withRetrySourceFacts(rawQuiz()).questions[1]
+            Object.assign(duplicate, {
+              question: first.questions[index].question,
+            })
+            return duplicate
+          })
+          return {
+            text: JSON.stringify({
+              title: 'Targeted practice candidates',
+              questions: candidates,
+            }),
+            finishReason: 'stop',
+            usage: null,
+          }
+        }
+
+        return {
+          text: JSON.stringify({
+            title: 'Targeted practice candidates',
+            questions: [],
+          }),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 3)
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(question => question.correct_answer === 'coding information'),
+    true,
+  )
+  assert.equal(issues[0].details.unexpectedOutputScripts, 1)
+  assert.equal(issues.at(-1).details.inputCandidates, 8)
+})
+
 test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =
@@ -525,6 +744,13 @@ test('targeted retry separates retained candidates from rejected evidence in the
     },
   )
   second.questions = second.questions.slice(0, 3)
+  for (const [index, factIndex] of [5, 6, 1].entries()) {
+    const question = second.questions[index]
+    const fact = RETRY_FACTS[factIndex]
+    question.source_pages = [fact.page]
+    question.source_fact = fact.text
+    question.choices[question.correct_index] = fact.answer
+  }
 
   let calls = 0
   const service = createLocalQuizService({
@@ -607,29 +833,33 @@ test('targeted retry separates retained candidates from rejected evidence in the
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry requests only the needed candidates plus two backups', async () => {
+test('targeted retry batches backup candidates when one question remains', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
-  const pool = withRetrySourceFacts(rawQuiz())
-  pool.questions[0].question = 'Question to avoid?'
-  pool.questions[1].question = 'Pool question 2?'
-  pool.questions[2].question = 'Pool question 3?'
-  pool.questions[3].question = 'Pool question 4?'
-  pool.questions[4].question = 'Pool question 5?'
-  pool.questions[4] = {
-    ...pool.questions[4],
+  const candidatePool = withRetrySourceFacts(rawQuiz())
+  const backup = {
+    ...candidatePool.questions[0],
     question: 'Pool backup question 6?',
     source_pages: [RETRY_FACTS[5].page],
     source_fact: RETRY_FACTS[5].text,
+    choices: [...candidatePool.questions[0].choices],
   }
-  pool.questions[4].choices[pool.questions[4].correct_index] =
-    RETRY_FACTS[5].answer
-  pool.questions = [
-    pool.questions[0],
-    pool.questions[1],
-    pool.questions[4],
-  ]
+  backup.choices[backup.correct_index] = RETRY_FACTS[5].answer
+  const duplicateFact = {
+    ...candidatePool.questions[1],
+    question: 'A second proteins question?',
+    source_pages: [RETRY_FACTS[1].page],
+    source_fact: RETRY_FACTS[1].text,
+  }
+  const duplicateQuestion = {
+    ...candidatePool.questions[2],
+    question: candidatePool.questions[2].question,
+  }
+  const retryBatch = {
+    ...candidatePool,
+    questions: [duplicateFact, duplicateQuestion, backup],
+  }
 
   let calls = 0
   const service = createLocalQuizService({
@@ -641,21 +871,15 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
-          assert.equal(
-            request.jsonSchema.properties.questions.minItems,
-            3,
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.maxItems,
-            3,
-          )
+          assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
               'source_fact',
             ),
             true,
           )
-          assert.equal(request.maxTokens, 925)
+          assert.equal(request.maxTokens, 455)
           assert.match(
             request.messages.at(-1).content,
             /exactly 3 additional candidate questions/i,
@@ -666,14 +890,12 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
           )
           assert.match(
             request.messages.at(-1).content,
-            /verbatim as source_fact/i,
+            /exact contiguous source excerpt.*as source_fact/i,
           )
         }
         return {
           text: JSON.stringify(
-            calls === 1
-              ? first
-              : pool,
+            calls === 1 ? first : retryBatch,
           ),
           finishReason: 'stop',
           usage: null,
@@ -695,22 +917,14 @@ test('targeted retry requests only the needed candidates plus two backups', asyn
   })
 
   assert.equal(calls, 2)
-  assert.equal(
-    result.questions.length,
-    5,
-  )
+  assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(
-      question =>
-        question.question ===
-        'Question to avoid?',
+      question => question.question === 'Question to avoid?',
     ),
     false,
   )
-  assert.equal(
-    result.questions.at(-1).question,
-    'Pool backup question 6?',
-  )
+  assert.equal(result.questions.at(-1).question, 'Pool backup question 6?')
 })
 
 test('targeted retry filters duplicate underlying source facts using verbatim source_fact', async () => {
@@ -1047,6 +1261,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
       duplicateQuestions: 3,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
+      unexpectedOutputScripts: 0,
       duplicateSourceFacts: 5,
       survivors: 1,
     },

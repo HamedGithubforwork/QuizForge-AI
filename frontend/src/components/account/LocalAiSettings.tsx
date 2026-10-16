@@ -145,9 +145,9 @@ export default function LocalAiSettings() {
         </span>
         <h1>Local AI preview</h1>
         <p>
-          Check this computer and manage the optional on-device model.
-          Local quiz generation is still disabled until runtime and
-          quality acceptance are complete.
+          In Local mode, PDF text extraction and quiz generation run on
+          this computer. Download the optional model below first. Cloud
+          mode continues to process PDFs online; scanned PDFs need OCR.
         </p>
       </div>
 
@@ -184,8 +184,28 @@ export default function LocalAiSettings() {
                 {capability.recommendation === 'enhanced-local-preview'
                   ? 'Enhanced local model'
                   : 'Lightweight local model'}
+              </strong>.
+            </p>
+            <p>
+              Available acceleration: <strong>
+                {capability.acceleration === 'gpu' ? 'GPU (Vulkan)' : 'CPU'}
               </strong>
-              {' '}using {capability.acceleration === 'gpu' ? 'GPU' : 'CPU'} inference.
+            </p>
+            <p>
+              Last successful inference: <strong>
+                {status.lastAccelerationMode === 'gpu'
+                  ? 'GPU (Vulkan)'
+                  : status.lastAccelerationMode === 'cpu'
+                    ? 'CPU'
+                    : status.lastAccelerationMode === null
+                      ? 'Not used yet'
+                      : status.lastAccelerationMode === 'unknown'
+                        ? 'Could not confirm GPU offload'
+                        : 'Not reported by this build'}
+              </strong>
+              {capability.acceleration === 'gpu' &&
+                status.lastAccelerationMode === 'cpu' &&
+                ' (GPU startup fell back to CPU)'}
             </p>
             {capability.hardware.gpuDetected &&
               !capability.hardware.gpuAccelerationUsable && (

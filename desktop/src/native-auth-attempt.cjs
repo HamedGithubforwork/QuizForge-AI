@@ -8,8 +8,9 @@ const ATTEMPT_LIFETIME_MS = 5 * 60 * 1000
 
 // Main-process transaction primitive only. It performs no IO, registers no OS
 // protocol, opens no browser, exchanges no tokens and establishes no identity.
-function createAuthorizationAttempt({ clientId, now = () => performance.now() }) {
-  if (typeof clientId !== 'string' || !/^[a-z0-9]{1,128}$/.test(clientId)) throw new Error('Invalid native sign-in configuration.')
+function createAuthorizationAttempt({ clientId, provider = 'default', now = () => performance.now() }) {
+  if (typeof clientId !== 'string' || !/^[a-z0-9]{1,128}$/.test(clientId) ||
+      !['default', 'google'].includes(provider)) throw new Error('Invalid native sign-in configuration.')
   let verifier = randomBytes(32).toString('base64url')
   const state = randomBytes(32).toString('base64url')
   const nonce = randomBytes(32).toString('base64url')
@@ -17,11 +18,15 @@ function createAuthorizationAttempt({ clientId, now = () => performance.now() })
   if (!Number.isFinite(started)) throw new Error('Invalid native sign-in clock.')
   let active = true
   const authorization = new URL('/oauth2/authorize', AUTH_ORIGIN)
-  authorization.search = new URLSearchParams({
+  const authorizationParams = new URLSearchParams({
     response_type: 'code', client_id: clientId, redirect_uri: CALLBACK_URL,
     scope: 'openid email aws.cognito.signin.user.admin', state, nonce,
     code_challenge_method: 'S256', code_challenge: createHash('sha256').update(verifier).digest('base64url'),
-  }).toString()
+  })
+  // Only the fixed Google provider can be selected; all other account methods
+  // stay on Cognito's standard sign-in page. Never accept a URL or provider name.
+  if (provider === 'google') authorizationParams.set('identity_provider', 'Google')
+  authorization.search = authorizationParams.toString()
   function cancel() { active = false; verifier = undefined }
   function reject() { throw new Error('Invalid or expired native sign-in response.') }
   return {

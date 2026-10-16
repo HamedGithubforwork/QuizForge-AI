@@ -4,6 +4,7 @@ const path = require('node:path')
 const {
   LocalAiError,
   createLocalQuizService,
+  createLocalDocumentQuizService,
 } = require('./local-ai.cjs')
 const { createLocalRuntime, verifyRuntime } = require('./local-runtime.cjs')
 const { createWindowsLocalAiProvider } = require('./windows-local-ai-provider.cjs')
@@ -29,24 +30,31 @@ function createWindowsLocalAiStack({
   userDataDirectory,
   modelDirectory,
   runtimeDirectory,
+  documentProcessor = null,
   onRuntimeProcess = () => {},
   onQuizValidationIssue = () => {},
 } = {}) {
   const resources = createWindowsLocalAiResources({
     userDataDirectory,
     ...(modelDirectory ? { modelDirectory } : {}),
+    ...(runtimeDirectory ? { runtimeDirectory } : {}),
   })
   const manager = resources.manager
   let runtime = null
   let quizService = null
+  let documentQuizService = null
   let quizOperation = null
   let quizController = null
+  let documentOperation = null
+  let documentController = null
   let disposed = false
 
   if (typeof runtimeDirectory === 'string' && path.isAbsolute(runtimeDirectory)) {
     runtime = createLocalRuntime({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
+      accelerationMode: () => manager.status()?.capability?.acceleration ?? 'cpu',
+      gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       onProcessChange: onRuntimeProcess,
     })
     const provider = createWindowsLocalAiProvider({
@@ -55,6 +63,9 @@ function createWindowsLocalAiStack({
       modelId: resources.modelId,
     })
     quizService = createLocalQuizService({ provider, onValidationIssue: onQuizValidationIssue })
+    if (documentProcessor) {
+      documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
+    }
   }
 
   async function quizStatus() {
@@ -71,29 +82,29 @@ function createWindowsLocalAiStack({
       return Object.freeze({
         available: false,
         reason: publicReason(status.capability?.reasons?.[0] ?? 'unsupported_platform'),
-        busy: quizOperation !== null,
+        busy: quizOperation !== null || documentOperation !== null,
       })
     }
     if (status.model?.state === 'invalid') {
-      return Object.freeze({ available: false, reason: 'invalid_model', busy: quizOperation !== null })
+      return Object.freeze({ available: false, reason: 'invalid_model', busy: quizOperation !== null || documentOperation !== null })
     }
     if (!status.model?.ready) {
-      return Object.freeze({ available: false, reason: 'model_missing', busy: quizOperation !== null })
+      return Object.freeze({ available: false, reason: 'model_missing', busy: quizOperation !== null || documentOperation !== null })
     }
     if (!quizService || !runtimeDirectory) {
-      return Object.freeze({ available: false, reason: 'runtime_unavailable', busy: quizOperation !== null })
+      return Object.freeze({ available: false, reason: 'runtime_unavailable', busy: quizOperation !== null || documentOperation !== null })
     }
     try {
       await verifyRuntime(runtimeDirectory)
     } catch (error) {
       const reason = ['invalid_runtime', 'unexpected_files', 'unsafe_directory', 'invalid_directory', 'invalid_manifest']
         .includes(error?.code) ? 'runtime_invalid' : 'runtime_unavailable'
-      return Object.freeze({ available: false, reason, busy: quizOperation !== null })
+      return Object.freeze({ available: false, reason, busy: quizOperation !== null || documentOperation !== null })
     }
     return Object.freeze({
       available: true,
       reason: null,
-      busy: quizOperation !== null,
+      busy: quizOperation !== null || documentOperation !== null,
       modelId: resources.modelId,
       execution: 'local',
       constraints: Object.freeze({
@@ -104,9 +115,9 @@ function createWindowsLocalAiStack({
     })
   }
 
-  async function generateQuiz(request) {
+  async function runQuiz(operation) {
     if (disposed) throw new LocalAiError('runtime_unavailable')
-    if (quizOperation) throw new LocalAiError('busy', { retryable: true })
+    if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const ready = await quizStatus()
     if (!ready.available) {
       if (ready.reason === 'model_missing') throw new LocalAiError('model_missing')
@@ -116,21 +127,46 @@ function createWindowsLocalAiStack({
     }
     quizController = new AbortController()
     const controller = quizController
-    const operation = quizService.generate(request, { signal: controller.signal })
-    quizOperation = operation
+    const currentOperation = Promise.resolve().then(() => operation(controller.signal))
+    quizOperation = currentOperation
     try {
-      return await operation
+      return await currentOperation
     } finally {
-      if (quizOperation === operation) quizOperation = null
+      if (quizOperation === currentOperation) quizOperation = null
       if (quizController === controller) quizController = null
+    }
+  }
+
+  async function generateQuiz(request) {
+    return runQuiz(signal => quizService.generate(request, { signal }))
+  }
+
+  async function generateDocumentQuiz(request) {
+    if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
+    return runQuiz(signal => documentQuizService.generate(request, { signal }))
+  }
+
+  async function processDocument(request, options) {
+    if (disposed || !documentProcessor) throw new LocalAiError('runtime_unavailable')
+    if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
+    const controller = new AbortController()
+    documentController = controller
+    const currentOperation = Promise.resolve().then(() => documentProcessor.processPdf(request, { ...options, signal: controller.signal }))
+    documentOperation = currentOperation
+    try {
+      return await currentOperation
+    } finally {
+      if (documentOperation === currentOperation) documentOperation = null
+      if (documentController === controller) documentController = null
     }
   }
 
   async function cancelQuiz() {
     const operation = quizOperation
-    if (!operation || !quizController) return
-    quizController.abort()
-    await operation.catch(() => {})
+    const documentTask = documentOperation
+    quizController?.abort()
+    documentController?.abort()
+    await Promise.allSettled([operation, documentTask].filter(Boolean))
   }
 
   async function dispose() {
@@ -149,7 +185,10 @@ function createWindowsLocalAiStack({
     removeModel: manager.removeModel,
     quizStatus,
     generateQuiz,
+    processDocument,
+    generateDocumentQuiz,
     cancelQuiz,
+    lastAccelerationMode: () => runtime?.lastAccelerationMode() ?? null,
     dispose,
   })
 }

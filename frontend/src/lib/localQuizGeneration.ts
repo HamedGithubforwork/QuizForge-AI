@@ -10,6 +10,20 @@ export type QuizGenerationMode =
   | 'cloud'
   | 'local'
 
+const MAX_LOCAL_PDF_BYTES = 15 * 1024 * 1024
+
+export async function readLocalPdfBytes(
+  file: { size: number; arrayBuffer(): Promise<ArrayBuffer> },
+): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(file.size) || file.size < 1) {
+    throw new Error('Choose a valid PDF file.')
+  }
+  if (file.size > MAX_LOCAL_PDF_BYTES) {
+    throw new Error('This PDF is over the 15 MB limit for local processing.')
+  }
+  return new Uint8Array(await file.arrayBuffer())
+}
+
 export async function buildLocalQuizRequest(
   document: UploadResult,
   difficulty: string,

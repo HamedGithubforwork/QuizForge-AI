@@ -151,3 +151,20 @@ test('successful refresh is shared, updates the access token and keeps refresh t
   await f.session.signOut()
   assert.deepEqual(f.revoked, ['new-refresh'])
 })
+
+
+test('Google sign-in uses the fixed provider and accepts the same verified callback flow', async () => {
+  const f = fixture()
+  const result = f.session.signIn('google').then(() => true, () => false)
+  await Promise.resolve()
+  assert.equal(new URL(f.opened[0]).searchParams.get('identity_provider'), 'Google')
+  assert.equal(await f.session.handleCallback(f.callback()), true)
+  assert.equal(await result, true)
+  assert.equal((await f.session.session()).email, 'one@example.invalid')
+})
+
+test('unsupported provider names are rejected before a browser is opened', () => {
+  const f = fixture()
+  assert.throws(() => f.session.signIn('https://evil.invalid'), /Unsupported desktop sign-in method/)
+  assert.deepEqual(f.opened, [])
+})

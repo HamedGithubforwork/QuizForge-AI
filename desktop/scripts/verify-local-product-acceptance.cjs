@@ -453,6 +453,22 @@ async function main() {
       onQuizValidationIssue(issue) {
         report.validationIssues.push({ ...issue })
         console.log('VALIDATION ISSUE:', issue.attempt, issue.reason)
+        const counts = issue.details && typeof issue.details === 'object'
+          ? [
+              'inputCandidates',
+              'avoidedQuestions',
+              'duplicateQuestions',
+              'unsupportedSourceFacts',
+              'unsupportedAnswers',
+              'unexpectedOutputScripts',
+              'duplicateSourceFacts',
+              'survivors',
+            ]
+              .filter(key => Number.isSafeInteger(issue.details[key]))
+              .map(key => key + '=' + issue.details[key])
+              .join(' ')
+          : ''
+        if (counts) console.log('VALIDATION FILTER COUNTS:', counts)
       },
     })
 
