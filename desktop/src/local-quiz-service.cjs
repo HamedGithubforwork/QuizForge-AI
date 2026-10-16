@@ -11,8 +11,8 @@ const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 5
 const TARGETED_RETRY_CANDIDATES = 5
 const TARGETED_SCRIPT_RECOVERY_CANDIDATES = 1
-// Batch multi-slot recovery to avoid repeated full-context inference calls.
-// A one-slot gap requests one candidate, with bounded retries if it is filtered.
+// Batch recovery candidates to avoid repeated full-context inference calls,
+// including backup candidates when only one final slot remains.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
 const TARGETED_PRIMARY_MAX_TOKENS = 900
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
@@ -967,7 +967,6 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         while (generatedCount < retryBudget) {
           const batchCount = Math.min(
             TARGETED_RETRY_BATCH_CANDIDATES,
-            Math.max(1, QUESTION_COUNT - retainedEvidence.length),
             retryBudget - generatedCount,
           )
           result = await generateAttempt(
