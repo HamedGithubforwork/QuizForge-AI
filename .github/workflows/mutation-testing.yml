@@ -3,7 +3,7 @@ name: Mutation testing
 on:
   workflow_dispatch:
   pull_request:
-    types: [opened, reopened, synchronize, labeled]
+    types: [labeled]
 
 permissions:
   contents: read
@@ -16,8 +16,9 @@ jobs:
   frontend-mutation:
     name: Frontend StrykerJS
     # The full 1,500+ mutant suite is reserved for explicit milestone reviews.
-    # Add the `major-milestone` PR label to run it automatically; manual dispatch
-    # remains available for an explicitly chosen milestone outside a PR.
+    # Add or reapply the `major-milestone` PR label after the milestone changes
+    # are ready. Later pushes do not rerun this suite; manual dispatch remains
+    # available for a new milestone review.
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'major-milestone') }}
     runs-on: ubuntu-24.04
     # The full suite is now near the previous 45-minute ceiling; keep a bounded
