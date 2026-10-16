@@ -341,7 +341,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /make a ten-fact plan: one different factual proposition for each candidate/i,
+          /plan five different source facts for candidates 1–5, then plan backups 6–10/i,
         )
         assert.match(
           request.messages.at(-1).content,
