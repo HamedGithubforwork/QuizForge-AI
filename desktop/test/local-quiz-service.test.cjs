@@ -541,7 +541,14 @@ test('targeted retry separates retained candidates from rejected evidence in the
         '?'
     },
   )
-  second.questions = second.questions.slice(0, 3)
+  second.questions = second.questions.slice(0, 2)
+  for (const [index, factIndex] of [5, 6].entries()) {
+    const question = second.questions[index]
+    const fact = RETRY_FACTS[factIndex]
+    question.source_pages = [fact.page]
+    question.source_fact = fact.text
+    question.choices[question.correct_index] = fact.answer
+  }
 
   let calls = 0
   const service = createLocalQuizService({
@@ -553,7 +560,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            2,
           )
           assert.match(
             retryMessage,
@@ -643,21 +650,13 @@ test('targeted retry batches backup candidates when one question remains', async
     source_pages: [RETRY_FACTS[1].page],
     source_fact: RETRY_FACTS[1].text,
   }
-  const repeatedQuestion = {
-    ...candidatePool.questions[2],
-    question: 'Question to avoid?',
-  }
   const firstBatch = {
     ...candidatePool,
-    questions: [
-      duplicateFact,
-      repeatedQuestion,
-      { ...duplicateFact, question: 'Another proteins question?' },
-    ],
+    questions: [duplicateFact],
   }
   const finalBatch = {
     ...candidatePool,
-    questions: [backup, duplicateFact],
+    questions: [backup],
   }
 
   let calls = 0
@@ -670,18 +669,18 @@ test('targeted retry batches backup candidates when one question remains', async
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
-          assert.equal(request.jsonSchema.properties.questions.minItems, 3)
-          assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
+          assert.equal(request.jsonSchema.properties.questions.minItems, 1)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
               'source_fact',
             ),
             true,
           )
-          assert.equal(request.maxTokens, 455)
+          assert.equal(request.maxTokens, 185)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 3 additional candidate questions/i,
+            /exactly 1 additional candidate question/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -697,12 +696,12 @@ test('targeted retry batches backup candidates when one question remains', async
             request.generationProfile,
             'quiz-mcq-targeted-retry-v2',
           )
-          assert.equal(request.jsonSchema.properties.questions.minItems, 2)
-          assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
-          assert.equal(request.maxTokens, 320)
+          assert.equal(request.jsonSchema.properties.questions.minItems, 1)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
+          assert.equal(request.maxTokens, 185)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 2 additional candidate questions/i,
+            /exactly 1 additional candidate question/i,
           )
           assert.match(
             request.messages.at(-1).content,
