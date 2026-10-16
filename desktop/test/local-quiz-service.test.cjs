@@ -215,14 +215,35 @@ test('service repairs a selected index only when cited source and explanation un
   )
 })
 
-test('service rejects output that switches to an unsupported writing system', async () => {
+test('service replaces an unsupported-script explanation with the grounded answer', async () => {
   const quiz = rawQuiz()
   quiz.questions[0].explanation += ' 七小时'
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(
+    result.questions[0].explanation,
+    result.questions[0].correct_answer,
+  )
+})
+
+test('service rejects question text that switches to an unsupported writing system', async () => {
+  const quiz = rawQuiz()
+  quiz.questions[0].question += ' 七小时'
   const issues = []
   const service = createLocalQuizService({
-    onValidationIssue(issue) {
-      issues.push(issue)
-    },
+    onValidationIssue(issue) { issues.push(issue) },
     provider: {
       async generate() {
         return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
@@ -264,6 +285,7 @@ test('service allows writing systems present in the supplied material', async ()
     questionType: 'multiple_choice',
   })
   assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].explanation, quiz.questions[0].explanation)
 })
 
 test('validator rejects wrong citations, duplicate questions/choices and truncated generation', async () => {
@@ -576,7 +598,7 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
 
 test('targeted practice filters foreign-script output and recovers the missing candidate', async () => {
   const first = withRetrySourceFacts(rawQuiz())
-  first.questions[0].explanation += ' 七小时'
+  first.questions[0].question += ' 七小时'
 
   const replacement = withRetrySourceFacts(rawQuiz())
   replacement.questions = [replacement.questions[0]]
@@ -619,7 +641,11 @@ test('targeted practice filters foreign-script output and recovers the missing c
   assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
   assert.equal(
-    result.questions.some(question => question.explanation.includes('七小时')),
+    result.questions.some(
+      question =>
+        question.question.includes('七小时') ||
+        question.explanation.includes('七小时'),
+    ),
     false,
   )
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
@@ -627,7 +653,7 @@ test('targeted practice filters foreign-script output and recovers the missing c
 
 test('targeted practice gets one bounded reserve candidate after a script rejection', async () => {
   const first = withRetrySourceFacts(rawQuiz())
-  first.questions[0].explanation += ' 七小时'
+  first.questions[0].question += ' 七小时'
   const issues = []
   let calls = 0
   const service = createLocalQuizService({

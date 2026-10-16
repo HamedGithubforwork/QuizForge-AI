@@ -279,7 +279,9 @@ facts must be tested. Injection/noise/unselected decoy terms are separately
 forbidden in the accepted quiz output. Generated questions, choices, and
 explanations must also stay within writing systems present in the supplied study
 material; targeted-practice candidates that switch to an unsupported script are
-filtered before bounded recovery.
+filtered before bounded recovery. If only an explanation contains an unsupported
+script, the service falls back to the grounded correct answer for that explanation
+instead of spending another inference call.
 
 The product quiz service uses the named `quiz-mcq-v1` generation profile. The
 Windows adapter maps that name to the previously evaluated Qwen non-thinking

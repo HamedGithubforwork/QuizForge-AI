@@ -286,26 +286,20 @@ function normalizeRequest(value) {
   })
 }
 
-function hasUnexpectedOutputScript(parsed, sourceTextByPage) {
-  if (!(sourceTextByPage instanceof Map)) return false
+function sourceWritingSystems(sourceTextByPage) {
+  if (!(sourceTextByPage instanceof Map)) return null
   const sourceText = [...sourceTextByPage.values()].join(' ')
   const sourceScripts = new Set()
   for (const { name, pattern } of OUTPUT_SCRIPT_NAMES) {
     pattern.lastIndex = 0
     if (pattern.test(sourceText)) sourceScripts.add(name)
   }
+  return sourceScripts
+}
 
-  const generatedText = [
-    ...parsed.questions.flatMap(item =>
-      plain(item)
-        ? [
-            item.question,
-            item.explanation,
-            ...(Array.isArray(item.choices) ? item.choices : []),
-          ]
-        : []),
-  ].filter(value => typeof value === 'string')
-  for (const value of generatedText) {
+function hasUnexpectedScriptInValues(values, sourceScripts) {
+  if (!(sourceScripts instanceof Set)) return false
+  for (const value of values.filter(item => typeof item === 'string')) {
     const letters = value.match(/\p{Letter}/gu) ?? []
     if (letters.length < 2) continue
     for (const { name, pattern } of OUTPUT_SCRIPT_NAMES) {
@@ -320,6 +314,20 @@ function hasUnexpectedOutputScript(parsed, sourceTextByPage) {
     }
   }
   return false
+}
+
+function hasUnexpectedOutputScript(parsed, sourceTextByPage) {
+  const generatedText = parsed.questions.flatMap(item =>
+    plain(item)
+      ? [
+          item.question,
+          ...(Array.isArray(item.choices) ? item.choices : []),
+        ]
+      : [])
+  return hasUnexpectedScriptInValues(
+    generatedText,
+    sourceWritingSystems(sourceTextByPage),
+  )
 }
 
 function promptFor(request) {
@@ -626,6 +634,13 @@ function parseGeneratedQuizDetailed(
         : groundedChoiceIndex
     const correctAnswer =
       item.choices[correctIndex]
+    const explanation =
+      hasUnexpectedScriptInValues(
+        [item.explanation],
+        sourceWritingSystems(sourceTextByPage),
+      )
+        ? correctAnswer.trim()
+        : item.explanation.trim()
 
     questions.push(Object.freeze({
       question_type: 'multiple_choice',
@@ -649,8 +664,7 @@ function parseGeneratedQuizDetailed(
         numeric_tolerance: 0,
         numeric_unit: '',
       }),
-      explanation:
-        item.explanation.trim(),
+      explanation,
       source_pages: Object.freeze([
         ...item.source_pages,
       ]),
