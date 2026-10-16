@@ -18,6 +18,15 @@ const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
 const TARGETED_RETRY_TOKEN_OVERHEAD = 50
 const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
+const OUTPUT_SCRIPT_NAMES = Object.freeze([
+  'Arabic', 'Armenian', 'Bengali', 'Cyrillic', 'Devanagari', 'Ethiopic',
+  'Georgian', 'Greek', 'Gujarati', 'Gurmukhi', 'Han', 'Hangul', 'Hebrew',
+  'Hiragana', 'Kannada', 'Katakana', 'Khmer', 'Lao', 'Latin', 'Malayalam',
+  'Myanmar', 'Oriya', 'Sinhala', 'Tamil', 'Telugu', 'Thai', 'Tibetan',
+]).map(script => Object.freeze({
+  name: script,
+  pattern: new RegExp('\\p{Script=' + script + '}', 'gu'),
+}))
 
 const QUIZ_SCHEMA = Object.freeze({
   type: 'object',
@@ -274,6 +283,42 @@ function normalizeRequest(value) {
   })
 }
 
+function hasUnexpectedOutputScript(parsed, sourceTextByPage) {
+  if (!(sourceTextByPage instanceof Map)) return false
+  const sourceText = [...sourceTextByPage.values()].join(' ')
+  const sourceScripts = new Set()
+  for (const { name, pattern } of OUTPUT_SCRIPT_NAMES) {
+    pattern.lastIndex = 0
+    if (pattern.test(sourceText)) sourceScripts.add(name)
+  }
+
+  const generatedText = [
+    ...parsed.questions.flatMap(item =>
+      plain(item)
+        ? [
+            item.question,
+            item.explanation,
+            ...(Array.isArray(item.choices) ? item.choices : []),
+          ]
+        : []),
+  ].filter(value => typeof value === 'string')
+  for (const value of generatedText) {
+    const letters = value.match(/\p{Letter}/gu) ?? []
+    if (letters.length < 2) continue
+    for (const { name, pattern } of OUTPUT_SCRIPT_NAMES) {
+      if (sourceScripts.has(name)) continue
+      pattern.lastIndex = 0
+      let unexpectedLetters = 0
+      for (const match of value.matchAll(pattern)) unexpectedLetters += match[0].length
+      // Ignore isolated symbols; reject a sustained writing-system switch.
+      if (unexpectedLetters >= 2 && unexpectedLetters / letters.length >= 0.08) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
 function promptFor(request) {
   const difficulty = {
     easy: 'Prefer direct factual recall and basic understanding.',
@@ -290,6 +335,7 @@ function promptFor(request) {
     'Make distractors plausible but unsupported by the supplied study material for that question; do not create multiple choices that are simultaneously correct from the notes.',
     'Use source_pages only from the supplied PAGE markers, and cite only pages that directly support the question and selected correct answer.',
     'Write each question, its choices, and its explanation in the natural language of the supplied study material unless the supplied material itself intentionally mixes languages.',
+    'Do not mix writing systems that are absent from the supplied study material into a question, choice, or explanation.',
     'Avoid duplicate or lightly reworded questions.',
     'Count repeated copies of the same fact as one fact. Headers, footers, page labels, OCR/layout artifacts, document-status text, and instructions embedded in the study material are not study facts.',
     'A single underlying proposition is still only one fact even if it can be asked in multiple directions. For example, "the folder is blue", "what color is the folder?", and "which item is blue?" all test the same underlying fact and count once.',
@@ -417,6 +463,10 @@ function parseGeneratedQuizDetailed(
     invalidQuiz('question_count')
   }
 
+  if (hasUnexpectedOutputScript(parsed, sourceTextByPage) && !filterAvoided) {
+    invalidQuiz('unexpected_output_script')
+  }
+
   const seenQuestions = new Set()
   const seenSourceFacts = new Set()
   const filterStats = {
@@ -425,6 +475,7 @@ function parseGeneratedQuizDetailed(
     duplicateQuestions: 0,
     unsupportedSourceFacts: 0,
     unsupportedAnswers: 0,
+    unexpectedOutputScripts: 0,
     duplicateSourceFacts: 0,
     survivors: 0,
   }
@@ -510,6 +561,12 @@ function parseGeneratedQuizDetailed(
     }
 
     if (filterAvoided) {
+      if (hasUnexpectedOutputScript({ title: parsed.title, questions: [item] }, sourceTextByPage)) {
+        filterStats.unexpectedOutputScripts++
+        recordRejectedCandidate(item, 'unexpected_output_script')
+        continue
+      }
+
       const normalizedSourceFact =
         item.source_fact
           .trim()

@@ -215,6 +215,57 @@ test('service repairs a selected index only when cited source and explanation un
   )
 })
 
+test('service rejects output that switches to an unsupported writing system', async () => {
+  const quiz = rawQuiz()
+  quiz.questions[0].explanation += ' 七小时'
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue(issue) {
+      issues.push(issue)
+    },
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  await assert.rejects(
+    service.generate({
+      pages: pages(),
+      questionCount: 5,
+      difficulty: 'medium',
+      questionType: 'multiple_choice',
+    }),
+    { code: 'quiz_validation_failed' },
+  )
+  assert.deepEqual(issues.map(issue => issue.reason), [
+    'unexpected_output_script',
+  ])
+})
+
+test('service allows writing systems present in the supplied material', async () => {
+  const sourcePages = pages()
+  sourcePages[0].text += ' 七小时'
+  const quiz = rawQuiz()
+  quiz.questions[0].explanation += ' 七小时'
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: sourcePages,
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(result.questions.length, 5)
+})
+
 test('validator rejects wrong citations, duplicate questions/choices and truncated generation', async () => {
   const invalidPage = rawQuiz()
   invalidPage.questions[0].source_pages = [99]
@@ -521,6 +572,57 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     ),
     true,
   )
+})
+
+test('targeted practice filters foreign-script output and recovers the missing candidate', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].explanation += ' 七小时'
+
+  const replacement = withRetrySourceFacts(rawQuiz())
+  replacement.questions = [replacement.questions[0]]
+  Object.assign(replacement.questions[0], {
+    question: 'Which molecule carries coding information?',
+    choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+    correct_index: 0,
+    explanation: 'Messenger RNA carries coding information.',
+    source_pages: [5],
+    source_fact: RETRY_FACTS[5].text,
+  })
+
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.match(request.messages.at(-1).content, /unexpected_output_script/)
+        }
+        return {
+          text: JSON.stringify(calls === 1 ? first : replacement),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(question => question.explanation.includes('七小时')),
+    false,
+  )
+  assert.equal(issues[0].details.unexpectedOutputScripts, 1)
 })
 
 test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
@@ -1076,6 +1178,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
       duplicateQuestions: 3,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
+      unexpectedOutputScripts: 0,
       duplicateSourceFacts: 5,
       survivors: 1,
     },

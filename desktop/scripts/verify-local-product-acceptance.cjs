@@ -460,6 +460,7 @@ async function main() {
               'duplicateQuestions',
               'unsupportedSourceFacts',
               'unsupportedAnswers',
+              'unexpectedOutputScripts',
               'duplicateSourceFacts',
               'survivors',
             ]
