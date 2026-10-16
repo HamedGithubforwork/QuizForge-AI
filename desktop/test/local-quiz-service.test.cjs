@@ -625,6 +625,73 @@ test('targeted practice filters foreign-script output and recovers the missing c
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
 })
 
+test('targeted practice gets one bounded reserve candidate after a script rejection', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].explanation += ' 七小时'
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: {
+      async generate() {
+        calls++
+        if (calls === 1) {
+          return { text: JSON.stringify(first), finishReason: 'stop', usage: null }
+        }
+        if (calls <= 6) {
+          const duplicate = withRetrySourceFacts(rawQuiz()).questions[1]
+          Object.assign(duplicate, {
+            question: 'Duplicate recovery candidate ' + calls + '?',
+          })
+          return {
+            text: JSON.stringify({
+              title: 'Targeted practice candidates',
+              questions: [duplicate],
+            }),
+            finishReason: 'stop',
+            usage: null,
+          }
+        }
+
+        const replacement = withRetrySourceFacts(rawQuiz()).questions[0]
+        Object.assign(replacement, {
+          question: 'Which molecule carries coding information?',
+          choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+          correct_index: 0,
+          explanation: 'Messenger RNA carries coding information.',
+          source_pages: [5],
+          source_fact: RETRY_FACTS[5].text,
+        })
+        return {
+          text: JSON.stringify({
+            title: 'Targeted practice candidates',
+            questions: [replacement],
+          }),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 7)
+  assert.equal(result.questions.length, 5)
+  assert.equal(
+    result.questions.some(question => question.correct_answer === 'coding information'),
+    true,
+  )
+  assert.equal(issues[0].details.unexpectedOutputScripts, 1)
+  assert.equal(issues.at(-1).details.inputCandidates, 10)
+})
+
 test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question =

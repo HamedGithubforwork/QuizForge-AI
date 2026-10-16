@@ -10,6 +10,7 @@ const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 5
 const TARGETED_RETRY_CANDIDATES = 5
+const TARGETED_SCRIPT_RECOVERY_CANDIDATES = 1
 // Batch multi-slot recovery to avoid repeated full-context inference calls.
 // A one-slot gap requests one candidate, with bounded retries if it is filtered.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
@@ -17,7 +18,9 @@ const TARGETED_PRIMARY_MAX_TOKENS = 900
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
 const TARGETED_RETRY_TOKEN_OVERHEAD = 50
 const MAX_COMBINED_TARGETED_CANDIDATES =
-  TARGETED_PRIMARY_CANDIDATES + TARGETED_RETRY_CANDIDATES
+  TARGETED_PRIMARY_CANDIDATES +
+  TARGETED_RETRY_CANDIDATES +
+  TARGETED_SCRIPT_RECOVERY_CANDIDATES
 const OUTPUT_SCRIPT_NAMES = Object.freeze([
   'Arabic', 'Armenian', 'Bengali', 'Cyrillic', 'Devanagari', 'Ethiopic',
   'Georgian', 'Greek', 'Gujarati', 'Gurmukhi', 'Han', 'Hangul', 'Hebrew',
@@ -941,7 +944,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           1,
           QUESTION_COUNT - retainedEvidence.length,
         )
-        const retryBudget = Math.min(
+        let retryBudget = Math.min(
           TARGETED_RETRY_CANDIDATES,
           initialNeed + 4,
         )
@@ -1006,6 +1009,20 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               if (error.reason === 'candidate_pool_exhausted') {
                 retainedEvidence = error.retryEvidence ?? retainedEvidence
                 rejectedCandidates = error.rejectedEvidence ?? rejectedCandidates
+                if (rejectedCandidates.some(
+                  candidate =>
+                    candidate.reason === 'unexpected_output_script',
+                )) {
+                  retryBudget = Math.max(
+                    retryBudget,
+                    Math.min(
+                      TARGETED_RETRY_CANDIDATES +
+                        TARGETED_SCRIPT_RECOVERY_CANDIDATES,
+                      initialNeed + 4 +
+                        TARGETED_SCRIPT_RECOVERY_CANDIDATES,
+                    ),
+                  )
+                }
                 continue
               }
               throw failure('quiz_validation_failed')
