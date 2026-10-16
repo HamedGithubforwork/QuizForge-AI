@@ -36,6 +36,7 @@ import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
 import {
@@ -218,7 +219,7 @@ function App() {
     const normalized = normalizePageSelection(selection)
     const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
     const result = await localPdfBridge.processLocalPdf({
-      bytes: new Uint8Array(await file.arrayBuffer()),
+      bytes: await readLocalPdfBytes(file),
       filename: file.name,
       ...(selectedPages ? { selectedPages } : {}),
     })
