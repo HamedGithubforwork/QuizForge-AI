@@ -121,6 +121,8 @@ const practiceQuiz = {
   ),
 }
 
+const hostileChoice = '<img src=x onerror="window.__qfXss=3"> Choice text'
+
 const hostileQuiz = {
   ...firstQuiz,
   title: '<img src=x onerror="window.__qfXss=1"> Quiz title',
@@ -129,9 +131,11 @@ const hostileQuiz = {
         ...question,
         question: '<svg onload="window.__qfXss=2">Question text</svg>',
         choices: [
-          '<img src=x onerror="window.__qfXss=3"> Choice text',
+          hostileChoice,
           ...question.choices.slice(1),
         ],
+        correct_answer: hostileChoice,
+        accepted_answers: [hostileChoice],
         explanation: '<iframe srcdoc="<script>parent.__qfXss=4</script>"></iframe> Explanation text',
       }
     : question),
