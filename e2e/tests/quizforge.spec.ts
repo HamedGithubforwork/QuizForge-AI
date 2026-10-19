@@ -689,10 +689,9 @@ test(
     await expect(
       card.getByText(hostileQuiz.questions[0].choices[0], { exact: true }),
     ).toBeVisible()
-    await card.getByText(
-      hostileQuiz.questions[0].choices[0],
-      { exact: true },
-    ).click()
+    for (const questionCard of await page.locator('.question-card').all()) {
+      await questionCard.locator('input[type="radio"]').first().check()
+    }
     await page.getByRole('button', { name: 'Check Answers', exact: true }).click()
     await expect(
       card.getByText(hostileQuiz.questions[0].explanation, { exact: true }),
