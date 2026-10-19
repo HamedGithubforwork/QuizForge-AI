@@ -14,13 +14,13 @@ test('Vercel sends a restrictive CSP for the frontend', () => {
   }))
 
   assert.deepEqual(directives['default-src'], ["'self'"])
-  assert.ok(directives['script-src'].includes("'self'"))
-  assert.ok(directives['script-src'].includes('https://pagead2.googlesyndication.com'))
+  assert.deepEqual(directives['script-src'], ["'self'"])
   assert.ok(!directives['script-src'].some((source) => source.includes('unsafe-')))
   assert.deepEqual(directives['object-src'], ["'none'"])
   assert.deepEqual(directives['base-uri'], ["'none'"])
   assert.deepEqual(directives['frame-ancestors'], ["'none'"])
   assert.deepEqual(directives['form-action'], ["'none'"])
+  assert.deepEqual(directives['frame-src'], ["'none'"])
 
   for (const origin of [
     'https://quizforge-ai-api.onrender.com',
