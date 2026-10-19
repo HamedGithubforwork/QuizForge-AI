@@ -113,10 +113,13 @@ readiness. The policy already supports a future lightweight profile, but no
 lightweight model has been accepted yet.
 
 `windows-hardware-probe.cjs` owns Windows-specific collection: total RAM,
-logical CPU count, available bytes on the selected storage volume, and a bounded
-best-effort GPU-presence query. GPU presence is separate from GPU acceleration
-support. The currently pinned llama.cpp runtime is CPU-only, so detecting a GPU
-does not make GPU inference available.
+logical CPU count, available bytes on the selected storage volume, a bounded
+best-effort GPU-presence query, and a separate probe of the packaged runtime's
+Vulkan devices. The internal preview pins a Vulkan-enabled llama.cpp runtime.
+GPU acceleration is enabled only when the verified runtime reports a Vulkan
+device; a generic Windows GPU name alone is not sufficient. If GPU startup fails
+before inference becomes ready, the runtime can retry once with bounded CPU
+settings. It does not retry on CPU after GPU inference has begun.
 
 The current Qwen3 4B Q4_K_M preview profile uses an 8 GiB system-memory eligibility
 floor and the model size plus a 512 MiB disk reserve. This is deliberately NOT a
@@ -313,13 +316,17 @@ The acceptance report records per-case elapsed time and requires Windows
 current hosted-runner development screen requires a generated-quiz median no worse
 than 150 seconds, no generated case above 210 seconds, and at least one valid native
 working-set and CPU-time sample during the run. These values are CI regression
-screens, not advertised user-device requirements. GPU presence still does not
-imply GPU inference: the accepted runtime path must report CPU acceleration until
-a separately validated GPU runtime exists.
+screens, not advertised user-device requirements. The hosted runner measures the
+CPU path and does not establish Vulkan performance on consumer hardware. The
+runtime reports the observed CPU/GPU mode from llama-server layer offload, or
+`unknown` when the server output does not establish it.
 
 The JSON artifact contains synthetic fixture/output data only. It must never
-contain user notes, runtime credentials, model paths, or provider secrets. Passing
-this hosted Windows gate still does not establish consumer-device thermals,
+contain user notes, runtime credentials, model paths, or provider secrets. The
+hosted Windows latency screen measures the CPU path; it does not establish Vulkan
+performance on consumer hardware. Real-device checks must confirm a reported
+Vulkan device and selected execution mode before making GPU performance claims.
+Passing this hosted Windows gate still does not establish consumer-device thermals,
 battery life, or broad real-world subject accuracy.
 
 ## Evidence
