@@ -1,14 +1,21 @@
 # Google sign-in production rollout
 
-Updated 2026-10-13. Google federation and the Google-enabled frontend are deployed at https://quizfromnotes.com/.
+Updated 2026-10-19 from the latest recorded production release-promotion run. Google federation and the Google-enabled frontend were verified at https://quizfromnotes.com/ on 2026-10-13. The host was not independently probed during this documentation update.
 
-## Exact running release
+## Latest recorded production promotion
 
-- Release/controller: `1bab85a588e2eb82f9f44d4b3f7ab7fcfa5ee405`.
-- Reviewed application: `77a060cce504008a4479deacdc31279633d0fe4f` (combined PR #579).
-- Reviewed application tree: `8016b2fce8056bd642bd615eef71eab106ae3800`.
-- Prior retained rollback release: `27b4d377b30873330ca4ff521ffde517f03569ca`, which already includes the secure-linking backend and has Google disabled in its frontend.
-- Registered native client activation remains pinned to the reviewed application. Its existing Cognito sign-in and cloud study flows are preserved.
+The latest `Permanent Lightsail existing-host release promotion` workflow run is [#82](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/38680392878), completed on 2026-10-15 from main commit `a6d097e18334cd93ca077f8f81d38b50f000c0f9`. No later promotion run was listed as of 2026-10-19.
+
+- Release bundle/source SHA: `84460039f45557c48cec0baf79e9e961ab96af23`.
+- Reviewed application SHA: `730027a5027e7479e67ad5ddb660b32b74eab322` (application/production; PR #619).
+- Previous release SHA recorded by the promotion: `4be1685ac7d1204c92b93fdaa8f02dc31f684e7b`.
+- Sanitized run artifact: [promotion report](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/38680392878/artifacts/11948165306), SHA-256 `cf03ccb02dcbf202d50eb52d000181081f527f9182fa9d2b9fbeb6c7cf6d9815`.
+- The report records `production_release_promoted`, `inspection_only=false`, release and frontend switched, backup completed before switch, rollback retained, local HTTPS verified, and the baseline firewall restored. It records no DNS or AI-configuration changes.
+- This records the latest successful promotion, not a fresh live health check after 2026-10-15.
+
+The earlier Oct 13 rollout record listed application `77a060cce504008a4479deacdc31279633d0fe4f` (combined PR #579), tree `8016b2fce8056bd642bd615eef71eab106ae3800`, and release/controller commit `1bab85a588e2eb82f9f44d4b3f7ab7fcfa5ee405`. The Oct 15 promotion report records `4be1685ac7d1204c92b93fdaa8f02dc31f684e7b` as the immediately previous release.
+
+Registered native client activation remains pinned to the reviewed application. Its existing Cognito sign-in and cloud study flows are preserved.
 
 ## Production evidence
 
@@ -20,12 +27,14 @@ Updated 2026-10-13. Google federation and the Google-enabled frontend are deploy
 | Guarded Google activation | 38452558923 | Fresh live-backend evidence, exact two-resource plan, provider/client postconditions; password sign-in preserved |
 | Google-enabled immutable build | 38453422745 | Successful build against the verified live Google provider |
 | Final release preflight | 38455211678 | Reviewed release prerequisites passed |
-| Final production promotion | 38455883919 | Release and frontend switched; fresh backup, local HTTPS, rollback, reminders and restored firewall verified |
+| Google enablement promotion (historical) | 38455883919 | Release and frontend switched; fresh backup, local HTTPS, rollback, reminders and restored firewall verified |
 | Native study/cloud sync | 38453744712 | Native PKCE login, account/deck access, refresh, offline-review replay/conflict handling and sign-out passed; synthetic cleanup passed |
 | Final browser study regression | 38457117315 | Email/MFA sign-in and study persistence passed against the final release; synthetic cleanup passed |
 | Public Google entry | Agent browser, 2026-10-13 | Live Google button reaches Google's sign-in screen with the production Cognito redirect |
 
-No model calls were used by these study canaries. Promotion reports confirm no AI-configuration or DNS changes.
+No model calls were used by these study canaries. The Oct 13 promotion reports and Oct 15 promotion artifact record no AI-configuration or DNS changes.
+
+The screenshot below documents the Oct 13 public Google-entry check; it predates the Oct 15 release.
 
 ![Live production Google entry](screenshots/google-signin-production.jpg)
 
