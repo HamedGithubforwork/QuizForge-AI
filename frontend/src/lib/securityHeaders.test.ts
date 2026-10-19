@@ -2,13 +2,19 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'))
-const headers = config.headers.find((entry) => entry.source === '/(.*)').headers
+type ResponseHeader = { key: string; value: string }
+type HeaderRule = { source: string; headers: ResponseHeader[] }
+type VercelConfig = { headers: HeaderRule[] }
+
+const config = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8')) as VercelConfig
+const headerRule = config.headers.find((entry) => entry.source === '/(.*)')
+assert.ok(headerRule, 'Vercel must apply security headers to every route')
+const headers = headerRule.headers
 const policy = headers.find((header) => header.key === 'Content-Security-Policy')?.value
 
 test('Vercel sends a restrictive CSP for the frontend', () => {
   assert.ok(policy)
-  const directives = Object.fromEntries(policy.split(';').map((part) => {
+  const directives = Object.fromEntries(policy.split(';').map((part: string) => {
     const [name, ...sources] = part.trim().split(/\s+/)
     return [name, sources]
   }))
