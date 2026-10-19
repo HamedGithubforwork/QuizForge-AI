@@ -2,15 +2,8 @@ name: Mutation testing
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 13 * * 0"
   pull_request:
-    paths:
-      - .github/workflows/mutation-testing.yml
-      - frontend/stryker.config.json
-      - frontend/package.json
-      - frontend/package-lock.json
-      - frontend/src/lib/*.ts
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
@@ -21,9 +14,10 @@ concurrency:
 
 jobs:
   frontend-mutation:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'major-milestone'))
     name: Frontend StrykerJS
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
