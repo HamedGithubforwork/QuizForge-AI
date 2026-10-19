@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pymupdf
@@ -5,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import application as application_module
 from main import (
     AuthenticatedUser,
     QuizQuestion,
@@ -140,6 +142,46 @@ def test_upload_rejects_non_pdf(
     assert response.json()["detail"] == (
         "Only PDF files are allowed."
     )
+
+
+def test_upload_rejects_fake_pdf_mime_with_malformed_content(
+    authenticated_client,
+):
+    response = authenticated_client.post(
+        "/api/documents/upload",
+        files={
+            "file": (
+                "notes.pdf",
+                b"not a PDF document",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Could not read this PDF."
+
+
+def test_pdf_upload_read_is_bounded_at_configured_limit():
+    class UploadProbe:
+        def __init__(self, size):
+            self.size = size
+            self.requested_size = None
+
+        async def read(self, size=-1):
+            self.requested_size = size
+            return b"x" * min(self.size, size)
+
+    maximum = application_module.quiz_service.MAX_FILE_SIZE
+    accepted = UploadProbe(maximum)
+    assert len(asyncio.run(application_module.read_pdf_upload(accepted))) == maximum
+    assert accepted.requested_size == maximum + 1
+
+    oversized = UploadProbe(maximum + 1)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(application_module.read_pdf_upload(oversized))
+    assert error.value.status_code == 413
+    assert oversized.requested_size == maximum + 1
 
 
 def test_upload_extracts_text_from_pdf(

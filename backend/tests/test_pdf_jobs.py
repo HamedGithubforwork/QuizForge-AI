@@ -59,6 +59,22 @@ def test_durable_ownership_idempotency_concurrent_admission_and_private_files(tm
         store.close()
 
 
+def test_traversal_style_filename_is_metadata_not_a_storage_path(tmp_path):
+    directory = tmp_path / 'queue'
+    outside = tmp_path / 'escaped.pdf'
+    store = JobStore(directory)
+    try:
+        row = store.submit('alice', '../escaped.pdf', b'private-synthetic-pdf')
+        assert row['filename'] == '../escaped.pdf'
+        assert {path.name for path in directory.iterdir()} == {
+            'jobs.sqlite3',
+            'worker.lock',
+        }
+        assert not outside.exists()
+    finally:
+        store.close()
+
+
 def test_recovery_is_bounded_and_discard_removes_raw_and_result_bytes(tmp_path):
     directory = tmp_path / 'queue'
     store = JobStore(directory)

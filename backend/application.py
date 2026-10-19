@@ -90,6 +90,13 @@ QUIZ_GENERATION_POLL_MAX_INTERVAL_SECONDS = 1.0
 QUIZ_GENERATION_POLL_JITTER_RATIO = 0.2
 
 
+async def read_pdf_upload(file: UploadFile):
+    """Read at most one byte over the configured PDF limit before rejecting."""
+    contents = await file.read(quiz_service.MAX_FILE_SIZE + 1)
+    validate_pdf_size(contents)
+    return contents
+
+
 async def extract_pdf_pages_off_event_loop(
     contents: bytes,
 ):
@@ -239,8 +246,7 @@ async def get_generation_source_identity(
         file.content_type
     )
 
-    contents = await file.read()
-    validate_pdf_size(contents)
+    contents = await read_pdf_upload(file)
 
     return (
         compute_pdf_sha256(contents),
@@ -532,8 +538,7 @@ async def upload_pdf(
     if page_selection.strip():
         raise HTTPException(400, 'Selected pages require background PDF processing.')
 
-    contents = await file.read()
-    validate_pdf_size(contents)
+    contents = await read_pdf_upload(file)
 
     pdf_sha256, pages = (
         await get_document_pages_with_cache(
