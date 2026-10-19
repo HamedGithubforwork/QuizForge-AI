@@ -159,10 +159,25 @@ generation.
 Unsupported history question types remain explicitly unavailable locally and are
 never silently switched to cloud.
 
-Privacy scope is explicit: in this phase PDF processing and authenticated source-
-page retrieval still use the existing Quiz From Notes server workflow. Only the
-question-generation step runs on-device. Full local/offline PDF extraction is a
-later local-first phase and must not be implied by this integration.
+Privacy scope differs by generation mode and client:
+
+- In the Windows desktop preview, Local mode reads the selected PDF locally,
+  extracts only the selected pages through the local PDF processor, and sends
+  their text to the on-device quiz service. The original PDF and extracted text
+  are not uploaded by this path. Local processing is bounded to 15 MiB, 100
+  pages, and 3,000,000 extracted characters. It does not provide OCR; scanned
+  pages with little readable text are reported as likely scans.
+- Cloud mode, including the website, continues to upload the PDF for online
+  extraction and generation. Local AI is not available in the website or in
+  desktop builds without the optional local PDF and inference bridges.
+- If a desktop Local AI request uses source-page text from an existing
+  server-processed document, the authenticated source-page API remains a network
+  dependency. New PDFs processed through the local PDF bridge use the text held
+  for that local document instead.
+- Sign-in, reporting generation usage, and saving a quiz to account history
+  require internet access. A locally generated quiz that cannot be saved is not
+  queued for later synchronization. Local mode never silently switches to Cloud
+  mode; the user must choose Cloud explicitly.
 
 Normal packaged builds still do not ship a Local AI runtime. Their fixed resources
 runtime location therefore remains unavailable and the generation option stays
@@ -248,9 +263,11 @@ its own schema and lifecycle:
 - the hosted renderer receives a fixed read method only and has no generic source
   cache write primitive.
 
-This does not make PDF extraction fully local. The first uncached source-page read
-still comes from the authenticated Quiz From Notes API. Full local PDF
-processing/extraction remains a separate future capability.
+This cache applies only when the desktop requests page text through the
+authenticated source-page API. A PDF processed through the local PDF bridge keeps
+its selected page text in the current renderer session and does not populate this
+persistent cache. The website has no local source-text cache or local inference
+path; its PDF processing remains cloud-backed.
 
 ## Product acceptance gate
 
