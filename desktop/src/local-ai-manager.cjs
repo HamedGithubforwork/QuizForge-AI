@@ -49,7 +49,9 @@ function publicCapability(value) {
       !Array.isArray(value.reasons) || value.reasons.some(reason => !REASONS.has(reason)) ||
       !value.hardware || typeof value.hardware !== 'object' ||
       typeof value.hardware.gpuDetected !== 'boolean' ||
-      typeof value.hardware.gpuAccelerationUsable !== 'boolean') {
+      typeof value.hardware.gpuAccelerationUsable !== 'boolean' ||
+      (value.hardware.gpuDevice !== null && value.hardware.gpuDevice !== undefined &&
+        (typeof value.hardware.gpuDevice !== 'string' || !/^Vulkan\d+$/.test(value.hardware.gpuDevice)))) {
     throw failure('invalid_capability')
   }
   let requirements = null
@@ -79,6 +81,7 @@ function publicCapability(value) {
     hardware: Object.freeze({
       gpuDetected: value.hardware.gpuDetected,
       gpuAccelerationUsable: value.hardware.gpuAccelerationUsable,
+      gpuDevice: value.hardware.gpuDevice ?? null,
     }),
     requirements,
   })

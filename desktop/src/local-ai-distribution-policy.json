@@ -1,10 +1,10 @@
 {
   "schema": 1,
-  "reviewed_date": "2026-10-03",
+  "reviewed_date": "2026-10-07",
   "runtime": {
     "project": "ggml-org/llama.cpp",
     "version": "b11317",
-    "archive_sha256": "f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c",
+    "archive_sha256": "b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338",
     "license": "MIT",
     "delivery": "bundle_before_activation",
     "automatic_download": false,
@@ -27,7 +27,7 @@
     ],
     "package_manifest": "desktop/src/local-runtime-manifest.json",
     "package_kind": "server-only",
-    "package_file_count": 25,
+    "package_file_count": 26,
     "internal_preview_only": true
   },
   "model": {

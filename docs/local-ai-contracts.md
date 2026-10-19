@@ -113,10 +113,13 @@ readiness. The policy already supports a future lightweight profile, but no
 lightweight model has been accepted yet.
 
 `windows-hardware-probe.cjs` owns Windows-specific collection: total RAM,
-logical CPU count, available bytes on the selected storage volume, and a bounded
-best-effort GPU-presence query. GPU presence is separate from GPU acceleration
-support. The currently pinned llama.cpp runtime is CPU-only, so detecting a GPU
-does not make GPU inference available.
+logical CPU count, available bytes on the selected storage volume, a bounded
+best-effort GPU-presence query, and a separate probe of the packaged runtime's
+Vulkan devices. The internal preview pins a Vulkan-enabled llama.cpp runtime.
+GPU acceleration is enabled only when the verified runtime reports a Vulkan
+device; a generic Windows GPU name alone is not sufficient. If GPU startup fails
+before inference becomes ready, the runtime can retry once with bounded CPU
+settings. It does not retry on CPU after GPU inference has begun.
 
 The current Qwen3 4B Q4_K_M preview profile uses an 8 GiB system-memory eligibility
 floor and the model size plus a 512 MiB disk reserve. This is deliberately NOT a
@@ -159,10 +162,25 @@ generation.
 Unsupported history question types remain explicitly unavailable locally and are
 never silently switched to cloud.
 
-Privacy scope is explicit: in this phase PDF processing and authenticated source-
-page retrieval still use the existing Quiz From Notes server workflow. Only the
-question-generation step runs on-device. Full local/offline PDF extraction is a
-later local-first phase and must not be implied by this integration.
+Privacy scope differs by generation mode and client:
+
+- In the Windows desktop preview, Local mode reads the selected PDF locally,
+  extracts only the selected pages through the local PDF processor, and sends
+  their text to the on-device quiz service. The original PDF and extracted text
+  are not uploaded by this path. Local processing is bounded to 15 MiB, 100
+  pages, and 3,000,000 extracted characters. It does not provide OCR; scanned
+  pages with little readable text are reported as likely scans.
+- Cloud mode, including the website, continues to upload the PDF for online
+  extraction and generation. Local AI is not available in the website or in
+  desktop builds without the optional local PDF and inference bridges.
+- If a desktop Local AI request uses source-page text from an existing
+  server-processed document, the authenticated source-page API remains a network
+  dependency. New PDFs processed through the local PDF bridge use the text held
+  for that local document instead.
+- Sign-in, reporting generation usage, and saving a quiz to account history
+  require internet access. A locally generated quiz that cannot be saved is not
+  queued for later synchronization. Local mode never silently switches to Cloud
+  mode; the user must choose Cloud explicitly.
 
 Normal packaged builds still do not ship a Local AI runtime. Their fixed resources
 runtime location therefore remains unavailable and the generation option stays
@@ -248,9 +266,11 @@ its own schema and lifecycle:
 - the hosted renderer receives a fixed read method only and has no generic source
   cache write primitive.
 
-This does not make PDF extraction fully local. The first uncached source-page read
-still comes from the authenticated Quiz From Notes API. Full local PDF
-processing/extraction remains a separate future capability.
+This cache applies only when the desktop requests page text through the
+authenticated source-page API. A PDF processed through the local PDF bridge keeps
+its selected page text in the current renderer session and does not populate this
+persistent cache. The website has no local source-text cache or local inference
+path; its PDF processing remains cloud-backed.
 
 ## Product acceptance gate
 
@@ -276,7 +296,14 @@ Generated questions are not accepted merely because they satisfy JSON structure.
 Each question must map to exactly one unique synthetic source fact by its question /
 explanation context, selected correct answer, and cited source page. Five distinct
 facts must be tested. Injection/noise/unselected decoy terms are separately
-forbidden in the accepted quiz output.
+forbidden in the accepted quiz output. Generated questions, choices, and
+explanations must also stay within writing systems present in the supplied study
+material; targeted-practice candidates that switch to an unsupported script are
+filtered before bounded recovery. If only an explanation contains an unsupported
+script, the service falls back to the grounded correct answer for that explanation
+instead of spending another inference call. Bounded recovery requests up to three
+backup candidates per inference call, including when only one final question is
+missing, to avoid serial model calls for filtered duplicates.
 
 The product quiz service uses the named `quiz-mcq-v1` generation profile. The
 Windows adapter maps that name to the previously evaluated Qwen non-thinking
@@ -289,13 +316,17 @@ The acceptance report records per-case elapsed time and requires Windows
 current hosted-runner development screen requires a generated-quiz median no worse
 than 150 seconds, no generated case above 210 seconds, and at least one valid native
 working-set and CPU-time sample during the run. These values are CI regression
-screens, not advertised user-device requirements. GPU presence still does not
-imply GPU inference: the accepted runtime path must report CPU acceleration until
-a separately validated GPU runtime exists.
+screens, not advertised user-device requirements. The hosted runner measures the
+CPU path and does not establish Vulkan performance on consumer hardware. The
+runtime reports the observed CPU/GPU mode from llama-server layer offload, or
+`unknown` when the server output does not establish it.
 
 The JSON artifact contains synthetic fixture/output data only. It must never
-contain user notes, runtime credentials, model paths, or provider secrets. Passing
-this hosted Windows gate still does not establish consumer-device thermals,
+contain user notes, runtime credentials, model paths, or provider secrets. The
+hosted Windows latency screen measures the CPU path; it does not establish Vulkan
+performance on consumer hardware. Real-device checks must confirm a reported
+Vulkan device and selected execution mode before making GPU performance claims.
+Passing this hosted Windows gate still does not establish consumer-device thermals,
 battery life, or broad real-world subject accuracy.
 
 ## Evidence

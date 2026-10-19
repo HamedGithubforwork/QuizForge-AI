@@ -157,6 +157,16 @@ test('structured output schemas and named generation profiles stay trusted and b
 
   await provider.generate({
     ...input(),
+    generationProfile: 'quiz-mcq-targeted-primary-v1',
+  })
+  assert.equal(runtimeRequest.seed, 71828)
+  assert.equal(runtimeRequest.temperature, 0.9)
+  assert.equal(runtimeRequest.top_p, 0.9)
+  assert.equal(runtimeRequest.top_k, 40)
+  assert.equal(runtimeRequest.presence_penalty, 1.8)
+
+  await provider.generate({
+    ...input(),
     generationProfile: 'quiz-mcq-targeted-retry-v1',
   })
   assert.equal(runtimeRequest.seed, 2718)

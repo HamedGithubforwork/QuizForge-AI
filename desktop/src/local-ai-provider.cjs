@@ -15,6 +15,7 @@ const ROLES = new Set(['system', 'user', 'assistant'])
 const PROFILES = new Set([
   'quiz-mcq-v1',
   'quiz-mcq-retry-v1',
+  'quiz-mcq-targeted-primary-v1',
   'quiz-mcq-targeted-retry-v1',
   'quiz-mcq-targeted-retry-v2',
   'quiz-mcq-targeted-retry-v3',

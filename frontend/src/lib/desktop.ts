@@ -32,6 +32,38 @@ export type DesktopLocalQuizRequest = {
   }
 }
 
+export type DesktopLocalDocumentQuizRequest = {
+  bytes: Uint8Array
+  filename: string
+  selectedPages?: number[]
+  questionCount: 5
+  difficulty: 'easy' | 'medium' | 'hard'
+  questionType: 'multiple_choice'
+}
+
+export type DesktopLocalPdfRequest = {
+  bytes: Uint8Array
+  filename: string
+  selectedPages?: number[]
+}
+
+export type DesktopLocalPdfDocument = {
+  filename: string | null
+  pdfSha256: string
+  pageCount: number
+  selectedPageCount: number
+  characterCount: number
+  extractablePageCount: number
+  scannedLikely: boolean
+  warning: string | null
+  pages: Array<{ pageNumber: number; text: string }>
+  processing: 'local'
+}
+
+export type DesktopLocalPdfResult =
+  | { ok: true; document: DesktopLocalPdfDocument }
+  | { ok: false; error: 'cancelled' | 'busy' | 'invalid_input' | 'invalid_selection' | 'input_too_large' | 'too_many_pages' | 'text_too_large' | 'processing_failed' | 'runtime_unavailable' | 'invalid_request' }
+
 export type DesktopLocalQuizResult =
   | { ok: true; quiz: Quiz }
   | {
@@ -53,7 +85,38 @@ export type DesktopLocalQuizResult =
         | 'generation_failed'
     }
 
+export type DesktopLocalDocumentQuizResult =
+  | {
+      ok: true
+      processing: 'local'
+      documentSha256: string
+      pageCount: number
+      selectedPages: number[]
+      quiz: Quiz
+    }
+  | {
+      ok: false
+      error:
+        | 'cancelled'
+        | 'timed_out'
+        | 'busy'
+        | 'model_missing'
+        | 'invalid_model'
+        | 'runtime_invalid'
+        | 'runtime_unavailable'
+        | 'source_too_large'
+        | 'document_too_large'
+        | 'too_many_pages'
+        | 'insufficient_source'
+        | 'invalid_request'
+        | 'invalid_response'
+        | 'quiz_validation_failed'
+        | 'generation_failed'
+        | 'processing_failed'
+    }
+
 export type DesktopLocalAiStatus = {
+  lastAccelerationMode?: 'cpu' | 'gpu' | 'unknown' | null
   initialized: boolean
   phase: 'idle' | 'checking' | 'downloading' | 'removing'
   progress: { receivedBytes: number; totalBytes: number } | null
@@ -81,13 +144,14 @@ export type DesktopLocalAiStatus = {
   }
 }
 export type DesktopAccount = { userId: string; email: string; enrolled: boolean }
+export type DesktopSignInMethod = 'default' | 'google'
 type DesktopRequest = { path: string; method: string; body?: string; form?: Array<
   { name: string; value: string } | { name: string; bytes: Uint8Array; filename: string }
 > }
 export type DesktopBridge = {
   version: 1
   status(): Promise<{ available: boolean; account: DesktopAccount | null }>
-  signIn(): Promise<DesktopAccount>
+  signIn(method?: DesktopSignInMethod): Promise<DesktopAccount>
   signOut(): Promise<void>
   request(request: DesktopRequest): Promise<{ status: number; body: string; contentType: string }>
   loadSourcePageText?(request: { documentSha256: string; pageNumber: number }): Promise<string>
@@ -100,6 +164,8 @@ export type DesktopBridge = {
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
   localAiQuizStatus?(): Promise<DesktopLocalAiQuizStatus>
   generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
+  generateLocalDocumentQuiz?(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
+  processLocalPdf?(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>
   cancelLocalAiQuiz?(): Promise<void>
   openAccountWebsite(): Promise<void>
 }
@@ -163,6 +229,32 @@ export function desktopLocalQuizBridge(
     candidate.generateLocalAiQuiz,
     candidate.cancelLocalAiQuiz,
   ].every(method => typeof method === 'function')
+    ? candidate
+    : undefined
+}
+
+export type DesktopLocalDocumentQuizBridge = DesktopLocalAiBridge & {
+  generateLocalDocumentQuiz(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
+  cancelLocalAiQuiz(): Promise<void>
+}
+
+export type DesktopLocalPdfBridge = DesktopLocalAiBridge & {
+  processLocalPdf(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>
+}
+
+export function desktopLocalPdfBridge(bridge = desktopBridge()): DesktopLocalPdfBridge | undefined {
+  if (!bridge || !desktopLocalAiBridge(bridge)) return undefined
+  const candidate = bridge as DesktopLocalPdfBridge
+  return typeof candidate.processLocalPdf === 'function' ? candidate : undefined
+}
+
+export function desktopLocalDocumentQuizBridge(
+  bridge = desktopBridge(),
+): DesktopLocalDocumentQuizBridge | undefined {
+  if (!bridge || !desktopLocalAiBridge(bridge)) return undefined
+  const candidate = bridge as DesktopLocalDocumentQuizBridge
+  return typeof candidate.generateLocalDocumentQuiz === 'function' &&
+    typeof candidate.cancelLocalAiQuiz === 'function'
     ? candidate
     : undefined
 }

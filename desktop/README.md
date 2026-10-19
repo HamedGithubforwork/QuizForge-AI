@@ -35,20 +35,26 @@ No administrator installation is required. The app is separately versioned.
 
 ## Boundaries
 
-- Reuse the deployed React interface at `https://quizfromnotes.com`.
-- Permit only that exact origin and reviewed paths on its exact public Cognito
-  hosted-login origin; reject other navigation, redirects, popups and webviews.
+- The regular desktop package reuses the deployed React interface at
+  `https://quizfromnotes.com`. The Local AI internal preview packages the matching
+  branch frontend and serves it from the restricted `qfn://app` origin.
+- Permit only the configured app origin, the bundled `qfn://app` origin in the
+  Local AI package, and reviewed paths on the public Cognito hosted-login origin;
+  reject other navigation, redirects, popups and webviews.
 - Preserve the existing in-window authorization-code/PKCE redirect. The explicit native sign-in acceptance test uses a separate reviewed desktop client and private callback.
 - Enable Electron sandbox, context isolation and web security. Disable Node in
-  every renderer context. No preload or renderer IPC bridge. Only the explicit native test can open its internally generated sign-in URL in the system browser.
+  every renderer context. The regular package has no preload bridge; the Local AI
+  preview exposes only the fixed, signed-in desktop commands from `preload.cjs`.
+  It has no generic IPC surface. Native sign-in uses the system browser.
 - Use an in-memory browser partition. Tokens retain the web app's in-memory
   handling; closing the app discards the session. No persistent token cache yet.
 - Deny permission requests and downloads. PDF upload uses the existing browser
   file picker. Browser push is not claimed to work in Electron; use web reminders
   until a supported desktop notification path is verified.
 - A connection failure offers Retry/Offline study/Close without logging URLs, codes or tokens.
-- Existing server AI quotas and entitlements remain authoritative. No local model
-  runtime, paid service, new AWS resource or automatic update is enabled.
+- Existing server AI quotas and entitlements remain authoritative for Cloud mode.
+  The Local AI preview has a separately verified on-device runtime; it adds no paid
+  service, AWS resource or automatic model download.
 
 ## Acceptance before expanding distribution
 
@@ -63,8 +69,9 @@ No administrator installation is required. The app is separately versioned.
 4. Preview 0.1.6 supports opt-in offline deck browsing and answer-reveal practice.
    Due-card ratings persist locally and sync explicitly after reconnecting. Editing
    and generation require online functionality; do not claim full offline parity.
-5. Add local inference behind an explicit provider boundary, hardware/model checks,
-   and measured quality/latency tests. Keep cloud secrets server-side.
+5. Before distributing the Local AI preview, complete real-device hardware,
+   licensing, quality/latency and signed-install acceptance. Keep cloud secrets
+   server-side and retain explicit model-download consent.
 
 Do not mark Phase 16 complete or advertise an offline/local-AI desktop product
 based on this foundation. Web releases still change the hosted UI independently
@@ -246,12 +253,21 @@ and click a rating, and verify that rating survived another restart. Unit tests
 cover concurrent clicks, interrupted writes, replacement protection, account
 changes, retry identity and v1 upgrade isolation. Purchase gating remains deferred.
 
-## Local-model storage (not yet connected to UI)
+## Local AI internal preview
 
-`local-model-store.cjs` is a main-process-only component for a future explicit
-model-download action. It is not imported by the current app and performs no
+The Local AI installer includes the frontend built from the same branch as its
+desktop bridge and native runtime. After signing in, open **Local AI** in the
+desktop navigation to check compatibility and explicitly download or remove the
+optional model. On the quiz upload screen, choose **Local AI** before processing
+to extract PDF text and generate questions on this computer. The PDF is not sent
+to the server in Local mode. Cloud mode keeps the existing server processing path.
+Scanned PDFs need OCR, which is not included yet. Account sign-in and cloud sync
+still need internet, and locally generated quizzes are not yet stored for later
+sync. This remains an internal preview, not a released offline desktop app.
+
+`local-model-store.cjs` remains a main-process-only component. It performs no
 automatic download. Its pinned Qwen3 4B Q4_K_M entry is an **experimental evaluation
-candidate**, not a selected default or a promise of local-generation availability.
+candidate**, not a published model recommendation.
 
 Downloads stream to a unique temporary file, require the exact reviewed byte count
 and SHA-256, and become usable only after completion. The final publish never
@@ -269,8 +285,8 @@ remain under their existing separate encrypted storage policy.
 The caller must provide an app-owned directory, map failures to generic UI copy,
 obtain explicit download/removal intent, and keep paths/model configuration out of
 renderer control. The disk check reserves model size plus 512 MiB; it is not a RAM
-or GPU compatibility guarantee. Native parsing/runtime execution, lifecycle,
-hardware checks, UI and purchase entitlements are separate unfinished steps.
+or GPU compatibility guarantee. Hardware-tier policy, OCR, local quiz persistence,
+explicit cloud sync and purchase entitlements remain separate unfinished steps.
 
 ### Experimental local runtime boundary
 

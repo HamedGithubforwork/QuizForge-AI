@@ -5,6 +5,7 @@ import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  readLocalPdfBytes,
 } from './localQuizGeneration.ts'
 import type {
   DesktopLocalAiQuizStatus,
@@ -45,6 +46,44 @@ const document = {
     },
   ],
 }
+
+test(
+  'rejects oversized Local AI PDFs before reading the file into memory',
+  async () => {
+    let readAttempted = false
+    await assert.rejects(
+      readLocalPdfBytes({
+        size: 15 * 1024 * 1024 + 1,
+        async arrayBuffer() {
+          readAttempted = true
+          return new ArrayBuffer(8)
+        },
+      }),
+      /over the 15 MB limit/,
+    )
+    assert.equal(readAttempted, false)
+
+    await assert.rejects(
+      readLocalPdfBytes({
+        size: 0,
+        async arrayBuffer() {
+          readAttempted = true
+          return new ArrayBuffer(8)
+        },
+      }),
+      /valid PDF file/,
+    )
+    assert.equal(readAttempted, false)
+
+    const accepted = await readLocalPdfBytes({
+      size: 15 * 1024 * 1024,
+      async arrayBuffer() {
+        return new ArrayBuffer(8)
+      },
+    })
+    assert.equal(accepted.byteLength, 8)
+  },
+)
 
 test(
   'builds a five-question MCQ request from authenticated source pages',

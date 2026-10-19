@@ -24,7 +24,7 @@ async function main() {
   result.catch(() => {})
   await Promise.race([started, result.then(() => { throw Error('Expected child launch') })])
   assert.equal(options.shell, false)
-  assert.equal(options.stdio, 'ignore')
+  assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe'])
   assert.match(options.env.LLAMA_API_KEY, /^[0-9a-f]{64}$/)
   assert.equal(args[args.indexOf('--host') + 1], '127.0.0.1')
   await assert.rejects(runtime.complete(payload), { code: 'busy' })
