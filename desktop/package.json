@@ -15,7 +15,7 @@
     "pack:local-ai-preview-dir": "electron-builder --config build/local-ai-preview.cjs --dir --win --x64 --publish never"
   },
   "devDependencies": {
-    "electron": "44.5.0",
+    "electron": "44.9.3",
     "electron-builder": "26.15.3"
   },
   "build": {
