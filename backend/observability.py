@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from redis.exceptions import RedisError
+from starlette.responses import JSONResponse
 
 
 METRIC_PREFIX = "quizforge:metrics:"
@@ -352,7 +353,12 @@ async def observe_http_request(request, call_next, metric_client=None):
             duration_ms=duration,
             error_type=type(error).__name__,
         )
-        raise
+        response = JSONResponse(
+            {"detail": "Internal server error."},
+            status_code=500,
+        )
+        response.headers["X-Request-ID"] = request_id
+        return response
 
     duration = elapsed_ms(started_at)
     metrics = {

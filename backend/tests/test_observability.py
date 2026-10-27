@@ -1,4 +1,5 @@
 import asyncio
+import json
 import observability
 from types import SimpleNamespace
 
@@ -222,3 +223,40 @@ def test_http_observability_adds_request_id_and_metrics(monkeypatch):
         == f"{TIMING_PREFIX}http_latency_ms"
         for call in client.timing_calls
     )
+
+
+
+def test_http_observability_returns_safe_response_for_unhandled_errors(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(
+        observability.logger,
+        "log",
+        lambda _level, message: emitted.append(message),
+    )
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path="/api/private/SYNTHETIC_EMAIL"),
+    )
+
+    async def call_next(_request):
+        raise RuntimeError(
+            "SYNTHETIC_PASSWORD SYNTHETIC_ACCESS_TOKEN "
+            "SYNTHETIC_REFRESH_TOKEN SYNTHETIC_API_KEY "
+            "SYNTHETIC_PRIVATE_PDF 4111111111111111 "
+            "https://example.test/?token=SYNTHETIC_URL_TOKEN"
+        )
+
+    response = asyncio.run(observe_http_request(request, call_next))
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"]
+    assert json.loads(response.body) == {"detail": "Internal server error."}
+    for value in (
+        "SYNTHETIC_PASSWORD",
+        "SYNTHETIC_ACCESS_TOKEN",
+        "SYNTHETIC_REFRESH_TOKEN",
+        "SYNTHETIC_API_KEY",
+        "SYNTHETIC_PRIVATE_PDF",
+        "4111111111111111",
+        "SYNTHETIC_URL_TOKEN",
+    ):
+        assert value not in emitted[-1]
