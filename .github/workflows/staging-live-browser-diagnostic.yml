@@ -1,0 +1,33 @@
+name: Staging live browser diagnosis (read-only)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/staging-live-browser-diagnostic.yml"
+      - "e2e/staging-live-diagnostic.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-staging:
+    name: Load public staging page and detect blank screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Install pinned browser checks
+        run: npm ci --prefix e2e
+      - name: Install Chromium
+        run: npx --prefix e2e playwright install --with-deps chromium
+      - name: Read-only unauthenticated staging smoke
+        run: node e2e/staging-live-diagnostic.mjs
