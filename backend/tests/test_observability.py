@@ -1,4 +1,6 @@
 import asyncio
+import json
+import observability
 from types import SimpleNamespace
 
 from observability import (
@@ -55,15 +57,32 @@ class FakeRedis:
         return FakePipeline(self)
 
 
-def test_log_event_returns_structured_payload():
-    payload = log_event(
-        "test_event",
-        example_value=3,
-    )
-
-    assert payload["event"] == "test_event"
-    assert payload["example_value"] == 3
+def test_log_event_drops_unapproved_fields_and_unknown_events(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(observability.logger, "log", lambda _level, message: emitted.append(message))
+    payload = log_event("document_cache_lookup", cache_result="hit", page_count=3,
+        password="SYNTHETIC_PASSWORD", access_token="SYNTHETIC_ACCESS_TOKEN",
+        refresh_token="SYNTHETIC_REFRESH_TOKEN", api_key="SYNTHETIC_API_KEY",
+        private_pdf="SYNTHETIC_PRIVATE_PDF", card_number="4111111111111111",
+        error="SYNTHETIC_EXCEPTION_TEXT", url="https://example.test/?token=SYNTHETIC_URL_TOKEN")
+    assert payload["event"] == "document_cache_lookup"
+    assert payload["cache_result"] == "hit" and payload["page_count"] == 3
     assert payload["timestamp"]
+    assert set(payload) == {"timestamp", "event", "cache_result", "page_count"}
+    for value in ("SYNTHETIC_PASSWORD", "SYNTHETIC_ACCESS_TOKEN", "SYNTHETIC_REFRESH_TOKEN",
+                  "SYNTHETIC_API_KEY", "SYNTHETIC_PRIVATE_PDF", "4111111111111111",
+                  "SYNTHETIC_EXCEPTION_TEXT", "SYNTHETIC_URL_TOKEN"):
+        assert value not in emitted[0]
+    unknown = log_event("unregistered_event", private_data="SYNTHETIC_PRIVATE_DATA")
+    assert unknown["event"] == "unclassified"
+    assert set(unknown) == {"timestamp", "event"}
+    assert "SYNTHETIC_PRIVATE_DATA" not in emitted[1]
+    failure = log_event("http_request_failed", request_id="a" * 32, method="POST",
+        duration_ms=12, error_type="SYNTHETIC_ACCESS_TOKEN",
+        exception="SYNTHETIC_EXCEPTION_TEXT", url="https://example.test/?key=SYNTHETIC_URL_TOKEN")
+    assert "error_type" not in failure
+    assert all(value not in emitted[2] for value in
+               ("SYNTHETIC_ACCESS_TOKEN", "SYNTHETIC_EXCEPTION_TEXT", "SYNTHETIC_URL_TOKEN"))
 
 
 def test_document_cache_metrics_track_hit_and_miss():
@@ -166,12 +185,14 @@ def test_quiz_metrics_track_failed_cache_miss():
     ) in client.calls
 
 
-def test_http_observability_adds_request_id_and_metrics():
+def test_http_observability_adds_request_id_and_metrics(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(observability.logger, "log", lambda _level, message: emitted.append(message))
     client = FakeRedis()
     request = SimpleNamespace(
         method="GET",
         url=SimpleNamespace(
-            path="/api/health",
+            path="/api/private/SYNTHETIC_EMAIL",
         ),
     )
 
@@ -190,6 +211,8 @@ def test_http_observability_adds_request_id_and_metrics():
     )
 
     assert response.headers["X-Request-ID"]
+    assert "SYNTHETIC_EMAIL" not in emitted[-1]
+    assert '"path"' not in emitted[-1]
     assert (
         f"{METRIC_PREFIX}http_requests_total",
         1,
@@ -200,3 +223,40 @@ def test_http_observability_adds_request_id_and_metrics():
         == f"{TIMING_PREFIX}http_latency_ms"
         for call in client.timing_calls
     )
+
+
+
+def test_http_observability_returns_safe_response_for_unhandled_errors(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(
+        observability.logger,
+        "log",
+        lambda _level, message: emitted.append(message),
+    )
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path="/api/private/SYNTHETIC_EMAIL"),
+    )
+
+    async def call_next(_request):
+        raise RuntimeError(
+            "SYNTHETIC_PASSWORD SYNTHETIC_ACCESS_TOKEN "
+            "SYNTHETIC_REFRESH_TOKEN SYNTHETIC_API_KEY "
+            "SYNTHETIC_PRIVATE_PDF 4111111111111111 "
+            "https://example.test/?token=SYNTHETIC_URL_TOKEN"
+        )
+
+    response = asyncio.run(observe_http_request(request, call_next))
+    assert response.status_code == 500
+    assert response.headers["X-Request-ID"]
+    assert json.loads(response.body) == {"detail": "Internal server error."}
+    for value in (
+        "SYNTHETIC_PASSWORD",
+        "SYNTHETIC_ACCESS_TOKEN",
+        "SYNTHETIC_REFRESH_TOKEN",
+        "SYNTHETIC_API_KEY",
+        "SYNTHETIC_PRIVATE_PDF",
+        "4111111111111111",
+        "SYNTHETIC_URL_TOKEN",
+    ):
+        assert value not in emitted[-1]
