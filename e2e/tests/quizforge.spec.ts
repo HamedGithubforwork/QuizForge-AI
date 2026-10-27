@@ -488,6 +488,88 @@ async function logIn(page: Page) {
   ).toBeVisible()
 }
 
+test('Local AI quiz content is rendered as inert text in the desktop bridge path', async ({ page }) => {
+  const hostileTitle = '<img src=x onerror="window.__localAiXss++"> Local quiz'
+  const hostileQuestion = '<svg onload="window.__localAiXss++">Which item is safe?</svg>'
+  const hostileChoice = '<img src=x onerror="window.__localAiXss++"> safe choice'
+  const hostileExplanation = '<iframe srcdoc="<script>window.__localAiXss++</script>"></iframe>'
+  const quiz = {
+    title: hostileTitle,
+    questions: [
+      makeQuestion(hostileQuestion, [hostileChoice, 'not selected', 'third choice', 'fourth choice'], hostileExplanation, 1),
+      ...firstQuiz.questions.slice(1),
+    ],
+  }
+
+  await page.addInitScript(({ localQuiz, email, sourceText, documentSha256 }) => {
+    Object.assign(window, {
+      __localAiXss: 0,
+      quizFromNotesDesktop: {
+        version: 1,
+        status: async () => ({ available: true, account: { userId: 'desktop-e2e', email, enrolled: true } }),
+        signIn: async () => ({ userId: 'desktop-e2e', email, enrolled: true }),
+        signOut: async () => {},
+        openAccountWebsite: async () => {},
+        reminderStatus: async () => ({ supported: false, enabled: false }),
+        enableReminders: async () => {},
+        disableReminders: async () => {},
+        localAiStatus: async () => ({}),
+        startLocalAiModelDownload: async () => ({}),
+        cancelLocalAiModelDownload: async () => ({}),
+        removeLocalAiModel: async () => ({}),
+        localAiQuizStatus: async () => ({ available: true, reason: null, busy: false, execution: 'local',
+          constraints: { questionCount: 5, questionType: 'multiple_choice', maxSourceBytes: 100_000 } }),
+        generateLocalAiQuiz: async () => ({ ok: true, quiz: localQuiz }),
+        cancelLocalAiQuiz: async () => {},
+        loadSourcePageText: async () => sourceText,
+        request: async ({ path, method }) => {
+          if (path === '/api/documents/jobs') {
+            return { status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: [], supports_page_selection: false }) }
+          }
+          if (path === '/api/documents/upload' && method === 'POST') {
+            return { status: 200, contentType: 'application/json', body: JSON.stringify({ filename: 'e2e-notes.pdf',
+              pdf_sha256: documentSha256, page_count: 1, character_count: 780, extractable_page_count: 1,
+              scanned_likely: false, warning: null, pages: [{ page_number: 1, character_count: 780,
+                preview: 'TCP provides reliable ordered delivery. UDP is connectionless.' }] }) }
+          }
+          if (path === '/api/generation-usage/local') {
+            return { status: 204, contentType: 'application/json', body: '' }
+          }
+          return { status: 404, contentType: 'application/json', body: '{}' }
+        },
+      },
+    })
+  }, { localQuiz: quiz, email: TEST_EMAIL, sourceText: sourcePageText[1], documentSha256: DOCUMENT_SHA256 })
+
+  await page.goto('/')
+  await expect(page.getByText('Signed in as')).toBeVisible()
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'e2e-notes.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% Local AI security fixture\n'),
+  })
+  await page.getByRole('button', { name: 'Process PDF', exact: true }).click()
+  await expect(page.getByText('PDF processed successfully')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Generate Locally', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Generate Locally', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: hostileTitle })).toBeVisible()
+  await expect(page.getByText(hostileQuestion, { exact: true })).toBeVisible()
+  await expect(page.getByText(hostileChoice, { exact: true })).toBeVisible()
+  const cards = page.locator('.question-card')
+  const answers = [hostileChoice, ...firstQuiz.questions.slice(1).map(question => question.choices[0])]
+  for (let index = 0; index < answers.length; index += 1) {
+    await cards.nth(index).getByText(answers[index], { exact: true }).click()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.getByText(hostileExplanation, { exact: true })).toBeVisible()
+  await expect(page.locator('img[src="x"][onerror], svg[onload], iframe[srcdoc]')).toHaveCount(0)
+  const eventAttributes = await page.locator('*').evaluateAll(elements => elements.reduce((count, element) =>
+    count + [...element.attributes].filter(attribute => attribute.name.toLowerCase().startsWith('on')).length, 0))
+  expect(eventAttributes).toBe(0)
+  expect(await page.evaluate(() => (window as Window & { __localAiXss: number }).__localAiXss)).toBe(0)
+})
+
 test(
   'logs in and completes the PDF, quiz, history, and weak-area workflow',
   async ({ page }) => {
