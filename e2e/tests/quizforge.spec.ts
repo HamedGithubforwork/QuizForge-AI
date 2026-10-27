@@ -121,6 +121,28 @@ const practiceQuiz = {
   ),
 }
 
+const hostileFilename = '<img src=x onerror="window.__qfXss=5"> notes.pdf'
+const hostilePdfText = '<svg onload="window.__qfXss=6">PDF source text</svg>'
+const hostileChoice = '<img src=x onerror="window.__qfXss=3"> Choice text'
+
+const hostileQuiz = {
+  ...firstQuiz,
+  title: '<img src=x onerror="window.__qfXss=1"> Quiz title',
+  questions: firstQuiz.questions.map((question, index) => index === 0
+    ? {
+        ...question,
+        question: '<svg onload="window.__qfXss=2">Question text</svg>',
+        choices: [
+          hostileChoice,
+          ...question.choices.slice(1),
+        ],
+        correct_answer: hostileChoice,
+        accepted_answers: [hostileChoice],
+        explanation: '<iframe srcdoc="<script>parent.__qfXss=4</script>"></iframe> Explanation text',
+      }
+    : question),
+}
+
 const sourcePageText: Record<number, string> = {
   1: 'TCP provides reliable ordered delivery. UDP is a connectionless transport protocol.',
   2: 'ARP maps IPv4 addresses to MAC addresses. DNS resolves host names to IP addresses. HTTP is used for web requests.',
@@ -232,7 +254,11 @@ async function mockSupabase(
   )
 }
 
-async function mockBackend(page: Page) {
+async function mockBackend(
+  page: Page,
+  firstGenerationQuiz = firstQuiz,
+  overrides: { filename?: string; sourceText?: Record<number, string> } = {},
+) {
   let generationCount = 0
   let sourceRequestCount = 0
 
@@ -249,7 +275,7 @@ async function mockBackend(page: Page) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          filename: 'e2e-notes.pdf',
+          filename: overrides.filename ?? 'e2e-notes.pdf',
           pdf_sha256: DOCUMENT_SHA256,
           page_count: 2,
           character_count: 1560,
@@ -303,7 +329,7 @@ async function mockBackend(page: Page) {
         body: JSON.stringify({
           pdf_sha256: DOCUMENT_SHA256,
           page_number: pageNumber,
-          text: sourcePageText[pageNumber],
+          text: (overrides.sourceText ?? sourcePageText)[pageNumber],
         }),
       })
     },
@@ -339,7 +365,7 @@ async function mockBackend(page: Page) {
         contentType: 'application/json',
         body: JSON.stringify(
           generationCount === 1
-            ? firstQuiz
+            ? firstGenerationQuiz
             : practiceQuiz,
         ),
       })
@@ -636,6 +662,57 @@ test(
     expect(
       backend.getGenerationCount(),
     ).toBe(2)
+  },
+)
+
+test(
+  'renders hostile AI-generated quiz text as text without creating executable DOM',
+  async ({ page }) => {
+    await mockSupabase(page)
+    await mockBackend(page, hostileQuiz, {
+      filename: hostileFilename,
+      sourceText: { ...sourcePageText, 1: hostilePdfText },
+    })
+    await page.addInitScript(() => {
+      Object.assign(window, { __qfXss: 0 })
+    })
+
+    await logIn(page)
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'e2e-notes.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF synthetic'),
+    })
+    await page.getByRole('button', { name: 'Process PDF', exact: true }).click()
+    await expect(page.getByText('PDF processed successfully')).toBeVisible()
+    await expect(page.getByText(hostileFilename, { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Generate Quiz', exact: true }).click()
+
+    await expect(page.getByText(hostileQuiz.title, { exact: true })).toBeVisible()
+    const card = page.locator('.question-card').first()
+    await expect(
+      card.getByRole('heading', {
+        name: hostileQuiz.questions[0].question,
+        exact: true,
+      }),
+    ).toBeVisible()
+    await expect(
+      card.getByText(hostileQuiz.questions[0].choices[0], { exact: true }),
+    ).toBeVisible()
+    for (const questionCard of await page.locator('.question-card').all()) {
+      await questionCard.locator('input[type="radio"]').first().check()
+    }
+    await page.getByRole('button', { name: 'Check Answers', exact: true }).click()
+    await expect(
+      card.getByText(hostileQuiz.questions[0].explanation, { exact: true }),
+    ).toBeVisible()
+    await card.getByRole('button', { name: 'View Source', exact: true }).click()
+    await expect(card.getByText(hostilePdfText, { exact: true })).toBeVisible()
+
+    expect(await page.locator('[onerror], [onload], [srcdoc]').count()).toBe(0)
+    expect(
+      await page.evaluate(() => (window as Window & { __qfXss?: number }).__qfXss),
+    ).toBe(0)
   },
 )
 
