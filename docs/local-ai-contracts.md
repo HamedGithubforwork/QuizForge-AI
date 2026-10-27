@@ -188,6 +188,29 @@ hidden. CI provisions the checksum-pinned runtime and model only for acceptance;
 licensing/distribution review must be completed before runtime distribution or
 normal-user activation.
 
+## Website and desktop parity matrix
+
+This matrix records the current product boundary. Shared result contracts do not
+mean the two clients have identical capabilities. Any expansion of Local AI should
+update this matrix and its matching acceptance evidence.
+
+| Flow or contract | Website | Windows desktop |
+| --- | --- | --- |
+| Sign-in | Hosted account sign-in through the cloud identity provider; internet required. | System-browser PKCE sign-in with Google or regular email/password. The actual desktop Cognito client's Google configuration and owner-device flow remain UNVERIFIED. |
+| PDF input | Uploads the PDF for online extraction and cloud generation. | Cloud AI uses the website upload flow. In Local AI preview, the desktop extracts selected pages on-device; it does not upload that PDF or extracted text. Local extraction is bounded to 15 MiB, 100 pages, and 3,000,000 characters, with no OCR. |
+| Generation engine | Cloud AI; an on-device engine is not available in the browser. | Cloud AI remains available. Local AI is an opt-in internal Windows preview and requires an installed verified model and packaged runtime. |
+| Quiz settings | Supports the website's question counts and types. | Cloud AI follows the shared hosted interface. Local AI preview supports exactly five multiple-choice questions at easy, medium, or hard difficulty; other settings remain unavailable locally. |
+| Grounding and result | Generates from uploaded source material and returns the shared quiz result contract. | Local generation uses source-only grounding and treats PDF content as untrusted input. Its validated output is expanded to the shared `Quiz` wire shape and grading-v2 metadata. Prompt guard tests protect shared grounding rules; local inference and source handling remain client-specific. |
+| History and usage | Cloud generation and account history use online services. | Sign-in, usage reporting, and saving a Local AI result to account history need internet. A result that cannot be saved is not queued for later sync. |
+| Offline boundary | PDF extraction/generation depend on cloud services. | Inference can run on-device after the model/runtime are available, but sign-in, server-processed source-page retrieval, usage reporting, and account history still need internet. Local mode never silently switches to Cloud AI. |
+| Runtime distribution | No local inference runtime is used by the website. | Normal desktop and Store packages do not include the runtime. The separate unsigned Local AI preview is internal; licensing and distribution review is still required before public activation. |
+
+The Local AI parity target is shared behavior where the clients already have a
+common contract, with explicit limitations where local hardware, privacy, or
+offline behavior changes the flow. Synthetic hosted Windows tests do not verify
+the owner's Windows device, real Google sign-in, or the provider's production
+configuration.
+
 ## Model management surface
 
 `createLocalAiManager` owns bounded user-facing model state: compatibility,
