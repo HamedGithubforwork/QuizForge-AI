@@ -684,6 +684,73 @@ test('targeted practice filters foreign-script output and recovers the missing c
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
 })
 
+test('targeted retry narrows a single missing slot and uses rejected evidence on the next attempt', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].question = 'Question to avoid?'
+  const calls = []
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls.push(request)
+        if (calls.length === 1) {
+          return { text: JSON.stringify(first), finishReason: 'stop', usage: null }
+        }
+
+        assert.equal(request.jsonSchema.properties.questions.minItems, 1)
+        assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
+        if (calls.length === 2) {
+          const avoided = withRetrySourceFacts(rawQuiz()).questions[0]
+          Object.assign(avoided, {
+            question: 'Question to avoid?',
+            choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+            correct_index: 0,
+            explanation: 'Messenger RNA carries coding information.',
+            source_pages: [5],
+            source_fact: RETRY_FACTS[5].text,
+          })
+          return {
+            text: JSON.stringify({ title: 'Targeted practice candidates', questions: [avoided] }),
+            finishReason: 'stop',
+            usage: null,
+          }
+        }
+
+        assert.match(
+          request.messages.at(-1).content,
+          /Rejection reason: avoided_question[\s\S]*Question: Question to avoid\?/,
+        )
+        const replacement = withRetrySourceFacts(rawQuiz()).questions[0]
+        Object.assign(replacement, {
+          question: 'Which molecule carries coding information?',
+          choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+          correct_index: 0,
+          explanation: 'Messenger RNA carries coding information.',
+          source_pages: [5],
+          source_fact: RETRY_FACTS[5].text,
+        })
+        return {
+          text: JSON.stringify({ title: 'Targeted practice candidates', questions: [replacement] }),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Question to avoid?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls.length, 3)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions.some(question => question.question === 'Question to avoid?'), false)
+  assert.equal(result.questions.some(question => question.correct_answer === 'coding information'), true)
+})
+
 test('targeted practice gets one bounded reserve candidate after a script rejection', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question += ' 七小时'
@@ -755,7 +822,7 @@ test('targeted practice gets one bounded reserve candidate after a script reject
     true,
   )
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
-  assert.equal(issues.at(-1).details.inputCandidates, 8)
+  assert.equal(issues.at(-1).details.inputCandidates, 6)
 })
 
 test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
@@ -777,7 +844,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
     },
   )
   second.questions = second.questions.slice(0, 3)
-  for (const [index, factIndex] of [5, 6, 1].entries()) {
+  for (const [index, factIndex] of [5, 6].entries()) {
     const question = second.questions[index]
     const fact = RETRY_FACTS[factIndex]
     question.source_pages = [fact.page]
@@ -795,7 +862,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            3,
+            2,
           )
           assert.match(
             retryMessage,
@@ -866,7 +933,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
   assert.equal(result.questions.length, 5)
 })
 
-test('targeted retry batches backup candidates when one question remains', async () => {
+test('targeted retry asks only for one backup when one question remains', async () => {
   const first = withRetrySourceFacts(rawQuiz())
   first.questions[0].question = 'Question to avoid?'
 
@@ -879,19 +946,9 @@ test('targeted retry batches backup candidates when one question remains', async
     choices: [...candidatePool.questions[0].choices],
   }
   backup.choices[backup.correct_index] = RETRY_FACTS[5].answer
-  const duplicateFact = {
-    ...candidatePool.questions[1],
-    question: 'A second proteins question?',
-    source_pages: [RETRY_FACTS[1].page],
-    source_fact: RETRY_FACTS[1].text,
-  }
-  const duplicateQuestion = {
-    ...candidatePool.questions[2],
-    question: candidatePool.questions[2].question,
-  }
   const retryBatch = {
     ...candidatePool,
-    questions: [duplicateFact, duplicateQuestion, backup],
+    questions: [backup],
   }
 
   let calls = 0
@@ -904,18 +961,18 @@ test('targeted retry batches backup candidates when one question remains', async
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
-          assert.equal(request.jsonSchema.properties.questions.minItems, 3)
-          assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
+          assert.equal(request.jsonSchema.properties.questions.minItems, 1)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
               'source_fact',
             ),
             true,
           )
-          assert.equal(request.maxTokens, 455)
+          assert.equal(request.maxTokens, 185)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 3 additional candidate questions/i,
+            /exactly 1 additional candidate question/i,
           )
           assert.match(
             request.messages.at(-1).content,

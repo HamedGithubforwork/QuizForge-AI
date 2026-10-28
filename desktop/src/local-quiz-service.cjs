@@ -965,9 +965,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         let generatedCount = 0
 
         while (generatedCount < retryBudget) {
+          const remainingSlots = Math.max(
+            1,
+            QUESTION_COUNT - retainedEvidence.length,
+          )
           const batchCount = Math.min(
             TARGETED_RETRY_BATCH_CANDIDATES,
             retryBudget - generatedCount,
+            remainingSlots,
           )
           result = await generateAttempt(
             retryValidationReason,
