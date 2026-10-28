@@ -196,7 +196,7 @@ update this matrix and its matching acceptance evidence.
 
 | Flow or contract | Website | Windows desktop |
 | --- | --- | --- |
-| Sign-in | Hosted account sign-in through the cloud identity provider; internet required. | System-browser PKCE sign-in with Google or regular email/password. The actual desktop Cognito client's Google configuration and owner-device flow remain UNVERIFIED. |
+| Sign-in | Hosted account sign-in through the cloud identity provider; internet required. | Candidate UI exposes system-browser PKCE sign-in with Google or regular email/password. The configured native client was verified as COGNITO-only; Google is unavailable until a dedicated client with Google is provisioned and verified. The owner-device flow remains UNVERIFIED. |
 | PDF input | Uploads the PDF for online extraction and cloud generation. | Cloud AI uses the website upload flow. In Local AI preview, the desktop extracts selected pages on-device; it does not upload that PDF or extracted text. Local extraction is bounded to 15 MiB, 100 pages, and 3,000,000 characters, with no OCR. |
 | Generation engine | Cloud AI; an on-device engine is not available in the browser. | Cloud AI remains available. Local AI is an opt-in internal Windows preview and requires an installed verified model and packaged runtime. |
 | Quiz settings | Supports the website's question counts and types. | Cloud AI follows the shared hosted interface. Local AI preview supports exactly five multiple-choice questions at easy, medium, or hard difficulty; other settings remain unavailable locally. |
@@ -208,8 +208,10 @@ update this matrix and its matching acceptance evidence.
 The Local AI parity target is shared behavior where the clients already have a
 common contract, with explicit limitations where local hardware, privacy, or
 offline behavior changes the flow. Synthetic hosted Windows tests do not verify
-the owner's Windows device, real Google sign-in, or the provider's production
-configuration.
+the owner's Windows device or a real Google sign-in. The read-only native-auth
+check [run #7](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/40552329004)
+verified that the configured native client supports COGNITO only; Google is not
+configured. No AWS settings were changed.
 
 ## Model management surface
 
