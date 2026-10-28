@@ -8,13 +8,13 @@ const MAX_SOURCE_BYTES = 8000
 const MAX_AVOID_QUESTIONS = 20
 const MAX_AVOID_BYTES = 8000
 const QUESTION_COUNT = 5
-const TARGETED_PRIMARY_CANDIDATES = 7
+const TARGETED_PRIMARY_CANDIDATES = 8
 const TARGETED_RETRY_CANDIDATES = 5
 const TARGETED_SCRIPT_RECOVERY_CANDIDATES = 1
 // Batch recovery candidates to avoid repeated full-context inference calls,
 // including backup candidates when only one final slot remains.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
-const TARGETED_PRIMARY_MAX_TOKENS = 1300
+const TARGETED_PRIMARY_MAX_TOKENS = 1500
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
 const TARGETED_RETRY_TOKEN_OVERHEAD = 50
 const MAX_COMBINED_TARGETED_CANDIDATES =
@@ -777,10 +777,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request filters exact prior-question repeats and invalid candidates, then uses bounded recovery only for the remaining gap.',
-                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly seven compact candidate questions, each using a different source fact. Never copy any wording from PRIOR QUESTIONS TO AVOID; when a fact overlaps, use a clearly different question-answer direction. Give every candidate distinct wording and vary question structure. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
+                'If at least five distinct source-supported factual questions are genuinely possible, generate exactly eight compact candidate questions, each using a different source fact. Never copy any wording from PRIOR QUESTIONS TO AVOID; when a fact overlaps, use a clearly different question-answer direction. Give every candidate distinct wording and vary question structure. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
                 'Return source_fact for every candidate as the shortest exact contiguous excerpt from one cited PAGE that identifies the subject and fact and includes the selected answer. Do not paraphrase source_fact; keep it under 160 characters.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt, and the question must ask about the same fact.',
-                'Before writing, plan seven different source facts and one distinct question wording for each. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. For an overlapping fact, ask a different question-answer direction. Before returning JSON, compare the seven questions with one another and replace any repeated wording or direction.',
+                'Before writing, plan eight different source facts and one distinct question wording for each. Never copy any wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. For an overlapping fact, ask a different question-answer direction. Before returning JSON, compare the eight questions with one another and replace any repeated wording or direction.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',
