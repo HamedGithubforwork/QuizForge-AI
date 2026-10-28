@@ -21,6 +21,7 @@ function approvedHost(hostname) {
     hostname.endsWith('.hf.co')
 }
 const RESERVE = 512 * 1024 * 1024
+const MODEL_DOWNLOAD_TIMEOUT_MS = 20 * 60 * 1000
 const failure = code => Object.assign(new Error('Local model operation failed: ' + code), { code })
 
 function reviewedUrl(value) {
@@ -91,7 +92,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
     },
     download({ signal, progress = () => {} } = {}) {
       return serial(async () => {
-        const bounded = AbortSignal.any([AbortSignal.timeout(20 * 60 * 1000), ...(signal ? [signal] : [])])
+        const bounded = AbortSignal.any([AbortSignal.timeout(MODEL_DOWNLOAD_TIMEOUT_MS), ...(signal ? [signal] : [])])
         bounded.throwIfAborted(); await ready()
         const existing = await inspect(bounded)
         if (existing.ready) return existing
@@ -141,4 +142,4 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
   }
 }
 
-module.exports = { CANDIDATE, approvedHost, createLocalModelStore, reviewedUrl }
+module.exports = { CANDIDATE, MODEL_DOWNLOAD_TIMEOUT_MS, approvedHost, createLocalModelStore, reviewedUrl }

@@ -6,9 +6,26 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
+const yaml = require('js-yaml')
 const { stageLocalRuntime } = require('../scripts/stage-local-runtime.cjs')
+const { MODEL_DOWNLOAD_TIMEOUT_MS } = require('../src/local-model-store.cjs')
 
 const sha = value => createHash('sha256').update(value).digest('hex')
+
+test('runtime validation job allows the bounded model download plus verification time', async () => {
+  const workflow = await fs.readFile(
+    path.resolve(__dirname, '../../.github/workflows/local-runtime-validation.yml'),
+    'utf8',
+  )
+  const config = yaml.load(workflow)
+  const timeout = config?.jobs?.['windows-runtime']?.['timeout-minutes']
+  const modelDownloadMinutes = Math.ceil(MODEL_DOWNLOAD_TIMEOUT_MS / 60_000)
+  assert.ok(Number.isSafeInteger(timeout), 'Windows runtime validation job must have a timeout')
+  assert.ok(
+    timeout >= modelDownloadMinutes + 10,
+    `workflow timeout (${timeout}m) must allow the ${modelDownloadMinutes}m model download plus 10m for runtime checks`,
+  )
+})
 
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-stage-'))
