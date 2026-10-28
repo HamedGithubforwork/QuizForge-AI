@@ -697,10 +697,10 @@ test('targeted practice gets one bounded reserve candidate after a script reject
         if (calls === 1) {
           return { text: JSON.stringify(first), finishReason: 'stop', usage: null }
         }
-        if (calls <= 2) {
+        if (calls <= 3) {
           const candidateCount = request.jsonSchema.properties.questions.maxItems
           const candidates = Array.from({ length: candidateCount }, (_, index) => {
-            if (calls === 2 && index === candidateCount - 1) {
+            if (calls === 3 && index === candidateCount - 1) {
               const replacement = withRetrySourceFacts(rawQuiz()).questions[0]
               Object.assign(replacement, {
                 question: 'Which molecule carries coding information?',
@@ -748,14 +748,14 @@ test('targeted practice gets one bounded reserve candidate after a script reject
     questionType: 'multiple_choice',
   })
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(result.questions.length, 5)
   assert.equal(
     result.questions.some(question => question.correct_answer === 'coding information'),
     true,
   )
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
-  assert.equal(issues.at(-1).details.inputCandidates, 5)
+  assert.equal(issues.at(-1).details.inputCandidates, 8)
 })
 
 test('targeted retry separates retained candidates from rejected evidence in the corrective prompt', async () => {
@@ -795,7 +795,7 @@ test('targeted retry separates retained candidates from rejected evidence in the
             request.messages.at(-1).content
           assert.equal(
             request.jsonSchema.properties.questions.maxItems,
-            5,
+            3,
           )
           assert.match(
             retryMessage,
@@ -904,18 +904,18 @@ test('targeted retry batches backup candidates when one question remains', async
             request.generationProfile,
             'quiz-mcq-targeted-retry-v1',
           )
-          assert.equal(request.jsonSchema.properties.questions.minItems, 5)
-          assert.equal(request.jsonSchema.properties.questions.maxItems, 5)
+          assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+          assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
           assert.equal(
             request.jsonSchema.properties.questions.items.required.includes(
               'source_fact',
             ),
             true,
           )
-          assert.equal(request.maxTokens, 725)
+          assert.equal(request.maxTokens, 455)
           assert.match(
             request.messages.at(-1).content,
-            /exactly 5 additional candidate questions/i,
+            /exactly 3 additional candidate questions/i,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -1198,7 +1198,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
   })
 
   const pool = rawQuiz()
-  while (pool.questions.length < 5) {
+  while (pool.questions.length < 7) {
     pool.questions.push({
       ...pool.questions[0],
       question:
@@ -1281,7 +1281,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     { code: 'quiz_validation_failed' },
   )
 
-  assert.equal(calls, 2)
+  assert.equal(calls, 3)
   assert.equal(
     validationIssues.at(-1).reason,
     'candidate_pool_exhausted',
@@ -1291,11 +1291,11 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
     {
       inputCandidates: 10,
       avoidedQuestions: 1,
-      duplicateQuestions: 1,
+      duplicateQuestions: 3,
       unsupportedSourceFacts: 0,
       unsupportedAnswers: 0,
       unexpectedOutputScripts: 0,
-      duplicateSourceFacts: 7,
+      duplicateSourceFacts: 5,
       survivors: 1,
     },
   )

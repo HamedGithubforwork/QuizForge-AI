@@ -13,7 +13,7 @@ const TARGETED_RETRY_CANDIDATES = 5
 const TARGETED_SCRIPT_RECOVERY_CANDIDATES = 1
 // Batch recovery candidates to avoid repeated full-context inference calls,
 // including backup candidates when only one final slot remains.
-const TARGETED_RETRY_BATCH_CANDIDATES = 5
+const TARGETED_RETRY_BATCH_CANDIDATES = 3
 const TARGETED_PRIMARY_MAX_TOKENS = 900
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
 const TARGETED_RETRY_TOKEN_OVERHEAD = 50
