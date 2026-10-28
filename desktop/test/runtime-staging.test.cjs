@@ -6,7 +6,6 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { createHash } = require('node:crypto')
-const yaml = require('js-yaml')
 const { stageLocalRuntime } = require('../scripts/stage-local-runtime.cjs')
 const { MODEL_DOWNLOAD_TIMEOUT_MS } = require('../src/local-model-store.cjs')
 
@@ -17,10 +16,11 @@ test('runtime validation job allows the bounded model download plus verification
     path.resolve(__dirname, '../../.github/workflows/local-runtime-validation.yml'),
     'utf8',
   )
-  const config = yaml.load(workflow)
-  const timeout = config?.jobs?.['windows-runtime']?.['timeout-minutes']
+  const runtimeJob = workflow.match(/jobs:\s*\n\s+windows-runtime:\s*\n([\s\S]*?)(?=\n\s{2}[a-zA-Z0-9_-]+:\s*\n|\s*$)/)?.[1]
+  assert.ok(runtimeJob, 'Windows runtime validation job must exist')
+  const timeout = Number(runtimeJob.match(/^\s+timeout-minutes:\s*(\d+)\s*$/m)?.[1])
   const modelDownloadMinutes = Math.ceil(MODEL_DOWNLOAD_TIMEOUT_MS / 60_000)
-  assert.ok(Number.isSafeInteger(timeout), 'Windows runtime validation job must have a timeout')
+  assert.ok(Number.isFinite(timeout), 'Windows runtime validation job must have a timeout')
   assert.ok(
     timeout >= modelDownloadMinutes + 10,
     `workflow timeout (${timeout}m) must allow the ${modelDownloadMinutes}m model download plus 10m for runtime checks`,
