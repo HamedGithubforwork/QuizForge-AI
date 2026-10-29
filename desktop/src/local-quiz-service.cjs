@@ -11,8 +11,8 @@ const QUESTION_COUNT = 5
 const TARGETED_PRIMARY_CANDIDATES = 5
 const TARGETED_RETRY_CANDIDATES = 5
 const TARGETED_SCRIPT_RECOVERY_CANDIDATES = 1
-// Start by requesting only missing slots, then batch backup candidates
-// if that smaller recovery request still fails validation.
+// For a single exact repeat, request only the missing slot first;
+// use larger batches for other validation failures and as fallback.
 const TARGETED_RETRY_BATCH_CANDIDATES = 3
 const TARGETED_PRIMARY_MAX_TOKENS = 900
 const TARGETED_RETRY_TOKENS_PER_CANDIDATE = 135
@@ -966,14 +966,20 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
 
         while (generatedCount < retryBudget) {
           const remainingCandidates = retryBudget - generatedCount
-          const firstBatchNeed =
-            generatedCount === 0
-              ? initialNeed
+          const canRequestOnlyMissing =
+            generatedCount === 0 &&
+            initialNeed === 1 &&
+            rejectedCandidates.length > 0 &&
+            rejectedCandidates.every(
+              candidate => candidate.reason === 'avoided_question',
+            )
+          const firstBatchCount =
+            canRequestOnlyMissing
+              ? 1
               : TARGETED_RETRY_BATCH_CANDIDATES
           const batchCount = Math.min(
-            TARGETED_RETRY_BATCH_CANDIDATES,
+            firstBatchCount,
             remainingCandidates,
-            firstBatchNeed,
           )
           result = await generateAttempt(
             retryValidationReason,
