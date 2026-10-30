@@ -3,7 +3,7 @@
 const { randomBytes, createHash, timingSafeEqual } = require('node:crypto')
 const { performance } = require('node:perf_hooks')
 const { AUTH_ORIGIN } = require('./policy.cjs')
-const CALLBACK_URL = 'com.quizfromnotes.desktop.preview:/oauth/callback'
+const CALLBACK_URL = 'com.quizfromnotes.desktop.preview://oauth/callback'
 const ATTEMPT_LIFETIME_MS = 5 * 60 * 1000
 
 // Main-process transaction primitive only. It performs no IO, registers no OS
