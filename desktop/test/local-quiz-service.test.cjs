@@ -420,7 +420,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
-          5,
+          6,
         )
         assert.equal(
           quizPoolSchema.properties.questions.items.properties.question.maxLength,
@@ -434,7 +434,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
           quizPoolSchema.properties.questions.items.properties.explanation.maxLength,
           32,
         )
-        assert.equal(request.maxTokens, 900)
+        assert.equal(request.maxTokens, 1050)
         assert.equal(
           quizPoolSchema.properties.questions.items.required.includes(
             'source_fact',
@@ -443,11 +443,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /generate exactly five compact candidate questions/i,
+          /generate five required compact candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /plan five different source facts and one distinct question wording for each/i,
+          /plan five different source facts and a distinct question wording for each/i,
         )
         assert.equal(
           request.generationProfile,
@@ -682,6 +682,46 @@ test('targeted practice filters foreign-script output and recovers the missing c
     false,
   )
   assert.equal(issues[0].details.unexpectedOutputScripts, 1)
+})
+
+test('targeted practice uses one backup candidate instead of a recovery inference', async () => {
+  const primary = withRetrySourceFacts(rawQuiz())
+  primary.questions[0].question = 'Previously asked wording?'
+  const backup = {
+    ...primary.questions[0],
+    question: 'What does messenger RNA carry?',
+    choices: ['coding information', 'ATP', 'proteins', 'glucose'],
+    correct_index: 0,
+    explanation: 'Messenger RNA carries coding information.',
+    source_pages: [5],
+    source_fact: RETRY_FACTS[5].text,
+  }
+  primary.questions.push(backup)
+
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        const schema = request.jsonSchema.oneOf[1].properties.questions
+        assert.equal(schema.minItems, 5)
+        assert.equal(schema.maxItems, 6)
+        return { text: JSON.stringify(primary), finishReason: 'stop', usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked wording?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 1)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions.some(question => question.question === 'Previously asked wording?'), false)
 })
 
 test('targeted practice gets one bounded reserve candidate after a script rejection', async () => {
