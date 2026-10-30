@@ -251,6 +251,13 @@ button {
   font-size: 13px;
 }
 
+.upload-dropzone-error {
+  margin: 0;
+  color: #a83b3b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .upload-browse-button {
   min-height: 40px;
   margin-top: 2px;
