@@ -315,7 +315,7 @@
 .account-bar-inner {
   display: flex;
 
-  width: min(960px, 100%);
+  width: min(1040px, 100%);
 
   align-items: center;
   justify-content: space-between;
