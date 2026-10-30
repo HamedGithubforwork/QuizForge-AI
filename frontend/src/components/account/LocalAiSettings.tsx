@@ -56,8 +56,18 @@ export default function LocalAiSettings() {
 
   async function refresh() {
     if (!bridge) return
+    let timeout: number | undefined
     try {
-      setStatus(await bridge.localAiStatus())
+      const next = await Promise.race([
+        bridge.localAiStatus(),
+        new Promise<DesktopLocalAiStatus>((_, reject) => {
+          timeout = window.setTimeout(
+            () => reject(new Error('Local AI compatibility check timed out. Close and reopen the app, then try again.')),
+            30_000,
+          )
+        }),
+      ])
+      setStatus(next)
       setError('')
     } catch (caught) {
       setError(
@@ -65,6 +75,8 @@ export default function LocalAiSettings() {
           ? caught.message
           : 'Could not read Local AI status.',
       )
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout)
     }
   }
 
@@ -116,7 +128,18 @@ export default function LocalAiSettings() {
   }
 
   if (!status) {
-    return (
+    return error ? (
+      <div className="settings-alert" role="alert">
+        <p>{error}</p>
+        <button
+          className="button secondary-button"
+          type="button"
+          onClick={() => void refresh()}
+        >
+          Retry compatibility check
+        </button>
+      </div>
+    ) : (
       <div className="settings-loading" role="status">
         Checking Local AI compatibility…
       </div>
