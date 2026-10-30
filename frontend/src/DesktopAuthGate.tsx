@@ -19,6 +19,7 @@ export default function DesktopAuthGate() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [signInMethod, setSignInMethod] = useState<DesktopSignInMethod | null>(null)
+  const [signInComplete, setSignInComplete] = useState(false)
   const [error, setError] = useState('')
   const [pathname, setPathname] = useState(routePathname())
   useEffect(() => {
@@ -44,17 +45,22 @@ export default function DesktopAuthGate() {
     finally { setBusy(false) }
   }
   async function startSignIn(method: DesktopSignInMethod) {
+    setSignInComplete(false)
     setSignInMethod(method)
     await run(async () => {
       const revision = ++authRevision.current
       const next = await bridge.signIn(method)
-      if (revision === authRevision.current) setAccount(next)
+      if (revision === authRevision.current) {
+        setAccount(next)
+        setSignInComplete(true)
+      }
     })
     setSignInMethod(null)
   }
   async function signOut() {
     authRevision.current++
     setAccount(null)
+    setSignInComplete(false)
     navigate('/')
     await bridge.signOut()
   }
@@ -118,6 +124,7 @@ export default function DesktopAuthGate() {
     </div></div>
   </section></main>
   if (!account.enrolled) return <main className="auth-page"><section className="auth-card">
+    {signInComplete && <p className="desktop-signin-success" role="status">Signed in—you can close the browser tab and return to Quiz From Notes.</p>}
     <h1>Finish account setup</h1><p>Signed in as {account.email}. Complete account setup in your browser, then sign in here again.</p>
     {error && <p role="alert">{error}</p>}
     <button onClick={() => void run(() => bridge.openAccountWebsite())}>Open account setup</button>
@@ -141,6 +148,7 @@ export default function DesktopAuthGate() {
         <button className="sign-out-button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
       </nav>
     </div></div>
+    {signInComplete && <p className="desktop-signin-success" role="status">Signed in—you can close the browser tab and return to Quiz From Notes.</p>}
     {error && <p role="alert">{error}</p>}
     {pathname.startsWith('/decks') ? <DecksPage pathname={pathname} onNavigate={navigate} />
       : pathname === '/progress' ? <ProgressPage onNavigate={navigate} />
