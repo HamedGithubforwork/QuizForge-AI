@@ -475,8 +475,12 @@ async function main() {
     const managerStatus = await stack.load()
     const status = await stack.quizStatus()
     assert.equal(status.available, true)
-    assert.equal(managerStatus.capability.acceleration, 'cpu')
-    assert.equal(managerStatus.capability.hardware.gpuAccelerationUsable, false)
+    // Keep product acceptance usable on CPU-only CI and Vulkan-capable PCs.
+    assert.ok(['cpu', 'gpu'].includes(managerStatus.capability.acceleration))
+    assert.equal(
+      managerStatus.capability.acceleration === 'gpu',
+      managerStatus.capability.hardware.gpuAccelerationUsable,
+    )
     report.modelId = status.modelId
     report.acceleration = managerStatus.capability.acceleration
 
@@ -638,7 +642,7 @@ async function main() {
     }
 
     assert.equal(report.summary.performanceScreen, 'pass',
-      'Hosted Windows CPU acceptance exceeded the conservative development latency screen')
+      'Windows acceptance exceeded the conservative development latency screen')
     assert.equal(report.summary.processMetricsScreen, 'pass',
       'Hosted Windows acceptance did not capture llama-server memory and CPU metrics')
     await persistReport()
