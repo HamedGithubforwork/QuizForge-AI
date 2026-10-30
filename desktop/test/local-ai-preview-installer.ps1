@@ -139,6 +139,7 @@ try {
     $remove = Start-Process -FilePath $uninstaller `
         -ArgumentList @('/S', '/currentuser', "_?=$installDir") -PassThru
     Wait-ChildProcess $remove 60000 'Local AI uninstallation'
+    if (Test-Path $modelPath) { throw 'Local AI uninstallation left the downloaded model in the user profile.' }
     if ((Get-Item $protocolCommand).GetValue('') -ne $previousCommand) {
         throw 'Uninstallation did not restore the saved sign-in handler.'
     }

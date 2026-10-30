@@ -1,4 +1,5 @@
 !define QFN_PROTOCOL_KEY "Software\Classes\com.quizfromnotes.desktop.preview"
+!define QFN_LOCAL_AI_MODEL_FILE "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf"
 !define QFN_LOCAL_AI_BACKUP_KEY "Software\Quiz From Notes\Local AI Preview Installer"
 !define QFN_INSTALL_STATE_KEY "Software\Quiz From Notes\Local AI Preview Installer State"
 !macro customInit
@@ -105,4 +106,5 @@
 
   qfn_uninstall_done:
   DeleteRegKey HKCU "${QFN_INSTALL_STATE_KEY}"
+  Delete "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_LOCAL_AI_MODEL_FILE}"
 !macroend
