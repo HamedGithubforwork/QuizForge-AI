@@ -23,7 +23,8 @@ $stateRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer State'
 $modelPath = Join-Path $env:APPDATA 'Quiz From Notes Preview/local-ai/models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
 $installerSource = Get-Content (Join-Path $PSScriptRoot '../build/local-ai-preview-installer.nsh') -Raw
 if ($installerSource -notmatch 'A version of Quiz From Notes is already installed\.' -or
-    $installerSource -notmatch 'Download Qwen3 4B Q4_K_M for Local AI now\?' -or
+    $installerSource -notmatch 'To use Local AI, Quiz From Notes needs the Qwen3 4B model' -or
+    $installerSource -notmatch 'after it finishes, Local AI runs on this computer' -or
     $installerSource -notmatch '2\.5 GB' -or
     $installerSource -notmatch 'Apache-2\.0' -or
     $installerSource -notmatch '--qfn-download-local-ai-model-after-install' -or

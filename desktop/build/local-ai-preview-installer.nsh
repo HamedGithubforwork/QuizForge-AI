@@ -51,7 +51,7 @@
   WriteRegStr HKCU "${QFN_PROTOCOL_KEY}\shell\open\command" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"'
 
   IfSilent qfn_finish_install 0
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Download Qwen3 4B Q4_K_M for Local AI now? The model is about 2.5 GB, requires an internet connection, and is distributed under Apache-2.0. The app will verify it before use. Choose No to download it later in Local AI settings." IDYES qfn_download_model IDNO qfn_finish_install
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "To use Local AI, Quiz From Notes needs the Qwen3 4B model (about 2.5 GB). Download it now? An internet connection is required for the download; after it finishes, Local AI runs on this computer. The model is distributed under Apache-2.0. Choose No to download it later in Local AI settings." IDYES qfn_download_model IDNO qfn_finish_install
 
   qfn_download_model:
   Exec '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --qfn-download-local-ai-model-after-install'
