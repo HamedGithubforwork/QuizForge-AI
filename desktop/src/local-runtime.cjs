@@ -13,32 +13,50 @@ const MANIFEST = require('./local-runtime-manifest.json')
 const { createWindowsProcessGuard } = require('./windows-process-guard.cjs')
 const fail = code => Object.assign(new Error('Local runtime: ' + code), { code })
 
+const verifiedRuntimeFingerprints = new Map()
+
 async function verifyRuntime(directory, manifest = MANIFEST, signal) {
   if (!path.isAbsolute(directory)) throw fail('invalid_directory')
   const root = await fs.lstat(directory)
   if (!root.isDirectory() || root.isSymbolicLink()) throw fail('unsafe_directory')
   const names = await fs.readdir(directory)
   if (names.sort().join('\n') !== Object.keys(manifest.files).sort().join('\n')) throw fail('unexpected_files')
+
+  const entries = []
   for (const [name, spec] of Object.entries(manifest.files)) {
     signal?.throwIfAborted()
     if (path.basename(name) !== name || name.includes('\\')) throw fail('invalid_manifest')
     const filename = path.join(directory, name)
     const info = await fs.lstat(filename)
     if (!info.isFile() || info.isSymbolicLink() || info.size !== spec.bytes) throw fail('invalid_runtime')
-    const handle = await fs.open(filename, 'r')
-    try {
-      const opened = await handle.stat()
-      if (opened.ino !== info.ino || opened.dev !== info.dev || opened.size !== spec.bytes) throw fail('invalid_runtime')
-      const hash = createHash('sha256')
-      for await (const chunk of handle.createReadStream({ autoClose: false })) {
-        signal?.throwIfAborted(); hash.update(chunk)
-      }
-      if (hash.digest('hex') !== spec.sha256) throw fail('invalid_runtime')
-    } finally { await handle.close() }
+    entries.push({ name, filename, spec, info })
   }
+
+  // Always inspect directory entries and file metadata. Rehash large runtime
+  // binaries only when their identity, size, or change times differ.
+  const key = directory + ':' + JSON.stringify(manifest.files)
+  const fingerprint = entries.map(({ name, info }) =>
+    [name, info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(':')).join('\n')
+  if (verifiedRuntimeFingerprints.get(key) !== fingerprint) {
+    verifiedRuntimeFingerprints.delete(key)
+    for (const { filename, spec, info } of entries) {
+      signal?.throwIfAborted()
+      const handle = await fs.open(filename, 'r')
+      try {
+        const opened = await handle.stat()
+        if (opened.ino !== info.ino || opened.dev !== info.dev || opened.size !== spec.bytes) throw fail('invalid_runtime')
+        const hash = createHash('sha256')
+        for await (const chunk of handle.createReadStream({ autoClose: false })) {
+          signal?.throwIfAborted(); hash.update(chunk)
+        }
+        if (hash.digest('hex') !== spec.sha256) throw fail('invalid_runtime')
+      } finally { await handle.close() }
+    }
+    verifiedRuntimeFingerprints.set(key, fingerprint)
+  }
+  signal?.throwIfAborted()
   return path.join(directory, 'llama-server.exe')
 }
-
 function runtimeEnvironment(key, source = process.env) {
   const env = { LLAMA_API_KEY: key }
   // No inherited provider keys, proxy, NODE_OPTIONS or LLAMA_ARG_* settings.
