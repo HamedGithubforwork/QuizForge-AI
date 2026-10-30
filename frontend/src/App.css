@@ -199,6 +199,23 @@ button {
   border-color: #7468ef;
 }
 
+.file-input::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 12px;
+  border: 1px solid #d9ddec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #574ad8;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.file-input::file-selector-button:hover {
+  border-color: #c7c0ff;
+  background: #f8f7ff;
+}
+
 .selected-file {
   display: flex;
 
