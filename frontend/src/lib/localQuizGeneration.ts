@@ -238,7 +238,7 @@ export function localQuizErrorMessage(
     unsupported_quiz_mode:
       'The Local AI preview currently supports only five multiple-choice questions.',
     quiz_validation_failed:
-      'The local model returned an invalid quiz. Try again or use Cloud AI.',
+      'Local AI could not create a valid quiz after retrying. Try fewer pages or use Cloud AI.',
     insufficient_source:
       'The selected pages do not contain enough distinct factual material for five local questions. Choose more pages or use Cloud AI.',
     invalid_request:

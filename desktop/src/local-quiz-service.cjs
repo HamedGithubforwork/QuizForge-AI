@@ -68,6 +68,36 @@ const QUIZ_SCHEMA = Object.freeze({
     },
   },
 })
+const QUIZ_RETRY_SCHEMA = Object.freeze({
+  ...QUIZ_SCHEMA,
+  properties: Object.freeze({
+    ...QUIZ_SCHEMA.properties,
+    questions: Object.freeze({
+      ...QUIZ_SCHEMA.properties.questions,
+      items: Object.freeze({
+        ...QUIZ_SCHEMA.properties.questions.items,
+        properties: Object.freeze({
+          ...QUIZ_SCHEMA.properties.questions.items.properties,
+          question: Object.freeze({
+            ...QUIZ_SCHEMA.properties.questions.items.properties.question,
+            maxLength: 240,
+          }),
+          choices: Object.freeze({
+            ...QUIZ_SCHEMA.properties.questions.items.properties.choices,
+            items: Object.freeze({
+              ...QUIZ_SCHEMA.properties.questions.items.properties.choices.items,
+              maxLength: 120,
+            }),
+          }),
+          explanation: Object.freeze({
+            ...QUIZ_SCHEMA.properties.questions.items.properties.explanation,
+            maxLength: 240,
+          }),
+        }),
+      }),
+    }),
+  }),
+})
 const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
   ...QUIZ_SCHEMA.properties.questions.items,
   required: Object.freeze([
@@ -344,6 +374,7 @@ function promptFor(request) {
     'For every question, decide the source-supported answer first, place that exact answer among the four choices, and set correct_index to the position of that choice.',
     'Before returning JSON, verify that choices[correct_index] is supported by the cited source pages and that the explanation supports that same selected choice. Never select an answer that contradicts your own explanation.',
     'Make distractors plausible but unsupported by the supplied study material for that question; do not create multiple choices that are simultaneously correct from the notes.',
+    'Keep questions, choices, and explanations concise. Do not repeat the question in the explanation or add background not needed to justify the answer.',
     'Use source_pages only from the supplied PAGE markers, and cite only pages that directly support the question and selected correct answer.',
     'Write each question, its choices, and its explanation in the natural language of the supplied study material unless the supplied material itself intentionally mixes languages.',
     'Do not mix writing systems that are absent from the supplied study material into a question, choice, or explanation.',
@@ -790,7 +821,17 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               ].join('\n'),
             }))
           }
-          if (retryReason) {
+          if (retryReason && !request.practice) {
+            messages.push(Object.freeze({
+              role: 'user',
+              content: [
+                'The previous complete quiz draft failed a strict validation check: ' + retryReason + '.',
+                'Generate a fresh complete five-question quiz from the supplied pages. Do not reuse malformed JSON or question wording from the previous draft.',
+                'Keep each question, choice, and explanation concise. Use exactly four distinct choices, exactly one supported correct answer, and only valid supplied page numbers.',
+                'Check that every string follows the source material writing system and language. Return only the complete JSON object required by the schema.',
+              ].join('\n'),
+            }))
+          } else if (retryReason) {
             messages.push(Object.freeze({
               role: 'user',
               content:
@@ -859,7 +900,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 ? retryReason
                   ? targetedStrictRetrySchema(retryCandidateCount)
                   : TARGETED_PRIMARY_SCHEMA
-                : QUIZ_SCHEMA,
+                : retryReason && !request.practice
+                  ? QUIZ_RETRY_SCHEMA
+                  : QUIZ_SCHEMA,
             generationProfile:
               retryReason === 'candidate_pool_exhausted'
                 ? `quiz-mcq-targeted-retry-v${Math.min(targetedRetryAttempt++, 4) + 1}`
@@ -873,7 +916,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           if (error instanceof LocalAiError) throw error
           throw failure('generation_failed', { retryable: true })
         }
-        if (result.finishReason !== 'stop') {
+        if (!['stop', 'length'].includes(result.finishReason)) {
           throw failure('quiz_validation_failed')
         }
         return result
@@ -886,6 +929,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
       let primaryRejectedEvidence = []
       let result = await generateAttempt()
       try {
+        if (result.finishReason === 'length') invalidQuiz('truncated_output')
         return parseGeneratedQuizDetailed(
           result.text,
           allowedPages,
@@ -920,10 +964,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
             }))
           } catch {}
         }
-        const retryableTargetedValidation =
-          request.practice &&
-          validationReason !== null
-        if (retryableTargetedValidation) {
+        const retryableValidation =
+          validationReason !== null &&
+          validationReason !== 'insufficient_source'
+        if (retryableValidation) {
           retryValidationReason =
             validationReason
           if (
@@ -938,7 +982,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               error.rejectedEvidence ?? []
           }
         }
-        if (!retryableTargetedValidation) {
+        if (!retryableValidation) {
           if (error instanceof LocalAiError) throw error
           throw failure('quiz_validation_failed')
         }
@@ -1050,13 +1094,16 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
 
       result = await generateAttempt(retryValidationReason)
       try {
+        if (result.finishReason === 'length') invalidQuiz('truncated_output')
         return parseGeneratedQuizDetailed(
           result.text,
           allowedPages,
           avoidQuestions,
           retryValidationReason === 'insufficient_source'
             ? {}
-            : { filterAvoided: true, sourceTextByPage },
+            : request.practice
+              ? { filterAvoided: true, sourceTextByPage }
+              : { sourceTextByPage },
         )
       } catch (error) {
         const validationReason =

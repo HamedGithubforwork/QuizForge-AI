@@ -36,7 +36,7 @@ Windows installer acceptance loads this module and its production JWT dependency
 
 ## Manual Windows native acceptance
 
-Install preview 0.1.1, then choose **Help → Test desktop sign-in…**. Complete sign-in/MFA in the system browser and allow it to return to Quiz From Notes Preview. Expect **Desktop sign-in test passed**. The test verifies refresh and attempts remote revocation automatically; it does not sign the study screen into this account. **Help → Cancel desktop sign-in test** cancels an unfinished attempt. Closing the app clears the private session and waits for bounded revocation. Cold or replayed callbacks cannot resume a prior attempt.
+Install preview 0.1.1, then choose **Help → Test desktop sign-in…**. Complete sign-in/MFA in the system browser and allow it to return to Quiz From Notes Preview. The browser tab may remain open after the app returns; close it manually. Expect **Desktop sign-in test passed**. The test verifies refresh and attempts remote revocation automatically; it does not sign the study screen into this account. **Help → Cancel desktop sign-in test** cancels an unfinished attempt. Closing the app clears the private session and waits for bounded revocation. Cold or replayed callbacks cannot resume a prior attempt.
 
 Repeat cancellation and sign-in with another account. Never share callback URLs, codes, tokens or passwords in test reports. Report only the final message and whether browser return worked. A real Windows account/MFA run remains required; automated CI uses synthetic sessions and signed-out page loads only.
 

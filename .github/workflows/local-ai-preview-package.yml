@@ -5,6 +5,7 @@ on:
   pull_request:
     paths:
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-ai-distribution-policy.json
       - desktop/src/local-quiz-service.cjs
       - desktop/third_party/local-ai/**
       - desktop/scripts/stage-local-runtime.cjs
@@ -17,8 +18,10 @@ on:
       - desktop/src/policy.cjs
       - desktop/src/local-renderer.cjs
       - desktop/test/local-renderer.test.cjs
+      - desktop/test/local-ai-distribution.test.cjs
       - desktop/test/policy.test.cjs
       - desktop/README.md
+      - docs/local-ai-distribution-review.md
       - ARCHITECTURE.md
       - desktop/package.json
       - desktop/package-lock.json
@@ -42,7 +45,7 @@ jobs:
   windows-package:
     name: Windows Local AI internal preview
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: desktop
@@ -95,6 +98,17 @@ jobs:
           node desktop/scripts/verify-packaged-runtime.cjs "$env:RUNNER_TEMP/local-ai-runtime"
           exit $LASTEXITCODE
 
+      - name: Download and verify optional pinned Local AI model
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/local-ai-model"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $model = Join-Path "$env:RUNNER_TEMP/local-ai-model" '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
+          if ((Get-FileHash $model -Algorithm SHA256).Hash.ToLowerInvariant() -ne '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5') { throw 'Model checksum mismatch before packaging.' }
+          exit $LASTEXITCODE
+
       - name: Build unpacked Local AI preview
         run: npm run pack:local-ai-preview-dir
         env:
@@ -139,6 +153,43 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
 
+      - name: Build internal NSIS Local AI preview with model included
+        run: npm run pack:local-ai-preview-model
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          QFN_LOCAL_AI_RUNTIME_DIR: ${{ runner.temp }}\local-ai-runtime
+          QFN_LOCAL_AI_MODEL_DIR: ${{ runner.temp }}\local-ai-model
+
+      - name: Assemble the model-included download package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageDir = 'dist/local-ai-preview-model-included'
+          $modelFile = '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
+          Copy-Item (Join-Path "$env:RUNNER_TEMP/local-ai-model" $modelFile) (Join-Path $packageDir $modelFile)
+          $license = Join-Path $packageDir 'LICENSE-Qwen3-4B-GGUF.txt'
+          Invoke-WebRequest 'https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/LICENSE' -OutFile $license
+          $licenseText = Get-Content $license -Raw
+          if (-not $licenseText.Contains('Apache License') -or -not $licenseText.Contains('Version 2.0')) { throw 'Pinned model license could not be verified.' }
+          @'
+          Model-included Local AI preview
+
+          Extract every file in this package to the same folder, then run the file
+          whose name contains Model-Included. Keep the model file beside setup
+          until installation completes. Setup moves it into the app's per-user
+          Local AI model folder and removes the extracted model copy to save space.
+          You can delete the original downloaded package after setup finishes.
+
+          This package includes Qwen3 4B Q4_K_M (2,497,280,256 bytes), distributed
+          under Apache-2.0. See LICENSE-Qwen3-4B-GGUF.txt. The model is also
+          checksum-verified by the app before it can be used.
+          '@ | Set-Content (Join-Path $packageDir 'README.txt') -Encoding utf8
+
+      - name: Stage model beside setup for install acceptance
+        shell: pwsh
+        run: |
+          Copy-Item (Join-Path "$env:RUNNER_TEMP/local-ai-model" '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf') 'dist/local-ai-preview-model-included/'
+
       - name: Test Local AI preview installation and protocol conflict handling
         shell: pwsh
         run: ./test/local-ai-preview-installer.ps1
@@ -147,18 +198,39 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $installers = @(Get-ChildItem 'dist/local-ai-preview' -Filter '*.exe' -File)
-          if ($installers.Count -ne 1) { throw 'Expected exactly one internal Local AI installer.' }
-          $sha256 = (Get-FileHash $installers[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$sha256  $($installers[0].Name)" | Set-Content 'dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
-          Write-Output "Local AI preview installer SHA-256: $sha256"
+          Copy-Item (Join-Path "$env:RUNNER_TEMP/local-ai-model" '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf') 'dist/local-ai-preview-model-included/' -Force
+          $compact = @(Get-ChildItem 'dist/local-ai-preview' -Filter '*.exe' -File)
+          $included = @(Get-ChildItem 'dist/local-ai-preview-model-included' -Filter '*.exe' -File)
+          if ($compact.Count -ne 1 -or $included.Count -ne 1) { throw 'Expected separate compact and model-included Local AI installers.' }
+          $compactHash = (Get-FileHash $compact[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $includedHash = (Get-FileHash $included[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$compactHash  $($compact[0].Name)" | Set-Content 'dist/local-ai-preview/SHA256SUMS.txt' -Encoding ascii
+          "$includedHash  $($included[0].Name)" | Set-Content 'dist/local-ai-preview-model-included/SHA256SUMS.txt' -Encoding ascii
+          $modelHash = (Get-FileHash 'dist/local-ai-preview-model-included/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($modelHash -ne '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5') { throw 'Model-included download package checksum mismatch.' }
+          "$modelHash  7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf" | Add-Content 'dist/local-ai-preview-model-included/SHA256SUMS.txt' -Encoding ascii
 
-      - name: Retain internal Local AI preview
+      - name: Retain compact Local AI preview installer
         uses: actions/upload-artifact@v7
         with:
-          name: quiz-from-notes-local-ai-internal-preview
+          name: quiz-from-notes-local-ai-download-model-later
           path: |
             desktop/dist/local-ai-preview/*.exe
             desktop/dist/local-ai-preview/SHA256SUMS.txt
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Retain model-included Local AI preview package
+        uses: actions/upload-artifact@v7
+        with:
+          name: quiz-from-notes-local-ai-model-included
+          path: |
+            desktop/dist/local-ai-preview-model-included/*.exe
+            desktop/dist/local-ai-preview-model-included/*.gguf
+            desktop/dist/local-ai-preview-model-included/LICENSE-Qwen3-4B-GGUF.txt
+            desktop/dist/local-ai-preview-model-included/README.txt
+            desktop/dist/local-ai-preview-model-included/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7

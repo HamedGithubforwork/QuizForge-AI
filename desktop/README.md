@@ -255,10 +255,15 @@ changes, retry identity and v1 upgrade isolation. Purchase gating remains deferr
 
 ## Local AI internal preview
 
-The Local AI installer includes the frontend built from the same branch as its
-desktop bridge and native runtime. After signing in, open **Local AI** in the
-desktop navigation to check compatibility and explicitly download or remove the
-optional model. On the quiz upload screen, choose **Local AI** before processing
+The Local AI preview offers two Windows packages: a compact setup that keeps the
+in-app model download, and a model-included package that adds a 2.5 GB download.
+The model-included package contains the setup executable, pinned model file, and
+Apache-2.0 license; extract the package and run the setup executable. Setup places
+the model in the same per-user store used by the download option. Both packages
+include the frontend built from the same branch as the desktop bridge and native
+runtime. After signing in, open **Local AI** in the desktop navigation to check
+compatibility and download or remove the model when it is not already installed.
+On the quiz upload screen, choose **Local AI** before processing
 to extract PDF text and generate questions on this computer. The PDF is not sent
 to the server in Local mode. Cloud mode keeps the existing server processing path.
 Scanned PDFs need OCR, which is not included yet. Account sign-in and cloud sync

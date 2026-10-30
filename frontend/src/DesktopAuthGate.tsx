@@ -86,7 +86,7 @@ export default function DesktopAuthGate() {
     <div className="auth-login-panel"><div className="auth-login-panel-inner">
       <span className="auth-login-kicker">YOUR ACCOUNT</span>
       <h2>Sign in to continue</h2>
-      <p className="auth-login-copy">Sign in securely in your browser, then come back here.</p>
+      <p className="auth-login-copy">Finish sign-in in your browser. When Quiz From Notes returns to the signed-in screen, close the browser tab if it stays open.</p>
       {error && <p className="auth-error auth-login-error" role="alert">{error}</p>}
       <div className="auth-entry-actions">
         <button aria-label={busy && signInMethod === 'google' ? 'Waiting for Google sign-in…' : 'Continue with Google'} className="auth-entry-action auth-entry-action-google" disabled={busy} onClick={() => void startSignIn('google')}>

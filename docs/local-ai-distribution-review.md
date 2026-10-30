@@ -39,11 +39,15 @@ the nlohmann/json MIT notice, and the LLVM OpenMP notice. The notices must be
 included in the installed product's third-party notices surface/package and must
 be verified in packaging CI.
 
-**Model weights:** keep them outside the installer and download only after explicit
-user action. They are model data, not executable runtime code. The existing model
-store pins revision, size and SHA-256, requires HTTPS/approved Hugging Face storage
-hosts, and never silently downloads. The Local AI settings surface must identify
-the model and Apache-2.0 license before public activation.
+**Model weights:** provide two explicit delivery choices for the internal Local AI
+preview. The compact installer keeps the existing in-app model download. The
+model-included package contains the same pinned 2.5 GB GGUF beside a small setup
+executable; users choose that larger package before download. Setup moves the file
+into the existing per-user model store, where the app verifies it before use. The
+file remains data, not executable code. Both paths use the pinned revision, exact
+size and SHA-256, and the compact path retains HTTPS/approved-host checks. Include
+the Apache-2.0 license with the model-included package and identify the model
+before users choose it.
 
 ## Microsoft Store constraint
 
@@ -58,10 +62,10 @@ Because the local runtime is native executable code, Quiz From Notes will not
 depend on a runtime executable downloaded after install unless a later,
 channel-specific Store review explicitly approves that design. Bundling the
 reviewed runtime is the conservative common path for Store/direct packages.
-The model remains a separately downloaded data asset. The Local AI settings page
-and the native download confirmation disclose the pinned model name,
-Qwen/Qwen3-4B-GGUF source repository, Apache-2.0 license, and download size from
-the same candidate metadata used by the downloader.
+The Local AI settings page and the native download confirmation disclose the
+pinned model name, Qwen/Qwen3-4B-GGUF source repository, Apache-2.0 license, and
+download size from the same candidate metadata used by the downloader. The
+model-included artifact carries its Apache-2.0 license file and checksum manifest.
 
 The existing Store build can rely on Microsoft Store package signing after
 acceptance. Direct-distribution signing or any paid certificate/service remains an

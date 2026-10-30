@@ -251,8 +251,8 @@ export default function LocalAiSettings() {
           <div>
             <h2>Local model</h2>
             <p>
-              Models are downloaded separately from app updates and
-              only after you explicitly choose Download.
+              The model is managed separately from app updates. If it was not
+              included with your installer, choose Download below.
             </p>
           </div>
           <span className={

@@ -7,9 +7,16 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_OS -ne 'Windows') {
 $package = Get-Content (Join-Path $PSScriptRoot '../package.json') -Raw | ConvertFrom-Json
 $product = $package.build.productName
 $displayName = "$product $($package.version)"
-$installerRoot = Join-Path $PSScriptRoot '../dist/local-ai-preview'
-$installers = @(Get-ChildItem $installerRoot -Filter '*.exe' -File)
-if ($installers.Count -ne 1) { throw 'Expected exactly one Local AI preview installer.' }
+$downloadLaterRoot = Join-Path $PSScriptRoot '../dist/local-ai-preview'
+$modelIncludedRoot = Join-Path $PSScriptRoot '../dist/local-ai-preview-model-included'
+$downloadLaterInstallers = @(Get-ChildItem $downloadLaterRoot -Filter '*.exe' -File)
+$modelInstallers = @(Get-ChildItem $modelIncludedRoot -Filter '*.exe' -File)
+if ($downloadLaterInstallers.Count -ne 1 -or $downloadLaterInstallers[0].Name -notlike '*Download-Model-Later*' -or
+    $modelInstallers.Count -ne 1 -or $modelInstallers[0].Name -notlike '*Model-Included*') {
+    throw 'Expected clearly named model-included and download-later Local AI preview installers.'
+}
+$downloadLaterInstaller = $downloadLaterInstallers[0]
+$modelInstaller = $modelInstallers[0]
 $previousRoot = Join-Path $PSScriptRoot '../dist-previous'
 $previousInstallers = @(Get-ChildItem $previousRoot -Filter '*.exe' -File)
 if ($previousInstallers.Count -ne 1) { throw 'Expected exactly one previous-version installer.' }
@@ -19,11 +26,13 @@ $protocolRoot = 'HKCU:\Software\Classes\com.quizfromnotes.desktop.preview'
 $protocolCommand = Join-Path $protocolRoot 'shell\open\command'
 $backupRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer'
 $stateRoot = 'HKCU:\Software\Quiz From Notes\Local AI Preview Installer State'
+$modelPath = Join-Path $env:APPDATA 'Quiz From Notes Preview/local-ai/models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
 $installerSource = Get-Content (Join-Path $PSScriptRoot '../build/local-ai-preview-installer.nsh') -Raw
-if ([regex]::Matches($installerSource, 'MessageBox').Count -ne 1 -or
-    $installerSource -notmatch 'A version of Quiz From Notes is already installed\.' -or
+if ($installerSource -notmatch 'A version of Quiz From Notes is already installed\.' -or
+    $installerSource -notmatch 'This model-included setup must be extracted' -or
+    $installerSource -notmatch 'could not install the Local AI model' -or
     $installerSource -match 'MessageBox[^\r\n]*sign-in') {
-    throw 'Installer must use one friendly replacement prompt without sign-in-link wording.'
+    throw 'Installer replacement and model prompts must be present, friendly, and contain no sign-in-link wording.'
 }
 function Find-Registration {
     if (-not (Test-Path $registryRoot)) { return }
@@ -67,7 +76,7 @@ try {
         throw 'Previous-version installation did not install the expected baseline version.'
     }
 
-    $install = Start-Process -FilePath $installers[0].FullName `
+    $install = Start-Process -FilePath $downloadLaterInstaller.FullName `
         -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
     Wait-ChildProcess $install 120000 'Local AI in-place replacement'
     if (-not (Test-Path $exePath) -or -not (Test-Path $uninstaller)) {
@@ -111,6 +120,19 @@ try {
         }
     }
 
+    $installWithModel = Start-Process -FilePath $modelInstaller.FullName `
+        -ArgumentList @('/S', '/currentuser', "/D=$installDir") -PassThru
+    Wait-ChildProcess $installWithModel 300000 'Model-included Local AI installation'
+    if (-not (Test-Path $modelPath)) { throw 'Model-included installer did not install the Local AI model.' }
+    $modelInfo = Get-Item $modelPath
+    if ($modelInfo.Length -ne 2497280256) { throw 'Installer model size does not match the pinned model.' }
+    if ((Get-FileHash $modelPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5') {
+        throw 'Installer did not preserve the pinned model checksum.'
+    }
+    if (Test-Path (Join-Path $installDir 'resources/local-ai-model')) {
+        throw 'Installer left a duplicate model copy in the application directory.'
+    }
+
     New-Item -Path $backupRoot -Force | Out-Null
     New-ItemProperty -Path $backupRoot -Name 'PreviousProtocolCommand' `
         -Value $previousCommand -PropertyType String -Force | Out-Null
@@ -129,7 +151,7 @@ try {
     Set-Item -Path $protocolCommand -Value $previousCommand
 
     $conflictDir = Join-Path $env:RUNNER_TEMP ('qfn-local-ai-conflict-' + [guid]::NewGuid().ToString('N'))
-    $conflictInstall = Start-Process -FilePath $installers[0].FullName `
+    $conflictInstall = Start-Process -FilePath $downloadLaterInstaller.FullName `
         -ArgumentList @('/S', '/currentuser', "/D=$conflictDir") -PassThru
     if (-not $conflictInstall.WaitForExit(120000)) {
         $conflictInstall.Kill($true)

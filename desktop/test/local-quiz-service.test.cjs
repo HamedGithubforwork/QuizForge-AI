@@ -275,10 +275,17 @@ test('service rejects question text that switches to an unsupported writing syst
   const quiz = rawQuiz()
   quiz.questions[0].question += ' 七小时'
   const issues = []
+  let calls = 0
   const service = createLocalQuizService({
     onValidationIssue(issue) { issues.push(issue) },
     provider: {
-      async generate() {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
+          assert.match(request.messages.at(-1).content, /fresh complete five-question quiz/i)
+          assert.equal(request.jsonSchema.properties.questions.items.properties.question.maxLength, 240)
+        }
         return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
       },
     },
@@ -293,7 +300,9 @@ test('service rejects question text that switches to an unsupported writing syst
     }),
     { code: 'quiz_validation_failed' },
   )
+  assert.equal(calls, 2)
   assert.deepEqual(issues.map(issue => issue.reason), [
+    'unexpected_output_script',
     'unexpected_output_script',
   ])
 })

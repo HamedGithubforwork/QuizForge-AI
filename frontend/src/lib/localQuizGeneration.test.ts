@@ -186,7 +186,7 @@ test(
         error:
           'quiz_validation_failed',
       }),
-      /invalid quiz/,
+      /valid quiz after retrying/,
     )
     assert.match(
       localQuizErrorMessage({
