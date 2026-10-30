@@ -141,7 +141,11 @@ test('hardware snapshot enables GPU mode only when Vulkan enumeration finds a de
     platform: 'win32',
     arch: 'x64',
     osModule: { totalmem: () => 16 * GIB, cpus: () => Array(8) },
-    fsModule: { statfs: async () => ({ bavail: 10, bsize: GIB }) },
+    fsModule: {
+      mkdir: async () => {},
+      lstat: async () => ({ isDirectory: () => true, isSymbolicLink: () => false }),
+      statfs: async () => ({ bavail: 10, bsize: GIB }),
+    },
     env: { SystemRoot: 'C:\\Windows' },
     verifyRuntimeFn: async () => {},
     exec(file, _args, _options, callback) {
