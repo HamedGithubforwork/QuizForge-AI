@@ -2,7 +2,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
 } from 'react'
 
 import './App.css'
@@ -185,12 +184,7 @@ function App() {
     setMasteryContext(null)
   }
 
-  function handleFileChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file =
-      event.target.files?.[0] ?? null
-
+  function handleFileSelection(file: File | null) {
     setSelectedFile(file)
     setPageSelection('')
     resetProcessedDocument()
@@ -1091,7 +1085,7 @@ function App() {
           fileInputRef={fileInputRef}
           selectedFile={selectedFile}
           isProcessing={isProcessing}
-          onFileChange={handleFileChange}
+          onFileSelected={handleFileSelection}
           onProcessPdf={() => void handleProcessPdf()}
           job={pdfUpload.job}
           recentJob={pdfUpload.recentJob}
