@@ -37,7 +37,7 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
     for (const value of [null, {}, [], { messages: [] }, { ...input(), tools: [] },
       { messages: [{ role: 'tool', content: 'bad' }] }, { messages: [{ role: 'user', content: ' ' }] },
       { messages: [{ role: 'user', content: 'é'.repeat(31000) }] }, { ...input(), maxTokens: NaN },
-      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 },
+      { ...input(), maxTokens: 5201 }, { ...input(), maxTokens: 0 },
       { ...input(), jsonSchema: [] }, { ...input(), jsonSchema: { description: 'x'.repeat(17000) } },
       { ...input(), generationProfile: 'arbitrary' }]) {
       await assert.rejects(provider.generate(value), { code: 'invalid_request' })

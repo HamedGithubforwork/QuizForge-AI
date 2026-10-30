@@ -18,8 +18,8 @@ const status: DesktopLocalAiQuizStatus = {
   modelId: 'qwen3-4b-q4-k-m',
   execution: 'local',
   constraints: {
-    questionCount: 5,
-    questionType: 'multiple_choice',
+    questionCounts: [5, 10, 15],
+    questionTypes: ['multiple_choice', 'true_false', 'short_answer', 'mixed'],
     maxSourceBytes: 8000,
   },
 }
@@ -84,6 +84,20 @@ test(
     assert.equal(accepted.byteLength, 8)
   },
 )
+
+test('passes the selected question count and mode through to Local AI', async () => {
+  const request = await buildLocalQuizRequest(
+    document,
+    'easy',
+    status,
+    async (_sha, pageNumber) => `text ${pageNumber}`,
+    undefined,
+    15,
+    'mixed',
+  )
+  assert.equal(request.questionCount, 15)
+  assert.equal(request.questionType, 'mixed')
+})
 
 test(
   'builds a five-question MCQ request from authenticated source pages',

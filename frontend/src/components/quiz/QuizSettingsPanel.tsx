@@ -81,10 +81,7 @@ function QuizSettingsPanel({
                 Number(event.target.value),
               )
             }}
-            disabled={
-              settingsDisabled ||
-              generationMode === 'local'
-            }
+            disabled={settingsDisabled}
           >
             <option value={5}>
               5 questions
@@ -141,10 +138,7 @@ function QuizSettingsPanel({
                 onQuestionTypeChange(value)
               }
             }}
-            disabled={
-              settingsDisabled ||
-              generationMode === 'local'
-            }
+            disabled={settingsDisabled}
           >
             <option value="multiple_choice">
               Multiple Choice
@@ -209,8 +203,7 @@ function QuizSettingsPanel({
                 ? (
                   <>
                     Local AI extracts the selected
-                    PDF pages and generates five
-                    multiple-choice questions on this
+                    PDF pages and generates your quiz on this
                     computer. The original PDF is not
                     uploaded in Local mode. Account
                     sign-in and saving results to your

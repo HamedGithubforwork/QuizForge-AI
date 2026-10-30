@@ -177,7 +177,7 @@ function createLocalRuntime({
         : ['--device', 'none', '-ngl', '0']
       if (fallbackState && mode === 'gpu') fallbackState.eligible = true
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
-        '-c', '4096', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
+        '-c', '12288', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
       { cwd: directory, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment(key) })
       const offloadTracker = trackGpuLayerOffload(child)
@@ -204,7 +204,7 @@ function createLocalRuntime({
         await delay(100, undefined, { signal: startup })
       }
       const result = await requestFn(port, key, '/v1/chat/completions',
-        { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 1800) },
+        { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 5200) },
         owned)
       const gpuOffloaded = offloadTracker.state()
       lastAccelerationMode = mode === 'cpu'

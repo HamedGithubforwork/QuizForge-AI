@@ -44,20 +44,36 @@ function createNativeSession({ clientId, client, openBrowser, onChange = () => {
   return {
     signIn(provider = 'default') {
       if (!['default', 'google'].includes(provider)) throw new Error('Unsupported desktop sign-in method.')
+      if (pending) {
+        if (pending.provider === provider) return pending.completion
+        throw new Error('Sign-in is already open. Finish it in your browser or cancel it before starting another sign-in.')
+      }
       const old = invalidate()
       void revoke(old)
       const attempt = createAuthorizationAttempt({ clientId, provider })
       const operationEpoch = epoch
+      let resolveCompletion
+      let rejectCompletion
       const completion = new Promise((resolve, reject) => {
-        const entry = { attempt, resolve, reject, epoch: operationEpoch, timer: null }
-        pending = entry
-        entry.timer = setTimer(() => { if (pending === entry) { epoch++; cancelPending() } }, ATTEMPT_LIFETIME_MS)
-        changed()
-        // Only the internally constructed, pinned authorization URL is opened.
-        Promise.resolve().then(() => {
-          if (pending === entry) return openBrowser(attempt.authorizationUrl)
-        }).catch(() => { if (pending === entry) { epoch++; cancelPending() } })
+        resolveCompletion = resolve
+        rejectCompletion = reject
       })
+      const entry = {
+        attempt,
+        resolve: resolveCompletion,
+        reject: rejectCompletion,
+        epoch: operationEpoch,
+        timer: null,
+        provider,
+        completion,
+      }
+      pending = entry
+      entry.timer = setTimer(() => { if (pending === entry) { epoch++; cancelPending() } }, ATTEMPT_LIFETIME_MS)
+      changed()
+      // Only the internally constructed, pinned authorization URL is opened.
+      Promise.resolve().then(() => {
+        if (pending === entry) return openBrowser(attempt.authorizationUrl)
+      }).catch(() => { if (pending === entry) { epoch++; cancelPending() } })
       return completion
     },
     async handleCallback(raw) {

@@ -35,13 +35,14 @@ export async function buildLocalQuizRequest(
       signal?: AbortSignal,
     ) => Promise<string>,
   signal?: AbortSignal,
+  questionCount: 5 | 10 | 15 = 5,
+  questionType: 'multiple_choice' | 'true_false' | 'short_answer' | 'mixed' = 'multiple_choice',
 ): Promise<DesktopLocalQuizRequest> {
   if (
     !status.available ||
     !status.constraints ||
-    status.constraints.questionCount !== 5 ||
-    status.constraints.questionType !==
-      'multiple_choice'
+    !(status.constraints.questionCounts?.includes(questionCount) ?? status.constraints.questionCount === questionCount) ||
+    !(status.constraints.questionTypes?.includes(questionType) ?? status.constraints.questionType === questionType)
   ) {
     throw new Error(
       'Local AI quiz generation is not ready on this desktop.',
@@ -62,7 +63,7 @@ export async function buildLocalQuizRequest(
       status.constraints.maxSourceBytes
   ) {
     throw new Error(
-      'This selection is too large for the current Local AI preview. Choose fewer pages or use Cloud AI.',
+      'This selection is too large for Local AI. Choose fewer pages or use Cloud AI.',
     )
   }
 
@@ -92,17 +93,17 @@ export async function buildLocalQuizRequest(
       status.constraints.maxSourceBytes
   ) {
     throw new Error(
-      'This selection is too large for the current Local AI preview. Choose fewer pages or use Cloud AI.',
+      'This selection is too large for Local AI. Choose fewer pages or use Cloud AI.',
     )
   }
 
   return {
     pages,
-    questionCount: 5,
+    questionCount,
     difficulty:
       difficulty as
         DesktopLocalQuizRequest['difficulty'],
-    questionType: 'multiple_choice',
+    questionType,
   }
 }
 
@@ -234,13 +235,13 @@ export function localQuizErrorMessage(
     runtime_unavailable:
       'The Local AI runtime is not available in this desktop build yet.',
     source_too_large:
-      'This selection is too large for the current Local AI preview. Choose fewer pages or use Cloud AI.',
+      'This selection is too large for Local AI. Choose fewer pages or use Cloud AI.',
     unsupported_quiz_mode:
-      'The Local AI preview currently supports only five multiple-choice questions.',
+      'That question count or type is not available in this Local AI build. Update the app and try again.',
     quiz_validation_failed:
       'Local AI could not create a valid quiz after retrying. Try fewer pages or use Cloud AI.',
     insufficient_source:
-      'The selected pages do not contain enough distinct factual material for five local questions. Choose more pages or use Cloud AI.',
+      'The selected pages do not contain enough distinct factual material for the requested local quiz. Choose more pages or use Cloud AI.',
     invalid_request:
       'The Local AI quiz request was invalid.',
     invalid_response:

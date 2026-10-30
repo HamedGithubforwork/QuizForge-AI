@@ -16,17 +16,19 @@ export type DesktopLocalAiQuizStatus = {
   modelId?: string
   execution?: 'local'
   constraints?: {
-    questionCount: 5
-    questionType: 'multiple_choice'
+    questionCounts?: number[]
+    questionTypes?: Array<'multiple_choice' | 'true_false' | 'short_answer' | 'mixed'>
+    questionCount?: 5
+    questionType?: 'multiple_choice'
     maxSourceBytes: number
   }
 }
 
 export type DesktopLocalQuizRequest = {
   pages: Array<{ pageNumber: number; text: string }>
-  questionCount: 5
+  questionCount: 5 | 10 | 15
   difficulty: 'easy' | 'medium' | 'hard'
-  questionType: 'multiple_choice'
+  questionType: 'multiple_choice' | 'true_false' | 'short_answer' | 'mixed'
   practice?: {
     avoidQuestions: string[]
   }
@@ -36,9 +38,9 @@ export type DesktopLocalDocumentQuizRequest = {
   bytes: Uint8Array
   filename: string
   selectedPages?: number[]
-  questionCount: 5
+  questionCount: 5 | 10 | 15
   difficulty: 'easy' | 'medium' | 'hard'
-  questionType: 'multiple_choice'
+  questionType: 'multiple_choice' | 'true_false' | 'short_answer' | 'mixed'
 }
 
 export type DesktopLocalPdfRequest = {

@@ -75,7 +75,7 @@ test('rejects unsupported quiz requests before reading the PDF', async () => {
   const { service, calls } = setup()
   await assert.rejects(service.generate({ bytes, difficulty: 'medium', questionCount: 4, questionType: 'multiple_choice' }),
     { code: 'invalid_request' })
-  await assert.rejects(service.generate({ bytes, difficulty: 'easy', questionCount: 5, questionType: 'short_answer' }),
+  await assert.rejects(service.generate({ bytes, difficulty: 'easy', questionCount: 5, questionType: 'essay' }),
     { code: 'invalid_request' })
   await assert.rejects(service.generate({ bytes, difficulty: 'easy', questionCount: 5, questionType: 'multiple_choice', cloud: true }),
     { code: 'invalid_request' })

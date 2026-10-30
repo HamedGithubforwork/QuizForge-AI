@@ -14,8 +14,8 @@ function validLocalDocumentRequest(value) {
           value.selectedPages.length > MAX_SELECTED_PAGES ||
           value.selectedPages.some(page => !Number.isSafeInteger(page) || page < 1) ||
           new Set(value.selectedPages).size !== value.selectedPages.length)) ||
-      value.questionCount !== 5 || !['easy', 'medium', 'hard'].includes(value.difficulty) ||
-      value.questionType !== 'multiple_choice') return false
+      ![5, 10, 15].includes(value.questionCount) || !['easy', 'medium', 'hard'].includes(value.difficulty) ||
+      !['multiple_choice', 'true_false', 'short_answer', 'mixed'].includes(value.questionType)) return false
   return true
 }
 

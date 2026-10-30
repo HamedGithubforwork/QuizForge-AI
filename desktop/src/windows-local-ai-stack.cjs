@@ -108,8 +108,8 @@ function createWindowsLocalAiStack({
       modelId: resources.modelId,
       execution: 'local',
       constraints: Object.freeze({
-        questionCount: 5,
-        questionType: 'multiple_choice',
+        questionCounts: Object.freeze([5, 10, 15]),
+        questionTypes: Object.freeze(['multiple_choice', 'true_false', 'short_answer', 'mixed']),
         maxSourceBytes: 8000,
       }),
     })

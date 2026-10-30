@@ -41,7 +41,8 @@ function normalizeRequest(value) {
         value.selectedPages.some(page => !Number.isSafeInteger(page) || page < 1) ||
         new Set(value.selectedPages).size !== value.selectedPages.length)) ||
       !['easy', 'medium', 'hard'].includes(value.difficulty) ||
-      value.questionCount !== 5 || value.questionType !== 'multiple_choice') {
+      ![5, 10, 15].includes(value.questionCount) ||
+      !['multiple_choice', 'true_false', 'short_answer', 'mixed'].includes(value.questionType)) {
     throw new LocalDocumentQuizError('invalid_request')
   }
   return value
