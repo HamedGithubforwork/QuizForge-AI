@@ -70,6 +70,15 @@ variable "legacy_publishable_key" {
   default     = ""
   description = "Only the source publishable/anon key, never a privileged service-role key."
 }
+variable "desktop_cognito_client_id" {
+  type        = string
+  default     = ""
+  description = "Existing distinct public desktop Cognito client ID; required when enabling the API."
+  validation {
+    condition     = var.desktop_cognito_client_id == "" || can(regex("^[a-z0-9]{1,128}$", var.desktop_cognito_client_id))
+    error_message = "Use the public ID of a distinct Cognito desktop app client."
+  }
+}
 data "aws_caller_identity" "current" {}
 data "terraform_remote_state" "foundation" {
   backend = "s3"
@@ -97,6 +106,7 @@ locals {
     { name = "AUTH_PROVIDER", value = "cognito" },
     { name = "COGNITO_USER_POOL_ID", value = aws_cognito_user_pool.browser.id },
     { name = "COGNITO_CLIENT_ID", value = aws_cognito_user_pool_client.browser.id },
+    { name = "COGNITO_DESKTOP_CLIENT_ID", value = var.desktop_cognito_client_id },
     { name = "AWS_EC2_METADATA_DISABLED", value = "true" }
   ]
 }
