@@ -223,8 +223,14 @@ resource "aws_ecs_service" "app" {
   }
   lifecycle {
     precondition {
-      condition     = !var.enable_api || (var.api_image != "" && var.operations_image != "" && var.legacy_publishable_key != "")
-      error_message = "Starting the API requires both reviewed immutable image digests and the legacy publishable key."
+      condition = !var.enable_api || (
+        var.api_image != "" &&
+        var.operations_image != "" &&
+        var.legacy_publishable_key != "" &&
+        var.desktop_cognito_client_id != "" &&
+        var.desktop_cognito_client_id != aws_cognito_user_pool_client.browser.id
+      )
+      error_message = "Starting the API requires reviewed immutable images, the legacy publishable key, and a distinct desktop Cognito client ID."
     }
   }
   depends_on = [aws_lb_listener_rule.app]
