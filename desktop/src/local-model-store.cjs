@@ -148,6 +148,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
           const info = await fs.lstat(filename)
           if (!info.isFile() || info.isSymbolicLink()) throw failure('unsafe_model')
           await fs.unlink(filename)
+          verifiedFingerprint = null
         } catch (error) { if (error.code !== 'ENOENT') throw error }
       })
     },
