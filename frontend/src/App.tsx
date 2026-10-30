@@ -1095,6 +1095,7 @@ function App() {
           onPageSelectionChange={handlePageSelectionChange}
           supportsPageSelection={pdfUpload.supportsPageSelection || (generationMode === 'local' && Boolean(localPdfBridge))}
           localProcessing={generationMode === 'local' && Boolean(localPdfBridge)}
+          localAiAvailable={Boolean(localPdfBridge)}
           processedLocally={Boolean(localProcessedPages)}
           selectionDisabled={documentBusy || isChangingPages}
           hidePageSelection={Boolean(documentResult && pdfUpload.supportsPageReuse && pdfUpload.sourceSha256)}
