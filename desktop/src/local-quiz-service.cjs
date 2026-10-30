@@ -129,7 +129,7 @@ const TARGETED_PRIMARY_POOL_SCHEMA = Object.freeze({
     ...TARGETED_RETRY_SCHEMA.properties,
     questions: Object.freeze({
       ...TARGETED_RETRY_SCHEMA.properties.questions,
-      minItems: QUESTION_COUNT,
+      minItems: TARGETED_PRIMARY_CANDIDATES,
       maxItems: TARGETED_PRIMARY_CANDIDATES,
     }),
   }),
@@ -777,10 +777,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               role: 'user',
               content: [
                 'This targeted-practice request filters exact prior-question repeats and invalid candidates, then uses bounded recovery only for the remaining gap.',
-                'Generate five required compact candidate questions, each using a different source fact. If a sixth genuinely distinct source fact is available, include it as one backup candidate. Never copy any wording from PRIOR QUESTIONS TO AVOID; if a fact overlaps, use a clearly different question-answer direction. Give every candidate distinct wording and vary question structure. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
+                'Generate exactly six compact candidate questions. The first five valid candidates after filtering must test five different source facts. Use a sixth distinct source fact as the backup when available; if only five distinct facts are available, make the sixth a different question direction about one of those facts so it can serve as a backup. Never copy any wording from PRIOR QUESTIONS TO AVOID. Give every candidate distinct wording and vary question structure. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
                 'Return source_fact for every candidate as the shortest exact contiguous excerpt from one cited PAGE that identifies the subject and fact and includes the selected answer. Do not paraphrase source_fact; keep it under 160 characters.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt, and the question must ask about the same fact.',
-                'Before writing, plan five different source facts and a distinct question wording for each. Add a sixth source fact as a backup only when the pages support one. Never copy wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. For an overlapping fact, ask a different question-answer direction. Before returning JSON, compare all candidates with one another and replace repeated wording or direction.',
+                'Before writing, plan five different source facts and distinct wording for each. Then add one backup candidate: use a sixth fact if one exists, otherwise ask a different question direction about one of the five facts. Never copy wording from PRIOR QUESTIONS TO AVOID: a matching question will be discarded. Before returning JSON, compare all six candidates with one another and replace repeated wording or direction.',
                 'Before returning JSON, compare every candidate against every PRIOR QUESTION TO AVOID and against every other candidate. Replace exact repeats after ignoring capitalization and whitespace, and replace repeated questions with a different source-supported relationship.',
                 'The first five candidates that remain after removing exact prior questions, exact duplicate questions, unsupported source_fact values, and duplicate source_fact values must cover five different underlying source facts.',
                 'If fewer than five distinct source-supported factual questions are genuinely possible after deduplication, return title "Insufficient source material" and an empty questions array. Never invent facts to avoid abstaining.',

@@ -404,6 +404,10 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quiz = withRetrySourceFacts(rawQuiz())
         quiz.questions[0].question = 'A different follow-up question?'
         quiz.questions[1].question = 'Another distinct follow-up question?'
+        quiz.questions.push({
+          ...quiz.questions[0],
+          question: 'Backup question about the first fact?',
+        })
         assert.equal(request.jsonSchema.oneOf.length, 2)
         assert.equal(
           request.jsonSchema.oneOf[0].properties.title.const,
@@ -416,7 +420,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         const quizPoolSchema = request.jsonSchema.oneOf[1]
         assert.equal(
           quizPoolSchema.properties.questions.minItems,
-          5,
+          6,
         )
         assert.equal(
           quizPoolSchema.properties.questions.maxItems,
@@ -443,11 +447,11 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /generate five required compact candidate questions/i,
+          /generate exactly six compact candidate questions/i,
         )
         assert.match(
           request.messages.at(-1).content,
-          /plan five different source facts and a distinct question wording for each/i,
+          /plan five different source facts and distinct wording for each/i,
         )
         assert.equal(
           request.generationProfile,
@@ -704,7 +708,7 @@ test('targeted practice uses one backup candidate instead of a recovery inferenc
       async generate(request) {
         calls++
         const schema = request.jsonSchema.oneOf[1].properties.questions
-        assert.equal(schema.minItems, 5)
+        assert.equal(schema.minItems, 6)
         assert.equal(schema.maxItems, 6)
         return { text: JSON.stringify(primary), finishReason: 'stop', usage: null }
       },
