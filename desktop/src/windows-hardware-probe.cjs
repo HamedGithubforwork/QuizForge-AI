@@ -118,6 +118,12 @@ async function snapshotWindowsHardware({
     throw Object.assign(new Error('Hardware capability: invalid_storage_directory'),
       { code: 'invalid_storage_directory' })
   }
+  await fsModule.mkdir(storageDirectory, { recursive: true, mode: 0o700 })
+  const storageInfo = await fsModule.lstat(storageDirectory)
+  if (!storageInfo.isDirectory() || storageInfo.isSymbolicLink()) {
+    throw Object.assign(new Error('Hardware capability: invalid_storage_directory'),
+      { code: 'invalid_storage_directory' })
+  }
   const disk = await fsModule.statfs(storageDirectory)
   const gpu = await queryWindowsGpu({ platform, env, exec })
   const vulkan = await queryWindowsVulkanDevices({
