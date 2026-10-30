@@ -108,6 +108,7 @@ function createLocalAiManager({ modelStore, capabilityProbe, modelMetadata = nul
   let error = null
   let controller = null
   let operation = null
+  let initialization = null
   let disposed = false
 
   const snapshot = () => Object.freeze({
@@ -126,31 +127,43 @@ function createLocalAiManager({ modelStore, capabilityProbe, modelMetadata = nul
       await operation.catch(() => {})
       return snapshot()
     }
+    if (initialization) {
+      await initialization
+      return snapshot()
+    }
     phase = 'checking'
     error = null
-    try {
-      const nextCapability = await capabilityProbe()
+    const current = (async () => {
       try {
-        const nextModel = await modelStore.status()
-        model = modelState(
-          nextModel.ready === true ? 'ready' : 'missing',
-          nextModel.ready === true,
-          nextModel.ready === true ? nextModel.bytes : null,
-        )
+        const nextCapability = await capabilityProbe()
+        try {
+          const nextModel = await modelStore.status()
+          model = modelState(
+            nextModel.ready === true ? 'ready' : 'missing',
+            nextModel.ready === true,
+            nextModel.ready === true ? nextModel.bytes : null,
+          )
+        } catch (caught) {
+          if (safeError(caught) !== 'invalid_model') throw caught
+          model = modelState('invalid', false, null)
+          error = 'invalid_model'
+        }
+        capability = publicCapability(nextCapability)
+        initialized = true
       } catch (caught) {
-        if (safeError(caught) !== 'invalid_model') throw caught
-        model = modelState('invalid', false, null)
-        error = 'invalid_model'
+        error = safeError(caught)
+        throw caught
+      } finally {
+        phase = 'idle'
       }
-      capability = publicCapability(nextCapability)
-      initialized = true
-    } catch (caught) {
-      error = safeError(caught)
-      throw caught
+    })()
+    initialization = current
+    try {
+      await current
+      return snapshot()
     } finally {
-      phase = 'idle'
+      if (initialization === current) initialization = null
     }
-    return snapshot()
   }
 
   async function startDownload() {
