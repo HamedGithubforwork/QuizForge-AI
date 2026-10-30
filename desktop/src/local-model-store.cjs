@@ -39,6 +39,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       !Number.isSafeInteger(model.bytes) || model.bytes < 4 || model.bytes > 8 * 1024 ** 3) throw failure('invalid_configuration')
   const spec = Object.freeze({ ...model, url: reviewedUrl(model.url) })
   const filename = path.join(directory, spec.sha256 + '.gguf')
+  let verifiedFingerprint = null
   let pending = Promise.resolve()
   function serial(operation) {
     const next = pending.then(operation); pending = next.catch(() => {}); return next
@@ -55,7 +56,14 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       if (error.code === 'ENOENT') return { ready: false }
       throw error
     }
-    if (!info.isFile() || info.isSymbolicLink() || info.size !== spec.bytes) throw failure('invalid_model')
+    if (!info.isFile() || info.isSymbolicLink() || info.size !== spec.bytes) {
+      verifiedFingerprint = null
+      throw failure('invalid_model')
+    }
+    // Reuse a successful digest check while the same file identity and timestamps remain.
+    // Any replacement or write changes this fingerprint and forces a fresh SHA-256 pass.
+    const fingerprint = [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(':')
+    if (verifiedFingerprint === fingerprint) return { ready: true, path: filename, bytes: spec.bytes }
     const handle = await fs.open(filename, 'r')
     try {
       const opened = await handle.stat()
@@ -64,7 +72,11 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       for await (const chunk of handle.createReadStream({ autoClose: false })) {
         signal?.throwIfAborted(); hash.update(chunk)
       }
-      if (hash.digest('hex') !== spec.sha256) throw failure('invalid_model')
+      if (hash.digest('hex') !== spec.sha256) {
+        verifiedFingerprint = null
+        throw failure('invalid_model')
+      }
+      verifiedFingerprint = fingerprint
       return { ready: true, path: filename, bytes: spec.bytes }
     } finally { await handle.close() }
   }
