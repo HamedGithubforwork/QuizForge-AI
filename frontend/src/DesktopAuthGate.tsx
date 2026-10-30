@@ -8,6 +8,11 @@ import { desktopBridge, desktopLocalAiBridge, type DesktopAccount, type DesktopS
 import './AuthGate.css'
 
 const bridge = desktopBridge()!
+function routePathname() {
+  const pathname = window.location.pathname
+  return pathname === '/index.html' ? '/' : pathname
+}
+
 export default function DesktopAuthGate() {
   const authRevision = useRef(0)
   const [account, setAccount] = useState<DesktopAccount | null>(null)
@@ -15,7 +20,7 @@ export default function DesktopAuthGate() {
   const [busy, setBusy] = useState(false)
   const [signInMethod, setSignInMethod] = useState<DesktopSignInMethod | null>(null)
   const [error, setError] = useState('')
-  const [pathname, setPathname] = useState(window.location.pathname)
+  const [pathname, setPathname] = useState(routePathname())
   useEffect(() => {
     let active = true
     const check = () => {
@@ -26,7 +31,7 @@ export default function DesktopAuthGate() {
     }
     check()
     const timer = setInterval(check, 5000)
-    const pop = () => setPathname(window.location.pathname)
+    const pop = () => setPathname(routePathname())
     window.addEventListener('popstate', pop)
     return () => { active = false; clearInterval(timer); window.removeEventListener('popstate', pop) }
   }, [])
