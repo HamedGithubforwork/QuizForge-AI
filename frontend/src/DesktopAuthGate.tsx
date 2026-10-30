@@ -130,10 +130,10 @@ export default function DesktopAuthGate() {
           ['/settings/notifications', 'Reminders'],
           ...(localAiAvailable ? [['/settings/local-ai', 'Local AI'] as const] : []),
         ] as const).map(([path, label]) =>
-          <button key={path} className="account-nav-button" aria-current={pathname === path ? 'page' : undefined}
+          <button key={path} className={`account-nav-button${pathname === path ? ' active' : ''}`} aria-current={pathname === path ? 'page' : undefined}
             onClick={() => navigate(path)}>{label}</button>)}
-        <button disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>Account security</button>
-        <button disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
+        <button className="account-security-button" disabled={busy} onClick={() => void run(() => bridge.openAccountWebsite())}>Account security</button>
+        <button className="sign-out-button" disabled={busy} onClick={() => void run(signOut)}>Sign out</button>
       </nav>
     </div></div>
     {error && <p role="alert">{error}</p>}
