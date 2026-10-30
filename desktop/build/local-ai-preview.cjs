@@ -39,7 +39,7 @@ if (model) {
   const generatedDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'qfn-local-ai-installer-'))
   installerInclude = path.join(generatedDirectory, 'local-ai-preview-installer.nsh')
   fs.writeFileSync(installerInclude,
-    `!define QFN_INSTALL_BUNDLED_MODEL 1\n!define QFN_MODEL_FILE "${CANDIDATE.sha256}.gguf"\n!include "${baseInstaller.replace(/\\/g, '/')}"\n`, 'utf8')
+    `!define QFN_INSTALL_BUNDLED_MODEL 1\n!define QFN_MODEL_FILE "${CANDIDATE.sha256}.gguf"\n${fs.readFileSync(baseInstaller, 'utf8')}`, 'utf8')
   process.on('exit', () => fs.rmSync(generatedDirectory, { recursive: true, force: true }))
 }
 
