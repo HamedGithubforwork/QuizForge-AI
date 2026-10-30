@@ -35,7 +35,7 @@ test('distribution policy is pinned to the exact evaluated runtime and model', (
   assert.match(CANDIDATE.url, new RegExp('/resolve/' + policy.model.revision + '/'))
   assert.match(CANDIDATE.url, new RegExp('/' + policy.model.filename.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&') + '$'))
   assert.equal(policy.model.delivery, 'explicit_user_download')
-  assert.equal(policy.model.optional_packaged_delivery, 'model_included_installer_bundle')
+  assert.equal(policy.model.optional_packaged_delivery, 'installer_opt_in_prompt')
   assert.equal(policy.model.automatic_download, false)
   assert.equal(policy.activation_blockers.includes('add_user_visible_model_license_disclosure'), false)
 })

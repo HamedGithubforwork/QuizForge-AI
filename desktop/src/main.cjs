@@ -61,6 +61,9 @@ let mainWindow
 let rendererUrl = APP_ORIGIN
 let bundledLocalRenderer = false
 let showingFailure = false
+const installerModelDownloadArgument = '--qfn-download-local-ai-model-after-install'
+let pendingInstallerModelDownload = process.argv.includes(installerModelDownloadArgument)
+let installerModelDownloadStarted = false
 
 async function reportFailure() {
   if (showingFailure || !mainWindow || mainWindow.isDestroyed()) return
@@ -225,11 +228,61 @@ async function runNativeTest() {
   await nativeTest.run()
 }
 
+async function startInstallerModelDownload() {
+  if (installerModelDownloadStarted) return
+  if (!localAiManager) {
+    pendingInstallerModelDownload = true
+    return
+  }
+  installerModelDownloadStarted = true
+  pendingInstallerModelDownload = false
+  try {
+    const before = await localAiManager.load()
+    if (before.model?.ready) return
+    await localAiManager.startDownload()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setProgressBar(2, { mode: 'indeterminate' })
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'Local AI model download started',
+          body: 'The 2.5 GB model is downloading. Keep Quiz From Notes open; you can use Local AI after it finishes.',
+        }).show()
+      }
+    }
+    const timer = setInterval(() => {
+      const status = localAiManager?.status()
+      if (!status || status.phase !== 'downloading') {
+        clearInterval(timer)
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setProgressBar(-1)
+        if (status?.model?.ready) {
+          if (Notification.isSupported()) {
+            new Notification({ title: 'Local AI is ready', body: 'The model finished downloading.' }).show()
+          }
+        } else if (status?.error && Notification.isSupported()) {
+          new Notification({ title: 'Local AI download did not finish', body: 'Open Local AI settings to retry the download.' }).show()
+        }
+        return
+      }
+      const progress = status.progress
+      if (progress?.totalBytes > 0 && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setProgressBar(Math.min(1, progress.receivedBytes / progress.totalBytes))
+      }
+    }, 1000)
+    timer.unref()
+  } catch {
+    installerModelDownloadStarted = false
+    if (Notification.isSupported()) {
+      new Notification({ title: 'Local AI download could not start', body: 'Open Local AI settings to check compatibility and try again.' }).show()
+    }
+  }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
     void receiveCallback(argv)
+    if (argv.includes(installerModelDownloadArgument)) void startInstallerModelDownload()
     focusWindow()
   })
   app.on('open-url', (event, url) => {
@@ -301,6 +354,7 @@ if (!app.requestSingleInstanceLock()) {
         ...(runtimeDirectory ? { runtimeDirectory } : {}),
         documentProcessor: createLocalDocumentProcessor({ engine: createPdfJsLocalEngine() }),
       })
+      if (pendingInstallerModelDownload) void startInstallerModelDownload()
       offlineMenu = createOfflineMenu({ store: snapshotStore, reader: createOfflineReader({ BrowserWindow, session }),
         dialog, getWindow: () => mainWindow })
       Menu.getApplicationMenu().getMenuItemById('offline-open').enabled = true

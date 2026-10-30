@@ -26,38 +26,6 @@
 !macroend
 
 !macro customInstall
-!ifdef QFN_INSTALL_BUNDLED_MODEL
-  IfFileExists "$EXEDIR\${QFN_MODEL_FILE}" qfn_install_bundled_model qfn_bundled_model_missing
-
-  qfn_install_bundled_model:
-  CreateDirectory "$APPDATA\Quiz From Notes Preview\local-ai\models"
-  IfFileExists "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}" qfn_replace_existing_model qfn_move_bundled_model
-
-  qfn_replace_existing_model:
-  Delete "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}"
-  IfFileExists "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}" qfn_bundled_model_install_failed qfn_move_bundled_model
-
-  qfn_move_bundled_model:
-  Rename "$EXEDIR\${QFN_MODEL_FILE}" "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}"
-  IfFileExists "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}" qfn_remove_bundled_model_source
-  CopyFiles /SILENT "$EXEDIR\${QFN_MODEL_FILE}" "$APPDATA\Quiz From Notes Preview\local-ai\models"
-  IfErrors qfn_bundled_model_install_failed
-  IfFileExists "$APPDATA\Quiz From Notes Preview\local-ai\models\${QFN_MODEL_FILE}" qfn_remove_bundled_model_source qfn_bundled_model_install_failed
-
-  qfn_remove_bundled_model_source:
-  Delete "$EXEDIR\${QFN_MODEL_FILE}"
-  Goto qfn_model_install_done
-
-  qfn_bundled_model_missing:
-  MessageBox MB_ICONSTOP "This model-included setup must be extracted into a folder with ${QFN_MODEL_FILE}. Download and extract the full Local AI model-included package, then run setup again."
-  Abort
-
-  qfn_bundled_model_install_failed:
-  MessageBox MB_ICONSTOP "Quiz From Notes could not install the Local AI model. Close Quiz From Notes, check that this computer has enough free disk space, then try again."
-  Abort
-
-  qfn_model_install_done:
-!endif
   ReadRegStr $0 HKCU "${QFN_PROTOCOL_KEY}\shell\open\command" ""
   StrCmp $0 "" qfn_register_protocol
   StrCmp $0 '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"' qfn_register_protocol
@@ -81,6 +49,14 @@
   WriteRegStr HKCU "${QFN_PROTOCOL_KEY}" "" "URL:Quiz From Notes desktop sign-in"
   WriteRegStr HKCU "${QFN_PROTOCOL_KEY}" "URL Protocol" ""
   WriteRegStr HKCU "${QFN_PROTOCOL_KEY}\shell\open\command" "" '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" $\"%1$\"'
+
+  IfSilent qfn_finish_install 0
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Download Qwen3 4B Q4_K_M for Local AI now? The model is about 2.5 GB, requires an internet connection, and is distributed under Apache-2.0. The app will verify it before use. Choose No to download it later in Local AI settings." IDYES qfn_download_model IDNO qfn_finish_install
+
+  qfn_download_model:
+  Exec '$\"$INSTDIR\${APP_EXECUTABLE_FILENAME}$\" --qfn-download-local-ai-model-after-install'
+
+  qfn_finish_install:
 !macroend
 
 !macro customUnInstall
