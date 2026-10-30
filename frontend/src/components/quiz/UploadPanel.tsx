@@ -1,5 +1,5 @@
 import type {
-  ChangeEventHandler,
+  DragEvent,
   RefObject,
 } from 'react'
 
@@ -14,8 +14,7 @@ type UploadPanelProps = {
     RefObject<HTMLInputElement | null>
   selectedFile: File | null
   isProcessing: boolean
-  onFileChange:
-    ChangeEventHandler<HTMLInputElement>
+  onFileSelected: (file: File | null) => void
   onProcessPdf: () => void
   job: PdfJobResponse | null
   recentJob: PdfJobResponse | null
@@ -35,7 +34,7 @@ function UploadPanel({
   fileInputRef,
   selectedFile,
   isProcessing,
-  onFileChange,
+  onFileSelected,
   onProcessPdf,
   job,
   recentJob,
@@ -50,6 +49,15 @@ function UploadPanel({
   hidePageSelection,
   isChangingPages,
 }: UploadPanelProps) {
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    if (isProcessing || selectionDisabled) return
+    const pdf = Array.from(event.dataTransfer.files).find(file =>
+      file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'),
+    )
+    if (pdf) onFileSelected(pdf)
+  }
+
   return (
     <section className="panel upload-panel">
       <div className="section-heading">
@@ -66,9 +74,6 @@ function UploadPanel({
             Select a PDF containing your
             notes.
           </p>
-          {localProcessing && (
-            <p className="local-processing-note">Local mode extracts this PDF on your computer. The PDF is not uploaded for processing.</p>
-          )}
           {processedLocally && (
             <p className="local-processing-note" role="status">Processed on this computer. The PDF has not been uploaded.</p>
           )}
@@ -77,13 +82,58 @@ function UploadPanel({
 
       <input
         ref={fileInputRef}
-        className="file-input"
+        id="study-material-pdf"
+        className="file-input-hidden"
         type="file"
         accept="application/pdf"
         aria-label="Study material PDF"
-        onChange={onFileChange}
+        onChange={event => {
+          onFileSelected(event.currentTarget.files?.[0] ?? null)
+          event.currentTarget.value = ''
+        }}
         disabled={isProcessing || selectionDisabled}
       />
+
+      <div
+        className="upload-dropzone"
+        onDragOver={event => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }}
+        onDrop={handleDrop}
+        aria-label="PDF upload area. Drop a PDF here or use Browse files."
+      >
+        <svg className="upload-dropzone-icon" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M13 5h15l9 9v27H13z" fill="currentColor" opacity=".12" />
+          <path d="M28 5v10h9M13 5h15l9 9v27H13z" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinejoin="round" />
+          <path d="M18 27h14M18 33h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+          <text x="16" y="23" fill="currentColor" fontSize="7" fontWeight="800">PDF</text>
+        </svg>
+        <p className="upload-dropzone-title">
+          Drop a PDF here, or{' '}
+          <button
+            className="upload-inline-browse"
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing || selectionDisabled}
+          >
+            browse files
+          </button>
+        </p>
+        <span className="upload-dropzone-note">
+          PDF files only · {localProcessing
+            ? 'Processed locally on this computer'
+            : 'Choose Local AI to process on this computer'}
+        </span>
+        <button
+          className="upload-browse-button"
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isProcessing || selectionDisabled}
+        >
+          Browse files
+        </button>
+      </div>
 
       {selectedFile && (
         <div className="selected-file">
