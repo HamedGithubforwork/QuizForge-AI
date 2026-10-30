@@ -966,7 +966,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         }
         const retryableValidation =
           validationReason !== null &&
-          validationReason !== 'insufficient_source'
+          (validationReason !== 'insufficient_source' || request.practice)
         if (retryableValidation) {
           retryValidationReason =
             validationReason
