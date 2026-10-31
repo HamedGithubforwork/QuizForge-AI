@@ -2034,9 +2034,16 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             throw failure('quiz_validation_failed')
           }
         }
+        // The first attempt explicitly abstained. If the source-backed
+        // retry still cannot establish distinct facts or a supported correct
+        // answer, report that no grounded quiz could be produced instead of
+        // exposing an opaque validation error. Never accept the bad retry:
+        // its precise rejection reason is already emitted for diagnostics.
+        // Other retry failures (wrong citations, malformed JSON, scripts,
+        // duplicate choices, etc.) remain quiz_validation_failed.
         if (retryValidationReason === 'insufficient_source' &&
             error instanceof QuizValidationIssue &&
-            error.reason === 'insufficient_source_facts') {
+            ['insufficient_source_facts', 'unsupported_answer'].includes(error.reason)) {
           throw failure('insufficient_source')
         }
         if (error instanceof LocalAiError) throw error
