@@ -448,9 +448,15 @@ test('model output cannot inject extra top-level or question fields', () => {
 
 
 test('insufficient source abstention is preserved as a bounded product error', async () => {
+  let calls = 0
   const service = createLocalQuizService({
     provider: {
-      async generate() {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          assert.match(request.messages.at(-1).content, /previous draft abstained as insufficient source material/i)
+          assert.match(request.messages.at(-1).content, /untrusted document text/i)
+        }
         return {
           text: JSON.stringify({
             title: 'Insufficient source material',
@@ -472,6 +478,7 @@ test('insufficient source abstention is preserved as a bounded product error', a
     }),
     { code: 'insufficient_source' },
   )
+  assert.equal(calls, 2)
 
   assert.throws(
     () => parseGeneratedQuiz(
