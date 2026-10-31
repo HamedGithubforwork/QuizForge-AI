@@ -19,6 +19,7 @@ type ModelQuestion = {
   correct_index: number
   correct_answer: string
   choices: string[]
+  source_pages: number[]
 }
 type ModelQuiz = { title: string; questions: ModelQuestion[] }
 
@@ -73,9 +74,11 @@ function syntheticPdf(): Buffer {
   return Buffer.from(pdf)
 }
 
-async function openDesktopUi(page: Page, quiz: ModelQuiz, returnEmpty = false) {
+async function openDesktopUi(
+  page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
+) {
   await page.addInitScript(({ fixture, generated, empty }) => {
-    const calls = { pdf: 0, generate: 0, requests: [] as unknown[] }
+    const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
     const account = { userId: 'local-ui-e2e', email: 'local-ui@example.test', enrolled: true }
     const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' })
     Object.assign(window, {
@@ -124,12 +127,19 @@ async function openDesktopUi(page: Page, quiz: ModelQuiz, returnEmpty = false) {
         generateLocalAiQuiz: async (request: {
           pages: { pageNumber: number; text: string }[];
           questionCount: number; difficulty: string; questionType: string;
+          practice?: { focusPages?: number[]; avoidQuestions: string[] };
         }) => {
           calls.generate++
+          calls.quizRequests.push(request)
           if (request.questionCount !== 5 || request.difficulty !== 'easy' ||
               request.questionType !== 'multiple_choice' ||
               JSON.stringify(request.pages) !== JSON.stringify(fixture.pages)) {
             return { ok: false, error: 'invalid_request' }
+          }
+          if (request.practice) {
+            return practiceResult
+              ? { ok: true, quiz: practiceResult }
+              : { ok: false, error: 'insufficient_source' }
           }
           return { ok: true, quiz: empty
             ? { title: 'Empty quiz', questions: [] }
@@ -139,7 +149,7 @@ async function openDesktopUi(page: Page, quiz: ModelQuiz, returnEmpty = false) {
         loadSourcePageText: async () => '',
       },
     })
-  }, { fixture: biology, generated: quiz, empty: returnEmpty })
+  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz })
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
@@ -188,5 +198,67 @@ test('an empty success response shows an error instead of a blank quiz', async (
   await expect(page.getByRole('alert')).toContainText('Local AI returned an empty or incomplete quiz')
   await expect(page.locator('.question-card')).toHaveCount(0)
   await expect(page.locator('#quiz-results')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+ 
+test('Practice Weak Areas prioritizes missed pages while retaining PDF context and shows a playable quiz', async ({ page }) => {
+  const original = readModelQuiz()
+  const followup: ModelQuiz = {
+    title: 'Weak Areas Follow-up Quiz',
+    questions: original.questions.map(question => ({
+      ...question,
+      question: 'Follow-up: ' + question.question,
+    })),
+  }
+  const errors = await openDesktopUi(page, original, false, followup)
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  const missed = original.questions[0]
+  const wrongIndex = (missed.correct_index + 1) % 4
+  for (const [index, question] of original.questions.entries()) {
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? wrongIndex : question.correct_index)
+      .check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('#quiz-start')).toContainText('Weak Areas Follow-up Quiz')
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  await expect(page.locator('#quiz-results')).toHaveCount(0)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: {
+      generate: number;
+      requests: string[];
+      quizRequests: Array<{ pages: { pageNumber: number }[];
+        practice?: { focusPages: number[]; avoidQuestions: string[] } }>;
+    };
+  }).__localOutputProbe)
+  expect(probe.generate).toBe(2)
+  expect(probe.quizRequests[1].pages.map(p => p.pageNumber))
+    .toEqual(biology.pages.map(p => p.pageNumber))
+  expect(probe.quizRequests[1].practice?.focusPages)
+    .toEqual(original.questions[0].source_pages)
+  expect(probe.quizRequests[1].practice?.avoidQuestions)
+    .toEqual([original.questions[0].question])
+  expect(probe.requests.some(request => request.includes('/api/quizzes/generate'))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('failed weak-area practice reports its error beside the completed quiz', async ({ page }) => {
+  const original = readModelQuiz()
+  const errors = await openDesktopUi(page, original)
+  for (const [index, question] of original.questions.entries()) {
+    const wrongIndex = (question.correct_index + 1) % 4
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]').nth(index === 0 ? wrongIndex : question.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('#quiz-results').getByRole('alert'))
+    .toContainText('Could not build weak-area practice')
+  await expect(page.locator('#quiz-results').getByRole('alert'))
+    .toContainText('Local AI')
+  await expect(page.locator('.question-card')).toHaveCount(5)
   expect(errors).toEqual([])
 })

@@ -88,6 +88,7 @@ function App() {
   const [generationStage, setGenerationStage] =
     useState('')
   const [error, setError] = useState('')
+  const [weakPracticeError, setWeakPracticeError] = useState('')
   const [
     historyRefreshKey,
     setHistoryRefreshKey,
@@ -169,6 +170,7 @@ function App() {
   })
 
   function resetPracticeMode() {
+    setWeakPracticeError('')
     setPracticeMode(false)
     setPracticeFocus(null)
     setMasteryContext(null)
@@ -698,9 +700,7 @@ function App() {
         )
 
     if (incorrectIndexes.length === 0) {
-      setError(
-        'You did not miss any questions.',
-      )
+      setWeakPracticeError('You did not miss any questions.')
       return
     }
 
@@ -779,6 +779,7 @@ function App() {
       difficulty
 
     setIsWeakPracticeGenerating(true)
+    setWeakPracticeError('')
     setError('')
     attempt.clearSaveMessage()
 
@@ -886,9 +887,9 @@ function App() {
         caughtError instanceof DOMException &&
         caughtError.name === 'AbortError'
       ) {
-        setError('')
+        setWeakPracticeError('')
       } else {
-        setError(
+        setWeakPracticeError(
           caughtError instanceof Error
             ? caughtError.message
             : 'Could not generate weak-area practice.',
@@ -1264,6 +1265,7 @@ function App() {
                 isWeakPracticeGenerating={
                   isWeakPracticeGenerating
                 }
+                weakPracticeError={weakPracticeError}
                 canCancelWeakPractice={
                   generationMode === 'local'
                 }
