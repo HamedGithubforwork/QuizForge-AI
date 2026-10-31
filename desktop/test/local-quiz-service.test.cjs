@@ -1991,7 +1991,10 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(request.jsonSchema.properties.repairs.minItems, 5)
-        assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)\n        assert.equal(request.messages.length, 2)\n        assert.ok(!request.messages[1].content.includes('PAGE 5:'))\n        assert.equal(JSON.parse(request.messages[1].content)[0].index, 1)
+        assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)
+        assert.equal(request.messages.length, 2)
+        assert.ok(!request.messages[1].content.includes('PAGE 5:'))
+        assert.equal(JSON.parse(request.messages[1].content)[0].index, 1)
         return {
           text: JSON.stringify({ repairs: RETRY_FACTS.slice(0, 5).map(fact => ({
             answer: fact.answer, source_fact: fact.text, source_page: fact.page,
