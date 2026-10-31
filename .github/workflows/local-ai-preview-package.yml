@@ -140,6 +140,13 @@ jobs:
             if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit(10000) | Out-Null }
           }
 
+      - name: Use Eastern Time for installer file timestamps
+        shell: pwsh
+        run: |
+          tzutil.exe /s 'Eastern Standard Time'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-TimeZone
+
       - name: Build internal NSIS Local AI preview
         run: npm run pack:local-ai-preview
         env:
