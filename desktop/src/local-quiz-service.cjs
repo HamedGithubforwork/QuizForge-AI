@@ -768,7 +768,7 @@ function applyDuplicateChoiceRepair(plan, text) {
   // Validate all candidates before changing the original quiz. Never replace a
   // correct answer or a distinct choice; no partial mutation on failed repairs.
   const selected = []
-  let genericFallbackUsed = false
+  const fallbackQuestions = new Set()
   const slotsByQuestion = new Map()
   for (const slot of plan.slots) {
     if (!slotsByQuestion.has(slot.questionIndex)) slotsByQuestion.set(slot.questionIndex, [])
@@ -785,16 +785,16 @@ function applyDuplicateChoiceRepair(plan, text) {
         const normalized = option.trim().toLocaleLowerCase()
         return normalized.length > 0 && !taken.has(normalized)
       })
-      if (!candidate && !genericFallbackUsed &&
+      if (!candidate && !fallbackQuestions.has(questionIndex) &&
           /^(?:what|which|how|why|where|when|who|in|is|are|do|does|did|can|identify|name|according)\b/i.test(item.question.trim()) &&
           !item.choices.some(choice => /\b(?:notes|study material|information|not enough|none of (?:the|these))\b/i.test(choice))) {
         // English-only, source-grounded last resort: the quiz already contains
         // a cited correct choice, so this statement is necessarily false.
-        // Allow at most one generic distractor per quiz to limit quality loss.
+        // Allow at most one generic distractor per question to limit quality loss.
         const fallback = 'The study notes do not provide an answer to this question.'
         if (!taken.has(fallback.toLocaleLowerCase())) {
           candidate = fallback
-          genericFallbackUsed = true
+          fallbackQuestions.add(questionIndex)
         }
       }
       if (!candidate) invalidQuiz('duplicate_choices')
