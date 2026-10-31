@@ -148,12 +148,11 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     },
     generateLocalDocumentQuiz: async value => {
       if (!validLocalDocumentRequest(value)) return { ok: false, error: 'invalid_request' }
-      let manager
+      const manager = localAi()
+      if (typeof manager.generateDocumentQuiz !== 'function') {
+        return { ok: false, error: 'runtime_unavailable' }
+      }
       try {
-        manager = localAi()
-        if (typeof manager.generateDocumentQuiz !== 'function') {
-          return { ok: false, error: 'runtime_unavailable' }
-        }
         const result = await manager.generateDocumentQuiz(value)
         return { ok: true, ...result }
       } catch (error) {
