@@ -375,6 +375,8 @@ function App() {
     focusPages: number[],
     avoidQuestions: string[],
     practiceDifficulty: string,
+    practiceQuestionCount: 5 | 10 | 15,
+    practiceQuestionType: QuestionMode,
   ) {
     if (
       !localQuizBridge ||
@@ -400,6 +402,8 @@ function App() {
           avoidQuestions,
           loadCurrentSourcePageText,
           controller.signal,
+          practiceQuestionCount,
+          practiceQuestionType,
         )
 
       controller.signal
@@ -777,6 +781,10 @@ function App() {
     const practiceDifficulty =
       generatedSettings?.difficulty ??
       difficulty
+    const practiceQuestionCount =
+      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+    const practiceQuestionType: QuestionMode =
+      generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
     setIsWeakPracticeGenerating(true)
     setWeakPracticeError('')
@@ -787,27 +795,20 @@ function App() {
       let data
 
       if (generationMode === 'local') {
-        if (
-          weakQuestionType !==
-          'multiple_choice'
-        ) {
-          throw new Error(
-            'Local AI targeted practice currently supports multiple-choice questions only.',
-          )
-        }
-
         data =
           await generateLocalPracticeQuiz(
             weakPages,
             missedQuestionText,
             practiceDifficulty,
+            practiceQuestionCount,
+            practiceQuestionType,
           )
       } else {
         const formData = new FormData()
         appendDocument(formData)
         formData.append(
           'question_count',
-          '5',
+          String(practiceQuestionCount),
         )
         formData.append(
           'difficulty',
@@ -815,7 +816,7 @@ function App() {
         )
         formData.append(
           'question_type',
-          weakQuestionType,
+          practiceQuestionType,
         )
         formData.append(
           'focus_pages',
@@ -856,7 +857,7 @@ function App() {
         difficulty:
           practiceDifficulty,
         questionType:
-          weakQuestionType,
+          practiceQuestionType,
       })
       attempt.resetAttempt()
       setPracticeMode(true)
@@ -921,6 +922,10 @@ function App() {
     const practiceDifficulty =
       generatedSettings?.difficulty ??
       difficulty
+    const practiceQuestionCount =
+      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+    const practiceQuestionType: QuestionMode =
+      generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
     setIsWeakPracticeGenerating(true)
     setError('')
@@ -930,27 +935,20 @@ function App() {
       let data
 
       if (generationMode === 'local') {
-        if (
-          focus.questionType !==
-          'multiple_choice'
-        ) {
-          throw new Error(
-            'Local AI history-based practice currently supports multiple-choice questions only.',
-          )
-        }
-
         data =
           await generateLocalPracticeQuiz(
             focus.pages,
             focus.avoidQuestions,
             practiceDifficulty,
+            practiceQuestionCount,
+            practiceQuestionType,
           )
       } else {
         const formData = new FormData()
         appendDocument(formData)
         formData.append(
           'question_count',
-          '5',
+          String(practiceQuestionCount),
         )
         formData.append(
           'difficulty',
@@ -958,7 +956,7 @@ function App() {
         )
         formData.append(
           'question_type',
-          focus.questionType,
+          practiceQuestionType,
         )
         formData.append(
           'focus_pages',
@@ -999,7 +997,7 @@ function App() {
         difficulty:
           practiceDifficulty,
         questionType:
-          focus.questionType,
+          practiceQuestionType,
       })
       attempt.resetAttempt()
       setPracticeMode(true)
