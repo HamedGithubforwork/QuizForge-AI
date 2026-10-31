@@ -40,6 +40,7 @@ async function main() {
     validationIssues: [],
     // CI-only: fixed public synthetic biology notes, no user text.
     recoveryDraft: null,
+    evidenceRepairDraft: null,
     outcome: 'running',
   }
   const modelStore = createLocalModelStore({ directory: path.resolve(modelArg) })
@@ -48,9 +49,13 @@ async function main() {
   const service = createLocalQuizService({
     provider,
     onGeneratedResponse(response) {
-      if (response.phase !== 'weak-area-recovery') return
-      report.recoveryDraft = typeof response.text === 'string'
-        ? response.text.slice(0, 16000) : null
+      if (response.phase === 'weak-area-recovery') {
+        report.recoveryDraft = typeof response.text === 'string'
+          ? response.text.slice(0, 16000) : null
+      } else if (response.phase === 'weak-area-grounding-repair') {
+        report.evidenceRepairDraft = typeof response.text === 'string'
+          ? response.text.slice(0, 16000) : null
+      }
     },
     onValidationIssue(issue) {
       report.validationIssues.push({ attempt: issue.attempt, reason: issue.reason })
