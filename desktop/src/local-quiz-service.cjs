@@ -1430,9 +1430,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           result.text,
           allowedPages,
           avoidQuestions,
-          retryValidationReason === 'insufficient_source' && !request.practice
+            retryValidationReason === 'insufficient_source' && !request.practice
             ? { sourceTextByPage, requireSourceFact: true }
-            : request.practice
+            : request.practice && retryValidationReason !== 'insufficient_source'
               ? { filterAvoided: true, sourceTextByPage }
               : { sourceTextByPage },
         )
