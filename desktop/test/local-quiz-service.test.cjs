@@ -323,6 +323,33 @@ test('biology-style duplicate repair has one source-backed fallback when the mod
   assert.equal(new Set(result.questions[0].choices.map(choice => choice.toLowerCase())).size, 4)
 })
 
+test('independent biology questions can each recover one repeated distractor', async () => {
+  const invalid = rawQuiz()
+  invalid.questions[0].question = 'Which organelle contains DNA?'
+  invalid.questions[0].choices[1] = 'A0'
+  invalid.questions[1].question = 'Why does cellular respiration provide ATP?'
+  invalid.questions[1].choices[3] = 'B1'
+  let calls = 0
+  const service = createLocalQuizService({ provider: { async generate(request) {
+    calls++
+    if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+    assert.deepEqual(request.jsonSchema.required, ['q0_c1', 'q1_c3'])
+    return { text: JSON.stringify({
+      q0_c1: ['A0', ' a0 ', 'D0'],
+      q1_c3: ['B1', ' b1 ', 'A1'],
+    }), finishReason: 'stop' }
+  } } })
+  const result = await service.generate({ pages: pages(), questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice' })
+  assert.equal(calls, 2)
+  for (const index of [0, 1]) {
+    const question = result.questions[index]
+    assert.equal(new Set(question.choices.map(choice => choice.trim().toLowerCase())).size, 4)
+    assert.ok(question.choices.includes('The study notes do not provide an answer to this question.'))
+  }
+  assert.equal(result.questions[0].correct_answer, 'A0')
+  assert.equal(result.questions[1].correct_answer, 'B1')
+})
+
 test('duplicate repair will not use the generic fallback for non-English questions', async () => {
   const invalid = rawQuiz()
   invalid.questions[0].question = 'Quel organite contient l’ADN ?'
