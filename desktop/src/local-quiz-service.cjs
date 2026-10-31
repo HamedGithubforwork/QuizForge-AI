@@ -857,6 +857,7 @@ function parseGeneratedQuizDetailed(
     }
 
     let sourcePages = item.source_pages
+    let groundedChoiceIndex = null
     if (filterAvoided) {
       if (hasUnexpectedOutputScript({ title: parsed.title, questions: [item] }, sourceTextByPage)) {
         filterStats.unexpectedOutputScripts++
@@ -892,9 +893,16 @@ function parseGeneratedQuizDetailed(
         recordRejectedCandidate(item, 'unsupported_source_fact')
         continue
       }
+      groundedChoiceIndex =
+        uniquelyGroundedChoiceIndex(
+          { ...item, source_pages: sourcePages },
+          sourceTextByPage,
+        )
+      const evidenceChoiceIndex =
+        groundedChoiceIndex ?? item.correct_index
       if (!containsEvidencePhrase(
         item.source_fact,
-        item.choices[item.correct_index],
+        item.choices[evidenceChoiceIndex],
       )) {
         filterStats.unsupportedAnswers++
         recordRejectedCandidate(item, 'unsupported_answer')
@@ -914,9 +922,9 @@ function parseGeneratedQuizDetailed(
       )
     }
 
-    const groundedChoiceIndex =
+    groundedChoiceIndex ??=
       uniquelyGroundedChoiceIndex(
-        { ...item, source_pages: sourcePages ?? item.source_pages },
+        { ...item, source_pages: sourcePages },
         sourceTextByPage,
       )
     const correctIndex =

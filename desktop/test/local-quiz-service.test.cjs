@@ -1499,6 +1499,55 @@ test('targeted candidate filtering rejects answers absent from their cited sourc
   assert.equal(issues[0].details.survivors, 4)
 })
 
+test('targeted retry repairs a uniquely grounded correct choice before filtering', async () => {
+  const first = withRetrySourceFacts(rawQuiz())
+  first.questions[0].choices[
+    first.questions[0].correct_index
+  ] = 'To capture light'
+
+  const retry = withRetrySourceFacts(rawQuiz())
+  retry.questions.forEach((question, index) => {
+    question.question = 'Retry candidate ' + (index + 1) + '?'
+  })
+  const expectedAnswer = retry.questions[0].choices[
+    retry.questions[0].correct_index
+  ]
+  retry.questions[0].explanation =
+    'The source confirms ' + expectedAnswer + '.'
+  retry.questions[0].correct_index =
+    (retry.questions[0].correct_index + 1) % 4
+
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls === 1 ? first : retry),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].correct_answer, expectedAnswer)
+  assert.equal(
+    result.questions[0].correct_index,
+    result.questions[0].choices.indexOf(expectedAnswer),
+  )
+})
+
 test('targeted practice retries validation at most once', async () => {
   let calls = 0
   const invalid = rawQuiz()
