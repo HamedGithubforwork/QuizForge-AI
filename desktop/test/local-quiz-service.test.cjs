@@ -220,7 +220,11 @@ test('duplicate-choice recovery changes only repeated distractors, including a l
         assert.match(request.messages[0].content, /untrusted data/)
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(JSON.parse(request.messages.at(-1).content).length, 2)
-        return { text: JSON.stringify({ q0_c1: 'new distractor', q2_c0: 'different option', q2_c3: 'another option' }), finishReason: 'stop' }
+        return { text: JSON.stringify({
+          q0_c1: [' a0 ', 'new distractor', 'other distractor'],
+          q2_c0: ['B2', 'different option', 'unused alternate'],
+          q2_c3: ['different option', 'another option', 'last alternate'],
+        }), finishReason: 'stop' }
       },
     },
   })
@@ -253,7 +257,11 @@ test('duplicate-choice repair stays bounded and revalidates the complete quiz', 
         async generate() {
           calls++
           if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
-          let replacement = { q0_c1: variant === 'repeat' ? ' a0 ' : variant === 'script' ? '错误选项' : 'new option' }
+          let replacement = { q0_c1: variant === 'repeat'
+            ? [' a0 ', 'A0', ' a0  ']
+            : variant === 'script'
+              ? ['错误选项', '错误选项二', '错误选项三']
+              : ['new option', 'different new option', 'third new option'] }
           if (variant === 'extra_key') replacement.correct_index = 2
           if (variant === 'missing_key') replacement = {}
           return { text: variant === 'json' ? '{' : JSON.stringify(replacement),
@@ -280,7 +288,9 @@ test('duplicate choices introduced by a full retry receive one focused repair', 
       if (calls === 2) return { text: JSON.stringify(invalid), finishReason: 'stop' }
       assert.equal(calls, 3, 'repair must not loop')
       assert.deepEqual(request.jsonSchema.required, ['q0_c1'])
-      return { text: JSON.stringify({ q0_c1: repairFails ? ' a0 ' : 'replacement distractor' }), finishReason: 'stop' }
+      return { text: JSON.stringify({ q0_c1: repairFails
+        ? [' a0 ', 'A0', ' a0  ']
+        : ['a0', 'replacement distractor', 'another distractor'] }), finishReason: 'stop' }
     } } })
     const operation = service.generate({ pages: pages(), questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice' })
     if (repairFails) await assert.rejects(operation, { code: 'quiz_validation_failed' })
