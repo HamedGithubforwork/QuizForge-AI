@@ -144,7 +144,6 @@ async function openDesktopUi(page: Page, quiz: ModelQuiz, returnEmpty = false) {
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
   await expect(page.getByText('Signed in as local-ui@example.test')).toBeVisible()
-  await expect(page.getByLabel('Generation engine')).toHaveValue('local')
   await page.getByLabel('Study material PDF').setInputFiles({
     name: 'synthetic-biology-study-notes.pdf',
     mimeType: 'application/pdf',
@@ -152,6 +151,7 @@ async function openDesktopUi(page: Page, quiz: ModelQuiz, returnEmpty = false) {
   })
   await page.getByRole('button', { name: 'Process PDF on this computer' }).click()
   await expect(page.getByRole('heading', { name: 'Quiz settings' })).toBeVisible()
+  await expect(page.getByLabel('Generation engine')).toHaveValue('local')
   await page.getByLabel('Difficulty').selectOption('easy')
   await page.getByRole('button', { name: 'Generate Locally' }).click()
   return pageErrors

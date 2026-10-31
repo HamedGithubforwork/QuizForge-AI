@@ -107,12 +107,12 @@ try {
 
   await page.reload()
   await expect(page.getByText('Signed in as ui-test@example.test')).toBeVisible({ timeout: 20000 })
-  await expect(page.getByLabel('Generation engine')).toHaveValue('local')
   await page.getByLabel('Study material PDF').setInputFiles({
     name: 'synthetic-biology-test.pdf', mimeType: 'application/pdf', buffer: pdfBytes(),
   })
   await page.getByRole('button', { name: 'Process PDF on this computer' }).click()
   await expect(page.getByRole('heading', { name: 'Quiz settings' })).toBeVisible()
+  await expect(page.getByLabel('Generation engine')).toHaveValue('local')
   await page.getByLabel('Difficulty').selectOption('easy')
   await page.getByRole('button', { name: 'Generate Locally' }).click()
   await expect(page.locator('.question-card')).toHaveCount(5, { timeout: 20000 })
