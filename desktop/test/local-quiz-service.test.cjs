@@ -313,6 +313,12 @@ test('duplicate-choice recovery changes only repeated distractors, including a l
         assert.match(request.messages[0].content, /untrusted data/)
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(JSON.parse(request.messages.at(-1).content).length, 2)
+        assert.equal(request.messages.length, 2)
+        const focus = JSON.parse(request.messages[1].content)
+        assert.equal(focus[0].correct_choice, before.questions[0].choices[before.questions[0].correct_index])
+        assert.ok(focus[0].replacements.includes('q0_c1'))
+        assert.equal(focus[0].existing_choices.length, 4)
+        assert.ok(!request.messages[1].content.includes('PAGE 5:'))
         return { text: JSON.stringify({
           q0_c1: [' a0 ', 'new distractor', 'other distractor'],
           q2_c0: ['B2', 'different option', 'unused alternate'],
