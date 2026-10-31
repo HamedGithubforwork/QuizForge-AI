@@ -21,6 +21,7 @@ on:
       - desktop/scripts/verify-local-product-performance.cjs
       - desktop/scripts/verify-local-choice-repair.cjs
       - desktop/scripts/verify-local-biology-sample.cjs
+      - desktop/scripts/verify-local-biology-practice.cjs
       - desktop/test/fixtures/biology-study-notes.json
       - e2e/tests/local-desktop-output.spec.ts
       - .github/workflows/local-ai-product-acceptance.yml
@@ -138,6 +139,19 @@ jobs:
         run: |
           node desktop/scripts/verify-local-choice-repair.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
+      - name: Verify real-model weak-area biology follow-up after a missed answer
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-biology-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-biology-sample.json" "$env:RUNNER_TEMP/local-ai-biology-practice.json"
+          exit $LASTEXITCODE
+      - name: Upload real-model weak-area practice evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-biology-weak-practice-windows
+          path: ${{ runner.temp }}/local-ai-biology-practice.json
+          if-no-files-found: warn
+          retention-days: 30
 
   quality:
     name: Local AI factual quality and edge cases
