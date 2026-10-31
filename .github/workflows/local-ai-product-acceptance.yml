@@ -18,6 +18,8 @@ on:
       - desktop/scripts/download-verified-model.cjs
       - desktop/scripts/verify-local-product-acceptance.cjs
       - desktop/scripts/verify-local-choice-repair.cjs
+      - desktop/scripts/verify-local-biology-sample.cjs
+      - desktop/test/fixtures/biology-study-notes.json
       - .github/workflows/local-ai-product-acceptance.yml
 
 permissions:
@@ -66,6 +68,12 @@ jobs:
           node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
 
+      - name: Generate from the reported three-page biology sample
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-biology-sample.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-biology-sample.json"
+          exit $LASTEXITCODE
+
       - name: Verify duplicate-choice recovery with the real model
         shell: pwsh
         run: |
@@ -84,6 +92,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: local-ai-product-acceptance-windows
-          path: ${{ runner.temp }}/local-ai-product-acceptance.json
+          path: |
+            ${{ runner.temp }}/local-ai-product-acceptance.json
+            ${{ runner.temp }}/local-ai-biology-sample.json
           if-no-files-found: warn
           retention-days: 30
