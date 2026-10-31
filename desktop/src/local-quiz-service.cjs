@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 16361)
-Total output lines: 1566
-
 'use strict'
 
 const { LocalAiError, failure } = require('./local-ai-provider.cjs')
@@ -811,7 +808,198 @@ function parseGeneratedQuizDetailed(
         !boundedString(item.explanation, 800) ||
         !Array.isArray(item.source_pages) || item.source_pages.length < 1 || item.source_pages.length > 8 ||
         item.source_pages.some(page => !Number.isSafeInteger(page) || !allowedPages.has(page)) ||
-        new …1361 tokens truncated…
+        new Set(item.source_pages).size !== item.source_pages.length ||
+        ((filterAvoided || requireSourceFact) && !boundedString(item.source_fact, 300))) {
+      invalidQuiz('question_shape')
+    }
+
+    if (requireSourceFact && !filterAvoided) {
+      validateRetrySourceFact(
+        item,
+        item.choices[item.correct_index],
+        sourceTextByPage,
+        seenSourceFacts,
+      )
+    }
+
+    const distinctChoices = new Set(
+      item.choices.map(choice =>
+        choice.trim().toLocaleLowerCase()),
+    )
+    if (distinctChoices.size !== 4) {
+      invalidQuiz('duplicate_choices')
+    }
+
+    const normalizedQuestion =
+      item.question
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLocaleLowerCase()
+
+    if (seenQuestions.has(normalizedQuestion)) {
+      if (filterAvoided) {
+        filterStats.duplicateQuestions++
+        recordRejectedCandidate(item, 'duplicate_question')
+        continue
+      }
+      invalidQuiz('duplicate_question')
+    }
+    seenQuestions.add(normalizedQuestion)
+
+    if (avoidedQuestions.has(normalizedQuestion)) {
+      if (filterAvoided) {
+        filterStats.avoidedQuestions++
+        recordRejectedCandidate(item, 'avoided_question')
+        continue
+      }
+      invalidQuiz('avoided_question')
+    }
+
+    if (filterAvoided) {
+      if (hasUnexpectedOutputScript({ title: parsed.title, questions: [item] }, sourceTextByPage)) {
+        filterStats.unexpectedOutputScripts++
+        recordRejectedCandidate(item, 'unexpected_output_script')
+        continue
+      }
+
+      const normalizedSourceFact =
+        item.source_fact
+          .trim()
+          .replace(/\s+/g, ' ')
+          .toLocaleLowerCase()
+      const sourceFactSupported =
+        sourceTextByPage instanceof Map &&
+        item.source_pages.some(page => {
+          const sourceText =
+            sourceTextByPage.get(page)
+          return (
+            typeof sourceText === 'string' &&
+            sourceText
+              .replace(/\s+/g, ' ')
+              .toLocaleLowerCase()
+              .includes(normalizedSourceFact)
+          )
+        })
+      if (!sourceFactSupported) {
+        filterStats.unsupportedSourceFacts++
+        recordRejectedCandidate(item, 'unsupported_source_fact')
+        continue
+      }
+      if (!containsEvidencePhrase(
+        item.source_fact,
+        item.choices[item.correct_index],
+      )) {
+        filterStats.unsupportedAnswers++
+        recordRejectedCandidate(item, 'unsupported_answer')
+        continue
+      }
+      if (
+        seenSourceFacts.has(
+          normalizedSourceFact,
+        )
+      ) {
+        filterStats.duplicateSourceFacts++
+        recordRejectedCandidate(item, 'duplicate_source_fact')
+        continue
+      }
+      seenSourceFacts.add(
+        normalizedSourceFact,
+      )
+    }
+
+    const groundedChoiceIndex =
+      uniquelyGroundedChoiceIndex(
+        item,
+        sourceTextByPage,
+      )
+    const correctIndex =
+      groundedChoiceIndex === null
+        ? item.correct_index
+        : groundedChoiceIndex
+    const correctAnswer =
+      item.choices[correctIndex]
+    const explanation =
+      hasUnexpectedScriptInValues(
+        [item.explanation],
+        sourceWritingSystems(sourceTextByPage),
+      )
+        ? correctAnswer.trim()
+        : item.explanation.trim()
+
+    questions.push(Object.freeze({
+      question_type: 'multiple_choice',
+      question: item.question.trim(),
+      choices: Object.freeze(
+        item.choices.map(choice =>
+          choice.trim()),
+      ),
+      correct_index: correctIndex,
+      correct_answer:
+        correctAnswer.trim(),
+      accepted_answers: Object.freeze([
+        correctAnswer.trim(),
+      ]),
+      grading: Object.freeze({
+        grading_version: 2,
+        grading_mode: 'none',
+        answer_groups: Object.freeze([]),
+        required_group_count: 0,
+        numeric_value: 0,
+        numeric_tolerance: 0,
+        numeric_unit: '',
+      }),
+      explanation,
+      source_pages: Object.freeze([
+        ...item.source_pages,
+      ]),
+    }))
+    if (filterAvoided) {
+      filterStats.survivors++
+      retryEvidence.push(Object.freeze({
+        question: item.question.trim(),
+        sourceFact: item.source_fact.trim(),
+      }))
+    }
+  }
+
+  if (
+    filterAvoided &&
+    questions.length < QUESTION_COUNT
+  ) {
+    invalidQuiz(
+      'candidate_pool_exhausted',
+      filterStats,
+      retryEvidence,
+      rejectedEvidence,
+    )
+  }
+
+  return Object.freeze({
+    title: parsed.title.trim(),
+    questions: Object.freeze(
+      questions.slice(0, QUESTION_COUNT),
+    ),
+  })
+}
+
+function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
+  try {
+    return parseGeneratedQuizDetailed(text, allowedPages, avoidQuestions)
+  } catch (error) {
+    if (error instanceof LocalAiError) throw error
+    if (error instanceof QuizValidationIssue) throw failure('quiz_validation_failed')
+    throw error
+  }
+}
+
+function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, { requireSourceFact = false } = {}) {
+  let parsed
+  try { parsed = JSON.parse(text) } catch { invalidQuiz('json') }
+  if (!plain(parsed) || Object.keys(parsed).some(key => !['title', 'questions'].includes(key)) ||
+      !boundedString(parsed.title, 160) || !Array.isArray(parsed.questions)) invalidQuiz('top_level_shape')
+  if (parsed.questions.length === 0 && parsed.title.trim() === 'Insufficient source material') {
+    throw failure('insufficient_source')
+  }
   if (parsed.questions.length !== request.questionCount) invalidQuiz('question_count')
   if (hasUnexpectedOutputScript(parsed, sourceTextByPage)) invalidQuiz('unexpected_output_script')
 
