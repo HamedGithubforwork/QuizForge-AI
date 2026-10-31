@@ -376,6 +376,27 @@ const EVIDENCE_NUMBER_WORDS = Object.freeze({
   seventy: 70,
   eighty: 80,
   ninety: 90,
+  // French cardinal numbers: a source phrase such as "sept capteurs"
+  // supports the equally precise numerical answer "7 capteurs".
+  // Preserve word boundaries so an unrelated value is never inferred.
+  zéro: 0,
+  un: 1,
+  une: 1,
+  deux: 2,
+  trois: 3,
+  quatre: 4,
+  cinq: 5,
+  sept: 7,
+  huit: 8,
+  neuf: 9,
+  dix: 10,
+  onze: 11,
+  douze: 12,
+  treize: 13,
+  quatorze: 14,
+  quinze: 15,
+  seize: 16,
+  vingt: 20,
 })
 const EVIDENCE_NUMBER_PATTERN = Object.keys(EVIDENCE_NUMBER_WORDS).join('|')
 const normalizeEvidenceText = value => {
@@ -387,6 +408,10 @@ const normalizeEvidenceText = value => {
     .trim()
 
   return normalized
+    // French 17–19 are composed of two words after punctuation cleanup.
+    // Normalize these before mapping individual cardinal words.
+    .replace(/\bdix (sept|huit|neuf)\b/gu,
+      (_, unit) => String(10 + EVIDENCE_NUMBER_WORDS[unit]))
     .replace(
       new RegExp(`\\b(${EVIDENCE_NUMBER_PATTERN})\\s+(${EVIDENCE_NUMBER_PATTERN})\\b`, 'gu'),
       (match, tensWord, unitWord) => {

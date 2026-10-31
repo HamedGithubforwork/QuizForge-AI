@@ -100,6 +100,96 @@ const rawQuiz = () => ({
   })),
 })
 
+test('French source number words ground equivalent numeric choices after insufficient-source retry', async () => {
+  const frenchPage = 'La station Boréale a ouvert en 2037. Sa directrice est Léa Morel. Elle possède sept capteurs. Le capteur vert mesure la pression. Le capteur orange mesure l’humidité.'
+  const frenchFacts = [
+    ['En quelle année la station Boréale a-t-elle ouvert ?', ['2037', '2036', '2038', '2039'], 0, 'La station Boréale a ouvert en 2037.', 'La station a ouvert en 2037.'],
+    ['Qui est la directrice de la station Boréale ?', ['Léa Morel', 'Marie Curie', 'Jean Martin', 'Julie Durand'], 0, 'Sa directrice est Léa Morel.', 'La directrice est Léa Morel.'],
+    ['Combien de capteurs la station possède-t-elle ?', ['7 capteurs', '8 capteurs', '6 capteurs', '9 capteurs'], 0, 'Elle possède sept capteurs.', 'La station possède sept capteurs.'],
+    ['Que mesure le capteur vert ?', ['la pression', 'l’humidité', 'la température', 'la lumière'], 0, 'Le capteur vert mesure la pression.', 'Le capteur vert mesure la pression.'],
+    ['Que mesure le capteur orange ?', ['l’humidité', 'la pression', 'la température', 'la lumière'], 0, 'Le capteur orange mesure l’humidité.', 'Le capteur orange mesure l’humidité.'],
+  ]
+  const makeRetry = () => ({
+    title: 'Révision de la station Boréale',
+    questions: frenchFacts.map(([question, choices, correctIndex, sourceFact, explanation]) => ({
+      question, choices, correct_index: correctIndex,
+      source_fact: sourceFact, explanation, source_pages: [1],
+    })),
+  })
+  const requests = []
+  const issues = []
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        requests.push(request)
+        return {
+          text: JSON.stringify(requests.length === 1
+            ? { title: 'Insufficient source material', questions: [] }
+            : makeRetry()),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+    onValidationIssue: issue => issues.push(issue),
+  })
+  const quiz = await service.generate({
+    pages: [{ pageNumber: 1, text: frenchPage }],
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+  assert.equal(requests.length, 2)
+  assert.equal(requests[1].generationProfile, 'quiz-mcq-retry-v1')
+  assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]),
+    [['primary', 'insufficient_source']])
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[2].correct_answer, '7 capteurs')
+  assert.deepEqual(quiz.questions[2].source_pages, [1])
+  assert.equal(quiz.questions[2].choices.length, 4)
+})
+
+test('French numeric grounding does not accept unsupported counts', async () => {
+  const source = 'Elle possède sept capteurs. Le capteur vert mesure la pression.'
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        const quiz = {
+          title: 'Révision',
+          questions: Array.from({ length: 5 }, (_, index) => ({
+            question: 'Combien de capteurs ? ' + index,
+            choices: ['8 capteurs', '9 capteurs', '6 capteurs', '5 capteurs'],
+            correct_index: 0,
+            source_fact: 'Elle possède sept capteurs.',
+            explanation: 'Il y a huit capteurs.',
+            source_pages: [1],
+          })),
+        }
+        return { text: JSON.stringify(calls === 1
+          ? { title: 'Insufficient source material', questions: [] }
+          : quiz), finishReason: 'stop', usage: null }
+      },
+    },
+    onValidationIssue: issue => issues.push(issue),
+  })
+  await assert.rejects(
+    service.generate({
+      pages: [{ pageNumber: 1, text: source }],
+      questionCount: 5,
+      difficulty: 'medium',
+      questionType: 'multiple_choice',
+    }),
+    { code: 'quiz_validation_failed' },
+  )
+  assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
+    ['primary', 'insufficient_source'],
+    ['retry', 'unsupported_answer'],
+  ])
+})
+
 test('request accepts website question counts and modes while rejecting unsupported values', () => {
   const value = normalizeRequest({
     pages: pages(),
