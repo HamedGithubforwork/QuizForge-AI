@@ -1925,7 +1925,7 @@ test('weak-area evidence repair grounds adjacent numerical facts and trims unsup
           { answer: 'inner membrane of mitochondria',
             source_fact: 'Mitochondria have an inner membrane.', source_page: 2 },
           { answer: 'ribosomal RNA',
-            source_fact: 'Ribosomes synthesize proteins from messenger RNA.', source_page: 5 },
+            source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
           ...RETRY_FACTS.slice(2, 5).map(fact => ({
             answer: fact.answer, source_fact: fact.text, source_page: fact.page,
           })),
