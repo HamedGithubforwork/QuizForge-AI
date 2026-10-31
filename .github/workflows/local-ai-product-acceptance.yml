@@ -83,6 +83,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Verify generated biology quiz appears and can be completed in Windows UI
+        shell: pwsh
+        working-directory: e2e
+        env:
+          QFN_LOCAL_BIOLOGY_REPORT: ${{ runner.temp }}\\local-ai-biology-sample.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci --prefix ../frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright test tests/local-desktop-output.spec.ts --project=chromium --retries=0
+          exit $LASTEXITCODE
+
+      - name: Upload Windows UI output test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-windows-visible-output
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Verify duplicate-choice recovery with the real model
         shell: pwsh
         run: |

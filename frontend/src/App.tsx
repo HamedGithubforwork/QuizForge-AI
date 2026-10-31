@@ -549,6 +549,15 @@ function App() {
           )
         }
 
+        if (!result.quiz || !Array.isArray(result.quiz.questions) ||
+            result.quiz.questions.length !== questionCount ||
+            result.quiz.questions.some(question => !question ||
+              typeof question.question !== 'string' || !question.question.trim())) {
+          throw new Error(
+            'Local AI returned an empty or incomplete quiz. Nothing was displayed. Please try again or use Cloud AI.',
+          )
+        }
+
         setGenerationStage('Quiz ready!')
         setQuiz(result.quiz)
         void reportLocalGenerationUsage(
