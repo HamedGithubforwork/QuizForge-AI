@@ -120,6 +120,8 @@ export async function buildLocalPracticeRequest(
       signal?: AbortSignal,
     ) => Promise<string>,
   signal?: AbortSignal,
+  questionCount: 5 | 10 | 15 = 5,
+  questionType: DesktopLocalQuizRequest['questionType'] = 'multiple_choice',
 ): Promise<DesktopLocalQuizRequest> {
   if (
     !Array.isArray(focusPages) ||
@@ -176,6 +178,8 @@ export async function buildLocalPracticeRequest(
       status,
       loadPage,
       signal,
+      questionCount,
+      questionType,
     )
 
   return {

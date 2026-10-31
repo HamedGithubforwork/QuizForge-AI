@@ -261,6 +261,27 @@ test(
   },
 )
 
+test('weak-area requests carry 5/10/15 counts, every mode and difficulty', async () => {
+  const modes = ['multiple_choice', 'true_false', 'short_answer', 'mixed'] as const
+  const difficulties = ['easy', 'medium', 'hard'] as const
+  for (const count of [5, 10, 15] as const) {
+    for (const questionType of modes) {
+      for (const difficulty of difficulties) {
+        const request = await buildLocalPracticeRequest(
+          document, difficulty, status, [7], ['Old question?'],
+          async (_sha, pageNumber) => 'Source page ' + pageNumber,
+          undefined, count, questionType,
+        )
+        assert.equal(request.questionCount, count)
+        assert.equal(request.questionType, questionType)
+        assert.equal(request.difficulty, difficulty)
+        assert.deepEqual(request.practice?.focusPages, [7])
+        assert.deepEqual(request.practice?.avoidQuestions, ['Old question?'])
+      }
+    }
+  }
+})
+
 test(
   'targeted-practice request rejects pages that are not in the processed selection',
   async () => {
