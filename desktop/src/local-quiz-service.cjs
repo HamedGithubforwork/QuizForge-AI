@@ -330,12 +330,63 @@ const plain = value => value !== null && typeof value === 'object' && !Array.isA
 const boundedString = (value, maximum) =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= maximum
 
-const normalizeEvidenceText = value =>
-  String(value)
+const EVIDENCE_NUMBER_WORDS = Object.freeze({
+  zero: 0,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+  thirteen: 13,
+  fourteen: 14,
+  fifteen: 15,
+  sixteen: 16,
+  seventeen: 17,
+  eighteen: 18,
+  nineteen: 19,
+  twenty: 20,
+  thirty: 30,
+  forty: 40,
+  fifty: 50,
+  sixty: 60,
+  seventy: 70,
+  eighty: 80,
+  ninety: 90,
+})
+const EVIDENCE_NUMBER_PATTERN = Object.keys(EVIDENCE_NUMBER_WORDS).join('|')
+const normalizeEvidenceText = value => {
+  const normalized = String(value)
     .normalize('NFKC')
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
+
+  return normalized
+    .replace(
+      new RegExp(`\\b(${EVIDENCE_NUMBER_PATTERN})\\s+(${EVIDENCE_NUMBER_PATTERN})\\b`, 'gu'),
+      (match, tensWord, unitWord) => {
+        const tens = EVIDENCE_NUMBER_WORDS[tensWord]
+        const unit = EVIDENCE_NUMBER_WORDS[unitWord]
+        return tens >= 20 && tens % 10 === 0 && unit > 0 && unit < 10
+          ? String(tens + unit)
+          : match
+      },
+    )
+    .replace(
+      new RegExp(`\\b(${EVIDENCE_NUMBER_PATTERN})\\b`, 'gu'),
+      word => String(EVIDENCE_NUMBER_WORDS[word]),
+    )
+    .replace(/\bkilograms?\b/gu, 'kg')
+    .replace(/\bhours?\b/gu, 'hour')
+    .replace(/\bminutes?\b/gu, 'minute')
+}
 
 const containsEvidencePhrase = (text, phrase) => {
   const normalizedText =
