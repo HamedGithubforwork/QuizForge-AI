@@ -1824,6 +1824,81 @@ test('targeted retry repairs a uniquely grounded correct choice before filtering
   )
 })
 
+test('targeted practice recovers from two false insufficient-source abstentions with five cited questions', async () => {
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls < 3) return {
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+          finishReason: 'stop',
+        }
+        assert.equal(request.generationProfile, 'quiz-mcq-v1')
+        assert.equal(request.jsonSchema.properties.questions.minItems, 5)
+        assert.equal(request.jsonSchema.properties.questions.maxItems, 5)
+        assert.equal(request.jsonSchema.properties.questions.items.required.includes('source_fact'), true)
+        assert.match(request.messages[0].content, /five-question multiple-choice follow-up/)
+        assert.match(request.messages[0].content, /previously missed PAGE numbers \[2\]/)
+        assert.match(request.messages[0].content, /other supplied PAGE/)
+        assert.ok(request.messages[1].content.includes('Messenger RNA'))
+        assert.match(request.messages[2].content, /Prior question to avoid\?/)
+        const quiz = withRetrySourceFacts(rawQuiz())
+        quiz.questions[0].question = 'Fresh follow-up question?'
+        return { text: JSON.stringify(quiz), finishReason: 'stop' }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
+  })
+  assert.equal(calls, 3)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[0].question, 'Fresh follow-up question?')
+  assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
+    ['primary', 'insufficient_source'], ['retry', 'insufficient_source'],
+  ])
+})
+
+test('weak-area abstention recovery rejects fabricated facts and repeated prior questions', async () => {
+  for (const variant of ['fabricated', 'repeated']) {
+    let calls = 0
+    const issues = []
+    const service = createLocalQuizService({
+      onValidationIssue: issue => issues.push(issue),
+      provider: {
+        async generate() {
+          calls++
+          if (calls < 3) return {
+            text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+            finishReason: 'stop',
+          }
+          const quiz = withRetrySourceFacts(rawQuiz())
+          if (variant === 'fabricated') {
+            quiz.questions[0].source_fact = 'Imaginary mitochondria generate invented fuel.'
+          } else {
+            quiz.questions[0].question = 'Prior question to avoid?'
+          }
+          return { text: JSON.stringify(quiz), finishReason: 'stop' }
+        },
+      },
+    })
+    await assert.rejects(service.generate({
+      pages: pages(), questionCount: 5, difficulty: 'easy',
+      questionType: 'multiple_choice',
+      practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
+    }), { code: 'quiz_validation_failed' }, variant)
+    assert.equal(calls, 3)
+    assert.equal(issues.at(-1).attempt, 'recovery')
+    assert.equal(issues.at(-1).reason, variant === 'fabricated'
+      ? 'unsupported_source_fact' : 'avoided_question')
+  }
+})
+
 test('targeted practice retries validation at most once', async () => {
   let calls = 0
   const invalid = rawQuiz()
