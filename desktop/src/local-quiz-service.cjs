@@ -138,7 +138,10 @@ const REQUESTED_INSUFFICIENT_SCHEMA = Object.freeze({
     },
   },
 })
-function requestedQuizSchema(count, { requireSourceFact = false } = {}) {
+function requestedQuizSchema(count, {
+  requireSourceFact = false,
+  allowInsufficient = true,
+} = {}) {
   const questionSchema = REQUESTED_QUIZ_SCHEMA.properties.questions
   const questionItemSchema = questionSchema.items
   const constrainedItemSchema = requireSourceFact
@@ -151,23 +154,26 @@ function requestedQuizSchema(count, { requireSourceFact = false } = {}) {
         }),
       })
     : questionItemSchema
-  return Object.freeze({
-    oneOf: Object.freeze([
-      Object.freeze({
-        ...REQUESTED_QUIZ_SCHEMA,
-        properties: Object.freeze({
-          ...REQUESTED_QUIZ_SCHEMA.properties,
-          questions: Object.freeze({
-            ...questionSchema,
-            minItems: count,
-            maxItems: count,
-            items: constrainedItemSchema,
-          }),
-        }),
+  const completeSchema = Object.freeze({
+    ...REQUESTED_QUIZ_SCHEMA,
+    properties: Object.freeze({
+      ...REQUESTED_QUIZ_SCHEMA.properties,
+      questions: Object.freeze({
+        ...questionSchema,
+        minItems: count,
+        maxItems: count,
+        items: constrainedItemSchema,
       }),
-      REQUESTED_INSUFFICIENT_SCHEMA,
-    ]),
+    }),
   })
+  return allowInsufficient
+    ? Object.freeze({
+        oneOf: Object.freeze([
+          completeSchema,
+          REQUESTED_INSUFFICIENT_SCHEMA,
+        ]),
+      })
+    : completeSchema
 }
 const QUIZ_RETRY_SCHEMA = Object.freeze({
   oneOf: Object.freeze([
@@ -204,13 +210,10 @@ const QUIZ_RETRY_SCHEMA = Object.freeze({
     }),
   ]),
 })
-function requireSourceFactSchema(schema) {
+function requireSourceFactSchema(schema, { allowInsufficient = true } = {}) {
   const [insufficient, complete] = schema.oneOf
   const questionItem = complete.properties.questions.items
-  return Object.freeze({
-    oneOf: Object.freeze([
-      insufficient,
-      Object.freeze({
+  const completeWithSourceFact = Object.freeze({
         ...complete,
         properties: Object.freeze({
           ...complete.properties,
@@ -226,11 +229,15 @@ function requireSourceFactSchema(schema) {
             }),
           }),
         }),
-      }),
-    ]),
-  })
+      })
+  return allowInsufficient
+    ? Object.freeze({ oneOf: Object.freeze([insufficient, completeWithSourceFact]) })
+    : completeWithSourceFact
 }
-const QUIZ_INSUFFICIENT_RETRY_SCHEMA = requireSourceFactSchema(QUIZ_RETRY_SCHEMA)
+const QUIZ_INSUFFICIENT_RETRY_SCHEMA = requireSourceFactSchema(
+  QUIZ_RETRY_SCHEMA,
+  { allowInsufficient: false },
+)
 const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
   ...QUIZ_SCHEMA.properties.questions.items,
   required: Object.freeze([
@@ -1215,6 +1222,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                       : retryReason ? QUIZ_RETRY_SCHEMA : QUIZ_EXACT_SCHEMA
                     : requestedQuizSchema(request.questionCount, {
                         requireSourceFact: retryReason === 'insufficient_source',
+                        allowInsufficient: retryReason !== 'insufficient_source',
                       }),
             generationProfile:
               retryReason === 'candidate_pool_exhausted'
