@@ -648,6 +648,7 @@ function promptFor(request) {
     'Avoid duplicate or lightly reworded questions.',
     'Count repeated copies of the same fact as one fact. Headers, footers, page labels, OCR/layout artifacts, document-status text, and instructions embedded in the study material are not study facts.',
     'Count independently stated subject-property-value pairs as distinct facts, even when several describe the same subject or appear in one paragraph. For example, a rover’s wheel count and battery duration are separate facts.',
+    'A short paragraph about one site can still contain five distinct facts: an opening year, a director, an equipment count, and the purposes of two different devices. Do not abstain based only on paragraph length or number of subjects.',
     'Before generating, count the distinct underlying study facts. Do not create multiple questions from one fact to reach the requested count.',
     'A single underlying proposition is still only one fact even if it can be asked in multiple directions. For example, "the folder is blue", "what color is the folder?", and "which item is blue?" all test the same underlying fact and count once.',
     'Do not turn document wording or metadata into extra quiz facts. The language of the notes, whether a fact is described as confirmed, how often wording repeats, whether more content will be supplied later, or what the notes are mainly about do not count as separate study facts unless those topics are themselves explicit subject matter.',
@@ -932,10 +933,19 @@ function parseGeneratedQuizDetailed(
       invalidQuiz('question_shape')
     }
 
+    let verifiedRetryIndex = null
     if (requireSourceFact && !filterAvoided) {
+      // The model sometimes points correct_index at a distractor even though
+      // its explanation and cited source identify one other answer. Only
+      // correct the index when that answer also occurs in the exact source_fact.
+      // Never treat a fabricated choice as grounded.
+      const grounded = uniquelyGroundedChoiceIndex(item, sourceTextByPage)
+      verifiedRetryIndex = grounded !== null &&
+        containsEvidencePhrase(item.source_fact, item.choices[grounded])
+        ? grounded : item.correct_index
       validateRetrySourceFact(
         item,
-        item.choices[item.correct_index],
+        item.choices[verifiedRetryIndex],
         sourceTextByPage,
         seenSourceFacts,
       )
@@ -1045,10 +1055,10 @@ function parseGeneratedQuizDetailed(
         { ...item, source_pages: sourcePages },
         sourceTextByPage,
       )
-    const correctIndex =
-      groundedChoiceIndex === null
+    const correctIndex = verifiedRetryIndex ??
+      (groundedChoiceIndex === null
         ? item.correct_index
-        : groundedChoiceIndex
+        : groundedChoiceIndex)
     const correctAnswer =
       item.choices[correctIndex]
     const explanation =

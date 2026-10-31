@@ -111,8 +111,11 @@ test('French source number words ground equivalent numeric choices after insuffi
   ]
   const makeRetry = () => ({
     title: 'Révision de la station Boréale',
-    questions: frenchFacts.map(([question, choices, correctIndex, sourceFact, explanation]) => ({
-      question, choices, correct_index: correctIndex,
+    questions: frenchFacts.map(([question, choices, correctIndex, sourceFact, explanation], index) => ({
+      question, choices,
+      // Simulate the actual retry failure mode: explanation and source_fact
+      // support the first option, but the model accidentally selects another.
+      correct_index: index === 2 ? 1 : correctIndex,
       source_fact: sourceFact, explanation, source_pages: [1],
     })),
   })
