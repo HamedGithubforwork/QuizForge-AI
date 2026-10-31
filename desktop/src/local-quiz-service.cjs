@@ -1232,7 +1232,7 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, { req
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
@@ -1446,6 +1446,17 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         } catch (error) {
           if (error instanceof LocalAiError) throw error
           throw failure('generation_failed', { retryable: true })
+        }
+        // Explicitly opt-in diagnostic hook. Product builds never retain or
+        // expose raw model text; only the synthetic CI fixture supplies a hook.
+        if (typeof onGeneratedResponse === 'function') {
+          try { onGeneratedResponse({
+            profile: result.finishReason,
+            generationProfile: retryReason
+              ? 'quiz-mcq-retry-v1'
+              : 'quiz-mcq-v1',
+            text: result.text,
+          }) } catch {}
         }
         if (!['stop', 'length'].includes(result.finishReason)) {
           throw failure('quiz_validation_failed')

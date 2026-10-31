@@ -412,6 +412,7 @@ async function main() {
   const mode = process.argv[5] ?? 'all'
   assert.ok(['all', 'quality'].includes(mode), 'Unknown acceptance mode')
   const runtimePidState = { value: null }
+  let activeSyntheticFixture = null
   let metricMonitor = createRuntimeMetricMonitor()
   let stack = null
 
@@ -427,6 +428,8 @@ async function main() {
     acceleration: null,
     runs: [],
     validationIssues: [],
+    // Only the fixed, non-user-provided synthetic French fixture is captured.
+    syntheticFrenchResponses: [],
   }
 
   async function persistReport() {
@@ -459,6 +462,13 @@ async function main() {
         if (Number.isSafeInteger(pid) && pid > 0) {
           runtimePidState.value = pid
         }
+      },
+      onQuizGeneratedResponse(response) {
+        if (activeSyntheticFixture !== 'french') return
+        report.syntheticFrenchResponses.push({
+          generationProfile: response.generationProfile,
+          rawText: typeof response.text === 'string' ? response.text.slice(0, 50000) : null,
+        })
       },
       onQuizValidationIssue(issue) {
         report.validationIssues.push({ ...issue })
@@ -498,6 +508,7 @@ async function main() {
     const sequence = [...FIXTURES, FIXTURES[0]]
     for (let index = 0; index < sequence.length; index++) {
       const fixture = sequence[index]
+      activeSyntheticFixture = fixture.id
       reportCaseProgress('START', fixture.id, index === sequence.length - 1 ? 'repeat' : 'primary')
       const measuredRun = await measured(() => stack.generateQuiz({
         pages: fixture.selectedPages,

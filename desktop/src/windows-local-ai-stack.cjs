@@ -33,6 +33,7 @@ function createWindowsLocalAiStack({
   documentProcessor = null,
   onRuntimeProcess = () => {},
   onQuizValidationIssue = () => {},
+  onQuizGeneratedResponse = null,
 } = {}) {
   const resources = createWindowsLocalAiResources({
     userDataDirectory,
@@ -72,7 +73,8 @@ function createWindowsLocalAiStack({
       modelStore: resources.modelStore,
       modelId: resources.modelId,
     })
-    quizService = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue })
+    quizService = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
+      onGeneratedResponse: onQuizGeneratedResponse })
     if (documentProcessor) {
       documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
     }
