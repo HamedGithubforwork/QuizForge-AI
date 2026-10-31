@@ -1145,8 +1145,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                   ? [
                       'The previous targeted-practice draft abstained as insufficient source material.',
                       'Re-evaluate the supplied pages once using the same strict grounding rules.',
-                      'If at least five distinct source-supported factual questions are genuinely possible after deduplication, return exactly five valid questions.',
-                      'Do not reuse any PRIOR QUESTIONS TO AVOID exactly.',
+                      'The PRIOR QUESTIONS TO AVOID list excludes only those exact question wordings; it does not make their underlying facts unavailable. Reuse those source facts by reversing the question and answer direction when needed, such as changing “What material is Aster’s casing?” to “Which device has a cobalt casing?”.',
+                      'Count five source-supported facts across all supplied pages, including facts referenced by prior questions. If at least five distinct source-supported factual questions are genuinely possible after removing exact repeated wording, return exactly five valid questions.',
+                      'Do not reuse any PRIOR QUESTIONS TO AVOID exactly. A reverse-direction question about the same fact is allowed and is not an exact repeat.',
                       'If fewer than five distinct source-supported factual questions are genuinely possible, preserve the Insufficient source material abstention. Never invent facts to avoid abstaining.',
                     ].join('\n')
                   : [
