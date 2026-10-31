@@ -1991,7 +1991,7 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(request.jsonSchema.properties.repairs.minItems, 5)
-        assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)
+        assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)\n        assert.equal(request.messages.length, 2)\n        assert.ok(!request.messages[1].content.includes('PAGE 5:'))\n        assert.equal(JSON.parse(request.messages[1].content)[0].index, 1)
         return {
           text: JSON.stringify({ repairs: RETRY_FACTS.slice(0, 5).map(fact => ({
             answer: fact.answer, source_fact: fact.text, source_page: fact.page,
@@ -2014,48 +2014,74 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
   ])
 })
 
-test('weak-area evidence repair grounds adjacent numerical facts and trims unsupported modifiers', async () => {
+test('weak-area answer repair keeps each source fact tied to its original question', async () => {
   const draft = withRetrySourceFacts(rawQuiz())
   draft.questions[0].question = 'What kind of membrane do mitochondria have?'
   draft.questions[0].choices[draft.questions[0].correct_index] = 'inner membrane of mitochondria'
   draft.questions[0].source_fact = 'Mitochondria have an inner membrane.'
-  draft.questions[1].choices[draft.questions[1].correct_index] = 'ribosomal RNA'
+  draft.questions[1].choices[draft.questions[1].correct_index] = 'ribosomal RNA content'
   draft.questions[1].question = 'What do ribosomes contain?'
-  draft.questions[1].source_fact = 'Ribosomes synthesize proteins from messenger RNA.'
+  draft.questions[1].source_fact = 'Ribosomes contain ribosomal RNA.'
+  const facts = [RETRY_FACTS[2], RETRY_FACTS[3], RETRY_FACTS[0], RETRY_FACTS[1], RETRY_FACTS[4]]
+  for (const [i, fact] of facts.entries()) {
+    draft.questions[i].source_fact = fact.text
+    draft.questions[i].source_pages = [fact.page]
+  }
   draft.questions[2].question = 'What energy molecule do mitochondria generate?'
+  draft.questions[2].choices[draft.questions[2].correct_index] = 'ATP'
   draft.questions[3].question = 'What do ribosomes synthesize?'
+  draft.questions[3].choices[draft.questions[3].correct_index] = 'proteins'
   let calls = 0
   const service = createLocalQuizService({
-    provider: {
-      async generate() {
-        calls++
-        if (calls < 3) return {
-          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
-          finishReason: 'stop',
-        }
-        if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
-        return { text: JSON.stringify({ repairs: [
-          { answer: 'inner membrane of mitochondria',
-            source_fact: 'Mitochondria have an inner membrane.', source_page: 2 },
-          { answer: 'ribosomal RNA',
-            source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
-          // Five independently supported facts: membrane, RNA content,
-          // ATP generation, protein synthesis, and glucose consumption.
-          ...[RETRY_FACTS[0], RETRY_FACTS[1], RETRY_FACTS[4]].map(fact => ({
-            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
-          })),
-        ] }), finishReason: 'stop' }
-      },
-    },
+    provider: { async generate() {
+      calls++
+      if (calls <= 2) return {
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+        finishReason: 'stop',
+      }
+      if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+      return { text: JSON.stringify({ repairs: facts.map(fact => ({
+        answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+      })) }), finishReason: 'stop' }
+    } },
   })
-  const result = await service.generate({
+  const quiz = await service.generate({
     pages: pages(), questionCount: 5, difficulty: 'medium',
     questionType: 'multiple_choice', practice: { avoidQuestions: [], focusPages: [2] },
   })
   assert.equal(calls, 4)
-  assert.equal(result.questions[0].correct_answer, 'inner membrane')
-  assert.equal(result.questions[1].correct_answer, 'ribosomal RNA')
-  assert.equal(result.questions.length, 5)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[0].correct_answer, 'inner membrane')
+  assert.equal(quiz.questions[1].correct_answer, 'ribosomal RNA')
+})
+
+test('weak-area recovery rejects a citation swap to another real but unrelated fact', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].question = 'What do mitochondria produce?'
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Molecule that stores energy'
+  const untrusted = [
+    { answer: 'ribosomal RNA', source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
+    ...RETRY_FACTS.slice(1, 5).map(fact => ({
+      answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+    })),
+  ]
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: { async generate() {
+      calls++
+      return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+        ? { title: 'Insufficient source material', questions: [] }
+        : calls === 3 ? draft : { repairs: untrusted }) }
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 4)
+  assert.equal(issues.at(-1).reason, 'unsupported_answer')
 })
 
 test('weak-area answer repair rejects model-proposed answers absent from its cited excerpt', async () => {
