@@ -1906,11 +1906,14 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
 
 test('weak-area evidence repair grounds adjacent numerical facts and trims unsupported modifiers', async () => {
   const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].question = 'What kind of membrane do mitochondria have?'
   draft.questions[0].choices[draft.questions[0].correct_index] = 'inner membrane of mitochondria'
   draft.questions[0].source_fact = 'Mitochondria have an inner membrane.'
   draft.questions[1].choices[draft.questions[1].correct_index] = 'ribosomal RNA'
   draft.questions[1].question = 'What do ribosomes contain?'
   draft.questions[1].source_fact = 'Ribosomes synthesize proteins from messenger RNA.'
+  draft.questions[2].question = 'What energy molecule do mitochondria generate?'
+  draft.questions[3].question = 'What do ribosomes synthesize?'
   let calls = 0
   const service = createLocalQuizService({
     provider: {
@@ -1926,7 +1929,9 @@ test('weak-area evidence repair grounds adjacent numerical facts and trims unsup
             source_fact: 'Mitochondria have an inner membrane.', source_page: 2 },
           { answer: 'ribosomal RNA',
             source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
-          ...RETRY_FACTS.slice(2, 5).map(fact => ({
+          // Five independently supported facts: membrane, RNA content,
+          // ATP generation, protein synthesis, and glucose consumption.
+          ...[RETRY_FACTS[0], RETRY_FACTS[1], RETRY_FACTS[4]].map(fact => ({
             answer: fact.answer, source_fact: fact.text, source_page: fact.page,
           })),
         ] }), finishReason: 'stop' }
