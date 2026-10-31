@@ -74,6 +74,15 @@ jobs:
           node desktop/scripts/verify-local-biology-sample.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-biology-sample.json"
           exit $LASTEXITCODE
 
+      - name: Upload biology sample evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-biology-sample-windows
+          path: ${{ runner.temp }}/local-ai-biology-sample.json
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Verify duplicate-choice recovery with the real model
         shell: pwsh
         run: |
@@ -92,8 +101,6 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: local-ai-product-acceptance-windows
-          path: |
-            ${{ runner.temp }}/local-ai-product-acceptance.json
-            ${{ runner.temp }}/local-ai-biology-sample.json
+          path: ${{ runner.temp }}/local-ai-product-acceptance.json
           if-no-files-found: warn
           retention-days: 30

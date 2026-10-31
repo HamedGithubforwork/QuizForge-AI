@@ -599,7 +599,7 @@ function promptFor(request) {
     ? 'Use all three types: multiple_choice, true_false, and short_answer, with at least one question of each type. Distribute the remaining questions reasonably.'
     : `Every question must have question_type "${requestedMode}".`
   const typeRules = requestedMode === 'multiple_choice'
-    ? 'For each multiple-choice question use exactly four choices and exactly one source-supported correct answer. Set correct_index to that answer, then verify that choices[correct_index] is supported by the cited source pages and that the explanation supports the same choice. Never select an answer that contradicts your own explanation.'
+    ? 'For each multiple-choice question use exactly four choices that remain distinct after trimming spaces and ignoring capitalization, and exactly one source-supported correct answer. Set correct_index to that answer, then verify that choices[correct_index] is supported by the cited source pages and that the explanation supports the same choice. Never select an answer that contradicts your own explanation.'
     : requestedMode === 'true_false'
       ? 'For each true/false question use choices exactly ["True", "False"], correct_index 0 or 1, and matching correct_answer and accepted_answers.'
       : requestedMode === 'short_answer'
@@ -614,7 +614,7 @@ function promptFor(request) {
     typeRules,
     'Every correct answer and accepted answer must be supported by the cited source pages. The explanation must agree with the answer.',
     requestedMode === 'multiple_choice' || requestedMode === 'mixed'
-      ? 'Make multiple-choice distractors plausible but unsupported by the supplied study material; do not create multiple choices that are simultaneously correct.'
+      ? 'Make multiple-choice distractors plausible but incorrect answers to that specific question. A term from elsewhere in the supplied study material may be used as a distractor when it does not answer this question. Never repeat the correct answer, repeat a distractor, or create multiple choices that are simultaneously correct.'
       : 'Do not add distractor choices to question types that do not use them.',
     'Keep questions, choices, and explanations concise. Do not repeat the question in the explanation or add background not needed to justify the answer.',
     'Use source_pages only from the supplied PAGE markers, and cite only pages that directly support the question and selected correct answer.',
@@ -1567,12 +1567,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         throw failure('quiz_validation_failed')
       }
 
-      const repairPlan = useLegacyMultipleChoiceContract && retryValidationReason === 'duplicate_choices'
-        ? duplicateChoiceRepairPlan(result.text)
-        : null
-      if (repairPlan) {
+      async function generateChoiceRepair(repairPlan) {
         try {
-          result = await provider.generate({
+          return await provider.generate({
             messages: [
               { role: 'system', content: [
                 'Repair repeated distractors in a multiple-choice quiz using only the supplied study material.',
@@ -1594,10 +1591,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           if (error instanceof LocalAiError) throw error
           throw failure('generation_failed', { retryable: true })
         }
-      } else {
-        result = await generateAttempt(retryValidationReason)
       }
-      try {
+
+      function parseFinalAttempt(result, repairPlan = null) {
         if (!['stop', 'length'].includes(result.finishReason)) invalidQuiz('question_shape')
         if (result.finishReason === 'length') invalidQuiz('truncated_output')
         if (repairPlan) result = { ...result, text: applyDuplicateChoiceRepair(repairPlan, result.text) }
@@ -1620,6 +1616,28 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               ? { sourceTextByPage, requireSourceFact: true }
               : { sourceTextByPage },
         )
+      }
+
+      const repairPlan = useLegacyMultipleChoiceContract && retryValidationReason === 'duplicate_choices'
+        ? duplicateChoiceRepairPlan(result.text)
+        : null
+      result = repairPlan
+        ? await generateChoiceRepair(repairPlan)
+        : await generateAttempt(retryValidationReason)
+      try {
+        try {
+          return parseFinalAttempt(result, repairPlan)
+        } catch (error) {
+          // A full retry for truncation or another validation issue can introduce
+          // duplicates of its own. Give that complete draft the same focused
+          // repair, but never repair a failed repair or add another full retry.
+          if (repairPlan || !useLegacyMultipleChoiceContract ||
+              !(error instanceof QuizValidationIssue) || error.reason !== 'duplicate_choices') throw error
+          const retryRepairPlan = duplicateChoiceRepairPlan(result.text)
+          if (!retryRepairPlan) throw error
+          try { onValidationIssue(Object.freeze({ attempt: 'retry', reason: error.reason })) } catch {}
+          return parseFinalAttempt(await generateChoiceRepair(retryRepairPlan), retryRepairPlan)
+        }
       } catch (error) {
         const validationReason =
           error instanceof QuizValidationIssue

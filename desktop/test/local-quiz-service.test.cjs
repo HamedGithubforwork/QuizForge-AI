@@ -269,6 +269,31 @@ test('duplicate-choice repair stays bounded and revalidates the complete quiz', 
   }
 })
 
+test('duplicate choices introduced by a full retry receive one focused repair', async () => {
+  for (const repairFails of [false, true]) {
+    const invalid = rawQuiz()
+    invalid.questions[0].choices[1] = 'A0'
+    let calls = 0
+    const service = createLocalQuizService({ provider: { async generate(request) {
+      calls++
+      if (calls === 1) return { text: '{', finishReason: 'length' }
+      if (calls === 2) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+      assert.equal(calls, 3, 'repair must not loop')
+      assert.deepEqual(request.jsonSchema.required, ['q0_c1'])
+      return { text: JSON.stringify({ q0_c1: repairFails ? ' a0 ' : 'replacement distractor' }), finishReason: 'stop' }
+    } } })
+    const operation = service.generate({ pages: pages(), questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice' })
+    if (repairFails) await assert.rejects(operation, { code: 'quiz_validation_failed' })
+    else {
+      const quiz = await operation
+      assert.equal(quiz.questions.length, 5)
+      assert.equal(quiz.questions[0].choices[1], 'replacement distractor')
+      assert.equal(quiz.questions[0].correct_answer, 'A0')
+    }
+    assert.equal(calls, 3)
+  }
+})
+
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
     { questionCount: 10, questionType: 'multiple_choice' },

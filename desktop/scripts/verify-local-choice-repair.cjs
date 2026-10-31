@@ -27,28 +27,31 @@ async function main() {
   // Repeat the correct answer before its selected index, plus a distractor twice.
   quiz.questions[0].choices[0] = ' atp '
   quiz.questions[1].choices[3] = 'OXYGEN'
-  let calls = 0
-  const service = createLocalQuizService({
-    provider: { generate(request, options) {
-      calls++
-      if (calls === 1) return Promise.resolve({ text: JSON.stringify(quiz), finishReason: 'stop' })
-      return provider.generate(request, options)
-    } },
-  })
   try {
-    const result = await service.generate({
-      pages: [{ pageNumber: 1, text: facts.map(fact => fact[2]).join(' ') }],
-      questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice',
-    })
-    assert.equal(calls, 2)
-    assert.equal(result.questions.length, 5)
-    result.questions.forEach((question, index) => {
-      assert.equal(question.question, facts[index][0])
-      assert.equal(question.correct_answer, facts[index][1])
-      assert.equal(new Set(question.choices.map(choice => choice.trim().toLowerCase())).size, 4)
-      assert.deepEqual(question.source_pages, [1])
-    })
-    console.log('PASS: real model repairs repeated distractors while preserving five questions and correct answers')
+    for (const afterFullRetry of [false, true]) {
+      let calls = 0
+      const service = createLocalQuizService({
+        provider: { generate(request, options) {
+          calls++
+          if (afterFullRetry && calls === 1) return Promise.resolve({ text: '{', finishReason: 'length' })
+          if (calls === (afterFullRetry ? 2 : 1)) return Promise.resolve({ text: JSON.stringify(quiz), finishReason: 'stop' })
+          return provider.generate(request, options)
+        } },
+      })
+      const result = await service.generate({
+        pages: [{ pageNumber: 1, text: facts.map(fact => fact[2]).join(' ') }],
+        questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice',
+      })
+      assert.equal(calls, afterFullRetry ? 3 : 2)
+      assert.equal(result.questions.length, 5)
+      result.questions.forEach((question, index) => {
+        assert.equal(question.question, facts[index][0])
+        assert.equal(question.correct_answer, facts[index][1])
+        assert.equal(new Set(question.choices.map(choice => choice.trim().toLowerCase())).size, 4)
+        assert.deepEqual(question.source_pages, [1])
+      })
+      console.log('PASS: real model repairs repeated distractors ' + (afterFullRetry ? 'after a full retry' : 'in the primary draft'))
+    }
   } finally {
     await runtime.shutdown()
   }
