@@ -18,11 +18,17 @@ async function main() {
   if (![runtimeArg, modelArg, baselineArg, outputArg].every(Boolean)) {
     throw new Error('Usage: node verify-local-biology-practice.cjs RUNTIME MODEL BASELINE OUTPUT')
   }
-  const baseline = JSON.parse(await fs.readFile(path.resolve(baselineArg), 'utf8'))
-  assert.equal(baseline.outcome, 'pass')
-  assert.equal(baseline.pdfSha256, fixture.pdfSha256)
-  assert.equal(baseline.quiz.questions.length, 5)
-  const missed = baseline.quiz.questions[0]
+  // '-' exercises real Qwen practice without depending on an unrelated
+  // ordinary-quiz generation run (which can separately fail choice repair).
+  // This question is taken verbatim from the fixed biology fixture.
+  let missed = { question: 'Which organelle stores most cell DNA?', source_pages: [1] }
+  if (baselineArg !== '-') {
+    const baseline = JSON.parse(await fs.readFile(path.resolve(baselineArg), 'utf8'))
+    assert.equal(baseline.outcome, 'pass')
+    assert.equal(baseline.pdfSha256, fixture.pdfSha256)
+    assert.equal(baseline.quiz.questions.length, 5)
+    missed = baseline.quiz.questions[0]
+  }
   const focusPages = [...new Set(missed.source_pages)]
   const sourcePages = fixture.pages.map(page => page.pageNumber)
   assert.ok(focusPages.length > 0 && focusPages.every(page => sourcePages.includes(page)))

@@ -139,10 +139,47 @@ jobs:
         run: |
           node desktop/scripts/verify-local-choice-repair.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
-      - name: Verify real-model weak-area biology follow-up after a missed answer
+
+  weak-area-model:
+    name: Real Local AI biology weak-area follow-up
+    needs: model-preparation
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Restore pinned model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: true
+      - name: Verify restored model SHA-256
         shell: pwsh
         run: |
-          node desktop/scripts/verify-local-biology-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-biology-sample.json" "$env:RUNNER_TEMP/local-ai-biology-practice.json"
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+      - name: Download and verify pinned runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Verify independent real-model weak-area follow-up after one missed biology question
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-biology-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "-" "$env:RUNNER_TEMP/local-ai-biology-practice.json"
           exit $LASTEXITCODE
       - name: Upload real-model weak-area practice evidence
         if: always()
