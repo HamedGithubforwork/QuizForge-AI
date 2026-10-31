@@ -310,3 +310,46 @@ test('Practice Weak Areas preserves a 10-question hard quiz count and format', a
   expect(probe.quizRequests[1].practice?.avoidQuestions).toEqual([ten.questions[0].question])
   expect(errors).toEqual([])
 })
+
+
+test('local short-answer checking never sends borderline answers to cloud review', async ({ page }) => {
+  const base = readModelQuiz()
+  const shortQuiz: ModelQuiz = {
+    title: 'Offline short-answer quiz',
+    questions: base.questions.map((original, index) => ({
+      question: 'What therapy changes unhelpful thoughts in case ' + (index + 1) + '?',
+      question_type: 'short_answer',
+      choices: [],
+      correct_index: -1,
+      correct_answer: 'Cognitive behavioural therapy',
+      accepted_answers: ['CBT'],
+      explanation: 'Cognitive behavioural therapy targets unhelpful thought patterns.',
+      source_pages: original.source_pages,
+      grading: {
+        grading_version: 2,
+        grading_mode: 'concepts',
+        answer_groups: [['cognitive behavioural therapy', 'cognitive behavioral therapy', 'CBT']],
+        required_group_count: 1,
+        numeric_value: 0,
+        numeric_tolerance: 0,
+        numeric_unit: '',
+      },
+    })),
+  }
+  const errors = await openDesktopUi(page, shortQuiz, false, undefined,
+    { count: 5, difficulty: 'easy', type: 'short_answer' })
+  await expect(page.locator('.short-answer-input')).toHaveCount(5)
+  // This answer is an actual borderline candidate in quizAttempt.test.ts;
+  // cloud mode requests semantic review for it. Local mode must not.
+  for (const input of await page.locator('.short-answer-input').all()) {
+    await input.fill('therapy that changes cognitive thought patterns')
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toBeVisible()
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { requests: string[]; generate: number };
+  }).__localOutputProbe)
+  expect(probe.requests.filter(path => path.includes('/api/answers/review'))).toEqual([])
+  expect(probe.generate).toBe(1)
+  expect(errors).toEqual([])
+})
