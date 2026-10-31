@@ -538,6 +538,9 @@ function App() {
         if (!result.ok) {
           if (result.error === 'cancelled') {
             setGenerationStage('')
+            if (!localController?.signal.aborted) {
+              setError('Local AI stopped before the quiz was ready. Try generating again. If this keeps happening, note whether the progress message disappears or stays on screen.')
+            }
             return
           }
 
