@@ -1741,6 +1741,15 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           throw failure('generation_failed', { retryable: true })
         }
         if (recovery?.finishReason !== 'stop') invalidQuiz('truncated_output')
+        // Opt-in diagnostics only. Standard desktop builds never retain or
+        // expose candidate questions; the fixed synthetic CI case opts in.
+        if (typeof onGeneratedResponse === 'function') {
+          try { onGeneratedResponse({
+            phase: 'weak-area-recovery',
+            generationProfile: 'quiz-mcq-v1',
+            text: recovery.text,
+          }) } catch {}
+        }
         return parseGeneratedQuizDetailed(
           recovery.text,
           allowedPages,
