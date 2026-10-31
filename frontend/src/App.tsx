@@ -161,6 +161,7 @@ function App() {
     quiz,
     documentResult,
     generatedSettings,
+    allowRemoteAnswerReview: generationMode !== 'local',
     setError,
     onHistorySaved: () => {
       setHistoryRefreshKey(
