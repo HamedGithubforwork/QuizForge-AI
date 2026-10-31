@@ -304,6 +304,39 @@ test('duplicate choices introduced by a full retry receive one focused repair', 
   }
 })
 
+test('biology-style duplicate repair has one source-backed fallback when the model repeats all options', async () => {
+  const invalid = rawQuiz()
+  invalid.questions[0].question = 'Which organelle contains the DNA?'
+  invalid.questions[0].choices[1] = 'A0'
+  let calls = 0
+  const service = createLocalQuizService({ provider: { async generate(request) {
+    calls++
+    if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+    assert.deepEqual(request.jsonSchema.required, ['q0_c1'])
+    return { text: JSON.stringify({ q0_c1: ['A0', ' a0 ', 'D0'] }), finishReason: 'stop' }
+  } } })
+  const result = await service.generate({ pages: pages(), questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice' })
+  assert.equal(calls, 2)
+  assert.equal(result.questions[0].choices[1], 'The study notes do not provide an answer to this question.')
+  assert.equal(result.questions[0].correct_answer, 'A0')
+  assert.deepEqual(result.questions[0].source_pages, [2])
+  assert.equal(new Set(result.questions[0].choices.map(choice => choice.toLowerCase())).size, 4)
+})
+
+test('duplicate repair will not use the generic fallback for non-English questions', async () => {
+  const invalid = rawQuiz()
+  invalid.questions[0].question = 'Quel organite contient l’ADN ?'
+  invalid.questions[0].choices[1] = 'A0'
+  let calls = 0
+  const service = createLocalQuizService({ provider: { async generate() {
+    calls++
+    if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+    return { text: JSON.stringify({ q0_c1: ['A0', ' a0 ', 'D0'] }), finishReason: 'stop' }
+  } } })
+  await assert.rejects(service.generate({ pages: pages(), questionCount: 5, difficulty: 'easy', questionType: 'multiple_choice' }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 2)
+})
+
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
     { questionCount: 10, questionType: 'multiple_choice' },
