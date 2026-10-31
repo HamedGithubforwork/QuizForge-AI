@@ -70,6 +70,36 @@ const QUIZ_SCHEMA = Object.freeze({
     },
   },
 })
+const QUIZ_SUCCESS_SCHEMA = Object.freeze({
+  ...QUIZ_SCHEMA,
+  properties: Object.freeze({
+    ...QUIZ_SCHEMA.properties,
+    questions: Object.freeze({
+      ...QUIZ_SCHEMA.properties.questions,
+      minItems: QUESTION_COUNT,
+      maxItems: QUESTION_COUNT,
+    }),
+  }),
+})
+const QUIZ_INSUFFICIENT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['title', 'questions'],
+  properties: {
+    title: { const: 'Insufficient source material' },
+    questions: {
+      ...QUIZ_SUCCESS_SCHEMA.properties.questions,
+      minItems: 0,
+      maxItems: 0,
+    },
+  },
+})
+const QUIZ_EXACT_SCHEMA = Object.freeze({
+  oneOf: Object.freeze([
+    QUIZ_SUCCESS_SCHEMA,
+    QUIZ_INSUFFICIENT_SCHEMA,
+  ]),
+})
 const REQUESTED_QUIZ_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -95,44 +125,71 @@ const REQUESTED_QUIZ_SCHEMA = Object.freeze({
     },
   },
 })
+const REQUESTED_INSUFFICIENT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['title', 'questions'],
+  properties: {
+    title: { const: 'Insufficient source material' },
+    questions: {
+      ...REQUESTED_QUIZ_SCHEMA.properties.questions,
+      minItems: 0,
+      maxItems: 0,
+    },
+  },
+})
 function requestedQuizSchema(count) {
   return Object.freeze({
-    ...REQUESTED_QUIZ_SCHEMA,
-    properties: Object.freeze({
-      ...REQUESTED_QUIZ_SCHEMA.properties,
-      questions: Object.freeze({ ...REQUESTED_QUIZ_SCHEMA.properties.questions, maxItems: count }),
-    }),
+    oneOf: Object.freeze([
+      Object.freeze({
+        ...REQUESTED_QUIZ_SCHEMA,
+        properties: Object.freeze({
+          ...REQUESTED_QUIZ_SCHEMA.properties,
+          questions: Object.freeze({
+            ...REQUESTED_QUIZ_SCHEMA.properties.questions,
+            minItems: count,
+            maxItems: count,
+          }),
+        }),
+      }),
+      REQUESTED_INSUFFICIENT_SCHEMA,
+    ]),
   })
 }
 const QUIZ_RETRY_SCHEMA = Object.freeze({
-  ...QUIZ_SCHEMA,
-  properties: Object.freeze({
-    ...QUIZ_SCHEMA.properties,
-    questions: Object.freeze({
-      ...QUIZ_SCHEMA.properties.questions,
-      items: Object.freeze({
-        ...QUIZ_SCHEMA.properties.questions.items,
-        properties: Object.freeze({
-          ...QUIZ_SCHEMA.properties.questions.items.properties,
-          question: Object.freeze({
-            ...QUIZ_SCHEMA.properties.questions.items.properties.question,
-            maxLength: 240,
-          }),
-          choices: Object.freeze({
-            ...QUIZ_SCHEMA.properties.questions.items.properties.choices,
-            items: Object.freeze({
-              ...QUIZ_SCHEMA.properties.questions.items.properties.choices.items,
-              maxLength: 120,
+  oneOf: Object.freeze([
+    QUIZ_INSUFFICIENT_SCHEMA,
+    Object.freeze({
+      ...QUIZ_SUCCESS_SCHEMA,
+      properties: Object.freeze({
+        ...QUIZ_SUCCESS_SCHEMA.properties,
+        questions: Object.freeze({
+          ...QUIZ_SUCCESS_SCHEMA.properties.questions,
+          items: Object.freeze({
+            ...QUIZ_SUCCESS_SCHEMA.properties.questions.items,
+            properties: Object.freeze({
+              ...QUIZ_SUCCESS_SCHEMA.properties.questions.items.properties,
+              question: Object.freeze({
+                ...QUIZ_SUCCESS_SCHEMA.properties.questions.items.properties.question,
+                maxLength: 240,
+              }),
+              choices: Object.freeze({
+                ...QUIZ_SUCCESS_SCHEMA.properties.questions.items.properties.choices,
+                items: Object.freeze({
+                  ...QUIZ_SUCCESS_SCHEMA.properties.questions.items.properties.choices.items,
+                  maxLength: 120,
+                }),
+              }),
+              explanation: Object.freeze({
+                ...QUIZ_SUCCESS_SCHEMA.properties.questions.items.properties.explanation,
+                maxLength: 240,
+              }),
             }),
-          }),
-          explanation: Object.freeze({
-            ...QUIZ_SCHEMA.properties.questions.items.properties.explanation,
-            maxLength: 240,
           }),
         }),
       }),
     }),
-  }),
+  ]),
 })
 const TARGETED_RETRY_QUESTION_SCHEMA = Object.freeze({
   ...QUIZ_SCHEMA.properties.questions.items,
@@ -1066,7 +1123,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                 : request.practice
                   ? QUIZ_SCHEMA
                   : useLegacyMultipleChoiceContract
-                    ? retryReason ? QUIZ_RETRY_SCHEMA : QUIZ_SCHEMA
+                    ? retryReason ? QUIZ_RETRY_SCHEMA : QUIZ_EXACT_SCHEMA
                     : requestedQuizSchema(request.questionCount),
             generationProfile:
               retryReason === 'candidate_pool_exhausted'
@@ -1309,6 +1366,7 @@ module.exports = {
   MAX_AVOID_QUESTIONS,
   QUESTION_COUNT,
   QUIZ_SCHEMA,
+  QUIZ_EXACT_SCHEMA,
   createLocalQuizService,
   normalizeRequest,
   parseGeneratedQuiz,

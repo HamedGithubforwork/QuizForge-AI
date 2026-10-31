@@ -6,6 +6,7 @@ const { readFileSync } = require('node:fs')
 const path = require('node:path')
 const {
   MAX_SOURCE_BYTES,
+  QUIZ_EXACT_SCHEMA,
   QUIZ_SCHEMA,
   createLocalQuizService,
   normalizeRequest,
@@ -146,7 +147,7 @@ test('service sends a fixed structured-output schema and expands into the shared
     difficulty: 'hard',
     questionType: 'multiple_choice',
   })
-  assert.deepEqual(captured.jsonSchema, QUIZ_SCHEMA)
+  assert.deepEqual(captured.jsonSchema, QUIZ_EXACT_SCHEMA)
   assert.equal(captured.messages.length, 2)
   assert.match(captured.messages[0].content, /untrusted content/)
   assert.match(captured.messages[0].content, /choices\[correct_index\].*supported/i)
@@ -272,7 +273,8 @@ test('local generation honors website question counts and every question mode', 
       request.questionType === 'mixed'
         ? new Set(['multiple_choice', 'true_false', 'short_answer'])
         : new Set([request.questionType]))
-    assert.equal(captured.jsonSchema.properties.questions.maxItems, request.questionCount)
+    assert.equal(captured.jsonSchema.oneOf[0].properties.questions.minItems, request.questionCount)
+    assert.equal(captured.jsonSchema.oneOf[0].properties.questions.maxItems, request.questionCount)
     if (request.questionType === 'short_answer' || request.questionType === 'mixed') {
       assert.ok(quiz.questions.filter(question => question.question_type === 'short_answer')
         .every(question => question.grading.grading_mode === 'exact'))
@@ -364,7 +366,7 @@ test('service rejects question text that switches to an unsupported writing syst
         if (calls === 2) {
           assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
           assert.match(request.messages.at(-1).content, /fresh complete five-question quiz/i)
-          assert.equal(request.jsonSchema.properties.questions.items.properties.question.maxLength, 240)
+          assert.equal(request.jsonSchema.oneOf[1].properties.questions.items.properties.question.maxLength, 240)
         }
         return { text: JSON.stringify(quiz), finishReason: 'stop', usage: null }
       },
