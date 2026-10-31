@@ -409,6 +409,8 @@ async function main() {
   const runtimeDirectory = path.resolve(process.argv[2])
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
+  const mode = process.argv[5] ?? 'all'
+  assert.ok(['all', 'quality'].includes(mode), 'Unknown acceptance mode')
   const runtimePidState = { value: null }
   let metricMonitor = createRuntimeMetricMonitor()
   let stack = null
@@ -650,12 +652,16 @@ async function main() {
           : 'fail',
     }
 
-    assert.equal(report.summary.performanceScreen, 'pass',
-      'Windows acceptance exceeded the conservative development latency screen')
-    assert.equal(report.summary.processMetricsScreen, 'pass',
-      'Hosted Windows acceptance did not capture llama-server memory and CPU metrics')
+    // Persist completed case evidence before the separate performance gate runs.
     await persistReport()
+    if (mode === 'all') {
+      assert.equal(report.summary.performanceScreen, 'pass',
+        'Windows acceptance exceeded the conservative development latency screen')
+      assert.equal(report.summary.processMetricsScreen, 'pass',
+        'Hosted Windows acceptance did not capture llama-server memory and CPU metrics')
+    }
     console.log(JSON.stringify(report.summary))
+    if (mode === 'quality') console.log('PASS: all real-model quality cases completed; performance is gated by a separate job')
   } finally {
     await persistReport().catch(() => {})
     if (stack) await stack.dispose()
