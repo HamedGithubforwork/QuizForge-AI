@@ -119,6 +119,15 @@ jobs:
       - name: Verify the bundled branch interface inside the app
         run: node scripts/verify-local-ui.cjs "dist/local-ai-preview/win-unpacked/resources/app-ui"
 
+      - name: Verify packaged Electron shows five questions and completes a quiz
+        shell: pwsh
+        working-directory: .
+        run: |
+          npm ci --prefix e2e
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node e2e/scripts/verify-packaged-local-output.mjs "desktop/dist/local-ai-preview/win-unpacked/Quiz From Notes Preview.exe"
+          exit $LASTEXITCODE
+
       - name: Launch and close unpacked preview
         shell: pwsh
         run: |
