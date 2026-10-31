@@ -2,7 +2,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ChangeEvent,
 } from 'react'
 
 import './App.css'
@@ -25,14 +24,18 @@ import {
 import {
   apiFetch,
 } from './lib/api.ts'
+import { normalizePageSelection } from './lib/pageSelection.ts'
 import {
   desktopLocalQuizBridge,
+  desktopLocalPdfBridge,
   type DesktopLocalAiQuizStatus,
+  type DesktopLocalPdfDocument,
 } from './lib/desktop.ts'
 import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
 import {
@@ -61,6 +64,8 @@ function App() {
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null)
   const [isChangingPages, setIsChangingPages] = useState(false)
+  const [isLocalPdfProcessing, setIsLocalPdfProcessing] = useState(false)
+  const [localProcessedPages, setLocalProcessedPages] = useState<DesktopLocalPdfDocument['pages'] | null>(null)
   const [pageSelection, setPageSelection] = useState('')
   const [documentResult, setDocumentResult] =
     useState<UploadResult | null>(null)
@@ -77,12 +82,13 @@ function App() {
   const [questionType, setQuestionType] =
     useState<QuestionMode>('multiple_choice')
   const pdfUpload = usePdfUpload()
-  const { isProcessing } = pdfUpload
+  const isProcessing = pdfUpload.isProcessing || isLocalPdfProcessing
   const [isGenerating, setIsGenerating] =
     useState(false)
   const [generationStage, setGenerationStage] =
     useState('')
   const [error, setError] = useState('')
+  const [weakPracticeError, setWeakPracticeError] = useState('')
   const [
     historyRefreshKey,
     setHistoryRefreshKey,
@@ -101,6 +107,8 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
+  const localPdfBridge = localPdfBridgeRef.current
   const localGenerationController =
     useRef<AbortController | null>(null)
   const generationModeUserSelected =
@@ -134,16 +142,6 @@ function App() {
                   .current,
               )
 
-            if (
-              next === 'local' &&
-              current !== 'local'
-            ) {
-              setQuestionCount(5)
-              setQuestionType(
-                'multiple_choice',
-              )
-            }
-
             return next
           })
         }
@@ -172,17 +170,13 @@ function App() {
   })
 
   function resetPracticeMode() {
+    setWeakPracticeError('')
     setPracticeMode(false)
     setPracticeFocus(null)
     setMasteryContext(null)
   }
 
-  function handleFileChange(
-    event: ChangeEvent<HTMLInputElement>,
-  ) {
-    const file =
-      event.target.files?.[0] ?? null
-
+  function handleFileSelection(file: File | null) {
     setSelectedFile(file)
     setPageSelection('')
     resetProcessedDocument()
@@ -190,6 +184,7 @@ function App() {
 
   function resetProcessedDocument() {
     pdfUpload.clear()
+    setLocalProcessedPages(null)
     setIsChangingPages(false)
     setDocumentResult(null)
     setQuiz(null)
@@ -203,6 +198,47 @@ function App() {
   function handlePageSelectionChange(value: string) {
     setPageSelection(value)
     resetProcessedDocument()
+  }
+
+  async function processLocalPdf(file: File, selection: string): Promise<UploadResult> {
+    if (!localPdfBridge) throw new Error('Local PDF processing is not available in this desktop build.')
+    const normalized = normalizePageSelection(selection)
+    const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
+    const result = await localPdfBridge.processLocalPdf({
+      bytes: await readLocalPdfBytes(file),
+      filename: file.name,
+      ...(selectedPages ? { selectedPages } : {}),
+    })
+    if (!result.ok) {
+      if (result.error === 'cancelled') throw new DOMException('Local PDF processing was cancelled.', 'AbortError')
+      const messages: Record<string, string> = {
+        input_too_large: 'This PDF is over the 15 MB limit for local processing.',
+        too_many_pages: 'This PDF has more than 100 pages and cannot be processed locally yet.',
+        text_too_large: 'This PDF contains too much text to process locally at once.',
+        busy: 'Local AI is busy. Wait for the current task to finish, then try again.',
+        invalid_selection: 'Choose valid PDF pages to process.',
+        invalid_input: 'Choose a valid PDF file.',
+        runtime_unavailable: 'Local PDF processing is unavailable in this desktop build.',
+        processing_failed: 'The PDF could not be processed on this computer.',
+      }
+      throw new Error(messages[result.error] ?? 'Local PDF processing failed.')
+    }
+    const document = result.document
+    setLocalProcessedPages(document.pages)
+    return {
+      filename: document.filename,
+      pdf_sha256: document.pdfSha256,
+      page_count: document.pageCount,
+      character_count: document.characterCount,
+      extractable_page_count: document.extractablePageCount,
+      scanned_likely: document.scannedLikely,
+      warning: document.warning,
+      pages: document.pages.map(page => ({
+        page_number: page.pageNumber,
+        character_count: page.text.length,
+        preview: page.text.slice(0, 240),
+      })),
+    }
   }
 
   async function handleProcessPdf(resume?: PdfJobResponse) {
@@ -219,13 +255,22 @@ function App() {
     }
     setError('')
     setDocumentResult(null)
+    setLocalProcessedPages(null)
     setQuiz(null)
     setGeneratedSettings(null)
     attempt.resetAttempt()
     resetPracticeMode()
 
     try {
-      const data = await pdfUpload.run(selectedFile ?? undefined, resume, pageSelection)
+      let data: UploadResult
+      if (!resume && generationMode === 'local' && localPdfBridge && selectedFile) {
+        setIsLocalPdfProcessing(true)
+        data = await processLocalPdf(selectedFile, pageSelection)
+        pdfUpload.clear()
+      } else {
+        setLocalProcessedPages(null)
+        data = await pdfUpload.run(selectedFile ?? undefined, resume, pageSelection)
+      }
       setDocumentResult(data)
     } catch (caughtError) {
       if (caughtError instanceof DOMException && caughtError.name === 'AbortError') return
@@ -234,10 +279,16 @@ function App() {
           ? caughtError.message
           : 'Something went wrong while processing the PDF.',
       )
+    } finally {
+      setIsLocalPdfProcessing(false)
     }
   }
 
   async function handleCancelProcessing() {
+    if (isLocalPdfProcessing) {
+      await localQuizBridge?.cancelLocalAiQuiz().catch(() => {})
+      return
+    }
     try {
       await pdfUpload.cancel()
       if (!isChangingPages) setDocumentResult(null)
@@ -249,8 +300,17 @@ function App() {
   async function handleApplyPages(file: File | null, selection: string) {
     setError('')
     try {
-      const data = await pdfUpload.run(file ?? undefined, undefined, selection, pdfUpload.sourceSha256 ?? undefined)
-      setSelectedFile(file)
+      const sourceFile = file ?? selectedFile
+      let data: UploadResult
+      if (generationMode === 'local' && localPdfBridge && sourceFile) {
+        setIsLocalPdfProcessing(true)
+        data = await processLocalPdf(sourceFile, selection)
+        pdfUpload.clear()
+      } else {
+        setLocalProcessedPages(null)
+        data = await pdfUpload.run(file ?? undefined, undefined, selection, pdfUpload.sourceSha256 ?? undefined)
+      }
+      setSelectedFile(sourceFile)
       setPageSelection(selection)
       setDocumentResult(data)
       setQuiz(null)
@@ -266,12 +326,24 @@ function App() {
       throw caughtError instanceof Error
         ? caughtError
         : new Error('Could not change pages. Please try again.')
+    } finally {
+      setIsLocalPdfProcessing(false)
     }
   }
 
   function appendDocument(formData: FormData) {
-    if (documentResult) formData.append('document_sha256', documentResult.pdf_sha256)
+    if (documentResult && !localProcessedPages) formData.append('document_sha256', documentResult.pdf_sha256)
     else if (selectedFile) formData.append('file', selectedFile)
+  }
+
+  async function loadCurrentSourcePageText(documentSha256: string, pageNumber: number, signal?: AbortSignal) {
+    if (localProcessedPages) {
+      signal?.throwIfAborted()
+      const page = localProcessedPages.find(item => item.pageNumber === pageNumber)
+      if (!page) throw new Error('Reprocess the PDF to load the selected pages locally.')
+      return page.text
+    }
+    return loadSourcePageText(documentSha256, pageNumber, signal)
   }
 
   function handleGenerationModeChange(
@@ -281,10 +353,6 @@ function App() {
       true
     setGenerationMode(mode)
 
-    if (mode === 'local') {
-      setQuestionCount(5)
-      setQuestionType('multiple_choice')
-    }
   }
 
   async function handleCancelLocalQuiz() {
@@ -307,6 +375,8 @@ function App() {
     focusPages: number[],
     avoidQuestions: string[],
     practiceDifficulty: string,
+    practiceQuestionCount: 5 | 10 | 15,
+    practiceQuestionType: QuestionMode,
   ) {
     if (
       !localQuizBridge ||
@@ -330,8 +400,10 @@ function App() {
           localQuizStatus,
           focusPages,
           avoidQuestions,
-          loadSourcePageText,
+          loadCurrentSourcePageText,
           controller.signal,
+          practiceQuestionCount,
+          practiceQuestionType,
         )
 
       controller.signal
@@ -449,8 +521,10 @@ function App() {
             documentResult,
             difficulty,
             localQuizStatus,
-            loadSourcePageText,
+            loadCurrentSourcePageText,
             localController?.signal,
+            questionCount as 5 | 10 | 15,
+            questionType,
           )
 
         localController?.signal
@@ -470,11 +544,23 @@ function App() {
         if (!result.ok) {
           if (result.error === 'cancelled') {
             setGenerationStage('')
+            if (!localController?.signal.aborted) {
+              setError('Local AI stopped before the quiz was ready. Try generating again. If this keeps happening, note whether the progress message disappears or stays on screen.')
+            }
             return
           }
 
           throw new Error(
             localQuizErrorMessage(result),
+          )
+        }
+
+        if (!result.quiz || !Array.isArray(result.quiz.questions) ||
+            result.quiz.questions.length !== questionCount ||
+            result.quiz.questions.some(question => !question ||
+              typeof question.question !== 'string' || !question.question.trim())) {
+          throw new Error(
+            'Local AI returned an empty or incomplete quiz. Nothing was displayed. Please try again or use Cloud AI.',
           )
         }
 
@@ -485,10 +571,9 @@ function App() {
           'quiz',
         )
         setGeneratedSettings({
-          questionCount: 5,
+          questionCount,
           difficulty,
-          questionType:
-            'multiple_choice',
+          questionType,
         })
 
         window.setTimeout(() => {
@@ -524,17 +609,33 @@ function App() {
           body: formData,
         },
       )
-      const data = await response.json()
+      let data: Record<string, unknown>
+      const responseText = await response.text()
+      try {
+        const parsed: unknown = responseText ? JSON.parse(responseText) : {}
+        data = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : {}
+      } catch {
+        data = {}
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.detail ||
-            'Quiz generation failed.',
+          (typeof data.detail === 'string' && data.detail) ||
+            (typeof data.message === 'string' && data.message) ||
+            `Cloud quiz generation failed (HTTP ${response.status}). Please try again.`,
+        )
+      }
+
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error(
+          'Cloud AI returned an empty or invalid quiz. Please try again, or switch to Local AI.',
         )
       }
 
       setGenerationStage('Quiz ready!')
-      setQuiz(data)
+      setQuiz(data as QuizResult)
       setGeneratedSettings(
         settingsForRequest,
       )
@@ -555,10 +656,13 @@ function App() {
       ) {
         setError('')
       } else {
+        const message = caughtError instanceof Error
+          ? caughtError.message
+          : 'Something went wrong while generating the quiz.'
         setError(
-          caughtError instanceof Error
-            ? caughtError.message
-            : 'Something went wrong while generating the quiz.',
+          generationMode === 'cloud' && /fetch|network|failed to fetch|load failed/i.test(message)
+            ? 'Could not reach Cloud AI. Check your internet connection and try again.'
+            : message,
         )
       }
     } finally {
@@ -600,9 +704,7 @@ function App() {
         )
 
     if (incorrectIndexes.length === 0) {
-      setError(
-        'You did not miss any questions.',
-      )
+      setWeakPracticeError('You did not miss any questions.')
       return
     }
 
@@ -679,8 +781,13 @@ function App() {
     const practiceDifficulty =
       generatedSettings?.difficulty ??
       difficulty
+    const practiceQuestionCount =
+      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+    const practiceQuestionType: QuestionMode =
+      generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
     setIsWeakPracticeGenerating(true)
+    setWeakPracticeError('')
     setError('')
     attempt.clearSaveMessage()
 
@@ -688,27 +795,20 @@ function App() {
       let data
 
       if (generationMode === 'local') {
-        if (
-          weakQuestionType !==
-          'multiple_choice'
-        ) {
-          throw new Error(
-            'Local AI targeted practice currently supports multiple-choice questions only.',
-          )
-        }
-
         data =
           await generateLocalPracticeQuiz(
             weakPages,
             missedQuestionText,
             practiceDifficulty,
+            practiceQuestionCount,
+            practiceQuestionType,
           )
       } else {
         const formData = new FormData()
         appendDocument(formData)
         formData.append(
           'question_count',
-          '5',
+          String(practiceQuestionCount),
         )
         formData.append(
           'difficulty',
@@ -716,7 +816,7 @@ function App() {
         )
         formData.append(
           'question_type',
-          weakQuestionType,
+          practiceQuestionType,
         )
         formData.append(
           'focus_pages',
@@ -757,7 +857,7 @@ function App() {
         difficulty:
           practiceDifficulty,
         questionType:
-          weakQuestionType,
+          practiceQuestionType,
       })
       attempt.resetAttempt()
       setPracticeMode(true)
@@ -788,9 +888,9 @@ function App() {
         caughtError instanceof DOMException &&
         caughtError.name === 'AbortError'
       ) {
-        setError('')
+        setWeakPracticeError('')
       } else {
-        setError(
+        setWeakPracticeError(
           caughtError instanceof Error
             ? caughtError.message
             : 'Could not generate weak-area practice.',
@@ -822,6 +922,10 @@ function App() {
     const practiceDifficulty =
       generatedSettings?.difficulty ??
       difficulty
+    const practiceQuestionCount =
+      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+    const practiceQuestionType: QuestionMode =
+      generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
     setIsWeakPracticeGenerating(true)
     setError('')
@@ -831,27 +935,20 @@ function App() {
       let data
 
       if (generationMode === 'local') {
-        if (
-          focus.questionType !==
-          'multiple_choice'
-        ) {
-          throw new Error(
-            'Local AI history-based practice currently supports multiple-choice questions only.',
-          )
-        }
-
         data =
           await generateLocalPracticeQuiz(
             focus.pages,
             focus.avoidQuestions,
             practiceDifficulty,
+            practiceQuestionCount,
+            practiceQuestionType,
           )
       } else {
         const formData = new FormData()
         appendDocument(formData)
         formData.append(
           'question_count',
-          '5',
+          String(practiceQuestionCount),
         )
         formData.append(
           'difficulty',
@@ -859,7 +956,7 @@ function App() {
         )
         formData.append(
           'question_type',
-          focus.questionType,
+          practiceQuestionType,
         )
         formData.append(
           'focus_pages',
@@ -900,7 +997,7 @@ function App() {
         difficulty:
           practiceDifficulty,
         questionType:
-          focus.questionType,
+          practiceQuestionType,
       })
       attempt.resetAttempt()
       setPracticeMode(true)
@@ -1005,7 +1102,7 @@ function App() {
           fileInputRef={fileInputRef}
           selectedFile={selectedFile}
           isProcessing={isProcessing}
-          onFileChange={handleFileChange}
+          onFileSelected={handleFileSelection}
           onProcessPdf={() => void handleProcessPdf()}
           job={pdfUpload.job}
           recentJob={pdfUpload.recentJob}
@@ -1013,7 +1110,10 @@ function App() {
           onCancel={() => void handleCancelProcessing()}
           pageSelection={pageSelection}
           onPageSelectionChange={handlePageSelectionChange}
-          supportsPageSelection={pdfUpload.supportsPageSelection}
+          supportsPageSelection={pdfUpload.supportsPageSelection || (generationMode === 'local' && Boolean(localPdfBridge))}
+          localProcessing={generationMode === 'local' && Boolean(localPdfBridge)}
+          localAiAvailable={Boolean(localPdfBridge)}
+          processedLocally={Boolean(localProcessedPages)}
           selectionDisabled={documentBusy || isChangingPages}
           hidePageSelection={Boolean(documentResult && pdfUpload.supportsPageReuse && pdfUpload.sourceSha256)}
           isChangingPages={isChangingPages}
@@ -1163,6 +1263,7 @@ function App() {
                 isWeakPracticeGenerating={
                   isWeakPracticeGenerating
                 }
+                weakPracticeError={weakPracticeError}
                 canCancelWeakPractice={
                   generationMode === 'local'
                 }

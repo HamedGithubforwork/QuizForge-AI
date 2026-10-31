@@ -9,7 +9,7 @@ test('OS argument extraction accepts one exact callback and rejects ambiguity or
   assert.equal(callbackFromArguments(['app.exe', good]), good)
   for (const argv of [null, [good, good], [good, good.toUpperCase()], Array(129).fill(good),
     ['https://example.test'], ['--url=' + good], [good + '#fragment'], [good + '\n'],
-    [good.replace(':/oauth', '://oauth')], [good.replace('/callback?', '/callback/other?')],
+    [good.replace('://oauth/callback', ':/oauth/callback')], [good.replace('/callback?', '/callback/other?')],
     [good.toUpperCase()], [good + 'a'.repeat(8192)]]) {
     assert.equal(callbackFromArguments(argv), null)
   }

@@ -3,8 +3,8 @@
   "platform": "win32",
   "arch": "x64",
   "package": "server-only",
-  "archiveUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip",
-  "archiveSha256": "f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c",
+  "archiveUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip",
+  "archiveSha256": "b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338",
   "files": {
     "LICENSE-LLAMA-CPP": {
       "bytes": 1078,
@@ -81,6 +81,10 @@
     "ggml.dll": {
       "bytes": 79872,
       "sha256": "5e6fce68081a32ca9523fb7b35c48058400528d4703cb18c0147b35d9e7f6cfb"
+    },
+    "ggml-vulkan.dll": {
+      "bytes": 45306880,
+      "sha256": "4d53713da2bd8d68e7a31976bc370df9479aa6e37c425fc731a2593bf3748ff9"
     },
     "libomp.dll": {
       "bytes": 768000,

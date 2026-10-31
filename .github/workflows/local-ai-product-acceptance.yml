@@ -16,7 +16,14 @@ on:
       - desktop/third_party/local-ai/**
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/download-verified-model.cjs
+      - desktop/scripts/ensure-verified-model.cjs
       - desktop/scripts/verify-local-product-acceptance.cjs
+      - desktop/scripts/verify-local-product-performance.cjs
+      - desktop/scripts/verify-local-choice-repair.cjs
+      - desktop/scripts/verify-local-biology-sample.cjs
+      - desktop/scripts/verify-local-biology-practice.cjs
+      - desktop/test/fixtures/biology-study-notes.json
+      - e2e/tests/local-desktop-output.spec.ts
       - .github/workflows/local-ai-product-acceptance.yml
 
 permissions:
@@ -27,56 +34,231 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  windows-product-acceptance:
-    name: Windows Local AI product acceptance
+  model-preparation:
+    name: Prepare verified pinned Local AI model
     runs-on: windows-2025
-    timeout-minutes: 30
-
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           persist-credentials: false
-
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Restore or cache verified pinned model
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      - name: Check SHA-256 or download pinned model on cache miss
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
 
+  critical-quiz:
+    name: Critical Local AI biology and visible output
+    needs: model-preparation
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Restore pinned model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: true
+      - name: Verify restored model SHA-256
+        shell: pwsh
+        run: |
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
       - name: Download and verify pinned runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-cpu-x64.zip'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
           if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
-          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'f3b2175f0fc3a7fb1bf53b1eddfeb6fd7a6c34761fec41cb293f6d70ba16288c') {
-            throw 'Runtime checksum mismatch'
-          }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
           Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
           New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Generate from the reported three-page biology sample
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-biology-sample.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-biology-sample.json"
+          exit $LASTEXITCODE
+      - name: Upload biology sample evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-biology-sample-windows
+          path: ${{ runner.temp }}/local-ai-biology-sample.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Verify actual biology quiz output appears and can be completed in Windows UI
+        shell: pwsh
+        working-directory: e2e
+        env:
+          QFN_LOCAL_BIOLOGY_REPORT: ${{ runner.temp }}/local-ai-biology-sample.json
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm ci --prefix ../frontend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npx playwright test tests/local-desktop-output.spec.ts --project=chromium --retries=0
+          exit $LASTEXITCODE
+      - name: Upload Windows UI output test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-windows-visible-output
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Verify duplicate-choice recovery with the real model
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-choice-repair.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
 
-      - name: Download model through concrete verified store
+  weak-area-model:
+    name: Real Local AI biology weak-area follow-up
+    needs: model-preparation
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Restore pinned model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: true
+      - name: Verify restored model SHA-256
+        shell: pwsh
+        run: |
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+      - name: Download and verify pinned runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory "$env:RUNNER_TEMP/models"
-          node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
           exit $LASTEXITCODE
+      - name: Verify independent real-model weak-area follow-up after one missed biology question
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-biology-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "-" "$env:RUNNER_TEMP/local-ai-biology-practice.json"
+          exit $LASTEXITCODE
+      - name: Upload real-model weak-area practice evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-biology-weak-practice-windows
+          path: ${{ runner.temp }}/local-ai-biology-practice.json
+          if-no-files-found: warn
+          retention-days: 30
 
-      - name: Run real application-stack quality and performance acceptance
+  quality:
+    name: Local AI factual quality and edge cases
+    needs: model-preparation
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Restore pinned model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: true
+      - name: Verify restored model SHA-256
+        shell: pwsh
+        run: |
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+      - name: Download and verify pinned runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          node desktop/scripts/verify-local-product-acceptance.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-product-acceptance.json"
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
           exit $LASTEXITCODE
-
-      - name: Upload synthetic acceptance evidence
+      - name: Run real-model semantic, security, replay, targeted-practice and abstention cases
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          node desktop/scripts/verify-local-product-acceptance.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-product-acceptance.json" quality
+          exit $LASTEXITCODE
+      - name: Upload complete quality and timing evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: local-ai-product-acceptance-windows
           path: ${{ runner.temp }}/local-ai-product-acceptance.json
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
+
+  performance:
+    name: Local AI latency and resource acceptance
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Download measured Windows quality evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: local-ai-product-acceptance-windows
+          path: quality-evidence
+      - name: Apply independent measured latency, memory, and CPU gate
+        run: node desktop/scripts/verify-local-product-performance.cjs quality-evidence/local-ai-product-acceptance.json

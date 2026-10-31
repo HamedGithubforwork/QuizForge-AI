@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../lib/api'
-import { rememberCurrentDocumentIdentity } from '../lib/documentIdentity'
+import { clearCurrentDocumentIdentity, rememberCurrentDocumentIdentity } from '../lib/documentIdentity'
 import { pdfErrorMessage, waitForPdfJob } from '../lib/pdfJobs'
 import { normalizePageSelection } from '../lib/pageSelection'
 import type { PdfJobResponse, UploadResponse } from '../types/api.generated'
@@ -126,6 +126,7 @@ export function usePdfUpload() {
     revision.current += 1
     setJob(null)
     setSourceSha256(null)
+    clearCurrentDocumentIdentity()
   }
 
   return { isProcessing, job, recentJob, supportsPageSelection, supportsPageReuse, supportsCachedSelection, sourceSha256, run, cancel, clear }

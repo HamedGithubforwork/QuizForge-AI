@@ -17,6 +17,14 @@ const normalize = value => String(value)
 
 const aliases = (...values) => values.map(normalize)
 
+function reportCaseProgress(kind, ...details) {
+  const message = ['CASE', kind + ':', ...details].join(' ')
+  console.log(message)
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.log('::notice title=Local AI acceptance::' + message)
+  }
+}
+
 const FIXTURES = Object.freeze([
   Object.freeze({
     id: 'selected_pages',
@@ -401,7 +409,10 @@ async function main() {
   const runtimeDirectory = path.resolve(process.argv[2])
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
+  const mode = process.argv[5] ?? 'all'
+  assert.ok(['all', 'quality'].includes(mode), 'Unknown acceptance mode')
   const runtimePidState = { value: null }
+  let activeSyntheticFixture = null
   let metricMonitor = createRuntimeMetricMonitor()
   let stack = null
 
@@ -417,6 +428,8 @@ async function main() {
     acceleration: null,
     runs: [],
     validationIssues: [],
+    // Only the fixed, non-user-provided synthetic French fixture is captured.
+    syntheticFrenchResponses: [],
   }
 
   async function persistReport() {
@@ -450,24 +463,53 @@ async function main() {
           runtimePidState.value = pid
         }
       },
+      onQuizGeneratedResponse(response) {
+        if (activeSyntheticFixture !== 'french') return
+        report.syntheticFrenchResponses.push({
+          generationProfile: response.generationProfile,
+          rawText: typeof response.text === 'string' ? response.text.slice(0, 50000) : null,
+        })
+      },
       onQuizValidationIssue(issue) {
         report.validationIssues.push({ ...issue })
         console.log('VALIDATION ISSUE:', issue.attempt, issue.reason)
+        const counts = issue.details && typeof issue.details === 'object'
+          ? [
+              'inputCandidates',
+              'avoidedQuestions',
+              'duplicateQuestions',
+              'unsupportedSourceFacts',
+              'unsupportedAnswers',
+              'unexpectedOutputScripts',
+              'duplicateSourceFacts',
+              'sourcePageRepairs',
+              'survivors',
+            ]
+              .filter(key => Number.isSafeInteger(issue.details[key]))
+              .map(key => key + '=' + issue.details[key])
+              .join(' ')
+          : ''
+        if (counts) console.log('VALIDATION FILTER COUNTS:', counts)
       },
     })
 
     const managerStatus = await stack.load()
     const status = await stack.quizStatus()
     assert.equal(status.available, true)
-    assert.equal(managerStatus.capability.acceleration, 'cpu')
-    assert.equal(managerStatus.capability.hardware.gpuAccelerationUsable, false)
+    // Keep product acceptance usable on CPU-only CI and Vulkan-capable PCs.
+    assert.ok(['cpu', 'gpu'].includes(managerStatus.capability.acceleration))
+    assert.equal(
+      managerStatus.capability.acceleration === 'gpu',
+      managerStatus.capability.hardware.gpuAccelerationUsable,
+    )
     report.modelId = status.modelId
     report.acceleration = managerStatus.capability.acceleration
 
     const sequence = [...FIXTURES, FIXTURES[0]]
     for (let index = 0; index < sequence.length; index++) {
       const fixture = sequence[index]
-      console.log('CASE START:', fixture.id, index === sequence.length - 1 ? 'repeat' : 'primary')
+      activeSyntheticFixture = fixture.id
+      reportCaseProgress('START', fixture.id, index === sequence.length - 1 ? 'repeat' : 'primary')
       const measuredRun = await measured(() => stack.generateQuiz({
         pages: fixture.selectedPages,
         questionCount: 5,
@@ -490,7 +532,7 @@ async function main() {
       validateSemanticQuiz(measuredRun.value, fixture)
       evidence.outcome = 'quiz'
       await persistReport()
-      console.log('CASE PASS:', fixture.id, measuredRun.elapsedSeconds)
+      reportCaseProgress('PASS', fixture.id, measuredRun.elapsedSeconds)
     }
 
     const targetedFixture = FIXTURES.find(
@@ -507,8 +549,8 @@ async function main() {
       .slice(0, 2)
       .map(question => question.question)
 
-    console.log(
-      'CASE START:',
+    reportCaseProgress(
+      'START',
       'selected_pages_targeted_practice',
       'primary',
     )
@@ -565,13 +607,13 @@ async function main() {
     )
     targetedEvidence.outcome = 'quiz'
     await persistReport()
-    console.log(
-      'CASE PASS:',
+    reportCaseProgress(
+      'PASS',
       'selected_pages_targeted_practice',
       targeted.elapsedSeconds,
     )
 
-    console.log('CASE START:', INSUFFICIENT.id, 'primary')
+    reportCaseProgress('START', INSUFFICIENT.id, 'primary')
     const abstention = await measured(async () => {
       try {
         await stack.generateQuiz({
@@ -596,7 +638,7 @@ async function main() {
       metricSampleCount: abstention.sampleCount,
     })
     await persistReport()
-    console.log('CASE PASS:', INSUFFICIENT.id, abstention.elapsedSeconds)
+    reportCaseProgress('PASS', INSUFFICIENT.id, abstention.elapsedSeconds)
 
     const quizTimes = report.runs.filter(row => row.outcome === 'quiz')
       .map(row => row.elapsedSeconds).sort((a, b) => a - b)
@@ -621,12 +663,16 @@ async function main() {
           : 'fail',
     }
 
-    assert.equal(report.summary.performanceScreen, 'pass',
-      'Hosted Windows CPU acceptance exceeded the conservative development latency screen')
-    assert.equal(report.summary.processMetricsScreen, 'pass',
-      'Hosted Windows acceptance did not capture llama-server memory and CPU metrics')
+    // Persist completed case evidence before the separate performance gate runs.
     await persistReport()
+    if (mode === 'all') {
+      assert.equal(report.summary.performanceScreen, 'pass',
+        'Windows acceptance exceeded the conservative development latency screen')
+      assert.equal(report.summary.processMetricsScreen, 'pass',
+        'Hosted Windows acceptance did not capture llama-server memory and CPU metrics')
+    }
     console.log(JSON.stringify(report.summary))
+    if (mode === 'quality') console.log('PASS: all real-model quality cases completed; performance is gated by a separate job')
   } finally {
     await persistReport().catch(() => {})
     if (stack) await stack.dispose()

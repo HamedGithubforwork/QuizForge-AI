@@ -87,3 +87,13 @@ test('expiry, clock failure and explicit cancellation invalidate the transaction
     assert.throws(() => createAuthorizationAttempt({ clientId }), /configuration/)
   }
 })
+
+
+test('Google sign-in pins the Cognito identity provider while normal sign-in keeps account choices', () => {
+  const google = createAuthorizationAttempt({ clientId: 'syntheticclient', provider: 'google' })
+  const googleUrl = new URL(google.authorizationUrl)
+  assert.equal(googleUrl.searchParams.get('identity_provider'), 'Google')
+  const standard = createAuthorizationAttempt({ clientId: 'syntheticclient', provider: 'default' })
+  assert.equal(new URL(standard.authorizationUrl).searchParams.has('identity_provider'), false)
+  assert.throws(() => createAuthorizationAttempt({ clientId: 'syntheticclient', provider: 'https://evil.invalid' }), /configuration/)
+})

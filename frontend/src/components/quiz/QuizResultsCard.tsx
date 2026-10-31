@@ -31,6 +31,7 @@ type QuizResultsCardProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  weakPracticeError: string
   canCancelWeakPractice: boolean
   isGenerating: boolean
   saveMessage: string
@@ -58,6 +59,7 @@ function QuizResultsCard({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  weakPracticeError,
   canCancelWeakPractice,
   isGenerating,
   saveMessage,
@@ -344,6 +346,13 @@ function QuizResultsCard({
           Upload New PDF
         </button>
       </div>
+
+      {weakPracticeError && (
+        <p className="error-message" role="alert" aria-live="assertive">
+          <strong>Could not build weak-area practice</strong>
+          <span>{weakPracticeError}</span>
+        </p>
+      )}
 
       {saveMessage && (
         <p

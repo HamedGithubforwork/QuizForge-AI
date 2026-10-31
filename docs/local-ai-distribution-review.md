@@ -39,11 +39,13 @@ the nlohmann/json MIT notice, and the LLVM OpenMP notice. The notices must be
 included in the installed product's third-party notices surface/package and must
 be verified in packaging CI.
 
-**Model weights:** keep them outside the installer and download only after explicit
-user action. They are model data, not executable runtime code. The existing model
-store pins revision, size and SHA-256, requires HTTPS/approved Hugging Face storage
-hosts, and never silently downloads. The Local AI settings surface must identify
-the model and Apache-2.0 license before public activation.
+**Model weights:** provide one compact installer with an explicit opt-in prompt
+during setup. Users can download the pinned 2.5 GB GGUF immediately or skip and
+download it later in Local AI settings. Choosing Download launches the installed
+app and invokes its existing verified model manager; this retains the pinned
+revision, exact-size and SHA-256 checks, disk-space check, HTTPS/approved-host
+redirect checks, and Apache-2.0 disclosure. The file remains data, not executable
+code, and is removed when the app is uninstalled.
 
 ## Microsoft Store constraint
 
@@ -58,10 +60,10 @@ Because the local runtime is native executable code, Quiz From Notes will not
 depend on a runtime executable downloaded after install unless a later,
 channel-specific Store review explicitly approves that design. Bundling the
 reviewed runtime is the conservative common path for Store/direct packages.
-The model remains a separately downloaded data asset. The Local AI settings page
-and the native download confirmation disclose the pinned model name,
-Qwen/Qwen3-4B-GGUF source repository, Apache-2.0 license, and download size from
-the same candidate metadata used by the downloader.
+The Local AI settings page, installer prompt, and native download confirmation
+disclose that the pinned model is approximately 2.5 GB. The settings and native
+download confirmation show its name, Qwen/Qwen3-4B-GGUF source repository, and
+Apache-2.0 license from the same candidate metadata used by the downloader.
 
 The existing Store build can rely on Microsoft Store package signing after
 acceptance. Direct-distribution signing or any paid certificate/service remains an
