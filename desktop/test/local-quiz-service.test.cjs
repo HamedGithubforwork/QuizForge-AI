@@ -1258,11 +1258,15 @@ test('targeted practice retries one strict validation failure and then succeeds'
   ])
 })
 
-test('targeted practice retries one false insufficient-source abstention without forcing the candidate-pool schema', async () => {
+test('targeted practice recovers false abstention and filters exact prior-question repeats', async () => {
   let calls = 0
-  const recovered = rawQuiz()
+  const recovered = withRetrySourceFacts(rawQuiz())
   recovered.questions.forEach((item, index) => {
     item.question = 'Abstention recovery question ' + (index + 1) + '?'
+  })
+  recovered.questions.push({
+    ...recovered.questions[0],
+    question: 'Old question?',
   })
   const service = createLocalQuizService({
     provider: {
@@ -1271,21 +1275,22 @@ test('targeted practice retries one false insufficient-source abstention without
         if (calls === 2) {
           assert.equal(
             request.generationProfile,
-            'quiz-mcq-retry-v1',
+            'quiz-mcq-targeted-retry-v1',
           )
+          const successSchema = request.jsonSchema.oneOf[1]
           assert.equal(
-            request.jsonSchema.properties.questions.minItems,
-            0,
-          )
-          assert.equal(
-            request.jsonSchema.properties.questions.maxItems,
+            successSchema.properties.questions.minItems,
             5,
           )
           assert.equal(
-            request.jsonSchema.properties.questions.items.required.includes(
+            successSchema.properties.questions.maxItems,
+            6,
+          )
+          assert.equal(
+            successSchema.properties.questions.items.required.includes(
               'source_fact',
             ),
-            false,
+            true,
           )
           assert.match(
             request.messages.at(-1).content,
@@ -1315,7 +1320,9 @@ test('targeted practice retries one false insufficient-source abstention without
     questionType: 'multiple_choice',
   })
   assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
   assert.equal(result.questions[0].question, 'Abstention recovery question 1?')
+  assert.equal(result.questions.some(item => item.question === 'Old question?'), false)
 })
 
 test('candidate-pool exhaustion reports counts without source text', async () => {
