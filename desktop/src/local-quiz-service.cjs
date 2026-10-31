@@ -1847,17 +1847,67 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 !boundedString(fix.source_fact, 300) ||
                 !Number.isSafeInteger(fix.source_page) ||
                 !allowedPages.has(fix.source_page) ||
-                !containsEvidencePhrase(sourceTextByPage.get(fix.source_page) ?? '', fix.source_fact) ||
-                !containsEvidencePhrase(fix.source_fact, fix.answer)) {
+                !containsEvidencePhrase(sourceTextByPage.get(fix.source_page) ?? '', fix.source_fact)) {
+              invalidQuiz('unsupported_answer')
+            }
+            let answer = fix.answer.trim()
+            let sourceFact = fix.source_fact.trim()
+            if (!containsEvidencePhrase(sourceFact, answer)) {
+              // A valid excerpt may end just before the adjacent sentence
+              // stating the numeric value. Extend the *exact same page*
+              // excerpt a bounded distance; do not search unrelated pages.
+              const page = (sourceTextByPage.get(fix.source_page) ?? '')
+                .replace(/\s+/g, ' ')
+              const collapsedFact = sourceFact.replace(/\s+/g, ' ')
+              const factStart = page.toLocaleLowerCase()
+                .indexOf(collapsedFact.toLocaleLowerCase())
+              if (factStart !== -1) {
+                const expanded = page.slice(
+                  factStart,
+                  factStart + Math.min(300, collapsedFact.length + 180),
+                )
+                if (containsEvidencePhrase(expanded, answer)) {
+                  sourceFact = expanded
+                }
+              }
+            }
+            if (!containsEvidencePhrase(sourceFact, answer)) {
+              // Model paraphrases can add unsourced modifiers (e.g. "from
+              // the sun" where the excerpt only says "light energy").
+              // Retain only the longest direct two-or-more-word quotation,
+              // provided it preserves at least 60% of informative tokens.
+              const words = normalizeEvidenceText(answer).split(' ').filter(Boolean)
+              const ignored = new Set(['the', 'a', 'an', 'of', 'on', 'in',
+                'to', 'and', 'by', 'for', 'or', 'from', 'with', 'as', 'is',
+                'are', 'at', 'that', 'this', 'into'])
+              const informative = words.filter(word => !ignored.has(word))
+              let supported = null
+              for (let length = words.length; length >= 2 && !supported; length--) {
+                for (let offset = 0; offset + length <= words.length; offset++) {
+                  const part = words.slice(offset, offset + length)
+                  const substantive = part.filter(word => !ignored.has(word))
+                  const enoughOverlap = informative.length >= 2 &&
+                    substantive.length >= 2 &&
+                    substantive.length / informative.length >= 0.6
+                  if (enoughOverlap &&
+                      containsEvidencePhrase(sourceFact, part.join(' '))) {
+                    supported = part.join(' ')
+                    break
+                  }
+                }
+              }
+              if (supported) answer = supported
+            }
+            if (!containsEvidencePhrase(sourceFact, answer)) {
               invalidQuiz('unsupported_answer')
             }
             const choices = [...question.choices]
-            choices[question.correct_index] = fix.answer.trim()
+            choices[question.correct_index] = answer
             return {
               ...question,
               choices,
-              explanation: fix.source_fact.trim(),
-              source_fact: fix.source_fact.trim(),
+              explanation: sourceFact,
+              source_fact: sourceFact,
               source_pages: [fix.source_page],
             }
           })
