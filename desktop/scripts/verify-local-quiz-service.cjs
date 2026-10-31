@@ -17,8 +17,8 @@ async function main() {
     const status = await stack.quizStatus()
     assert.equal(status.available, true, 'Pinned runtime/model must be generation-ready on acceptance runner')
     assert.equal(status.modelId, 'qwen3-4b-q4-k-m')
-    assert.equal(status.constraints.questionCount, 5)
-    assert.equal(status.constraints.questionType, 'multiple_choice')
+    assert.ok(status.constraints.questionCounts.includes(5), 'Runtime must advertise five-question quizzes')
+    assert.ok(status.constraints.questionTypes.includes('multiple_choice'), 'Runtime must advertise multiple-choice quizzes')
 
     const quiz = await stack.generateQuiz({
       pages: [
