@@ -202,46 +202,71 @@ test('service sends a fixed structured-output schema and expands into the shared
   })
 })
 
-test('duplicate-choice retry explains normalized uniqueness to the model', async () => {
+test('duplicate-choice recovery changes only repeated distractors, including a later correct answer', async () => {
   const invalid = rawQuiz()
-  invalid.questions[0].choices[1] =
-    invalid.questions[0].choices[0]
-
+  invalid.questions[0].choices[1] = '  a0  '
+  invalid.questions[2].choices = ['C2', 'B2', 'C2', 'b2']
+  const before = structuredClone(invalid)
   let calls = 0
-  let retryPrompt = ''
+  const controller = new AbortController()
   const service = createLocalQuizService({
     provider: {
-      async generate(request) {
+      async generate(request, options) {
         calls++
-        if (calls === 2) {
-          retryPrompt = request.messages.at(-1).content
-        }
-        return {
-          text: JSON.stringify(calls === 1 ? invalid : rawQuiz()),
-          finishReason: 'stop',
-          usage: null,
-        }
+        assert.equal(options.signal, controller.signal)
+        if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+        assert.deepEqual(request.jsonSchema.required, ['q0_c1', 'q2_c0', 'q2_c3'])
+        assert.match(request.messages[0].content, /after trimming spaces and ignoring capitalization/i)
+        assert.match(request.messages[0].content, /untrusted data/)
+        assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
+        assert.equal(JSON.parse(request.messages.at(-1).content).length, 2)
+        return { text: JSON.stringify({ q0_c1: 'new distractor', q2_c0: 'different option', q2_c3: 'another option' }), finishReason: 'stop' }
       },
     },
   })
-
-  const result = await service.generate({
-    pages: pages(),
-    questionCount: 5,
-    difficulty: 'medium',
-    questionType: 'multiple_choice',
-  })
-
+  const result = await service.generate({ pages: pages(), questionCount: 5,
+    difficulty: 'easy', questionType: 'multiple_choice' }, { signal: controller.signal })
   assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
-  assert.match(
-    retryPrompt,
-    /after trimming spaces and ignoring capitalization/i,
-  )
-  assert.match(
-    retryPrompt,
-    /replace any repeated distractor/i,
-  )
+  for (let index = 0; index < 5; index++) {
+    const question = result.questions[index]
+    assert.equal(question.question, before.questions[index].question)
+    assert.equal(question.correct_answer, before.questions[index].choices[before.questions[index].correct_index])
+    assert.deepEqual(question.source_pages, before.questions[index].source_pages)
+    assert.equal(new Set(question.choices.map(choice => choice.toLowerCase())).size, 4)
+  }
+  assert.deepEqual(result.questions[1].choices, before.questions[1].choices)
+  assert.equal(result.questions[2].choices[1], 'B2')
+})
+
+test('duplicate-choice repair stays bounded and revalidates the complete quiz', async () => {
+  for (const variant of ['repeat', 'extra_key', 'missing_key', 'truncated', 'json', 'bad_citation', 'duplicate_question', 'script']) {
+    const invalid = rawQuiz()
+    invalid.questions[0].choices[1] = 'A0'
+    if (variant === 'bad_citation') invalid.questions[4].source_pages = [999]
+    if (variant === 'duplicate_question') invalid.questions[4].question = invalid.questions[3].question
+    let calls = 0
+    const diagnostics = []
+    const service = createLocalQuizService({
+      onValidationIssue: issue => diagnostics.push(issue),
+      provider: {
+        async generate() {
+          calls++
+          if (calls === 1) return { text: JSON.stringify(invalid), finishReason: 'stop' }
+          let replacement = { q0_c1: variant === 'repeat' ? ' a0 ' : variant === 'script' ? '错误选项' : 'new option' }
+          if (variant === 'extra_key') replacement.correct_index = 2
+          if (variant === 'missing_key') replacement = {}
+          return { text: variant === 'json' ? '{' : JSON.stringify(replacement),
+            finishReason: variant === 'truncated' ? 'length' : 'stop' }
+        },
+      },
+    })
+    await assert.rejects(service.generate({ pages: pages(), questionCount: 5,
+      difficulty: 'easy', questionType: 'multiple_choice' }), { code: 'quiz_validation_failed' }, variant)
+    assert.equal(calls, 2, variant)
+    assert.equal(diagnostics[0].reason, 'duplicate_choices', variant)
+    assert.equal(diagnostics[1].attempt, 'retry', variant)
+  }
 })
 
 test('local generation honors website question counts and every question mode', async () => {

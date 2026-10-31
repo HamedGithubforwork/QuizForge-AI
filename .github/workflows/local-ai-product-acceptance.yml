@@ -17,6 +17,7 @@ on:
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/download-verified-model.cjs
       - desktop/scripts/verify-local-product-acceptance.cjs
+      - desktop/scripts/verify-local-choice-repair.cjs
       - .github/workflows/local-ai-product-acceptance.yml
 
 permissions:
@@ -63,6 +64,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory "$env:RUNNER_TEMP/models"
           node desktop/scripts/download-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+
+      - name: Verify duplicate-choice recovery with the real model
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-choice-repair.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
 
       - name: Run real application-stack quality and performance acceptance
