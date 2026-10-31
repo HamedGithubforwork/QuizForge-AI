@@ -1153,8 +1153,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                       'The previous targeted-practice draft abstained as insufficient source material.',
                       'Re-evaluate the supplied pages once using the same strict grounding rules.',
                       'The PRIOR QUESTIONS TO AVOID list excludes only those exact question wordings; it does not make their underlying facts unavailable. Reuse those source facts by reversing the question and answer direction when needed, such as changing “What material is Aster’s casing?” to “Which device has a cobalt casing?”.',
-                      'Count five source-supported facts across all supplied pages, including facts referenced by prior questions. If at least five distinct source-supported factual questions are genuinely possible after removing exact repeated wording, return exactly five valid questions.',
+                      'Return exactly six concise candidate questions with source_fact excerpts. The app will discard exact prior-question repeats and duplicate or unsupported facts, then keep the first five valid questions.',
+                      'Count five distinct source-supported facts across all supplied pages, including facts referenced by prior questions. If only five distinct facts exist, use the sixth candidate as a different question direction about one of those facts so it can serve as a backup.',
                       'Do not reuse any PRIOR QUESTIONS TO AVOID exactly. A reverse-direction question about the same fact is allowed and is not an exact repeat.',
+                      'For every candidate, include source_fact as the shortest exact contiguous excerpt from one cited page that identifies the fact and includes the selected answer. Keep the question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
                       'If fewer than five distinct source-supported factual questions are genuinely possible, preserve the Insufficient source material abstention. Never invent facts to avoid abstaining.',
                     ].join('\n')
                   : [
@@ -1215,7 +1217,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                   ? targetedStrictRetrySchema(retryCandidateCount)
                   : TARGETED_PRIMARY_SCHEMA
                 : request.practice
-                  ? QUIZ_SCHEMA
+                  ? retryReason === 'insufficient_source'
+                    ? TARGETED_PRIMARY_SCHEMA
+                    : QUIZ_SCHEMA
                   : useLegacyMultipleChoiceContract
                     ? retryReason === 'insufficient_source'
                       ? QUIZ_INSUFFICIENT_RETRY_SCHEMA
@@ -1228,7 +1232,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
               retryReason === 'candidate_pool_exhausted'
                 ? `quiz-mcq-targeted-retry-v${Math.min(targetedRetryAttempt++, 4) + 1}`
                 : retryReason
-                  ? 'quiz-mcq-retry-v1'
+                  ? request.practice && retryReason === 'insufficient_source'
+                    ? 'quiz-mcq-targeted-retry-v1'
+                    : 'quiz-mcq-retry-v1'
                   : request.practice
                     ? 'quiz-mcq-targeted-primary-v1'
                     : 'quiz-mcq-v1',
@@ -1440,10 +1446,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
           result.text,
           allowedPages,
           avoidQuestions,
-            retryValidationReason === 'insufficient_source' && !request.practice
-            ? { sourceTextByPage, requireSourceFact: true }
-            : request.practice && retryValidationReason !== 'insufficient_source'
-              ? { filterAvoided: true, sourceTextByPage }
+          request.practice
+            ? { filterAvoided: true, sourceTextByPage }
+            : retryValidationReason === 'insufficient_source'
+              ? { sourceTextByPage, requireSourceFact: true }
               : { sourceTextByPage },
         )
       } catch (error) {
