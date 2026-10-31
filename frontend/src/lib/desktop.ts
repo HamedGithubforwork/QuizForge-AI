@@ -31,6 +31,8 @@ export type DesktopLocalQuizRequest = {
   questionType: 'multiple_choice' | 'true_false' | 'short_answer' | 'mixed'
   practice?: {
     avoidQuestions: string[]
+    /** Prefer these previously missed pages; other selected pages provide extra source facts. */
+    focusPages?: number[]
   }
 }
 

@@ -165,33 +165,13 @@ export async function buildLocalPracticeRequest(
     )
   }
 
-  const focusedDocument: UploadResult = {
-    ...document,
-    pages: document.pages.filter(
-      page =>
-        focusPages.includes(
-          page.page_number,
-        ),
-    ),
-    character_count:
-      document.pages
-        .filter(
-          page =>
-            focusPages.includes(
-              page.page_number,
-            ),
-        )
-        .reduce(
-          (sum, page) =>
-            sum +
-            page.character_count,
-          0,
-        ),
-  }
-
+  // Retain the whole processed selection. A missed question may cite just
+  // one page, but five distinct follow-up questions can require facts from
+  // other pages. Prioritize focusPages in the Local AI prompt instead of
+  // throwing away the surrounding study material.
   const request =
     await buildLocalQuizRequest(
-      focusedDocument,
+      document,
       difficulty,
       status,
       loadPage,
@@ -201,6 +181,7 @@ export async function buildLocalPracticeRequest(
   return {
     ...request,
     practice: {
+      focusPages: [...focusPages],
       avoidQuestions:
         avoidQuestions.map(
           question =>

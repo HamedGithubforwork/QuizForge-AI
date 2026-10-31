@@ -215,7 +215,7 @@ test(
 
 
 test(
-  'builds targeted-practice requests from only the selected weak pages',
+  'retains all processed pages while prioritizing weak-area source pages',
   async () => {
     const calls: number[] = []
     const request =
@@ -240,17 +240,18 @@ test(
 
     assert.deepEqual(
       calls,
-      [7],
+      [2, 7],
     )
     assert.deepEqual(
       request.pages.map(
         page => page.pageNumber,
       ),
-      [7],
+      [2, 7],
     )
     assert.deepEqual(
       request.practice,
       {
+        focusPages: [7],
         avoidQuestions: [
           'What did you miss?',
           'Which fact was confusing?',
@@ -294,13 +295,13 @@ test(
 
     assert.deepEqual(
       request.practice,
-      { avoidQuestions: [] },
+      { focusPages: [2], avoidQuestions: [] },
     )
     assert.deepEqual(
       request.pages.map(
         page => page.pageNumber,
       ),
-      [2],
+      [2, 7],
     )
   },
 )

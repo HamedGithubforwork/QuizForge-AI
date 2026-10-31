@@ -843,12 +843,15 @@ test('targeted practice keeps prior questions bounded, separate from source, and
     questionType: 'multiple_choice',
     practice: {
       avoidQuestions: ['Question 1?', 'Question 2?'],
+      focusPages: [2],
     },
   })
 
   assert.equal(result.questions.length, 5)
   assert.equal(captured.messages.length, 4)
   assert.match(captured.messages[0].content, /targeted follow-up/)
+  assert.match(captured.messages[0].content, /PRIORITY WEAK-AREA PAGE NUMBERS.*\[2\]/)
+  assert.match(captured.messages.at(-1).content, /Focus on source PAGE numbers \[2\] first/i)
   assert.match(captured.messages[2].content, /PRIOR QUESTIONS TO AVOID/)
   assert.match(captured.messages[0].content, /each question must test a different underlying source fact/i)
   assert.match(captured.messages[2].content, /Question 1\?/)
@@ -862,6 +865,20 @@ test('targeted practice keeps prior questions bounded, separate from source, and
     ),
     { code: 'quiz_validation_failed' },
   )
+})
+
+test('targeted practice rejects out-of-document focus pages, duplicates and untrusted fields', () => {
+  const base = { pages: pages(), questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice', practice: { avoidQuestions: [], focusPages: [2] } }
+  assert.deepEqual(normalizeRequest(base).practice.focusPages, [2])
+  for (const focusPages of [[], [2, 2], [99], ['2'], [2, -1], Array.from({ length: 21 }, (_, i) => i + 1)]) {
+    assert.throws(() => normalizeRequest({
+      ...base, practice: { avoidQuestions: [], focusPages },
+    }), { code: 'invalid_request' })
+  }
+  assert.throws(() => normalizeRequest({
+    ...base, practice: { avoidQuestions: [], focusPages: [2], injected: true },
+  }), { code: 'invalid_request' })
 })
 
 test('targeted-practice input rejects duplicate, oversized and malformed prior-question lists', () => {

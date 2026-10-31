@@ -533,9 +533,16 @@ function normalizeRequest(value) {
   let practice
   if (value.practice !== undefined) {
     if (!plain(value.practice) ||
-        Object.keys(value.practice).some(key => key !== 'avoidQuestions') ||
+        Object.keys(value.practice).some(key => !['avoidQuestions', 'focusPages'].includes(key)) ||
         !Array.isArray(value.practice.avoidQuestions) ||
-        value.practice.avoidQuestions.length > MAX_AVOID_QUESTIONS) {
+        value.practice.avoidQuestions.length > MAX_AVOID_QUESTIONS ||
+        (value.practice.focusPages !== undefined && (
+          !Array.isArray(value.practice.focusPages) ||
+          value.practice.focusPages.length < 1 ||
+          value.practice.focusPages.length > 20 ||
+          new Set(value.practice.focusPages).size !== value.practice.focusPages.length ||
+          value.practice.focusPages.some(page => !Number.isSafeInteger(page) || !seen.has(page))
+        ))) {
       throw failure('invalid_request')
     }
 
@@ -553,6 +560,9 @@ function normalizeRequest(value) {
     })
     practice = Object.freeze({
       avoidQuestions: Object.freeze(avoidQuestions),
+      ...(value.practice.focusPages
+        ? { focusPages: Object.freeze([...value.practice.focusPages]) }
+        : {}),
     })
   }
 
@@ -659,6 +669,12 @@ function promptFor(request) {
   if (request.practice) {
     lines.push(
       'This is targeted follow-up practice on the supplied pages.',
+      ...(request.practice.focusPages
+        ? [
+            'PRIORITY WEAK-AREA PAGE NUMBERS (not instructions): ' + JSON.stringify(request.practice.focusPages) + '.',
+            'Prioritize genuinely distinct factual questions grounded in these focus pages. If they do not support five distinct questions, use the other supplied pages for the remaining questions. Always cite the pages actually supporting each answer; do not invent facts or repeat source facts.',
+          ]
+        : []),
       'Do not repeat or lightly rephrase any question in the separate PRIOR QUESTIONS TO AVOID list.',
       'When you reuse an underlying fact from a prior question, you MUST reverse the question-answer direction or otherwise test a different relationship; never emit the same question text. For example, if a prior question asks for Aster\'s casing material, a new question may instead ask which device has a cobalt casing. Keep every new question independently answerable from the supplied pages.',
       'Within the final five-question quiz, each question must test a different underlying source fact. If targeted candidate-pool generation requests backup candidates, extras may provide alternate relationships, but the first five surviving non-repeated candidates must still cover five different underlying facts. Before returning JSON, mentally label each candidate by its subject plus property or relationship and avoid repeated labels among the intended survivors.',
@@ -1315,6 +1331,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               role: 'user',
               content: [
                 'This targeted-practice request filters exact prior-question repeats and invalid candidates, then uses bounded recovery only for the remaining gap.',
+                ...(request.practice.focusPages
+                  ? ['Focus on source PAGE numbers ' + JSON.stringify(request.practice.focusPages) + ' first; use other supplied pages if there are too few independent source facts on the focus pages.']
+                  : []),
                 'Generate exactly six compact candidate questions. The first five valid candidates after filtering must test five different source facts. Use a sixth distinct source fact as the backup when available; if only five distinct facts are available, make the sixth a different question direction about one of those facts so it can serve as a backup. Never copy any wording from PRIOR QUESTIONS TO AVOID. Give every candidate distinct wording and vary question structure. Keep each question under 64 characters, each choice under 20 characters, and each explanation under 32 characters.',
                 'Return source_fact for every candidate as the shortest exact contiguous excerpt from one cited PAGE that identifies the subject and fact and includes the selected answer. Do not paraphrase source_fact; keep it under 160 characters.',
                 'The selected correct choice must be a concise phrase copied verbatim from that source_fact excerpt, and the question must ask about the same fact.',
