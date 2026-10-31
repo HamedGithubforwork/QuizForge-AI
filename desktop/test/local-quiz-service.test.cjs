@@ -1967,10 +1967,12 @@ test('weak-area abstention recovery rejects fabricated facts and repeated prior 
       questionType: 'multiple_choice',
       practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
     }), { code: 'quiz_validation_failed' }, variant)
-    assert.equal(calls, 3)
+    // A wrong source excerpt invokes one extra bounded grounding repair,
+    // while a repeated previous question is rejected immediately.
+    assert.equal(calls, variant === 'fabricated' ? 4 : 3)
     assert.equal(issues.at(-1).attempt, 'recovery')
     assert.equal(issues.at(-1).reason, variant === 'fabricated'
-      ? 'unsupported_source_fact' : 'avoided_question')
+      ? 'question_shape' : 'avoided_question')
   }
 })
 
