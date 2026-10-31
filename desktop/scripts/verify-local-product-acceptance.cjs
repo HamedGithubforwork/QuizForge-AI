@@ -17,6 +17,14 @@ const normalize = value => String(value)
 
 const aliases = (...values) => values.map(normalize)
 
+function reportCaseProgress(kind, ...details) {
+  const message = ['CASE', kind + ':', ...details].join(' ')
+  console.log(message)
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    console.log('::notice title=Local AI acceptance::' + message)
+  }
+}
+
 const FIXTURES = Object.freeze([
   Object.freeze({
     id: 'selected_pages',
@@ -487,7 +495,7 @@ async function main() {
     const sequence = [...FIXTURES, FIXTURES[0]]
     for (let index = 0; index < sequence.length; index++) {
       const fixture = sequence[index]
-      console.log('CASE START:', fixture.id, index === sequence.length - 1 ? 'repeat' : 'primary')
+      reportCaseProgress('START', fixture.id, index === sequence.length - 1 ? 'repeat' : 'primary')
       const measuredRun = await measured(() => stack.generateQuiz({
         pages: fixture.selectedPages,
         questionCount: 5,
@@ -510,7 +518,7 @@ async function main() {
       validateSemanticQuiz(measuredRun.value, fixture)
       evidence.outcome = 'quiz'
       await persistReport()
-      console.log('CASE PASS:', fixture.id, measuredRun.elapsedSeconds)
+      reportCaseProgress('PASS', fixture.id, measuredRun.elapsedSeconds)
     }
 
     const targetedFixture = FIXTURES.find(
@@ -527,8 +535,8 @@ async function main() {
       .slice(0, 2)
       .map(question => question.question)
 
-    console.log(
-      'CASE START:',
+    reportCaseProgress(
+      'START',
       'selected_pages_targeted_practice',
       'primary',
     )
@@ -585,13 +593,13 @@ async function main() {
     )
     targetedEvidence.outcome = 'quiz'
     await persistReport()
-    console.log(
-      'CASE PASS:',
+    reportCaseProgress(
+      'PASS',
       'selected_pages_targeted_practice',
       targeted.elapsedSeconds,
     )
 
-    console.log('CASE START:', INSUFFICIENT.id, 'primary')
+    reportCaseProgress('START', INSUFFICIENT.id, 'primary')
     const abstention = await measured(async () => {
       try {
         await stack.generateQuiz({
@@ -616,7 +624,7 @@ async function main() {
       metricSampleCount: abstention.sampleCount,
     })
     await persistReport()
-    console.log('CASE PASS:', INSUFFICIENT.id, abstention.elapsedSeconds)
+    reportCaseProgress('PASS', INSUFFICIENT.id, abstention.elapsedSeconds)
 
     const quizTimes = report.runs.filter(row => row.outcome === 'quiz')
       .map(row => row.elapsedSeconds).sort((a, b) => a - b)
