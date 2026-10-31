@@ -76,8 +76,10 @@ function syntheticPdf(): Buffer {
 
 async function openDesktopUi(
   page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
+  options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
+    { count: 5, difficulty: 'easy', type: 'multiple_choice' },
 ) {
-  await page.addInitScript(({ fixture, generated, empty, practiceResult }) => {
+  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected }) => {
     const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
     const account = { userId: 'local-ui-e2e', email: 'local-ui@example.test', enrolled: true }
     const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' })
@@ -131,8 +133,8 @@ async function openDesktopUi(
         }) => {
           calls.generate++
           calls.quizRequests.push(request)
-          if (request.questionCount !== 5 || request.difficulty !== 'easy' ||
-              request.questionType !== 'multiple_choice' ||
+          if (request.questionCount !== selected.count || request.difficulty !== selected.difficulty ||
+              request.questionType !== selected.type ||
               JSON.stringify(request.pages) !== JSON.stringify(fixture.pages)) {
             return { ok: false, error: 'invalid_request' }
           }
@@ -149,7 +151,7 @@ async function openDesktopUi(
         loadSourcePageText: async () => '',
       },
     })
-  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz })
+  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options })
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
@@ -162,7 +164,9 @@ async function openDesktopUi(
   await page.getByRole('button', { name: 'Process PDF on this computer' }).click()
   await expect(page.getByRole('heading', { name: 'Quiz settings' })).toBeVisible()
   await expect(page.getByLabel('Generation engine')).toHaveValue('local')
-  await page.getByLabel('Difficulty').selectOption('easy')
+  await page.getByLabel('Number of questions').selectOption(String(options.count))
+  await page.getByLabel('Difficulty').selectOption(options.difficulty)
+  await page.getByLabel('Question type').selectOption(options.type)
   await page.getByRole('button', { name: 'Generate Locally' }).click()
   return pageErrors
 }
@@ -260,5 +264,49 @@ test('failed weak-area practice reports its error beside the completed quiz', as
   await expect(page.locator('#quiz-results').getByRole('alert'))
     .toContainText('Choose more pages or use Cloud AI.')
   await expect(page.locator('.question-card')).toHaveCount(5)
+  expect(errors).toEqual([])
+})
+
+test('Practice Weak Areas preserves a 10-question hard quiz count and format', async ({ page }) => {
+  const original = readModelQuiz()
+  const ten: ModelQuiz = {
+    title: 'Ten Biology Questions',
+    questions: [...original.questions, ...original.questions.map((question, index) => ({
+      ...question, question: 'Second section ' + index + ': ' + question.question,
+    }))],
+  }
+  const followup: ModelQuiz = {
+    title: 'Ten Hard Weak-Area Questions',
+    questions: ten.questions.map((question, index) => ({
+      ...question, question: 'Weak-area follow-up ' + index + ': ' + question.question,
+    })),
+  }
+  const errors = await openDesktopUi(page, ten, false, followup,
+    { count: 10, difficulty: 'hard', type: 'multiple_choice' })
+  await expect(page.locator('.question-card')).toHaveCount(10)
+  for (const [index, question] of ten.questions.entries()) {
+    await page.locator('.question-card').nth(index).locator('input[type=radio]')
+      .nth(index === 0 ? (question.correct_index + 1) % 4 : question.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toContainText('9 / 10 correct')
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('.question-card')).toHaveCount(10)
+  await expect(page.locator('#quiz-start')).toContainText('Ten Hard Weak-Area Questions')
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: {
+      quizRequests: Array<{
+        questionCount: number;
+        questionType: string;
+        difficulty: string;
+        practice?: { focusPages: number[]; avoidQuestions: string[] };
+      }>;
+    };
+  }).__localOutputProbe)
+  expect(probe.quizRequests).toHaveLength(2)
+  expect(probe.quizRequests[1].questionCount).toBe(10)
+  expect(probe.quizRequests[1].questionType).toBe('multiple_choice')
+  expect(probe.quizRequests[1].difficulty).toBe('hard')
+  expect(probe.quizRequests[1].practice?.avoidQuestions).toEqual([ten.questions[0].question])
   expect(errors).toEqual([])
 })
