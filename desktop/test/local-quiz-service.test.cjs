@@ -185,8 +185,51 @@ test('French numeric grounding does not accept unsupported counts', async () => 
       difficulty: 'medium',
       questionType: 'multiple_choice',
     }),
-    { code: 'quiz_validation_failed' },
+    // The first attempt abstained and the retry failed to supply even
+    // source-supported answers. Surface insufficient source, never a quiz.
+    { code: 'insufficient_source' },
   )
+  assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
+    ['primary', 'insufficient_source'],
+    ['retry', 'unsupported_answer'],
+  ])
+})
+
+test('one-fact source remains an abstention when retry fabricates answers', async () => {
+  const evidence = 'The only confirmed fact is that the fictional Orin folder is blue.'
+  const pages = [{ pageNumber: 12, text: 'Workshop notes. ' + evidence + ' More content will be supplied later.' }]
+  const unsupported = {
+    title: 'Fabricated folder quiz',
+    questions: Array.from({ length: 5 }, (_, index) => ({
+      question: 'What color is the Orin folder in question ' + (index + 1) + '?',
+      choices: ['Red', 'Green', 'Yellow', 'Purple'],
+      correct_index: 0,
+      explanation: 'The Orin folder is red.',
+      source_pages: [12],
+      source_fact: evidence,
+    })),
+  }
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls === 1
+            ? { title: 'Insufficient source material', questions: [] }
+            : unsupported),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+  await assert.rejects(service.generate({
+    pages, questionCount: 5, difficulty: 'medium', questionType: 'multiple_choice',
+  }), { code: 'insufficient_source' })
+  assert.equal(calls, 2)
   assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
     ['primary', 'insufficient_source'],
     ['retry', 'unsupported_answer'],
