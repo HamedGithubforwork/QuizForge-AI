@@ -325,6 +325,23 @@ const TARGETED_PRIMARY_SCHEMA = Object.freeze({
     TARGETED_PRIMARY_POOL_SCHEMA,
   ]),
 })
+const TARGETED_INSUFFICIENT_RETRY_SUCCESS_SCHEMA = Object.freeze({
+  ...TARGETED_PRIMARY_POOL_SCHEMA,
+  properties: Object.freeze({
+    ...TARGETED_PRIMARY_POOL_SCHEMA.properties,
+    questions: Object.freeze({
+      ...TARGETED_PRIMARY_POOL_SCHEMA.properties.questions,
+      minItems: QUESTION_COUNT,
+      maxItems: TARGETED_PRIMARY_CANDIDATES,
+    }),
+  }),
+})
+const TARGETED_INSUFFICIENT_RETRY_SCHEMA = Object.freeze({
+  oneOf: Object.freeze([
+    TARGETED_INSUFFICIENT_SCHEMA,
+    TARGETED_INSUFFICIENT_RETRY_SUCCESS_SCHEMA,
+  ]),
+})
 
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 const boundedString = (value, maximum) =>
@@ -1269,7 +1286,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
                   : TARGETED_PRIMARY_SCHEMA
                 : request.practice
                   ? retryReason === 'insufficient_source'
-                    ? TARGETED_PRIMARY_SCHEMA
+                    ? TARGETED_INSUFFICIENT_RETRY_SCHEMA
                     : QUIZ_SCHEMA
                   : useLegacyMultipleChoiceContract
                     ? retryReason === 'insufficient_source'
