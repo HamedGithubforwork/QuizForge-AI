@@ -1541,10 +1541,14 @@ test('targeted retry repairs a uniquely grounded correct choice before filtering
 
   assert.equal(calls, 2)
   assert.equal(result.questions.length, 5)
-  assert.equal(result.questions[0].correct_answer, expectedAnswer)
+  const repairedQuestion = result.questions.find(
+    question => question.question === 'Retry candidate 1?',
+  )
+  assert.ok(repairedQuestion)
+  assert.equal(repairedQuestion.correct_answer, expectedAnswer)
   assert.equal(
-    result.questions[0].correct_index,
-    result.questions[0].choices.indexOf(expectedAnswer),
+    repairedQuestion.correct_index,
+    repairedQuestion.choices.indexOf(expectedAnswer),
   )
 })
 
