@@ -1203,7 +1203,9 @@ function createLocalQuizService({ provider, onValidationIssue = () => {} }) {
         if (retryReason && !request.practice) {
             const countLabel = request.questionCount === 5 ? 'five' : String(request.questionCount)
             const retryTypeRules = request.questionType === 'multiple_choice'
-              ? 'Use exactly four distinct choices and exactly one source-supported correct answer. Set correct_index to the correct choice.'
+              ? retryReason === 'duplicate_choices'
+                ? 'For every multiple-choice question, use four choices that remain different after trimming spaces and ignoring capitalization. Compare all four normalized choices before returning the quiz. Keep the source-supported correct answer exactly once, replace any repeated distractor with a different plausible option, and set correct_index to the correct choice.'
+                : 'Use exactly four distinct choices and exactly one source-supported correct answer. Set correct_index to the correct choice.'
               : request.questionType === 'true_false'
                 ? 'Use choices exactly ["True", "False"] and set correct_index to the correct answer.'
                 : request.questionType === 'short_answer'

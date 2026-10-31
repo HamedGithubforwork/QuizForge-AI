@@ -202,6 +202,48 @@ test('service sends a fixed structured-output schema and expands into the shared
   })
 })
 
+test('duplicate-choice retry explains normalized uniqueness to the model', async () => {
+  const invalid = rawQuiz()
+  invalid.questions[0].choices[1] =
+    invalid.questions[0].choices[0]
+
+  let calls = 0
+  let retryPrompt = ''
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) {
+          retryPrompt = request.messages.at(-1).content
+        }
+        return {
+          text: JSON.stringify(calls === 1 ? invalid : rawQuiz()),
+          finishReason: 'stop',
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.match(
+    retryPrompt,
+    /after trimming spaces and ignoring capitalization/i,
+  )
+  assert.match(
+    retryPrompt,
+    /replace any repeated distractor/i,
+  )
+})
+
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
     { questionCount: 10, questionType: 'multiple_choice' },
