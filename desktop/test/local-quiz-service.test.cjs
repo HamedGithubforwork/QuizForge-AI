@@ -537,6 +537,116 @@ test('local generation honors website question counts and every question mode', 
   }
 })
 
+test('weak-area practice supports 5/10/15 questions, all types, and all difficulty levels with exact source facts', async () => {
+  const modes = ['multiple_choice', 'true_false', 'short_answer', 'mixed']
+  const difficulties = ['easy', 'medium', 'hard']
+  const counts = [5, 10, 15]
+  const facts = Array.from({ length: 15 }, (_, i) => ({
+    question: 'What code identifies specimen ' + (i + 1) + '?',
+    answer: 'Code' + String(i + 1).padStart(2, '0'),
+    source: 'Specimen ' + (i + 1) + ' has code Code' + String(i + 1).padStart(2, '0') + '.',
+  }))
+  const sourcePages = [{ pageNumber: 2, text: facts.map(fact => fact.source).join(' ') }]
+  const oldQuestion = 'What code identifies an earlier specimen?'
+  for (const count of counts) {
+    for (const mode of modes) {
+      if (count === 5 && mode === 'multiple_choice') continue // existing specialized regression suite
+      for (const difficulty of difficulties) {
+        const questions = facts.slice(0, count).map((fact, i) => {
+          const questionType = mode === 'mixed'
+            ? ['multiple_choice', 'true_false', 'short_answer'][i % 3]
+            : mode
+          const choices = questionType === 'multiple_choice'
+            ? [fact.answer, 'UnrelatedA', 'UnrelatedB', 'UnrelatedC']
+            : questionType === 'true_false' ? ['True', 'False'] : []
+          return {
+            question_type: questionType,
+            question: questionType === 'true_false'
+              ? 'Specimen ' + (i + 1) + ' has code ' + fact.answer + '.'
+              : fact.question,
+            choices,
+            correct_index: questionType === 'short_answer' ? -1 : 0,
+            correct_answer: questionType === 'true_false' ? 'True' : fact.answer,
+            accepted_answers: [questionType === 'true_false' ? 'True' : fact.answer],
+            explanation: fact.source,
+            source_fact: fact.source,
+            source_pages: [2],
+          }
+        })
+        let observed = null
+        const service = createLocalQuizService({ provider: {
+          async generate(request) {
+            observed = request
+            return { text: JSON.stringify({ title: 'Specimen practice', questions }),
+              finishReason: 'stop' }
+          },
+        } })
+        const response = await service.generate({
+          pages: sourcePages,
+          questionCount: count,
+          difficulty,
+          questionType: mode,
+          practice: { focusPages: [2], avoidQuestions: [oldQuestion] },
+        })
+        assert.equal(response.questions.length, count)
+        assert.equal(observed.jsonSchema.oneOf[0].properties.questions.minItems, count)
+        assert.ok(observed.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
+        assert.match(observed.messages[0].content, /PRIORITY WEAK-AREA PAGE NUMBERS/)
+        assert.ok(observed.messages.some(m => m.content.includes(oldQuestion)))
+        assert.deepEqual(new Set(response.questions.map(q => q.question_type)),
+          mode === 'mixed'
+            ? new Set(['multiple_choice', 'true_false', 'short_answer'])
+            : new Set([mode]))
+      }
+    }
+  }
+})
+
+test('non-MCQ weak practice rejects prior-question repeats and fabricated source evidence', async () => {
+  const text = 'Specimen 1 has code Code01. Specimen 2 has code Code02. Specimen 3 has code Code03. Specimen 4 has code Code04. Specimen 5 has code Code05.'
+  for (const failureType of ['repeated', 'fabricated']) {
+    let calls = 0
+    const issue = []
+    const service = createLocalQuizService({
+      onValidationIssue: value => issue.push(value.reason),
+      provider: {
+        async generate() {
+          calls++
+          const quiz = {
+            title: 'Practice',
+            questions: Array.from({ length: 5 }, (_, i) => {
+              const excerpt = 'Specimen ' + (i + 1) + ' has code Code0' + (i + 1) + '.'
+              return {
+                question_type: 'short_answer',
+                question: i === 0 && failureType === 'repeated'
+                  ? 'Previously missed question?'
+                  : 'What is specimen ' + (i + 1) + ' code?',
+                choices: [],
+                correct_index: -1,
+                correct_answer: 'Code0' + (i + 1),
+                accepted_answers: ['Code0' + (i + 1)],
+                source_fact: i === 0 && failureType === 'fabricated' ? 'Invented unsupported source.' : excerpt,
+                explanation: excerpt,
+                source_pages: [2],
+              }
+            }),
+          }
+          return { text: JSON.stringify(quiz), finishReason: 'stop' }
+        },
+      },
+    })
+    await assert.rejects(service.generate({
+      pages: [{ pageNumber: 2, text }],
+      questionCount: 5,
+      difficulty: 'hard',
+      questionType: 'short_answer',
+      practice: { focusPages: [2], avoidQuestions: ['Previously missed question?'] },
+    }), { code: 'quiz_validation_failed' })
+    assert.equal(calls, 2)
+    assert.equal(issue[0], failureType === 'repeated' ? 'avoided_question' : 'unsupported_source_fact')
+  }
+})
+
 test('service repairs a selected index only when cited source and explanation uniquely ground another choice', async () => {
   const quiz = rawQuiz()
   quiz.questions[0] = {
