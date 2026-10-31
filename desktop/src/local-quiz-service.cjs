@@ -763,6 +763,7 @@ function parseGeneratedQuizDetailed(
     unsupportedAnswers: 0,
     unexpectedOutputScripts: 0,
     duplicateSourceFacts: 0,
+    sourcePageRepairs: 0,
     survivors: 0,
   }
   const avoidedQuestions = new Set(
@@ -855,6 +856,7 @@ function parseGeneratedQuizDetailed(
       invalidQuiz('avoided_question')
     }
 
+    let sourcePages = item.source_pages
     if (filterAvoided) {
       if (hasUnexpectedOutputScript({ title: parsed.title, questions: [item] }, sourceTextByPage)) {
         filterStats.unexpectedOutputScripts++
@@ -862,25 +864,30 @@ function parseGeneratedQuizDetailed(
         continue
       }
 
-      const normalizedSourceFact =
-        item.source_fact
-          .trim()
-          .replace(/\s+/g, ' ')
-          .toLocaleLowerCase()
-      const sourceFactSupported =
-        sourceTextByPage instanceof Map &&
-        item.source_pages.some(page => {
-          const sourceText =
-            sourceTextByPage.get(page)
-          return (
-            typeof sourceText === 'string' &&
-            sourceText
-              .replace(/\s+/g, ' ')
-              .toLocaleLowerCase()
-              .includes(normalizedSourceFact)
-          )
-        })
-      if (!sourceFactSupported) {
+      const normalizedSourceFact = normalizeEvidenceText(item.source_fact)
+      const sourceFactSupported = sourceTextByPage instanceof Map &&
+        sourcePages.some(page =>
+          containsEvidencePhrase(
+            sourceTextByPage.get(page) ?? '',
+            item.source_fact,
+          ))
+      if (!sourceFactSupported && sourceTextByPage instanceof Map) {
+        const exactSourcePages = [...sourceTextByPage.entries()]
+          .filter(([, sourceText]) =>
+            containsEvidencePhrase(sourceText, item.source_fact))
+          .map(([page]) => page)
+        if (exactSourcePages.length === 1) {
+          sourcePages = exactSourcePages
+          filterStats.sourcePageRepairs++
+        }
+      }
+      const supportedAfterCitationRepair = sourceTextByPage instanceof Map &&
+        sourcePages.some(page =>
+          containsEvidencePhrase(
+            sourceTextByPage.get(page) ?? '',
+            item.source_fact,
+          ))
+      if (!supportedAfterCitationRepair) {
         filterStats.unsupportedSourceFacts++
         recordRejectedCandidate(item, 'unsupported_source_fact')
         continue
@@ -909,7 +916,7 @@ function parseGeneratedQuizDetailed(
 
     const groundedChoiceIndex =
       uniquelyGroundedChoiceIndex(
-        item,
+        { ...item, source_pages: sourcePages ?? item.source_pages },
         sourceTextByPage,
       )
     const correctIndex =
@@ -950,7 +957,7 @@ function parseGeneratedQuizDetailed(
       }),
       explanation,
       source_pages: Object.freeze([
-        ...item.source_pages,
+        ...(sourcePages ?? item.source_pages),
       ]),
     }))
     if (filterAvoided) {

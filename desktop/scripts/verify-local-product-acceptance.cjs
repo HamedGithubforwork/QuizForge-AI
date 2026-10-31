@@ -470,6 +470,7 @@ async function main() {
               'unsupportedAnswers',
               'unexpectedOutputScripts',
               'duplicateSourceFacts',
+              'sourcePageRepairs',
               'survivors',
             ]
               .filter(key => Number.isSafeInteger(issue.details[key]))
