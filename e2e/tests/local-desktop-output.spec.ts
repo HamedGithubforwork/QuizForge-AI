@@ -77,7 +77,7 @@ function syntheticPdf(): Buffer {
 async function openDesktopUi(
   page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
 ) {
-  await page.addInitScript(({ fixture, generated, empty }) => {
+  await page.addInitScript(({ fixture, generated, empty, practiceResult }) => {
     const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
     const account = { userId: 'local-ui-e2e', email: 'local-ui@example.test', enrolled: true }
     const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' })
