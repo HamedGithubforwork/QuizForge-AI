@@ -1445,6 +1445,7 @@ test('candidate-pool exhaustion reports counts without source text', async () =>
       unsupportedAnswers: 0,
       unexpectedOutputScripts: 0,
       duplicateSourceFacts: 5,
+      sourcePageRepairs: 0,
       survivors: 1,
     },
   )
