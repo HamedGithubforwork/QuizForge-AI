@@ -132,16 +132,28 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
           'unsupported_quiz_mode', 'quiz_validation_failed', 'insufficient_source', 'invalid_request',
           'invalid_response', 'generation_failed',
         ])
-        return { ok: false, error: allowed.has(error?.code) ? error.code : 'generation_failed' }
+        const code = allowed.has(error?.code) ? error.code : 'generation_failed'
+        let diagnostic = null
+        if (code === 'quiz_validation_failed') {
+          try { diagnostic = localAi()?.lastQuizValidationIssue?.() } catch {}
+        }
+        return {
+          ok: false,
+          error: code,
+          ...(typeof diagnostic === 'string' && /^[a-z_]{1,64}$/.test(diagnostic)
+            ? { diagnostic }
+            : {}),
+        }
       }
     },
     generateLocalDocumentQuiz: async value => {
       if (!validLocalDocumentRequest(value)) return { ok: false, error: 'invalid_request' }
-      const manager = localAi()
-      if (typeof manager.generateDocumentQuiz !== 'function') {
-        return { ok: false, error: 'runtime_unavailable' }
-      }
+      let manager
       try {
+        manager = localAi()
+        if (typeof manager.generateDocumentQuiz !== 'function') {
+          return { ok: false, error: 'runtime_unavailable' }
+        }
         const result = await manager.generateDocumentQuiz(value)
         return { ok: true, ...result }
       } catch (error) {
@@ -152,7 +164,18 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
           'invalid_response', 'quiz_validation_failed', 'generation_failed', 'too_many_pages',
           'processing_failed',
         ])
-        return { ok: false, error: allowed.has(error?.code) ? error.code : 'generation_failed' }
+        const code = allowed.has(error?.code) ? error.code : 'generation_failed'
+        let diagnostic = null
+        if (code === 'quiz_validation_failed') {
+          try { diagnostic = manager?.lastQuizValidationIssue?.() } catch {}
+        }
+        return {
+          ok: false,
+          error: code,
+          ...(typeof diagnostic === 'string' && /^[a-z_]{1,64}$/.test(diagnostic)
+            ? { diagnostic }
+            : {}),
+        }
       }
     },
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),

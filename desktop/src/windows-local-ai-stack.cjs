@@ -48,6 +48,16 @@ function createWindowsLocalAiStack({
   let documentOperation = null
   let documentController = null
   let disposed = false
+  let lastQuizValidationIssue = null
+
+  function captureQuizValidationIssue(issue) {
+    // Preserve only the validator's fixed reason code. Never retain quiz text,
+    // source excerpts, or rejected candidate details from the diagnostic.
+    if (issue && typeof issue.reason === 'string' && /^[a-z_]{1,64}$/.test(issue.reason)) {
+      lastQuizValidationIssue = issue.reason
+    }
+    try { onQuizValidationIssue(issue) } catch {}
+  }
 
   if (typeof runtimeDirectory === 'string' && path.isAbsolute(runtimeDirectory)) {
     runtime = createLocalRuntime({
@@ -62,7 +72,7 @@ function createWindowsLocalAiStack({
       modelStore: resources.modelStore,
       modelId: resources.modelId,
     })
-    quizService = createLocalQuizService({ provider, onValidationIssue: onQuizValidationIssue })
+    quizService = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue })
     if (documentProcessor) {
       documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
     }
@@ -138,11 +148,13 @@ function createWindowsLocalAiStack({
   }
 
   async function generateQuiz(request) {
+    lastQuizValidationIssue = null
     return runQuiz(signal => quizService.generate(request, { signal }))
   }
 
   async function generateDocumentQuiz(request) {
     if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
+    lastQuizValidationIssue = null
     return runQuiz(signal => documentQuizService.generate(request, { signal }))
   }
 
@@ -187,6 +199,7 @@ function createWindowsLocalAiStack({
     generateQuiz,
     processDocument,
     generateDocumentQuiz,
+    lastQuizValidationIssue: () => lastQuizValidationIssue,
     cancelQuiz,
     lastAccelerationMode: () => runtime?.lastAccelerationMode() ?? null,
     dispose,

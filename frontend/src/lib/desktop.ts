@@ -85,6 +85,7 @@ export type DesktopLocalQuizResult =
         | 'invalid_request'
         | 'invalid_response'
         | 'generation_failed'
+      diagnostic?: string
     }
 
 export type DesktopLocalDocumentQuizResult =
@@ -115,6 +116,7 @@ export type DesktopLocalDocumentQuizResult =
         | 'quiz_validation_failed'
         | 'generation_failed'
         | 'processing_failed'
+      diagnostic?: string
     }
 
 export type DesktopLocalAiStatus = {

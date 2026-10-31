@@ -250,5 +250,26 @@ export function localQuizErrorMessage(
       'Local quiz generation failed. Try again or use Cloud AI.',
   }
 
-  return messages[result.error]
+  if (result.error !== 'quiz_validation_failed' || !result.diagnostic) {
+    return messages[result.error]
+  }
+
+  const validationHints: Record<string, string> = {
+    json: 'The model returned malformed JSON.',
+    top_level_shape: 'The model response did not match the quiz format.',
+    question_count: 'The model returned the wrong number of questions.',
+    question_shape: 'At least one question was missing required fields.',
+    multiple_choice_shape: 'A multiple-choice question did not have four valid choices and one answer.',
+    true_false_shape: 'A true/false question did not match the required format.',
+    short_answer_shape: 'A short-answer question did not match the required format or source.',
+    mixed_type_coverage: 'The quiz did not include all requested question types.',
+    requested_type_mismatch: 'The quiz included a question type different from the one selected.',
+    duplicate_question: 'The quiz contained repeated questions.',
+    unexpected_output_script: 'The quiz language did not match the source material.',
+    truncated_output: 'The model response was cut off before the quiz was complete.',
+    invalid_abstention: 'The model returned an invalid insufficient-source response.',
+  }
+  const hint = validationHints[result.diagnostic] ??
+    `The quiz failed the “${result.diagnostic.replaceAll('_', ' ')}” validation check.`
+  return `${messages[result.error]} ${hint}`
 }
