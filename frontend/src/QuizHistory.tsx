@@ -3,6 +3,8 @@ import {
 } from 'react'
 
 import MasteryAnalyticsPanel from './MasteryAnalyticsPanel.tsx'
+import GenerationTimingPanel from './components/quiz/GenerationTimingPanel.tsx'
+import type { GenerationTimeEstimate } from './lib/generationTiming.ts'
 import {
   useQuizHistoryData,
 } from './hooks/useQuizHistoryData.ts'
@@ -30,6 +32,9 @@ type QuizHistoryProps = {
   currentFilename?: string | null
   canPracticeCurrentDocument?: boolean
   isPracticeGenerating?: boolean
+  showPracticeTiming?: boolean
+  practiceTimingElapsedMs?: number
+  practiceTimingEstimate?: GenerationTimeEstimate | null
   onPracticeWeakAreas?: (
     focus: HistoryPracticeFocus,
   ) => void | Promise<void>
@@ -50,6 +55,9 @@ function QuizHistory({
   currentFilename = null,
   canPracticeCurrentDocument = false,
   isPracticeGenerating = false,
+  showPracticeTiming = false,
+  practiceTimingElapsedMs = 0,
+  practiceTimingEstimate = null,
   onPracticeWeakAreas,
 }: QuizHistoryProps) {
   const [expanded, setExpanded] =
@@ -490,6 +498,14 @@ function QuizHistory({
                               ? 'Building Practice Quiz...'
                               : 'Practice My Weak Areas'}
                           </button>
+
+                          {showPracticeTiming && (
+                            <GenerationTimingPanel
+                              label="Generating history-based practice quiz"
+                              elapsedMs={practiceTimingElapsedMs}
+                              estimate={practiceTimingEstimate}
+                            />
+                          )}
 
                           {!canPracticeHistory && (
                             <span className="history-practice-note">
