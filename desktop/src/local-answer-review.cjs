@@ -1,7 +1,13 @@
 'use strict'
 const { LocalAiError } = require('./local-ai-provider.cjs')
 const text = value => typeof value === 'string' && value.trim().length > 0
-const normalize = value => value.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
+// Compare contiguous evidence tokens, allowing harmless PDF punctuation,
+// apostrophes and line-break differences. Do not permit missing, reordered or
+// fabricated content in a claimed source/answer quotation.
+const normalize = value => value.normalize('NFKC').toLowerCase()
+  .replace(/[’']/gu, '')
+  .replace(/[^\p{L}\p{N}]+/gu, ' ')
+  .replace(/\s+/g, ' ').trim()
 const contains = (source, quote) => text(quote) && normalize(source).includes(normalize(quote))
 const uncertain = (index, reason = 'Local AI could not verify this answer confidently. Review it against the source.') => ({
   question_index: index, verdict: 'uncertain', confidence: 0, reason, engine: 'local', credit: null, concepts: [],
