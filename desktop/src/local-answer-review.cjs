@@ -37,9 +37,18 @@ function normalizeReview(raw, index, source, answer) {
         (c.status === 'missing' && c.answer_quote !== '')) return uncertain(index)
     seen.add(normalize(c.concept))
   }
-  if (raw.uncertain || raw.confidence < 0.8) return uncertain(index, raw.reason)
   const matched = raw.concepts.filter(c => c.status === 'matched').length
+  const missing = raw.concepts.filter(c => c.status === 'missing').length
   const contradicted = raw.contradiction || raw.concepts.some(c => c.status === 'contradicted')
+  // A model can be less confident about an incomplete answer than a fully
+  // correct one even when both rubric concepts have exact, validated evidence.
+  // Only that grounded matched+missing case earns a narrower partial-credit
+  // exception. Never relax confidence for full credit, contradictions or
+  // unsupported/ambiguous responses.
+  const groundedPartial = matched > 0 && missing > 0 && !contradicted
+  if (raw.uncertain || raw.confidence < (groundedPartial ? 0.7 : 0.8)) {
+    return uncertain(index, raw.reason)
+  }
   const credit = contradicted ? 0 : matched / raw.concepts.length
   return { question_index: index, engine: 'local',
     verdict: credit === 1 ? 'correct' : credit > 0 ? 'partial' : 'incorrect',
