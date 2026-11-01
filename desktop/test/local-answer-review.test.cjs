@@ -249,6 +249,68 @@ test('general doubt, false claims and quoted security terms do not trigger deter
   assert.equal(normalizeReview({ ...valid, confidence: 0.2 }, 0, source, answer).verdict, 'uncertain')
 })
 
+test('malformed real Qwen grading JSON gets one compact evidence-checked retry', async () => {
+  const cases = [{ question_index: 0, question: question.question,
+    correct_answer: question.correct_answer, student_answer: answer }]
+  const progress = []
+  const prompts = []
+  const malformed = '{\\n  "confidence": 0.95, "reason": "The student answered but the model left this\\n unfinished",\\n  "uncertain": false,'
+  const grader = createLocalAnswerReview({ provider: { async generate(request) {
+    prompts.push(request)
+    if (prompts.length === 1) return { finishReason: 'stop', text: malformed }
+    return { finishReason: 'stop', text: JSON.stringify(valid) }
+  } } })
+  const result = await grader.review({ cases }, {
+    quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }],
+    onDecision: decision => progress.push(decision),
+  })
+  assert.equal(prompts.length, 2)
+  assert.equal(prompts[1].generationProfile, 'answer-review-v1')
+  assert.ok(prompts[1].maxTokens < prompts[0].maxTokens)
+  assert.match(prompts[1].messages[0].content, /exact contiguous substring/i)
+  assert.equal(result.decisions[0].verdict, 'correct')
+  assert.equal(result.decisions[0].credit, 1)
+  assert.equal(progress.length, 1, 'publish only the final validated decision')
+})
+
+test('invalid or invented evidence after one retry never grants credit', async () => {
+  const invalid = structuredClone(valid)
+  invalid.concepts[0].answer_quote = 'text the student never wrote'
+  const received = []
+  let calls = 0
+  const grader = createLocalAnswerReview({ provider: { async generate() {
+    calls++
+    return { finishReason: 'stop', text: JSON.stringify(invalid) }
+  } } })
+  const result = await grader.review({ cases: [{
+    question_index: 0, question: question.question,
+    correct_answer: question.correct_answer, student_answer: answer,
+  }] }, { quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }],
+    onDecision: decision => received.push(decision) })
+  assert.equal(calls, 2)
+  assert.equal(result.decisions[0].verdict, 'uncertain')
+  assert.equal(result.decisions[0].credit, null)
+  assert.equal(received.length, 1)
+})
+
+test('genuinely uncertain Qwen review stays uncertain without costly retry', async () => {
+  let calls = 0
+  const pending = structuredClone(valid)
+  pending.uncertain = true
+  pending.reason = 'The meaning is ambiguous and cannot be verified.'
+  const grader = createLocalAnswerReview({ provider: { async generate() {
+    calls++
+    return { finishReason: 'stop', text: JSON.stringify(pending) }
+  } } })
+  const result = await grader.review({ cases: [{
+    question_index: 0, question: question.question,
+    correct_answer: question.correct_answer, student_answer: answer,
+  }] }, { quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }] })
+  assert.equal(calls, 1)
+  assert.equal(result.decisions[0].verdict, 'uncertain')
+  assert.match(result.decisions[0].reason, /ambiguous/)
+})
+
 test('semantic duplicate review removes reversed facts with shared evidence and preserves other concepts', async () => {
   const quiz = { questions: [
     { ...question, question: 'What does the nucleus store?', correct_answer: 'DNA' },
