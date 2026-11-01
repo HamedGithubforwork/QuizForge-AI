@@ -444,15 +444,16 @@ test('runtime performance callback receives only bounded timing and token counts
       requestFn: async (_port, _key, route) => route === '/v1/models'
         ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
         : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
-            usage: { completion_tokens: 120 } },
+            usage: { prompt_tokens: 250, completion_tokens: 120 } },
     },
   })
   await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
   assert.equal(observations.length, 1)
   assert.deepEqual(Object.keys(observations[0]).sort(),
-    ['acceleration', 'completionTokens', 'elapsedMs', 'layers'])
+    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens'])
   assert.equal(observations[0].layers, 0)
   assert.equal(observations[0].completionTokens, 120)
+  assert.equal(observations[0].promptTokens, 250)
   assert.ok(observations[0].elapsedMs >= 0)
 })
 
@@ -467,6 +468,7 @@ test('diagnostics distinguish runtime startup, inference failure and private err
   } })
   await assert.rejects(fixture.runtime.complete({ messages: [] }), { code: 'request_failed' })
   assert.deepEqual(events.map(x => x.event), ['runtime_launch', 'runtime_ready', 'runtime_failed'])
+  assert.ok(events.find(x => x.event === 'runtime_ready').startupMs >= 0)
   assert.equal(events.at(-1).stage, 'inference')
   assert.equal(events.at(-1).reason, 'request_failed')
   assert.doesNotMatch(JSON.stringify(events), /private|credential/)
