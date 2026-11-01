@@ -698,6 +698,39 @@ function priorQuestions(request) {
   ].join('\n')
 }
 
+// Recovery drafts from smaller local models may copy an EXACT source quote but
+// cite the focus page for every question. Repair only a uniquely identifiable
+// page citation: no model guesses, no fuzzy quote matches, and no permission to
+// substitute a different fact or change any answer/question text.
+function correctUniqueRecoveryCitations(text, sourceTextByPage, allowedPages) {
+  let draft
+  try { draft = JSON.parse(text) } catch { return text }
+  if (!plain(draft) || !Array.isArray(draft.questions) ||
+      draft.questions.length !== QUESTION_COUNT ||
+      !(sourceTextByPage instanceof Map)) return text
+  let changed = false
+  const questions = draft.questions.map(question => {
+    if (!plain(question) || !boundedString(question.source_fact, 300) ||
+        !Array.isArray(question.source_pages) || question.source_pages.length < 1 ||
+        question.source_pages.length > 8 ||
+        question.source_pages.some(page => !Number.isSafeInteger(page) ||
+          !allowedPages.has(page)) ||
+        new Set(question.source_pages).size !== question.source_pages.length) return question
+    if (question.source_pages.some(page =>
+      containsEvidencePhrase(sourceTextByPage.get(page) ?? '', question.source_fact))) {
+      return question
+    }
+    const matches = [...sourceTextByPage.entries()]
+      .filter(([page, source]) =>
+        allowedPages.has(page) && containsEvidencePhrase(source, question.source_fact))
+      .map(([page]) => page)
+    if (matches.length !== 1) return question
+    changed = true
+    return { ...question, source_pages: matches }
+  })
+  return changed ? JSON.stringify({ ...draft, questions }) : text
+}
+
 class QuizValidationIssue extends Error {
   constructor(reason, details = null, retryEvidence = [], rejectedEvidence = []) {
     super('quiz_validation_failed')
@@ -1737,6 +1770,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                   'Each question must test a DIFFERENT underlying fact. Prefer previously missed PAGE numbers ' + JSON.stringify(preferredPages) + ', then use facts from ANY other supplied PAGE when needed. The other pages are valid study material.',
                   'Do not repeat or lightly reword a previous question. You MAY reuse a fact from a previous question by asking about a different relationship or reversing question-answer direction.',
                   'For each question include source_fact: the shortest EXACT, contiguous quotation from one cited PAGE supporting its correct answer. The chosen correct answer must appear in source_fact. Keep excerpts short and cite their real source_pages.',
+                  'The study notes are separated by explicit --- PAGE N --- markers. For EVERY question, locate the EXACT quoted source_fact in the notes, then copy that marker number into source_pages; do NOT copy the weak-area focus page number to questions that use another page.',
+                  'Choose a question that is answerable by the exact quoted fact itself. Do not ask about a larger or different claim that the excerpt cannot establish, and do not introduce facts from outside the quote.',
                   'Use the natural language of the study notes, and do not invent any facts or citations.',
                   'Return only the JSON required by the response schema.',
                 ].join('\n'),
@@ -1766,9 +1801,15 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             text: recovery.text,
           }) } catch {}
         }
+        // Exact source excerpts can identify a uniquely correct PAGE even when
+        // the model copied the focus page number into an unrelated citation.
+        // The final quiz still undergoes the same strict answer/fact checks.
+        const recoveryText = correctUniqueRecoveryCitations(
+          recovery.text, sourceTextByPage, allowedPages,
+        )
         try {
           return parseGeneratedQuizDetailed(
-            recovery.text,
+            recoveryText,
             allowedPages,
             avoidQuestions,
             { sourceTextByPage, requireSourceFact: true },
@@ -1783,7 +1824,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             throw error
           }
           let draft
-          try { draft = JSON.parse(recovery.text) } catch { throw error }
+          try { draft = JSON.parse(recoveryText) } catch { throw error }
           if (!plain(draft) || !Array.isArray(draft.questions) ||
               draft.questions.length !== QUESTION_COUNT ||
               draft.questions.some(q =>
