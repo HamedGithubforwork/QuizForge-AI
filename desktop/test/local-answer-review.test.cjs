@@ -64,6 +64,12 @@ test('chloroplast process location earns partial only with verifiable evidence o
   const decision = normalizeReview(review, 0, sourceText, student)
   assert.equal(decision.verdict, 'partial')
   assert.equal(decision.credit, 0.5)
+  // Formatting changes to apostrophes and sentence punctuation must not make
+  // otherwise exact source/answer evidence appear unavailable.
+  const formatted = structuredClone(review)
+  formatted.concepts[0].source_quote = 'Captures light energy for photosynthesis, using'
+  formatted.concepts[0].answer_quote = "it's where photosynthesis occurs"
+  assert.equal(normalizeReview(formatted, 0, sourceText, student).verdict, 'partial')
   assert.equal(normalizeReview({
     ...review,
     concepts: [
