@@ -342,6 +342,7 @@ if (!app.requestSingleInstanceLock()) {
       getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
       getLocalAi: () => localAiManager,
       getSourceTextCache: () => sourceTextCache,
+      onLocalReviewFailure: reason => diagnostics.record('answer_review_failed', { reason }),
       confirmLocalAiDownload,
       confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
