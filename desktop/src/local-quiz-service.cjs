@@ -669,6 +669,8 @@ function promptFor(request, { allowPartial = false } = {}) {
     modeRules,
     difficulty,
     ...(allowPartial ? [
+      'Keep the JSON compact: prefer concise questions, short choices, a one-sentence explanation, and the shortest exact source_fact that identifies the tested relationship and includes the correct answer when needed. Do not omit required fields or remove necessary scientific context.',
+      'For accepted_answers include the correct_answer and only independently supported alternatives; avoid repeating the same answer under slightly different punctuation.',
       'For EVERY question include source_fact as an EXACT contiguous quotation from one cited PAGE; it must identify the tested fact. For multiple choice and short answer, the selected correct answer must occur in source_fact. Use different underlying facts across questions.',
       'A partial quiz with fewer questions is a successful result, not a generation error. Do not return an empty quiz when at least one real question is supported.',
     ] : []),
@@ -1553,6 +1555,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       ) {
         const partialRetry = hasFlexibleFallback &&
           (allowSourceBackedPartial || partialRetryReasons.has(retryReason))
+        // A batch whose first five-item reply was invalid should not ask
+        // Qwen to regenerate another long five-item JSON response. Salvage
+        // up to three independently supported questions in its one retry.
+        // The outer quiz keeps questions from all earlier successful batches.
+        const attemptCount = allowSourceBackedPartial && retryReason !== null
+          ? Math.min(3, request.questionCount) : request.questionCount
+        const attemptRequest = attemptCount === request.questionCount
+          ? request : { ...request, questionCount: attemptCount }
         const additionalNeeded = Math.max(
           1,
           QUESTION_COUNT - retryCandidateEvidence.length,
@@ -1577,11 +1587,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               )
             : targetedMultipleChoice || useLegacyMultipleChoiceContract
               ? 1800
-              : Math.min(5200, 800 + request.questionCount * 300)
+              : Math.min(5200, 800 + attemptCount * 300)
         let result
         try {
           const messages = [
-            Object.freeze({ role: 'system', content: promptFor(request, { allowPartial: partialRetry }) }),
+            Object.freeze({ role: 'system', content: promptFor(attemptRequest, { allowPartial: partialRetry }) }),
             Object.freeze({ role: 'user', content: studyMaterial(request) }),
           ]
           const avoid = priorQuestions(request)
@@ -1616,7 +1626,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             }))
           }
         if (retryReason && !targetedMultipleChoice) {
-            const countLabel = request.questionCount === 5 ? 'five' : String(request.questionCount)
+            const countLabel = attemptCount === 5 ? 'five' : String(attemptCount)
             const retryTypeRules = request.questionType === 'multiple_choice'
               ? retryReason === 'duplicate_choices'
                 ? 'For every multiple-choice question, use four choices that remain different after trimming spaces and ignoring capitalization. Compare all four normalized choices before returning the quiz. Keep the source-supported correct answer exactly once, replace any repeated distractor with a different plausible option, and set correct_index to the correct choice.'
@@ -1735,7 +1745,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                     ? retryReason === 'insufficient_source'
                       ? QUIZ_INSUFFICIENT_RETRY_SCHEMA
                       : retryReason ? QUIZ_RETRY_SCHEMA : QUIZ_EXACT_SCHEMA
-                    : requestedQuizSchema(request.questionCount, {
+                    : requestedQuizSchema(attemptCount, {
                         requireSourceFact: Boolean(request.practice) || partialRetry,
                         allowInsufficient: partialRetry || retryReason !== 'insufficient_source',
                         allowPartial: partialRetry,
