@@ -20,6 +20,7 @@ type QuizResultsCardProps = {
   questionCount: number
   isReviewingAnswers: boolean
   answerReviewProgress: { completed: number; total: number } | null
+  onStopLocalAnswerReview: () => void
   partialCount?: number
   uncertainCount?: number
   partialCredit?: number
@@ -62,6 +63,7 @@ function QuizResultsCard({
   questionCount,
   isReviewingAnswers,
   answerReviewProgress,
+  onStopLocalAnswerReview,
   partialCount = 0,
   uncertainCount = 0,
   partialCredit = 0,
@@ -120,10 +122,12 @@ function QuizResultsCard({
         {uncertainCount > 0 ? 'Provisional result — ungraded short answers are not counted as incorrect.' : getScoreMessage(percentage)}
       </p>
       {isReviewingAnswers && answerReviewProgress && (
-        <p className="answer-review-status" role="status">
-          Local AI: {answerReviewProgress.completed} of {answerReviewProgress.total} short answers reviewed.
-          You can inspect multiple-choice and true/false results now. Each short answer will update as it is checked.
-        </p>
+        <div className="answer-review-status" role="status">
+          <p>Local AI: {answerReviewProgress.completed} of {answerReviewProgress.total} short answers reviewed. Multiple-choice and true/false scores are ready now; short answers update individually.</p>
+          <button type="button" className="button secondary-button" onClick={onStopLocalAnswerReview}>
+            Stop Local AI Review — finish manually
+          </button>
+        </div>
       )}
 
       <p className="incorrect-count">
