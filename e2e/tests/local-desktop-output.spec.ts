@@ -210,6 +210,34 @@ test('the real model output becomes five visible, answerable questions and a res
   expect(errors).toEqual([])
 })
 
+test('a 15-question request displays five safe questions and preserves the requested count for practice', async ({ page }) => {
+  const original = readModelQuiz()
+  const followup: ModelQuiz = {
+    title: 'Partial Weak Area Practice',
+    questions: original.questions.map((q, index) => ({
+      ...q, question: 'New source-backed practice question ' + index + '?',
+    })),
+  }
+  const errors = await openDesktopUi(page, original, false, followup,
+    { count: 15, difficulty: 'easy', type: 'multiple_choice' })
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  await expect(page.getByRole('status').filter({ hasText: 'Generated 5 of 15 requested questions' })).toBeVisible()
+  for (const [index, q] of original.questions.entries()) {
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? (q.correct_index + 1) % 4 : q.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { quizRequests: Array<{ questionCount: number }> }
+  }).__localOutputProbe)
+  expect(probe.quizRequests.map(r => r.questionCount)).toEqual([15, 15])
+  expect(errors).toEqual([])
+})
+
 test('an empty success response shows an error instead of a blank quiz', async ({ page }) => {
   const errors = await openDesktopUi(page, readModelQuiz(), true)
   await expect(page.getByRole('alert')).toContainText('Local AI returned an empty or incomplete quiz')
