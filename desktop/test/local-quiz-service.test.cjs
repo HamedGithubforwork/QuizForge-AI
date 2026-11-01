@@ -2961,3 +2961,39 @@ test('all-mode batching acquires one bounded runtime session per quiz, never one
     assert.equal(closed, 1, mode)
   }
 })
+
+
+test('batch progress reports counts only after validation, including failed groups', async () => {
+  const progress = []
+  const provider = {
+    async generate(request) {
+      const page = BATCH_SOURCE_PAGES.find(part =>
+        request.messages[1].content.includes('--- PAGE ' + part.pageNumber + ' ---'))
+      assert.ok(page)
+      if (page.pageNumber === 2) {
+        return { finishReason: 'stop',
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      }
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Source-backed',
+        questions: batchQuestions(page.pageNumber, 'multiple_choice'),
+      }) }
+    },
+  }
+  const quiz = await createLocalQuizService({
+    provider, onBatchProgress: info => progress.push(info),
+  }).generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15,
+    questionType: 'multiple_choice', difficulty: 'medium',
+  })
+  assert.deepEqual(progress, [
+    { completedBatches: 0, totalBatches: 3, validQuestions: 0 },
+    { completedBatches: 1, totalBatches: 3, validQuestions: 5 },
+    { completedBatches: 2, totalBatches: 3, validQuestions: 5 },
+    { completedBatches: 3, totalBatches: 3, validQuestions: 10 },
+  ])
+  assert.equal(quiz.questions.length, 10)
+  assert.deepEqual(Object.keys(progress[3]).sort(), [
+    'completedBatches', 'totalBatches', 'validQuestions',
+  ])
+})
