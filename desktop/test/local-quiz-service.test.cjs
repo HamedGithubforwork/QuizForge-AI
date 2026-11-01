@@ -2054,6 +2054,52 @@ test('weak-area recovery corrects a mistaken page only when its exact quote has 
   assert.deepEqual(issues.map(issue => issue.reason), ['insufficient_source', 'insufficient_source'])
 })
 
+test('weak-area recovery uses one closely anchored original sentence, not a paraphrased quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate ATP through cellular energy.'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 3)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[0].correct_answer, 'ATP')
+  assert.deepEqual(quiz.questions[0].source_pages, [2])
+})
+
+test('weak-area recovery never accepts a loosely matching invented fact', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate fictional water from microbes.'
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 3)
+  assert.equal(issues.at(-1), 'unsupported_source_fact')
+})
+
 test('weak-area recovery refuses nonexistent and ambiguous source quotes', async () => {
   for (const kind of ['fabricated', 'ambiguous']) {
     const draft = withRetrySourceFacts(rawQuiz())
