@@ -211,6 +211,7 @@ test('the real model output becomes five visible, answerable questions and a res
   await expect(page.locator('#quiz-start')).toBeVisible()
   await expect(page.locator('.question-card')).toHaveCount(5)
   await expect(page.locator('#quiz-start')).toContainText(quiz.title)
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
   for (const [index, question] of quiz.questions.entries()) {
     const card = page.locator('.question-card').nth(index)
     await expect(card.locator('h3')).toHaveText(question.question)
@@ -221,7 +222,7 @@ test('the real model output becomes five visible, answerable questions and a res
   await expect(page.getByText('5 of 5 answered')).toBeVisible()
   await page.getByRole('button', { name: 'Check Answers' }).click()
   await expect(page.locator('#quiz-results')).toBeVisible()
-  await expect(page.locator('#quiz-results')).toContainText('5 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('5 / 5 fully correct')
   const result = await page.evaluate(() => (window as unknown as {
     __localOutputProbe: { pdf: number; generate: number; requests: string[] }
   }).__localOutputProbe)
@@ -249,7 +250,7 @@ test('a 15-question request displays five safe questions and preserves the reque
       .nth(index === 0 ? (q.correct_index + 1) % 4 : q.correct_index).check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 fully correct')
   await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
   await expect(page.locator('.question-card')).toHaveCount(5)
   const probe = await page.evaluate(() => (window as unknown as {
@@ -265,6 +266,8 @@ test('changing to Local AI settings and back preserves the pending quiz and PDF 
   const errors = await openDesktopUi(page, quiz, false, undefined, undefined,
     'application/pdf', true)
   await expect(page.getByRole('button', { name: 'Cancel Local Generation' })).toBeVisible()
+  await expect(page.getByTestId('quiz-generation-timing')).toContainText('Elapsed:')
+  await expect(page.getByTestId('quiz-generation-timing')).toContainText('An estimate becomes available')
   await page.getByRole('button', { name: 'Local AI', exact: true }).click()
   await expect(page.getByText('Available acceleration:')).toBeVisible()
   await page.getByRole('button', { name: 'Quiz', exact: true }).click()
@@ -279,6 +282,7 @@ test('changing to Local AI settings and back preserves the pending quiz and PDF 
   })
   await expect(page.locator('.question-card')).toHaveCount(5)
   await expect(page.locator('#quiz-start')).toContainText(quiz.title)
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
   const probe = await page.evaluate(() => (window as unknown as {
     __localOutputProbe: { pdf: number; generate: number };
   }).__localOutputProbe)
@@ -327,7 +331,7 @@ test('Practice Weak Areas prioritizes missed pages while retaining PDF context a
       .check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 fully correct')
   await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
   await expect(page.locator('#quiz-start')).toContainText('Weak Areas Follow-up Quiz')
   await expect(page.locator('.question-card')).toHaveCount(5)
@@ -391,7 +395,7 @@ test('Practice Weak Areas preserves a 10-question hard quiz count and format', a
       .nth(index === 0 ? (question.correct_index + 1) % 4 : question.correct_index).check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('9 / 10 correct')
+  await expect(page.locator('#quiz-results')).toContainText('9 / 10 fully correct')
   await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
   await expect(page.locator('.question-card')).toHaveCount(10)
   await expect(page.locator('#quiz-start')).toContainText('Ten Hard Weak-Area Questions')
