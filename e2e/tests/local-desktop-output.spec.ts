@@ -79,9 +79,13 @@ async function openDesktopUi(
   options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
   pdfMimeType = 'application/pdf',
+  pauseFirstGeneration = false,
 ) {
-  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected }) => {
-    const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
+  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected, pauseFirstGeneration }) => {
+    const calls = {
+      pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[],
+      resolvePendingQuiz: null as null | (() => void),
+    }
     const account = { userId: 'local-ui-e2e', email: 'local-ui@example.test', enrolled: true }
     const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' })
     Object.assign(window, {
@@ -147,6 +151,11 @@ async function openDesktopUi(
           if (empty === 'insufficient_source') {
             return { ok: false, error: 'insufficient_source' }
           }
+          if (pauseFirstGeneration && calls.generate === 1) {
+            return new Promise(resolve => {
+              calls.resolvePendingQuiz = () => resolve({ ok: true, quiz: generated })
+            })
+          }
           return { ok: true, quiz: empty
             ? { title: 'Empty quiz', questions: [] }
             : generated }
@@ -155,7 +164,7 @@ async function openDesktopUi(
         loadSourcePageText: async () => '',
       },
     })
-  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options })
+  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options, pauseFirstGeneration })
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
@@ -238,6 +247,34 @@ test('a 15-question request displays five safe questions and preserves the reque
     __localOutputProbe: { quizRequests: Array<{ questionCount: number }> }
   }).__localOutputProbe)
   expect(probe.quizRequests.map(r => r.questionCount)).toEqual([15, 15])
+  expect(errors).toEqual([])
+})
+
+
+test('changing to Local AI settings and back preserves the pending quiz and PDF without a busy retry', async ({ page }) => {
+  const quiz = readModelQuiz()
+  const errors = await openDesktopUi(page, quiz, false, undefined, undefined,
+    'application/pdf', true)
+  await expect(page.getByRole('button', { name: 'Cancel Local Generation' })).toBeVisible()
+  await page.getByRole('button', { name: 'Local AI', exact: true }).click()
+  await expect(page.getByText('Available acceleration:')).toBeVisible()
+  await page.getByRole('button', { name: 'Quiz', exact: true }).click()
+  await expect(page.getByText('PDF processed successfully')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel Local Generation' })).toBeVisible()
+  await page.evaluate(() => {
+    const probe = (window as unknown as {
+      __localOutputProbe: { resolvePendingQuiz: null | (() => void) };
+    }).__localOutputProbe
+    if (!probe.resolvePendingQuiz) throw new Error('The quiz was unexpectedly restarted')
+    probe.resolvePendingQuiz()
+  })
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  await expect(page.locator('#quiz-start')).toContainText(quiz.title)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { pdf: number; generate: number };
+  }).__localOutputProbe)
+  expect(probe.pdf).toBe(1)
+  expect(probe.generate).toBe(1)
   expect(errors).toEqual([])
 })
 
