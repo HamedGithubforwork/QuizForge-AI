@@ -258,7 +258,7 @@ function createLocalRuntime({
         try { return await sessionCallback(scopedComplete) }
         finally { finished = true }
       }
-      return infer(payload)
+      return await infer(payload)
     } catch (error) {
       // Node's HTTP request abort can surface as AbortError even when the
       // bounded runtime timer was the real cause. Preserve the timeout reason
