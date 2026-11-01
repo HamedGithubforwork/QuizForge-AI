@@ -458,6 +458,18 @@ function QuizSession({
         </button>
       )}
 
+      {showResults && generatedSettings?.engine === 'local' &&
+        shortAnswerReviewMode === 'local-ai' && !isReviewingAnswers &&
+        quiz.questions.some((question, index) =>
+          question.question_type === 'short_answer' &&
+          getAnswerReview?.(question, selectedAnswers[index])?.verdict === 'uncertain'
+        ) && (
+          <button type="button" className="button secondary-button"
+            onClick={onCheckAnswers}>
+            Retry Local AI review for answers needing review
+          </button>
+        )}
+
       {showResults && (
         <QuizResultsCard
           quiz={quiz}
