@@ -18,7 +18,7 @@ export type AiAnswerReviewQuestion = {
 
 export type AiAnswerReviewDecision = Omit<ApiAnswerReviewDecision, 'verdict'> & {
   verdict: 'correct' | 'partial' | 'incorrect' | 'uncertain'
-  engine?: 'local' | 'cloud'
+  engine?: 'local' | 'cloud' | 'manual'
   credit?: number | null
   concepts?: Array<{ concept: string; status: 'matched' | 'missing' | 'contradicted'; source_quote: string; answer_quote: string }>
 }
