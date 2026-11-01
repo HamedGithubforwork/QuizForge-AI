@@ -698,6 +698,33 @@ function priorQuestions(request) {
   ].join('\n')
 }
 
+// Correct a narrowly paraphrased citation using only the original cited page.
+// Require four consecutive matching words, most of the proposed quote, and
+// exactly one short source sentence. Never infer/alter the answer or question.
+function exactExcerptForNearQuote(proposed, pageText) {
+  const words = normalizeEvidenceText(proposed).split(' ').filter(Boolean)
+  if (words.length < 5 || words.length > 36 || typeof pageText !== 'string') return null
+  const candidates = []
+  for (const original of pageText.split(/(?<=[.!?;])\s+/u)) {
+    const sentence = original.trim()
+    if (!sentence || sentence.length > 160) continue
+    const sourceWords = normalizeEvidenceText(sentence).split(' ').filter(Boolean)
+    if (sourceWords.length < 4 || sourceWords.length > 40) continue
+    let longest = 0
+    for (let i = 0; i < words.length; i++) {
+      for (let j = 0; j < sourceWords.length; j++) {
+        let n = 0
+        while (words[i + n] && sourceWords[j + n] && words[i + n] === sourceWords[j + n]) n++
+        if (n > longest) longest = n
+      }
+    }
+    if (longest >= 4 && longest / words.length >= 0.65 &&
+        longest / sourceWords.length >= 0.45) candidates.push(sentence)
+  }
+  // Two possible original passages are ambiguous; fail closed.
+  return candidates.length === 1 ? candidates[0] : null
+}
+
 // Recovery drafts from smaller local models may copy an EXACT source quote but
 // cite the focus page for every question. Repair only a uniquely identifiable
 // page citation: no model guesses, no fuzzy quote matches, and no permission to
@@ -724,9 +751,23 @@ function correctUniqueRecoveryCitations(text, sourceTextByPage, allowedPages) {
       .filter(([page, source]) =>
         allowedPages.has(page) && containsEvidencePhrase(source, question.source_fact))
       .map(([page]) => page)
-    if (matches.length !== 1) return question
-    changed = true
-    return { ...question, source_pages: matches }
+    if (matches.length === 1) {
+      changed = true
+      return { ...question, source_pages: matches }
+    }
+    // When the proposed quote is not verbatim on ANY page, allow a strictly
+    // anchored recovery on its one originally cited page. A changed claim,
+    // invented answer, or ambiguous source match remains invalid.
+    if (matches.length === 0 && question.source_pages.length === 1) {
+      const quoted = exactExcerptForNearQuote(
+        question.source_fact, sourceTextByPage.get(question.source_pages[0]) ?? '',
+      )
+      if (quoted) {
+        changed = true
+        return { ...question, source_fact: quoted }
+      }
+    }
+    return question
   })
   return changed ? JSON.stringify({ ...draft, questions }) : text
 }
