@@ -2625,7 +2625,8 @@ test('fifteen mixed questions are generated in bounded, source-fact-validated pa
       const page = parts.find(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`))
       assert.ok(page)
       assert.equal(parts.filter(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`)).length, 1)
-      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 5)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
       assert.ok(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
       assert.ok(request.maxTokens < 3000)
       observed.push(page.pageNumber)
@@ -2661,4 +2662,44 @@ test('mixed page batching retains validated questions when a later page has no u
   const quiz = await service.generate({ pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed' })
   assert.ok(quiz.questions.length >= 1 && quiz.questions.length < 15)
   assert.ok(calls >= 4)
+})
+
+test('source-backed mixed batches filter unsupported answers but retain the valid ones', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber, text: `Part ${pageNumber} marks token as Code${pageNumber}.`,
+  }))
+  const rejections = []
+  const provider = {
+    async generate(request) {
+      const page = parts.find(part => request.messages[1].content.includes(`--- PAGE ${part.pageNumber} ---`))
+      assert.ok(page)
+      const valid = {
+        question_type: 'multiple_choice', question: `What token is used in part ${page.pageNumber}?`,
+        choices: [`Code${page.pageNumber}`, 'Other', 'Else', 'Invalid'],
+        correct_index: 0, correct_answer: `Code${page.pageNumber}`,
+        accepted_answers: [`Code${page.pageNumber}`],
+        explanation: page.text, source_fact: page.text,
+        source_pages: [page.pageNumber],
+      }
+      return {
+        finishReason: 'stop',
+        text: JSON.stringify({ title: 'Part quiz', questions: [
+          { ...valid, question: `Unsupported item on ${page.pageNumber}?`,
+            correct_answer: 'Invented', choices: ['Invented', 'Other', 'Else', 'Invalid'],
+            accepted_answers: ['Invented'], source_fact: `Invented fact for ${page.pageNumber}` },
+          valid,
+        ] }),
+      }
+    },
+  }
+  const quiz = await createLocalQuizService({
+    provider, onRejectedQuestion: value => rejections.push(value),
+  }).generate({
+    pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed',
+  })
+  assert.equal(quiz.questions.length, 3)
+  assert.equal(rejections.length, 3)
+  assert.ok(rejections.every(item => item.reason === 'unsupported_source_fact'))
+  assert.deepEqual(quiz.questions.map(q => q.correct_answer), ['Code1', 'Code2', 'Code3'])
+  assert.ok(quiz.questions.every(q => !Object.hasOwn(q, 'source_fact')))
 })
