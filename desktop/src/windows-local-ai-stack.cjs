@@ -159,8 +159,9 @@ function createWindowsLocalAiStack({
       const epoch = contextEpoch
       quizProgressState = Object.freeze({
         phase: 'generating', completedBatches: 0,
-        totalBatches: [5, 10, 15].includes(request?.questionCount)
-          ? request.questionCount / 5 : 1,
+        // Start with one request. Only announce multiple batches once the
+        // generator confirms that the source can be partitioned safely.
+        totalBatches: 1,
         validQuestions: 0,
         requestedQuestions: request?.questionCount ?? 5,
       })
