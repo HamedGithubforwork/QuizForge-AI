@@ -24,6 +24,17 @@ test('grade derives full, partial, contradictory and uncertain outcomes from val
   assert.equal(normalizeReview(partial, 0, source, 'stores most dna').verdict, 'uncertain')
   assert.equal(normalizeReview({ ...valid, confidence: 0.75 }, 0, source, answer).verdict, 'uncertain')
   assert.equal(normalizeReview({ ...valid, contradiction: true, confidence: 0.75 }, 0, source, answer).verdict, 'uncertain')
+  const contradicted = structuredClone(valid)
+  contradicted.contradiction = true
+  contradicted.confidence = 0.7
+  contradicted.concepts[1].status = 'contradicted'
+  // The source and answer quote must both be exact substrings.
+  assert.equal(normalizeReview(contradicted, 0, source, answer).verdict, 'incorrect')
+  contradicted.confidence = 0.69
+  assert.equal(normalizeReview(contradicted, 0, source, answer).verdict, 'uncertain')
+  contradicted.confidence = 0.7
+  contradicted.concepts[1].answer_quote = 'invented text'
+  assert.equal(normalizeReview(contradicted, 0, source, answer).verdict, 'uncertain')
   assert.equal(normalizeReview({ ...valid, contradiction: true }, 0, source, answer).verdict, 'incorrect')
   assert.equal(normalizeReview({ ...valid, confidence: 0.5 }, 0, source, answer).verdict, 'uncertain')
   const fabricated = structuredClone(valid); fabricated.concepts[0].source_quote = 'The nucleus makes all proteins'
