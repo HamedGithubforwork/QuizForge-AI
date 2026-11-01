@@ -96,7 +96,7 @@ function UploadPanel({
         id="study-material-pdf"
         className="file-input-hidden"
         type="file"
-        accept="application/pdf"
+        accept=".pdf,application/pdf"
         aria-label="Study material PDF"
         onChange={event => {
           setDropError('')
