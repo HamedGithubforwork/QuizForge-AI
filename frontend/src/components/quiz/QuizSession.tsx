@@ -65,6 +65,7 @@ type QuizSessionProps = {
   answerReviewProgress: { completed: number; total: number } | null
   onShortAnswerReviewModeChange: (mode: 'local-ai' | 'manual') => void
   onManualShortAnswerGrade: (index: number, verdict: 'correct' | 'partial' | 'incorrect') => void
+  onStopLocalAnswerReview: () => void
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
@@ -129,6 +130,7 @@ function QuizSession({
   answerReviewProgress,
   onShortAnswerReviewModeChange,
   onManualShortAnswerGrade,
+  onStopLocalAnswerReview,
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
@@ -459,6 +461,7 @@ function QuizSession({
           documentResult={documentResult}
           isReviewingAnswers={isReviewingAnswers}
           answerReviewProgress={answerReviewProgress}
+          onStopLocalAnswerReview={onStopLocalAnswerReview}
           questionCount={
             quiz.questions.length
           }
