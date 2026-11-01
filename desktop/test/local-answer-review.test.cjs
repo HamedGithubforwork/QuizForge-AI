@@ -42,6 +42,49 @@ test('grade derives full, partial, contradictory and uncertain outcomes from val
   const fabricatedStudent = structuredClone(valid); fabricatedStudent.concepts[0].answer_quote = 'I never wrote this'
   assert.equal(normalizeReview(fabricatedStudent, 0, source, answer).verdict, 'uncertain')
 })
+test('real pinned Qwen partial result: omission alone must not suppress evidenced half credit', () => {
+  const fixtureSource = 'Nucleus   Stores most of the cell DNA and helps control cell activities.'
+  const response = {
+    confidence: 0.75,
+    reason: 'The student answer correctly identified one of the two main functions of the nucleus, which is storing most of the cell DNA. However, the answer is incomplete as it does not mention the second function, which is helping control cell activities. The source explicitly states that the nucleus stores most of the cell DNA and helps control cell activities.',
+    uncertain: true,
+    contradiction: false,
+    concepts: [
+      { concept: 'Stores most of the cell DNA', status: 'matched',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: 'It stores most of the DNA.' },
+      { concept: 'Helps control cell activities', status: 'missing',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: '' },
+    ],
+  }
+  const answerText = 'It stores most of the DNA.'
+  const result = normalizeReview(response, 0, fixtureSource, answerText)
+  assert.equal(result.verdict, 'partial')
+  assert.equal(result.credit, 0.5)
+  assert.equal(result.engine, 'local')
+  // Never promote other uncertain outcomes just because one concept matches.
+  assert.equal(normalizeReview({ ...response, confidence: 0.69 },
+    0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, reason: 'Incomplete but the evidence is ambiguous.' },
+    0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, reason: 'Incomplete; additional unsupported claim is present.' },
+    0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, contradiction: true },
+    0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, concepts: [
+    { ...response.concepts[0], source_quote: 'The nucleus makes oxygen.' },
+    response.concepts[1],
+  ] }, 0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, concepts: [
+    response.concepts[0],
+    { ...response.concepts[1], answer_quote: 'fabricated' },
+  ] }, 0, fixtureSource, answerText).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...response, concepts: response.concepts.map(
+    c => ({ ...c, status: 'matched', answer_quote: answerText }),
+  ) }, 0, fixtureSource, answerText).verdict, 'uncertain')
+})
+
 test('chloroplast process location earns partial only with verifiable evidence of related function', () => {
   const sourceText = [
     'Chloroplast   Captures light energy for photosynthesis using',
