@@ -116,7 +116,12 @@ function createLocalAnswerReview({ provider }) {
       // This is a deterministic anti-injection decision, not an inference
       // from the model's confidence or fabricated evidence. An otherwise
       // malformed model rubric must still fail closed as uncertain.
-      if (isExplicitGradeOverride(c.student_answer)) {
+      // If the exact phrase is being quoted from the study material or is
+      // itself the expected answer, do not mistake the quotation for a
+      // command. Let the ordinary evidence-based grader decide instead.
+      if (isExplicitGradeOverride(c.student_answer) &&
+          !contains(source, c.student_answer) &&
+          !contains(c.correct_answer, c.student_answer)) {
         publish({
           question_index: c.question_index, engine: 'local', verdict: 'incorrect',
           confidence: 1, credit: 0, concepts: [],
