@@ -8,6 +8,7 @@ if (process.isMainFrame && trustedRenderer) {
     version: 1,
     status: () => ipcRenderer.invoke('qfn:status'),
     signIn: provider => ipcRenderer.invoke('qfn:signIn', provider === undefined ? 'default' : provider),
+    cancelSignIn: () => ipcRenderer.invoke('qfn:cancelSignIn'),
     signOut: () => ipcRenderer.invoke('qfn:signOut'),
     request: value => ipcRenderer.invoke('qfn:request', value),
     loadSourcePageText: value => ipcRenderer.invoke('qfn:loadSourcePageText', value),
