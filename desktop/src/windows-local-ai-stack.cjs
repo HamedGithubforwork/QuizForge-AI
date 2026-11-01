@@ -130,7 +130,8 @@ function createWindowsLocalAiStack({
       modelStore: resources.modelStore,
       modelId: resources.modelId,
     })
-    const generator = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
+    const createGenerator = activeProvider => createLocalQuizService({
+      provider: activeProvider, onValidationIssue: captureQuizValidationIssue,
       onGeneratedResponse: onQuizGeneratedResponse,
       onRejectedQuestion: issue => {
         diagnostic('question_rejected', { reason: issue.reason, questionNumber: issue.questionNumber,
@@ -141,8 +142,19 @@ function createWindowsLocalAiStack({
     quizService = { async generate(request, options) {
       reviewContext = null
       const epoch = contextEpoch
-      const generated = await generator.generate(request, options)
-      const quiz = await reviewQuizDistinctness({ provider, quiz: generated, pages: request.pages, signal: options?.signal })
+      // Quiz generation, all five-item batches and the distinctness check
+      // share one guarded local model process. The scoped provider cannot
+      // open another session, and the model stops after this one quiz.
+      const produce = async activeProvider => {
+        const generated = await createGenerator(activeProvider).generate(request, options)
+        return reviewQuizDistinctness({
+          provider: activeProvider, quiz: generated,
+          pages: request.pages, signal: options?.signal,
+        })
+      }
+      const quiz = typeof provider.withSession === 'function'
+        ? await provider.withSession(produce, { signal: options?.signal })
+        : await produce(provider)
       if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
       reviewContext = { quiz, pages: request.pages.map(page => ({ ...page })) }
       return quiz
