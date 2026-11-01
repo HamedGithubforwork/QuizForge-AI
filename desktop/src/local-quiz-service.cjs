@@ -906,7 +906,33 @@ function duplicateChoiceRepairPlan(text) {
   }
 }
 
-function applyDuplicateChoiceRepair(plan, text) {
+// For a French "who is the director" question with a SINGLE, exactly cited
+// named person, three distinct fictional names are unambiguously wrong. Only
+// distractors may be replaced; never modify the source-backed right answer.
+// This narrow recovery prevents one duplicated-name question from destroying
+// an otherwise valid quiz when Qwen also repeats its repair suggestions.
+function safeFrenchDirectorDistractors(item, sourceTextByPage) {
+  if (!(sourceTextByPage instanceof Map) ||
+      !plain(item) || !boundedString(item.question, 500) ||
+      !Array.isArray(item.choices) || item.choices.length !== 4 ||
+      !Number.isSafeInteger(item.correct_index) || item.correct_index < 0 ||
+      item.correct_index > 3 || !boundedString(item.source_fact, 300) ||
+      !Array.isArray(item.source_pages) || item.source_pages.length !== 1) return []
+  const question = normalizeEvidenceText(item.question)
+  const fact = normalizeEvidenceText(item.source_fact)
+  const correct = item.choices[item.correct_index]
+  if (!/^qui (est|etait) (la|le|l) directrice?\b/u.test(question) ||
+      !/\bdirectrice? (est|etait)\b/u.test(fact) ||
+      !/^\p{Lu}[\p{L}’'-]+(?:\s+\p{Lu}[\p{L}’'-]+){1,2}$/u.test(correct) ||
+      !containsEvidencePhrase(item.source_fact, correct) ||
+      !containsEvidencePhrase(sourceTextByPage.get(item.source_pages[0]) ?? '', item.source_fact)) return []
+  const wholeSource = [...sourceTextByPage.values()].join(' ')
+  return ['Camille Dumas', 'Nora Pelletier', 'Élodie Martin',
+    'Sophie Lambert', 'Amélie Bertrand', 'Lucie Gagnon'].filter(name =>
+    !containsEvidencePhrase(wholeSource, name))
+}
+
+function applyDuplicateChoiceRepair(plan, text, sourceTextByPage = null) {
   let replacements
   try { replacements = JSON.parse(text) } catch { invalidQuiz('json') }
   if (!plain(replacements) || Object.keys(replacements).length !== plan.slots.length ||
@@ -932,11 +958,15 @@ function applyDuplicateChoiceRepair(plan, text) {
     const taken = new Set(item.choices
       .filter((_, index) => !replacedIndexes.has(index))
       .map(choice => choice.trim().toLocaleLowerCase()))
+    const safeNames = safeFrenchDirectorDistractors(item, sourceTextByPage)
     for (const slot of slots) {
       let candidate = replacements[slot.id].find(option => {
         const normalized = option.trim().toLocaleLowerCase()
         return normalized.length > 0 && !taken.has(normalized)
       })
+      if (!candidate && safeNames.length) {
+        candidate = safeNames.find(name => !taken.has(name.toLocaleLowerCase())) ?? null
+      }
       if (!candidate && !fallbackQuestions.has(questionIndex) &&
           /^(?:what|which|how|why|where|when|who|in|is|are|do|does|did|can|identify|name|according)\b/i.test(item.question.trim()) &&
           !item.choices.some(choice => /\b(?:notes|study material|information|not enough|none of (?:the|these))\b/i.test(choice))) {
@@ -2315,7 +2345,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       function parseFinalAttempt(result, repairPlan = null) {
         if (!['stop', 'length'].includes(result.finishReason)) invalidQuiz('question_shape')
         if (result.finishReason === 'length') invalidQuiz('truncated_output')
-        if (repairPlan) result = { ...result, text: applyDuplicateChoiceRepair(repairPlan, result.text) }
+        if (repairPlan) result = { ...result,
+          text: applyDuplicateChoiceRepair(repairPlan, result.text, sourceTextByPage) }
         if (!targetedMultipleChoice && !useLegacyMultipleChoiceContract) {
           return parseRequestedQuiz(
             result.text,
