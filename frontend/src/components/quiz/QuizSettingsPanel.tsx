@@ -7,10 +7,8 @@ import type {
 import {
   showGenerationModeSelector,
 } from '../../lib/generationModePolicy'
-import {
-  formatGenerationDuration,
-  type GenerationTimeEstimate,
-} from '../../lib/generationTiming.ts'
+import type { GenerationTimeEstimate } from '../../lib/generationTiming.ts'
+import GenerationTimingPanel from './GenerationTimingPanel.tsx'
 
 type QuizSettingsPanelProps = {
   questionCount: number
@@ -271,21 +269,7 @@ function QuizSettingsPanel({
           )}
 
           {isGenerating && (
-            <div className="generation-timing" aria-live="off" data-testid="quiz-generation-timing">
-              <p><strong>Elapsed:</strong> {formatGenerationDuration(generationElapsedMs)}</p>
-              {generationEstimate ? (
-                generationEstimate.overdue ? (
-                  <p>Taking longer than recent quizzes with these settings. Validation or retries may add time.</p>
-                ) : (
-                  <p><strong>Estimated remaining:</strong>{' '}
-                    {formatGenerationDuration(generationEstimate.lowerRemainingMs)}–{formatGenerationDuration(generationEstimate.upperRemainingMs)}
-                    {' '}<span className="generation-timing-note">(rough estimate from {generationEstimate.sampleCount} completed quizzes; not a deadline)</span>
-                  </p>
-                )
-              ) : (
-                <p className="generation-timing-note">An estimate becomes available after two successful quizzes with these settings.</p>
-              )}
-            </div>
+            <GenerationTimingPanel elapsedMs={generationElapsedMs} estimate={generationEstimate} />
           )}
 
           {generationStage && (
