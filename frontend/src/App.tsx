@@ -162,7 +162,7 @@ function App() {
     quiz,
     documentResult,
     generatedSettings,
-    allowRemoteAnswerReview: generationMode !== 'local',
+    allowRemoteAnswerReview: (generatedSettings?.engine ?? generationMode) !== 'local',
     setError,
     onHistorySaved: () => {
       setHistoryRefreshKey(
@@ -581,6 +581,7 @@ function App() {
           'quiz',
         )
         setGeneratedSettings({
+          engine: 'local',
           questionCount: result.quiz.questions.length,
           requestedQuestionCount: questionCount as 5 | 10 | 15,
           difficulty,
@@ -649,6 +650,7 @@ function App() {
       setQuiz(data as QuizResult)
       setGeneratedSettings({
         ...settingsForRequest,
+        engine: 'cloud',
         questionCount: data.questions.length,
         requestedQuestionCount: questionCount as 5 | 10 | 15,
       })
@@ -865,6 +867,7 @@ function App() {
 
       setQuiz(data)
       setGeneratedSettings({
+        engine: generationMode === 'local' ? 'local' : 'cloud',
         questionCount:
           data.questions.length,
         requestedQuestionCount: practiceQuestionCount,
@@ -1006,6 +1009,7 @@ function App() {
 
       setQuiz(data)
       setGeneratedSettings({
+        engine: generationMode === 'local' ? 'local' : 'cloud',
         questionCount:
           data.questions.length,
         requestedQuestionCount: practiceQuestionCount,
@@ -1217,10 +1221,14 @@ function App() {
               }
             />
 
+            {quiz?.generation?.distinctness === 'unavailable' && <div className="notice" role="status">
+              The check for repeated facts was unavailable. Some questions may cover the same fact.
+            </div>}
             {quiz && generatedSettings?.requestedQuestionCount &&
               quiz.questions.length < generatedSettings.requestedQuestionCount && (
               <p className="generation-mode-note" role="status" aria-live="polite">
-                Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions from the supplied study material. Only the source-supported questions were included.
+                <strong>Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions in this attempt.</strong>{' '}
+                Only questions that passed validation were included. {quiz.generation?.duplicateCount ? `${quiz.generation.duplicateCount} repeated questions were removed. ` : ''}Another attempt or broader page coverage may produce more questions. This does not mean the document contains only {quiz.questions.length} possible questions.
               </p>
             )}
 
@@ -1273,6 +1281,7 @@ function App() {
                 shortAnswerScore={
                   attempt.shortAnswerScore
                 }
+                getAnswerReview={attempt.getAnswerReview}
                 isReviewingAnswers={
                   attempt.isReviewingAnswers
                 }

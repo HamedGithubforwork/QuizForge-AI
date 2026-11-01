@@ -1,3 +1,4 @@
+import type { AiAnswerReviewDecision } from './answerFallback.ts'
 import type { Quiz } from '../types/api.generated.ts'
 export type DesktopLocalAiQuizStatus = {
   available: boolean
@@ -172,6 +173,8 @@ export type DesktopBridge = {
   generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
   generateLocalDocumentQuiz?(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
   processLocalPdf?(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>
+  reviewLocalAnswers?(request: { cases: Array<{ question_index: number; question: string; correct_answer: string; student_answer: string }> }): Promise<
+    { ok: true; decisions: AiAnswerReviewDecision[] } | { ok: false; error: string }>
   cancelLocalAiQuiz?(): Promise<void>
   openAccountWebsite(): Promise<void>
 }

@@ -71,7 +71,7 @@ export function normalizeShortAnswer(
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[-–—/]/g, ' ')
+    .replace(/[–—/]|(?<=[a-z])-(?=[a-z])/gi, ' ')
     .replace(/[^a-z0-9.%+\-\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -322,7 +322,7 @@ function gradeLegacyAnswer(
 
   const correct = acceptedAnswers.some(
     (acceptedAnswer) =>
-      legacyAnswerMatches(
+      !hasUnexpectedNegation(normalizedUser, acceptedAnswer) && legacyAnswerMatches(
         normalizedUser,
         acceptedAnswer,
       ),

@@ -1,5 +1,8 @@
+import { desktopBridge } from '../lib/desktop.ts'
+import { reviewAnswersLocally } from '../lib/localAnswerReview.ts'
+import { buildAiAnswerReviewKey } from '../lib/answerFallback.ts'
 import {
-  useState,
+  useState, useRef, useEffect,
 } from 'react'
 
 import {
@@ -119,6 +122,17 @@ export function useQuizAttempt({
     setIsReviewingAnswers,
   ] = useState(false)
 
+  const reviewEpoch = useRef(0)
+  const reviewingRef = useRef(false)
+  useEffect(() => {
+    reviewEpoch.current += 1
+    setAiGradeReviews({})
+    return () => {
+      reviewEpoch.current += 1
+      if (reviewingRef.current && !allowRemoteAnswerReview) void desktopBridge()?.cancelLocalAiQuiz?.()
+    }
+  }, [quiz, allowRemoteAnswerReview])
+
   function isQuestionCorrect(
     question: QuizQuestion,
     answer: AnswerValue | undefined,
@@ -131,6 +145,8 @@ export function useQuizAttempt({
   }
 
   function resetAttempt() {
+    reviewEpoch.current += 1
+    setAiGradeReviews({})
     setSelectedAnswers({})
     setShowResults(false)
     setRetryQuestionIndexes(null)
@@ -168,6 +184,7 @@ export function useQuizAttempt({
     questionIndex: number,
     answer: AnswerValue,
   ) {
+    if (reviewingRef.current) return
     setSelectedAnswers(
       (previous) => ({
         ...previous,
@@ -228,48 +245,32 @@ export function useQuizAttempt({
     setError('')
     setSaveMessage('')
 
-    const reviewCases =
-      allowRemoteAnswerReview
-        ? buildAttemptReviewCases(
+    const reviewCases = buildAttemptReviewCases(
             quiz,
             selectedAnswers,
             indexesToCheck,
+            !allowRemoteAnswerReview,
           )
-        : []
 
     if (reviewCases.length > 0) {
       setIsReviewingAnswers(true)
+      reviewingRef.current = true
+      const epoch = reviewEpoch.current
 
       try {
-        const response = await apiFetch(
-          '/api/answers/review',
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
-            body: JSON.stringify({
-              cases: reviewCases,
-            }),
-          },
-        )
-        const data =
-          await response.json() as {
-            detail?: string
-            decisions?:
-              AiAnswerReviewDecision[]
-          }
-
-        if (!response.ok) {
-          throw new Error(
-            data.detail ||
-              'Semantic answer review failed.',
-          )
+        let decisions: AiAnswerReviewDecision[]
+        if (!allowRemoteAnswerReview) {
+          decisions = await reviewAnswersLocally(desktopBridge(), reviewCases)
+        } else {
+          const response = await apiFetch('/api/answers/review', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cases: reviewCases }),
+          })
+          const data = await response.json() as { decisions?: AiAnswerReviewDecision[] }
+          if (!response.ok) throw new Error('Answer review unavailable.')
+          decisions = data.decisions ?? []
         }
-
-        const decisions =
-          data.decisions ?? []
+        if (epoch !== reviewEpoch.current) return
 
         setAiGradeReviews(
           (previous) =>
@@ -282,7 +283,7 @@ export function useQuizAttempt({
         )
 
         setSaveMessage(
-          `${decisions.length} borderline short ${
+          `${!allowRemoteAnswerReview ? "Local AI: " : "Cloud AI: "}${decisions.length} short ${
             decisions.length === 1
               ? 'answer received'
               : 'answers received'
@@ -293,6 +294,7 @@ export function useQuizAttempt({
           'Semantic second review was unavailable; deterministic grading was used.',
         )
       } finally {
+        reviewingRef.current = false
         setIsReviewingAnswers(false)
       }
     }
@@ -484,6 +486,9 @@ export function useQuizAttempt({
   }
 
   return {
+    aiGradeReviews,
+    getAnswerReview: (question: QuizQuestion, answer: AnswerValue | undefined) =>
+      typeof answer === 'string' ? aiGradeReviews[buildAiAnswerReviewKey(question, answer)] : undefined,
     selectedAnswers,
     showResults,
     retryQuestionIndexes,

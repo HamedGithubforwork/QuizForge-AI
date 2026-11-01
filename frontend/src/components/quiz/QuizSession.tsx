@@ -1,3 +1,4 @@
+import type { AiAnswerReviewDecision } from '../../lib/answerFallback.ts'
 import {
   getQuestionTypeLabel,
   isQuestionAnswered,
@@ -51,6 +52,7 @@ type QuizSessionProps = {
     QuestionTypeScore
   shortAnswerScore:
     QuestionTypeScore
+  getAnswerReview?: (question: QuizQuestion, answer: AnswerValue | undefined) => AiAnswerReviewDecision | undefined
   isReviewingAnswers: boolean
   isSavingHistory: boolean
   resultSaved: boolean
@@ -105,6 +107,7 @@ function QuizSession({
   multipleChoiceScore,
   trueFalseScore,
   shortAnswerScore,
+  getAnswerReview,
   isReviewingAnswers,
   isSavingHistory,
   resultSaved,
@@ -268,7 +271,8 @@ function QuizSession({
                 'question-nav-button'
 
               if (showResults) {
-                navClass += correct
+                const verdict = getAnswerReview?.(question, selectedAnswers[questionIndex])?.verdict
+                navClass += verdict === 'uncertain' || verdict === 'partial' ? ' nav-review' : correct
                   ? ' nav-correct'
                   : ' nav-incorrect'
               } else if (answered) {
@@ -323,6 +327,8 @@ function QuizSession({
               <QuizQuestionCard
                 key={questionIndex}
                 question={question}
+                answerReview={getAnswerReview?.(question, selectedAnswer)}
+                isReviewing={isReviewingAnswers}
                 questionIndex={
                   questionIndex
                 }
@@ -379,6 +385,12 @@ function QuizSession({
           questionCount={
             quiz.questions.length
           }
+          partialCount={quiz.questions.filter((q, i) => getAnswerReview?.(q, selectedAnswers[i])?.verdict === 'partial').length}
+          uncertainCount={quiz.questions.filter((q, i) => getAnswerReview?.(q, selectedAnswers[i])?.verdict === 'uncertain').length}
+          partialCredit={quiz.questions.reduce((total, q, i) => {
+            const review = getAnswerReview?.(q, selectedAnswers[i])
+            return total + (review?.verdict === 'partial' ? review.credit ?? 0 : 0)
+          }, 0)}
           score={score}
           percentage={percentage}
           multipleChoiceScore={

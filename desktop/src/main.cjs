@@ -394,7 +394,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url), onChange: () => {
-            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); localAiManager?.clearDetailedDebug?.(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); localAiManager?.clearDetailedDebug?.(); localAiManager?.clearQuizReview?.(); void localAiManager?.cancelQuiz?.(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })

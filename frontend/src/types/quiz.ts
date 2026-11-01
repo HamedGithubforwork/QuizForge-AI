@@ -1,3 +1,4 @@
+import type { AiAnswerReviewDecision } from '../lib/answerFallback.ts'
 import type {
   Quiz as ApiQuiz,
   QuizQuestion as ApiQuizQuestion,
@@ -26,14 +27,17 @@ export type QuizQuestion =
     // History can contain older questions created before grading v2.
     grading?: ShortAnswerGradingSpec
     ai_accepted_answers?: string[]
+    answer_review?: { answer: string; decision: AiAnswerReviewDecision }
   }
 
 export type QuizResult =
   Omit<ApiQuiz, 'questions'> & {
     questions: QuizQuestion[]
+    generation?: { distinctness: 'checked' | 'unavailable'; duplicateCount: number }
   }
 
 export type GeneratedSettings = {
+  engine?: 'local' | 'cloud'
   // Actual question count can be less than the requested maximum.
   questionCount: number
   requestedQuestionCount?: 5 | 10 | 15

@@ -1,3 +1,4 @@
+import type { AiAnswerReviewDecision } from '../../lib/answerFallback.ts'
 import {
   gradeShortAnswer,
 } from '../../lib/shortAnswerGrader'
@@ -12,6 +13,8 @@ import SourcePageText from './SourcePageText.tsx'
 
 type QuizQuestionCardProps = {
   question: QuizQuestion
+  answerReview?: AiAnswerReviewDecision
+  isReviewing?: boolean
   questionIndex: number
   selectedAnswer:
     | AnswerValue
@@ -32,6 +35,8 @@ type QuizQuestionCardProps = {
 
 function QuizQuestionCard({
   question,
+  answerReview,
+  isReviewing,
   questionIndex,
   selectedAnswer,
   showResults,
@@ -131,7 +136,7 @@ function QuizQuestionCard({
                         choiceIndex,
                       )
                     }}
-                    disabled={showResults}
+                    disabled={showResults || isReviewing}
                   />
 
                   <span className="choice-letter">
@@ -183,12 +188,14 @@ function QuizQuestionCard({
               'short-answer-input ' +
               (
                 showResults
-                  ? isCorrect
+                  ? answerReview?.verdict === 'uncertain' || answerReview?.verdict === 'partial'
+                    ? '' : isCorrect
                     ? 'correct-input'
                     : 'incorrect-input'
                   : ''
               )
             }
+            maxLength={2000}
             type="text"
             placeholder="Type your answer..."
             value={
@@ -203,7 +210,7 @@ function QuizQuestionCard({
                 event.target.value,
               )
             }}
-            disabled={showResults}
+            disabled={showResults || isReviewing}
           />
         </div>
       )}
@@ -212,17 +219,33 @@ function QuizQuestionCard({
         <div
           className={
             `explanation ${
-              isCorrect
+              answerReview?.verdict === 'uncertain' || answerReview?.verdict === 'partial'
+                ? 'review-explanation' : isCorrect
                 ? 'correct-explanation'
                 : 'incorrect-explanation'
             }`
           }
         >
           <strong className="result-label">
-            {isCorrect
-              ? 'Correct'
-              : 'Incorrect'}
+            {answerReview?.verdict === 'uncertain' ? 'Review needed'
+              : answerReview?.verdict === 'partial' ? 'Partially correct'
+              : isCorrect ? 'Correct — Full credit' : 'Incorrect'}
           </strong>
+
+          {answerReview && <div className="answer-review-feedback">
+            <p><strong>{answerReview.engine === 'local' ? 'Local AI review' : 'AI review'}</strong></p>
+            <p>{answerReview.reason}</p>
+            {answerReview.concepts && answerReview.concepts.length > 0 && <>
+              <p>{answerReview.concepts.filter(c => c.status === 'matched').length}/{answerReview.concepts.length} required concepts matched
+                {answerReview.credit != null && ` · ${Math.round(answerReview.credit * 100)}% credit`}</p>
+              <ul>{answerReview.concepts.map((concept, index) => <li key={index}>
+                <strong>{concept.status === 'matched' ? '✓ Understood' : concept.status === 'missing' ? 'Missing' : 'Contradiction'}:</strong> {concept.concept}
+                <blockquote>{concept.source_quote}</blockquote>
+              </li>)}</ul>
+            </>}
+            <p>{answerReview.engine === 'local' ? 'Reviewed on your device · No cloud review request' : 'Reviewed using Cloud AI'}</p>
+            {answerReview.verdict === 'uncertain' && <p>No credit decision was made. Compare your answer with the cited source.</p>}
+          </div>}
 
           {question.question_type ===
             'short_answer' && (
@@ -238,7 +261,7 @@ function QuizQuestionCard({
           {question.question_type ===
             'short_answer' &&
             shortAnswerGrade &&
-            !isCorrect &&
+            !isCorrect && !answerReview &&
             shortAnswerGrade.totalGroups >
               1 && (
               <p>
@@ -260,7 +283,7 @@ function QuizQuestionCard({
 
           {question.question_type ===
             'short_answer' &&
-            shortAnswerGrade?.borderline &&
+            !answerReview && shortAnswerGrade?.borderline &&
             !isCorrect && (
               <p>
                 The wording includes

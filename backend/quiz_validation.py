@@ -585,6 +585,7 @@ def get_quiz_validation_errors(
     requested_question_type: str,
     page_count: int,
     allowed_page_numbers: set[int] | None = None,
+    allow_partial: bool = False,
 ) -> list[str]:
     errors: list[str] = []
 
@@ -593,7 +594,7 @@ def get_quiz_validation_errors(
             "The quiz title is empty."
         )
 
-    if len(quiz.questions) != question_count:
+    if not (1 <= len(quiz.questions) <= question_count) or (not allow_partial and len(quiz.questions) != question_count):
         errors.append(
             "The quiz has the wrong number of questions."
         )
@@ -778,7 +779,7 @@ def get_quiz_validation_errors(
             )
         )
 
-    if requested_question_type == "mixed":
+    if requested_question_type == "mixed" and (not allow_partial or len(quiz.questions) == question_count):
         if not set(QUESTION_TYPES).issubset(
             types_found
         ):
