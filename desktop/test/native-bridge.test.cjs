@@ -282,3 +282,28 @@ test('local grading IPC exposes allowlisted failure codes without leaking privat
   assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
     { ok: false, error: 'review_unavailable' })
 })
+
+test('cancelSignIn IPC resets only the pending attempt and preserves Local AI work', async () => {
+  const handlers = {}
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let cancelled = 0
+  let signedOut = 0
+  let localCleanup = 0
+  const session = { cancelSignIn: () => { cancelled++; return true },
+    signOut: async () => { signedOut++ } }
+  installNativeBridge({
+    ipcMain: { handle: (name, handler) => { handlers[name] = handler } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => session,
+    getAccount: () => ({ current: () => null }),
+    getLocalAi: () => ({ clearQuizReview: () => { localCleanup++ } }),
+    openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  assert.equal(await handlers['qfn:cancelSignIn'](event), true)
+  assert.equal(cancelled, 1)
+  assert.equal(signedOut, 0)
+  assert.equal(localCleanup, 0)
+  await assert.rejects(handlers['qfn:cancelSignIn'](event, 'extra'))
+})
