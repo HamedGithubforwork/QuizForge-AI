@@ -1408,6 +1408,16 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
   return Object.freeze({
     async generate(value, { signal } = {}) {
       const request = normalizeRequest(value)
+      // Keep the model loaded only for this one quiz's bounded batches. The
+      // session-scoped provider has no withSession method, avoiding recursion.
+      // Single five-question quizzes retain the old one-request lifecycle.
+      if (request.questionCount > QUESTION_COUNT && !allowSourceBackedPartial &&
+          typeof provider.withSession === 'function') {
+        return provider.withSession(scopedProvider => createLocalQuizService({
+          provider: scopedProvider, onValidationIssue, onGeneratedResponse,
+          onRejectedQuestion, allowSourceBackedPartial,
+        }).generate(request, { signal }), { signal })
+      }
       // All four question modes can exceed the bounded local-model inference
       // budget when asked for 10 or 15 items in a single constrained response.
       // Use independently verified five-question batches when the study source
