@@ -1411,6 +1411,7 @@ function App() {
                 onShortAnswerReviewModeChange={attempt.setShortAnswerReviewMode}
                 answerReviewProgress={attempt.answerReviewProgress}
                 onManualShortAnswerGrade={attempt.setManualShortAnswerGrade}
+                onStopLocalAnswerReview={attempt.stopLocalAnswerReview}
                 isSavingHistory={
                   attempt.isSavingHistory
                 }
