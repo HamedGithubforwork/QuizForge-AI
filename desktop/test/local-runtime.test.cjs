@@ -112,6 +112,53 @@ test('runtime lifecycle exposes bounded busy state and cleans successful session
   assert.equal(child.kills.length, 1)
 })
 
+test('one scoped quiz session reuses a single private model launch across three inferences', async () => {
+  const child = fakeChild()
+  let launches = 0
+  let requests = 0
+  let savedCompletion
+  const alias = 'qfn-' + 'ab'.repeat(16)
+  const { runtime } = runtimeFixture({
+    child,
+    options: {
+      spawnProcess: () => { launches++; return child },
+      requestFn: async (_port, _key, route) => {
+        if (route === '/v1/models') return { data: [{ id: alias }] }
+        requests++
+        return { choices: [{ message: { content: 'batch-' + requests }, finish_reason: 'stop' }] }
+      },
+    },
+  })
+  const session = runtime.withSession(async complete => {
+    savedCompletion = complete
+    assert.equal((await complete({ messages: [{ role: 'user', content: 'one' }] })).choices[0].message.content, 'batch-1')
+    assert.deepEqual(runtime.status(), { busy: true, closed: false })
+    await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'intrusion' }] }), { code: 'busy' })
+    await complete({ messages: [{ role: 'user', content: 'two' }] })
+    await complete({ messages: [{ role: 'user', content: 'three' }] })
+    return requests
+  })
+  assert.equal(await session, 3)
+  assert.equal(launches, 1)
+  assert.equal(requests, 3)
+  assert.equal(child.kills.length, 1)
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+  await assert.rejects(savedCompletion({ messages: [] }), { code: 'runtime_closed' })
+})
+
+test('scoped quiz sessions honor abort and clean up even when a later batch fails', async () => {
+  const controller = new AbortController()
+  const { child, runtime } = runtimeFixture()
+  await assert.rejects(runtime.withSession(async complete => {
+    await complete({ messages: [{ role: 'user', content: 'first batch' }] })
+    controller.abort()
+    await complete({ messages: [{ role: 'user', content: 'must not run' }] })
+  }, { signal: controller.signal }), { name: 'AbortError' })
+  assert.equal(child.kills.length, 1)
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
 test('shutdown cancels an active session, waits for cleanup and prevents restart', async () => {
   let started
   const reachedCompletion = new Promise(resolve => { started = resolve })
