@@ -636,8 +636,8 @@ function promptFor(request, { allowPartial = false } = {}) {
     : requestedMode === 'true_false'
       ? 'For each true/false question use choices exactly ["True", "False"], correct_index 0 or 1, and matching correct_answer and accepted_answers.'
       : requestedMode === 'short_answer'
-        ? 'For each short-answer question use choices [], correct_index -1, a concise correct_answer, and accepted_answers with only fully correct answer variants.'
-        : 'Follow the output shape for each type: multiple choice has four choices; true/false has ["True", "False"]; short answer has no choices and correct_index -1. Supply correct_answer and accepted_answers for every item.'
+        ? 'For each short-answer question use choices [], correct_index -1, and copy correct_answer as an exact contiguous phrase from its cited source page; do not paraphrase or combine separated phrases. accepted_answers may contain only source-supported variants.'
+        : 'Follow the output shape for each type: multiple choice has four choices; true/false has ["True", "False"]; short answer has choices [], correct_index -1, and an exact contiguous correct_answer phrase copied from its cited source page. Do not paraphrase short answers. Supply accepted_answers for every item.'
   const lines = [
     request.practice && request.questionCount === QUESTION_COUNT && requestedMode === 'multiple_choice'
       ? 'Create a multiple-choice practice quiz using ONLY the supplied study material. The final product requires five questions; targeted-practice generation may request extra backup candidates that will be deterministically filtered before the user sees the quiz.'
@@ -1339,8 +1339,8 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
       correctAnswer = choices[correctIndex]
       acceptedAnswers = [correctAnswer]
     } else {
-      if (choices.length !== 0 || correctIndex !== -1 ||
-          !containsEvidencePhrase(source, correctAnswer)) invalidQuiz('short_answer_shape')
+      if (choices.length !== 0 || correctIndex !== -1) invalidQuiz('short_answer_format')
+      if (!containsEvidencePhrase(source, correctAnswer)) invalidQuiz('short_answer_unsupported_answer')
       acceptedAnswers = [...new Set(acceptedAnswers)]
       if (!acceptedAnswers.some(answer => answer.toLocaleLowerCase() === correctAnswer.toLocaleLowerCase())) {
         acceptedAnswers.unshift(correctAnswer)
@@ -1486,11 +1486,15 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 ? 'Use choices exactly ["True", "False"] and set correct_index to the correct answer.'
                 : request.questionType === 'short_answer'
                   ? 'Use choices [], correct_index -1, a concise correct_answer, and accepted_answers with only correct variants.'
-                  : 'Use all three question types: multiple_choice, true_false, and short_answer, at least one each. Use four choices for multiple choice, ["True", "False"] for true/false, and no choices for short answer.'
+                  : 'Use all three question types: multiple_choice, true_false, and short_answer, at least one each. Use four choices for multiple choice, ["True", "False"] for true/false, and for short answer use choices [], correct_index -1, and copy correct_answer as an exact contiguous phrase from its cited source page; do not paraphrase.'
             messages.push(Object.freeze({
               role: 'user',
               content: [
-                retryReason === 'insufficient_source'
+                retryReason === 'short_answer_unsupported_answer'
+                  ? 'The previous short-answer correct_answer was not found verbatim in its cited page. Choose a different supported fact or copy the correct_answer as an exact contiguous phrase from that cited source page; do not paraphrase, combine separated phrases, or add unsupported words.'
+                  : retryReason === 'short_answer_format'
+                    ? 'The previous short-answer item had the wrong shape. Every short_answer must have choices [] and correct_index -1; copy its concise correct_answer exactly from the cited page.'
+                    : retryReason === 'insufficient_source'
                   ? 'The previous draft abstained as insufficient source material. Re-read every supplied page and independently count distinct, source-supported facts before deciding again. Count separately stated properties of one subject separately; for example, wheel count, battery duration, camera rate, antenna color, and mass are separate facts even when they describe the same rover.'
                   : 'The previous complete quiz draft failed a strict validation check: ' + retryReason + '.',
                 partialRetry
