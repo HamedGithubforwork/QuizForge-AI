@@ -195,6 +195,9 @@ export async function buildLocalPracticeRequest(
   }
 }
 
+export const NO_VALID_QUESTIONS_MESSAGE =
+  'No valid questions could be generated from these notes. Try selecting more pages, uploading a document with more study material, or changing the difficulty.'
+
 export function localQuizErrorMessage(
   result: Extract<
     DesktopLocalQuizResult,
@@ -226,7 +229,7 @@ export function localQuizErrorMessage(
     quiz_validation_failed:
       'Local AI could not create a valid quiz after retrying. Try fewer pages or use Cloud AI.',
     insufficient_source:
-      'The selected pages do not contain enough distinct factual material for the requested local quiz. Choose more pages or use Cloud AI.',
+      NO_VALID_QUESTIONS_MESSAGE,
     invalid_request:
       'The Local AI quiz request was invalid.',
     invalid_response:
