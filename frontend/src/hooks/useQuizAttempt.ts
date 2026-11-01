@@ -121,6 +121,10 @@ export function useQuizAttempt({
     isReviewingAnswers,
     setIsReviewingAnswers,
   ] = useState(false)
+  const [shortAnswerReviewMode, setShortAnswerReviewMode] =
+    useState<'local-ai' | 'manual'>('local-ai')
+  const [answerReviewProgress, setAnswerReviewProgress] =
+    useState<{ completed: number; total: number } | null>(null)
 
   const reviewEpoch = useRef(0)
   const reviewingRef = useRef(false)
@@ -146,7 +150,11 @@ export function useQuizAttempt({
 
   function resetAttempt() {
     reviewEpoch.current += 1
+    if (reviewingRef.current && !allowRemoteAnswerReview) {
+      void desktopBridge()?.cancelLocalAiQuiz?.()
+    }
     setAiGradeReviews({})
+    setAnswerReviewProgress(null)
     setSelectedAnswers({})
     setShowResults(false)
     setRetryQuestionIndexes(null)
@@ -202,41 +210,39 @@ export function useQuizAttempt({
     setError('')
   }
 
+  function setManualShortAnswerGrade(questionIndex: number, verdict: 'correct' | 'partial' | 'incorrect') {
+    if (!quiz || !showResults || isReviewingAnswers || allowRemoteAnswerReview) return
+    const question = quiz.questions[questionIndex]
+    const answer = selectedAnswers[questionIndex]
+    if (question?.question_type !== 'short_answer' || typeof answer !== 'string') return
+    const key = buildAiAnswerReviewKey(question, answer)
+    setAiGradeReviews(previous => ({
+      ...previous,
+      [key]: {
+        question_index: questionIndex,
+        engine: 'manual',
+        verdict,
+        confidence: 1,
+        credit: verdict === 'correct' ? 1 : verdict === 'partial' ? 0.5 : 0,
+        reason: 'Self-graded against the expected answer and source.',
+        concepts: [],
+      },
+    }))
+    setResultSaved(false)
+    setSaveMessage('')
+  }
+
   async function handleCheckAnswers() {
-    if (!quiz || isReviewingAnswers) {
-      return
-    }
+    if (!quiz || isReviewingAnswers) return
 
-    const indexesToCheck =
-      retryQuestionIndexes ??
-      quiz.questions.map(
-        (_, index) => index,
-      )
-
-    const firstUnansweredIndex =
-      indexesToCheck.find(
-        (questionIndex) =>
-          !isQuestionAnswered(
-            quiz.questions[questionIndex],
-            selectedAnswers[questionIndex],
-          ),
-      )
-
-    if (
-      firstUnansweredIndex !== undefined
-    ) {
-      setAttentionQuestionIndex(
-        firstUnansweredIndex,
-      )
-      setError(
-        `Question ${
-          firstUnansweredIndex + 1
-        } still needs an answer.`,
-      )
-      scrollToQuestion(
-        firstUnansweredIndex,
-        true,
-      )
+    const indexesToCheck = retryQuestionIndexes ?? quiz.questions.map((_, index) => index)
+    const firstUnansweredIndex = indexesToCheck.find(
+      index => !isQuestionAnswered(quiz.questions[index], selectedAnswers[index]),
+    )
+    if (firstUnansweredIndex !== undefined) {
+      setAttentionQuestionIndex(firstUnansweredIndex)
+      setError(`Question ${firstUnansweredIndex + 1} still needs an answer.`)
+      scrollToQuestion(firstUnansweredIndex, true)
       return
     }
 
@@ -244,22 +250,78 @@ export function useQuizAttempt({
     setOpenSourceQuestionIndex(null)
     setError('')
     setSaveMessage('')
+    setResultSaved(false)
 
-    const reviewCases = buildAttemptReviewCases(
-            quiz,
-            selectedAnswers,
-            indexesToCheck,
-            !allowRemoteAnswerReview,
-          )
+    const local = !allowRemoteAnswerReview
+    const manual = local && shortAnswerReviewMode === 'manual'
+    const shortAnswerIndexes = indexesToCheck.filter(
+      index => quiz.questions[index]?.question_type === 'short_answer' &&
+        typeof selectedAnswers[index] === 'string',
+    )
+    const reviewCases = manual ? [] : buildAttemptReviewCases(
+      quiz, selectedAnswers, indexesToCheck, local,
+    )
+    const awaiting = manual ? shortAnswerIndexes : reviewCases.map(item => item.question_index)
+    const epoch = reviewEpoch.current
+
+    if (local) {
+      // Show multiple-choice and true/false answers immediately. Short answers
+      // awaiting a human or Qwen decision are NOT counted as incorrect.
+      setAiGradeReviews(previous => {
+        const next = { ...previous }
+        for (const index of awaiting) {
+          const question = quiz.questions[index]
+          const answer = selectedAnswers[index]
+          if (typeof answer !== 'string') continue
+          next[buildAiAnswerReviewKey(question, answer)] = {
+            question_index: index, engine: manual ? 'manual' : 'local',
+            verdict: 'uncertain', confidence: 0, credit: null, concepts: [],
+            reason: manual
+              ? 'Not graded yet. Compare your answer with the expected answer and source below.'
+              : 'Waiting for Local AI review. This answer is not marked incorrect.',
+          }
+        }
+        return next
+      })
+      setShowResults(true)
+      setAnswerReviewProgress({ completed: 0, total: awaiting.length })
+      window.setTimeout(() => {
+        document.getElementById('quiz-results')?.scrollIntoView({
+          behavior: 'smooth', block: 'center',
+        })
+      }, 100)
+      if (manual) {
+        setSaveMessage('Multiple-choice and true/false questions were graded immediately. Mark each short answer yourself; no Local AI grading was requested.')
+        return
+      }
+    }
 
     if (reviewCases.length > 0) {
       setIsReviewingAnswers(true)
       reviewingRef.current = true
-      const epoch = reviewEpoch.current
+      let timer: ReturnType<typeof setInterval> | null = null
+      if (local && desktopBridge()?.localAiAnswerReviewProgress) {
+        let polling = false
+        timer = setInterval(() => {
+          if (polling || epoch !== reviewEpoch.current) return
+          polling = true
+          void desktopBridge()?.localAiAnswerReviewProgress?.().then(progress => {
+            if (!progress || epoch !== reviewEpoch.current) return
+            const decisions = progress.decisions.filter(
+              d => reviewCases.some(c => c.question_index === d.question_index),
+            )
+            setAnswerReviewProgress({ completed: decisions.length, total: reviewCases.length })
+            if (decisions.length) {
+              setAiGradeReviews(previous =>
+                mergeAttemptReviewDecisions(previous, quiz, reviewCases, decisions))
+            }
+          }).catch(() => {}).finally(() => { polling = false })
+        }, 750)
+      }
 
       try {
         let decisions: AiAnswerReviewDecision[]
-        if (!allowRemoteAnswerReview) {
+        if (local) {
           decisions = await reviewAnswersLocally(desktopBridge(), reviewCases)
         } else {
           const response = await apiFetch('/api/answers/review', {
@@ -271,47 +333,31 @@ export function useQuizAttempt({
           decisions = data.decisions ?? []
         }
         if (epoch !== reviewEpoch.current) return
-
-        setAiGradeReviews(
-          (previous) =>
-            mergeAttemptReviewDecisions(
-              previous,
-              quiz,
-              reviewCases,
-              decisions,
-            ),
-        )
-
-        setSaveMessage(
-          `${!allowRemoteAnswerReview ? "Local AI: " : "Cloud AI: "}${decisions.length} short ${
-            decisions.length === 1
-              ? 'answer received'
-              : 'answers received'
-          } a semantic second review.`,
-        )
+        setAiGradeReviews(previous =>
+          mergeAttemptReviewDecisions(previous, quiz, reviewCases, decisions))
+        setAnswerReviewProgress({ completed: decisions.length, total: reviewCases.length })
+        setSaveMessage(`${local ? 'Local AI' : 'Cloud AI'} reviewed ${decisions.length} short ${decisions.length === 1 ? 'answer' : 'answers'}. Any uncertain answers can be checked manually.`)
       } catch {
-        setSaveMessage(
-          'Semantic second review was unavailable; deterministic grading was used.',
-        )
+        if (epoch === reviewEpoch.current) {
+          setSaveMessage(local
+            ? 'Local AI review was interrupted. You can check the remaining short answers manually.'
+            : 'Semantic review was unavailable; deterministic grading was used.')
+        }
       } finally {
+        if (timer !== null) clearInterval(timer)
         reviewingRef.current = false
-        setIsReviewingAnswers(false)
+        if (epoch === reviewEpoch.current) setIsReviewingAnswers(false)
       }
     }
 
-    setShowResults(true)
-    setResultSaved(false)
-
-    window.setTimeout(() => {
-      document
-        .getElementById(
-          'quiz-results',
-        )
-        ?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
+    if (!local && epoch === reviewEpoch.current) {
+      setShowResults(true)
+      window.setTimeout(() => {
+        document.getElementById('quiz-results')?.scrollIntoView({
+          behavior: 'smooth', block: 'center',
         })
-    }, 100)
+      }, 100)
+    }
   }
 
   function handleTryAgain() {
@@ -440,7 +486,12 @@ export function useQuizAttempt({
       !quiz ||
       !documentResult ||
       !generatedSettings ||
-      !showResults
+      !showResults ||
+      isReviewingAnswers ||
+      (!allowRemoteAnswerReview && quiz.questions.some((question, index) =>
+        question.question_type === 'short_answer' &&
+        typeof selectedAnswers[index] === 'string' &&
+        aiGradeReviews[buildAiAnswerReviewKey(question, selectedAnswers[index] as string)]?.verdict === 'uncertain'))
     ) {
       return
     }
@@ -498,6 +549,10 @@ export function useQuizAttempt({
     resultSaved,
     saveMessage,
     isReviewingAnswers,
+    shortAnswerReviewMode,
+    setShortAnswerReviewMode,
+    answerReviewProgress,
+    setManualShortAnswerGrade,
     activeQuestionIndexes,
     answeredCount,
     score,
