@@ -2922,3 +2922,42 @@ test('batched weak-area practice preserves prior-question avoidance and cancels 
   }, { signal: controller.signal }), { code: 'cancelled' })
   assert.equal(calls, 1)
 })
+
+
+test('all-mode batching acquires one bounded runtime session per quiz, never one per batch', async () => {
+  for (const mode of ['multiple_choice', 'true_false', 'short_answer', 'mixed']) {
+    let opened = 0
+    let closed = 0
+    let calls = 0
+    const provider = {
+      async generate() { throw new Error('Should only use the scoped runtime provider') },
+      async withSession(callback, { signal } = {}) {
+        opened++
+        assert.ok(!signal?.aborted)
+        try {
+          return await callback({
+            async generate(request) {
+              calls++
+              const part = BATCH_SOURCE_PAGES.find(page =>
+                request.messages[1].content.includes('--- PAGE ' + page.pageNumber + ' ---'))
+              assert.ok(part)
+              return {
+                finishReason: 'stop',
+                text: JSON.stringify({ title: 'Scoped model',
+                  questions: batchQuestions(part.pageNumber, mode) }),
+              }
+            },
+          })
+        } finally { closed++ }
+      },
+    }
+    const quiz = await createLocalQuizService({ provider }).generate({
+      pages: BATCH_SOURCE_PAGES,
+      questionCount: 15, difficulty: 'medium', questionType: mode,
+    })
+    assert.equal(quiz.questions.length, 15)
+    assert.equal(calls, 3, mode)
+    assert.equal(opened, 1, mode)
+    assert.equal(closed, 1, mode)
+  }
+})
