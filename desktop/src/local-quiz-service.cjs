@@ -1401,7 +1401,7 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {} }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
@@ -1424,6 +1424,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           try {
             const groupQuiz = await createLocalQuizService({
               provider, onValidationIssue, onGeneratedResponse, onRejectedQuestion,
+              allowSourceBackedPartial: true,
             }).generate({
               pages, questionCount: 5, difficulty: request.difficulty,
               questionType: 'mixed',
@@ -1481,7 +1482,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
         retryCandidateCountOverride = null,
         retryRejectedEvidence = [],
       ) {
-        const partialRetry = hasFlexibleFallback && partialRetryReasons.has(retryReason)
+        const partialRetry = hasFlexibleFallback &&
+          (allowSourceBackedPartial || partialRetryReasons.has(retryReason))
         const additionalNeeded = Math.max(
           1,
           QUESTION_COUNT - retryCandidateEvidence.length,
@@ -1718,6 +1720,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             {
               requireSourceFact:
                 Boolean(request.practice) || retryValidationReason === 'insufficient_source',
+              allowPartial: allowSourceBackedPartial,
+              filterRejected: allowSourceBackedPartial,
               onRejectedQuestion,
             },
           )
@@ -2241,8 +2245,10 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             sourceTextByPage,
             {
               requireSourceFact: Boolean(request.practice) || partialRetryReasons.has(retryValidationReason),
-              allowPartial: hasFlexibleFallback && partialRetryReasons.has(retryValidationReason),
-              filterRejected: hasFlexibleFallback && ['short_answer_unsupported_answer', 'short_answer_format'].includes(retryValidationReason),
+              allowPartial: allowSourceBackedPartial ||
+                (hasFlexibleFallback && partialRetryReasons.has(retryValidationReason)),
+              filterRejected: allowSourceBackedPartial ||
+                (hasFlexibleFallback && ['short_answer_unsupported_answer', 'short_answer_format'].includes(retryValidationReason)),
               onRejectedQuestion,
             },
           )
