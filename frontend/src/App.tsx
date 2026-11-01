@@ -1407,6 +1407,10 @@ function App() {
                 isReviewingAnswers={
                   attempt.isReviewingAnswers
                 }
+                shortAnswerReviewMode={attempt.shortAnswerReviewMode}
+                onShortAnswerReviewModeChange={attempt.setShortAnswerReviewMode}
+                answerReviewProgress={attempt.answerReviewProgress}
+                onManualShortAnswerGrade={attempt.setManualShortAnswerGrade}
                 isSavingHistory={
                   attempt.isSavingHistory
                 }
