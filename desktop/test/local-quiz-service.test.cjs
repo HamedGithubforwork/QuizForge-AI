@@ -2155,13 +2155,15 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(request.jsonSchema.properties.repairs.minItems, 5)
+        assert.deepEqual(request.jsonSchema.properties.repairs.items.required, ['answer'])
+        assert.deepEqual(Object.keys(request.jsonSchema.properties.repairs.items.properties), ['answer'])
         assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)
         assert.equal(request.messages.length, 2)
         assert.ok(!request.messages[1].content.includes('PAGE 5:'))
         assert.equal(JSON.parse(request.messages[1].content)[0].index, 1)
         return {
           text: JSON.stringify({ repairs: RETRY_FACTS.slice(0, 5).map(fact => ({
-            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+            answer: fact.answer,
           })) }),
           finishReason: 'stop',
         }
@@ -2208,7 +2210,7 @@ test('weak-area answer repair keeps each source fact tied to its original questi
       }
       if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
       return { text: JSON.stringify({ repairs: facts.map(fact => ({
-        answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+        answer: fact.answer,
       })) }), finishReason: 'stop' }
     } },
   })
@@ -2222,14 +2224,82 @@ test('weak-area answer repair keeps each source fact tied to its original questi
   assert.equal(quiz.questions[1].correct_answer, 'ribosomal RNA')
 })
 
-test('weak-area recovery rejects a citation swap to another real but unrelated fact', async () => {
+
+test('weak-area answer repair locks a verified Chlorophyll quotation and accepts only answer text', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  const quote = 'Chlorophyll absorbs light energy.'
+  draft.questions[3].question = 'What absorbs light energy?'
+  draft.questions[3].source_fact = quote
+  draft.questions[3].source_pages = [2]
+  draft.questions[3].choices[draft.questions[3].correct_index] = 'Sunlight'
+  const sourcePages = pages()
+  sourcePages[0].text += ' ' + quote
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      if (calls <= 2) return {
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+        finishReason: 'stop',
+      }
+      if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+      assert.deepEqual(request.jsonSchema.properties.repairs.items.required, ['answer'])
+      assert.deepEqual(Object.keys(request.jsonSchema.properties.repairs.items.properties), ['answer'])
+      // Previously the real model misspelled this locked source quote as
+      // "Chlorophopia absorbs light energy." It is no longer regenerated.
+      const answers = RETRY_FACTS.slice(0, 5).map(fact => ({ answer: fact.answer }))
+      answers[3].answer = 'Chlorophyll absorbs light energy'
+      return { text: JSON.stringify({ repairs: answers }), finishReason: 'stop' }
+    } },
+  })
+  const quiz = await service.generate({
+    pages: sourcePages, questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 4)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[3].correct_answer, 'Chlorophyll absorbs light energy')
+  assert.deepEqual(quiz.questions[3].source_pages, [2])
+  assert.equal(quiz.questions[3].explanation, quote)
+})
+
+test('weak-area repair refuses model attempts to replace an anchored source excerpt or page', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Incorrect source paraphrase'
+  let calls = 0
+  const reasons = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => reasons.push(issue.reason),
+    provider: { async generate() {
+      calls++
+      if (calls <= 2) return {
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+        finishReason: 'stop',
+      }
+      if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+      const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({ answer: fact.answer }))
+      repairs[0].source_fact = 'Fictional source fact about a different subject.'
+      repairs[0].source_page = 5
+      return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 4)
+  assert.equal(reasons.at(-1), 'question_shape')
+})
+
+test('weak-area recovery rejects answer substitution from an unrelated source fact', async () => {
   const draft = withRetrySourceFacts(rawQuiz())
   draft.questions[0].question = 'What do mitochondria produce?'
   draft.questions[0].choices[draft.questions[0].correct_index] = 'Molecule that stores energy'
   const untrusted = [
-    { answer: 'ribosomal RNA', source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
+    { answer: 'ribosomal RNA' },
     ...RETRY_FACTS.slice(1, 5).map(fact => ({
-      answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+      answer: fact.answer,
     })),
   ]
   let calls = 0
@@ -2267,7 +2337,7 @@ test('weak-area fallback selects answer phrases only from each question own veri
         if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
         if (calls === 4) {
           const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
-            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+            answer: fact.answer,
           }))
           repairs[0].answer = 'Fictional biofuel'
           repairs[2].answer = 'Unverified interior material'
@@ -2309,7 +2379,7 @@ test('weak-area answer repair rejects model-proposed answers absent from its cit
         }
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
-          answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+          answer: fact.answer,
         }))
         repairs[0].answer = 'Invented fuel'
         return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
