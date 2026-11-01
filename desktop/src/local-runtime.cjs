@@ -155,10 +155,14 @@ function createLocalRuntime({
   gpuFallbackLayers = () => [0],
   onGpuStartupFailure = () => {},
   onInferenceCompleted = () => {},
+  onDiagnostic = () => {},
   platform = process.platform,
   arch = process.arch,
   guardProcess = createWindowsProcessGuard,
 }) {
+  function diagnostic(event, fields) {
+    try { onDiagnostic(event, fields) } catch {}
+  }
   let active = null
   let closed = false
   let lastAccelerationMode = null
@@ -166,6 +170,7 @@ function createLocalRuntime({
 
   async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99) {
     let child, childClosed, processGuard
+    let stage = 'verification'
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
       const model = await modelStore.status({ signal: bounded })
@@ -183,6 +188,8 @@ function createLocalRuntime({
           ? selectedGpuDevice : 'Vulkan0', '-ngl', String(gpuLayers)]
         : ['--device', 'none', '-ngl', '0']
       if (fallbackState && mode === 'gpu') fallbackState.eligible = true
+      stage = 'startup'
+      diagnostic('runtime_launch', { acceleration: mode, layers: mode === 'gpu' ? gpuLayers : 0 })
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
         '-c', '12288', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
@@ -210,6 +217,8 @@ function createLocalRuntime({
         } catch { startup.throwIfAborted() }
         await delay(100, undefined, { signal: startup })
       }
+      stage = 'inference'
+      diagnostic('runtime_ready', { acceleration: mode })
       const generationStarted = performance.now()
       const result = await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 5200) },
@@ -228,6 +237,9 @@ function createLocalRuntime({
         }))
       } catch {}
       return result
+    } catch (error) {
+      diagnostic('runtime_failed', { stage, reason: error?.name === 'TimeoutError' ? 'timed_out' : error?.name === 'AbortError' ? 'cancelled' : error?.code })
+      throw error
     } finally {
       let cleanupError = null
       try {
@@ -246,7 +258,10 @@ function createLocalRuntime({
         cleanupError ||= fail('shutdown_failed')
       }
       try { onProcessChange(null) } catch {}
-      if (cleanupError) throw cleanupError
+      if (cleanupError) {
+        diagnostic('runtime_failed', { stage: 'cleanup', reason: cleanupError.code })
+        throw cleanupError
+      }
     }
   }
 

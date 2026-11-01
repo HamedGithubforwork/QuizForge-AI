@@ -1,6 +1,7 @@
 'use strict'
 
 const path = require('node:path')
+const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
   createLocalQuizService,
@@ -33,6 +34,7 @@ function createWindowsLocalAiStack({
   runtimeDirectory,
   documentProcessor = null,
   onRuntimeProcess = () => {},
+  onDiagnostic = () => {},
   onQuizValidationIssue = () => {},
   onQuizGeneratedResponse = null,
 } = {}) {
@@ -53,6 +55,29 @@ function createWindowsLocalAiStack({
   let documentController = null
   let disposed = false
   let lastQuizValidationIssue = null
+  let activeOperationId = null
+  function diagnostic(event, fields = {}) {
+    try { onDiagnostic(event, { operationId: activeOperationId, ...fields }) } catch {}
+  }
+  async function traceOperation(kind, request, operation) {
+    const operationId = randomUUID()
+    const ownsTrace = activeOperationId === null
+    if (ownsTrace) activeOperationId = operationId
+    const started = performance.now()
+    diagnostic('operation_started', { operationId, kind, questionCount: request?.questionCount,
+      difficulty: request?.difficulty, questionType: request?.questionType })
+    try {
+      const result = await operation()
+      diagnostic('operation_completed', { operationId, kind, elapsedMs: performance.now() - started,
+        returnedCount: (result?.quiz ?? result)?.questions?.length })
+      return result
+    } catch (error) {
+      diagnostic('operation_failed', { operationId, kind, elapsedMs: performance.now() - started, reason: error?.code })
+      throw error
+    } finally {
+      if (ownsTrace) activeOperationId = null
+    }
+  }
 
   function captureQuizValidationIssue(issue) {
     // Preserve only the validator's fixed reason code. Never retain quiz text,
@@ -60,6 +85,7 @@ function createWindowsLocalAiStack({
     if (issue && typeof issue.reason === 'string' && /^[a-z_]{1,64}$/.test(issue.reason)) {
       lastQuizValidationIssue = issue.reason
     }
+    diagnostic('validation_failed', { reason: issue?.reason, attempt: issue?.attempt })
     try { onQuizValidationIssue(issue) } catch {}
   }
 
@@ -72,13 +98,21 @@ function createWindowsLocalAiStack({
       gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       gpuLayerCount: () => selectedGpuLayers ?? 99,
       gpuFallbackLayers: () => offloadPolicy.fallbackLayers(),
-      onGpuStartupFailure: layers => offloadPolicy.recordFailure(layers),
+      onGpuStartupFailure: layers => {
+        diagnostic('gpu_startup_failed', { layers })
+        offloadPolicy.recordFailure(layers)
+      },
       onInferenceCompleted: metric => {
+        diagnostic('inference_completed', metric)
         if (metric.layers === 0 || metric.acceleration === 'gpu') {
           offloadPolicy.recordInference(metric)
         }
       },
-      onProcessChange: onRuntimeProcess,
+      onDiagnostic: diagnostic,
+      onProcessChange: pid => {
+        diagnostic(pid === null ? 'runtime_stopped' : 'runtime_started')
+        onRuntimeProcess(pid)
+      },
     })
     const provider = createWindowsLocalAiProvider({
       runtime,
@@ -144,6 +178,7 @@ function createWindowsLocalAiStack({
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const ready = await quizStatus()
     if (!ready.available) {
+      diagnostic('availability_failed', { reason: ready.reason })
       if (ready.reason === 'model_missing') throw new LocalAiError('model_missing')
       if (ready.reason === 'invalid_model') throw new LocalAiError('invalid_model')
       if (ready.reason === 'runtime_invalid') throw new LocalAiError('runtime_invalid')
@@ -153,6 +188,10 @@ function createWindowsLocalAiStack({
     // No PDF text, question content or model output is ever persisted.
     await offloadPolicy.prepare(manager.status()?.capability?.hardware)
     selectedGpuLayers = offloadPolicy.choose()
+    const capability = manager.status()?.capability
+    diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
+      logicalCpuCount: capability?.hardware?.logicalCpuCount, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
+      gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes })
     quizController = new AbortController()
     const controller = quizController
     const currentOperation = Promise.resolve().then(() => operation(controller.signal))
@@ -169,16 +208,18 @@ function createWindowsLocalAiStack({
 
   async function generateQuiz(request) {
     lastQuizValidationIssue = null
-    return runQuiz(signal => quizService.generate(request, { signal }))
+    return traceOperation('quiz', request, () => runQuiz(signal => quizService.generate(request, { signal })))
   }
 
   async function generateDocumentQuiz(request) {
-    if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
-    lastQuizValidationIssue = null
-    return runQuiz(signal => documentQuizService.generate(request, { signal }))
+    return traceOperation('document_quiz', request, () => {
+      if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
+      lastQuizValidationIssue = null
+      return runQuiz(signal => documentQuizService.generate(request, { signal }))
+    })
   }
 
-  async function processDocument(request, options) {
+  async function processDocumentInternal(request, options) {
     if (disposed || !documentProcessor) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const controller = new AbortController()
@@ -193,7 +234,12 @@ function createWindowsLocalAiStack({
     }
   }
 
+  function processDocument(request, options) {
+    return traceOperation('pdf', request, () => processDocumentInternal(request, options))
+  }
+
   async function cancelQuiz() {
+    if (quizOperation || documentOperation) diagnostic('cancel_requested')
     const operation = quizOperation
     const documentTask = documentOperation
     quizController?.abort()

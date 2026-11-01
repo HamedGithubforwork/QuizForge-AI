@@ -292,6 +292,7 @@ if (!app.requestSingleInstanceLock()) {
   // Cold callbacks cannot match a prior process's private PKCE transaction.
   void receiveCallback(process.argv)
   app.whenReady().then(async () => {
+    diagnostics.startPersistence(path.join(app.getPath('userData'), 'diagnostics'))
     const browserSession = session.fromPartition('quiz-from-notes-preview')
     const localAiRuntimeDirectory = typeof process.resourcesPath === 'string' && process.platform === 'win32'
       ? path.join(process.resourcesPath, 'local-ai-runtime')
@@ -351,6 +352,7 @@ if (!app.requestSingleInstanceLock()) {
           : undefined
       localAiManager = createWindowsLocalAiStack({
         userDataDirectory: app.getPath('userData'),
+        onDiagnostic: (event, fields) => diagnostics.record(event, fields),
         ...(runtimeDirectory ? { runtimeDirectory } : {}),
         documentProcessor: createLocalDocumentProcessor({ engine: createPdfJsLocalEngine() }),
       })

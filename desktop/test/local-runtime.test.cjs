@@ -388,3 +388,19 @@ test('runtime performance callback receives only bounded timing and token counts
   assert.equal(observations[0].completionTokens, 120)
   assert.ok(observations[0].elapsedMs >= 0)
 })
+
+test('diagnostics distinguish runtime startup, inference failure and private error content', async () => {
+  const events = []
+  const fixture = runtimeFixture({ options: {
+    onDiagnostic: (event, fields) => events.push({ event, ...fields }),
+    requestFn: async (_port, _key, route) => {
+      if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+      throw Object.assign(new Error('private prompt and credential'), { code: 'request_failed' })
+    },
+  } })
+  await assert.rejects(fixture.runtime.complete({ messages: [] }), { code: 'request_failed' })
+  assert.deepEqual(events.map(x => x.event), ['runtime_launch', 'runtime_ready', 'runtime_failed'])
+  assert.equal(events.at(-1).stage, 'inference')
+  assert.equal(events.at(-1).reason, 'request_failed')
+  assert.doesNotMatch(JSON.stringify(events), /private|credential/)
+})
