@@ -13,11 +13,13 @@ import type {
   QuizResult,
   UploadResult,
 } from '../../types/quiz'
+import { formatGenerationDuration } from '../../lib/generationTiming.ts'
 import QuizQuestionCard from './QuizQuestionCard.tsx'
 import QuizResultsCard from './QuizResultsCard.tsx'
 
 type QuizSessionProps = {
   quiz: QuizResult
+  generationDurationMs: number | null
   documentResult: UploadResult
   generatedSettings:
     | GeneratedSettings
@@ -89,6 +91,7 @@ type QuizSessionProps = {
 
 function QuizSession({
   quiz,
+  generationDurationMs,
   documentResult,
   generatedSettings,
   selectedAnswers,
@@ -144,6 +147,12 @@ function QuizSession({
         </div>
 
         <div className="quiz-meta">
+          {generationDurationMs !== null && (
+            <span className="generation-duration">
+              Generated in {formatGenerationDuration(generationDurationMs)}
+              {generatedSettings?.engine ? ` • ${generatedSettings.engine === 'local' ? 'Local AI' : 'Cloud AI'}` : ''}
+            </span>
+          )}
           <span>
             {quiz.questions.length}{' '}
             questions
