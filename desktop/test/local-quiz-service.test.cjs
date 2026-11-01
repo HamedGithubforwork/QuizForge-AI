@@ -508,7 +508,7 @@ test('duplicate repair will not use the generic fallback for non-English questio
 
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
-    { questionCount: 10, questionType: 'multiple_choice' },
+    { questionCount: 5, questionType: 'multiple_choice' },
     { questionCount: 5, questionType: 'true_false' },
     { questionCount: 5, questionType: 'short_answer' },
     { questionCount: 5, questionType: 'mixed' },
@@ -2703,3 +2703,88 @@ test('source-backed mixed batches filter unsupported answers but retain the vali
   assert.deepEqual(quiz.questions.map(q => q.correct_answer), ['Code1', 'Code2', 'Code3'])
   assert.ok(quiz.questions.every(q => !Object.hasOwn(q, 'source_fact')))
 })
+
+test('large MCQ requests use bounded, source-backed five-item batches', async () => {
+  const pagesToUse = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Topic${pageNumber} datum ${i + 1} is Color${pageNumber}${i + 1}.`).join(' '),
+  }))
+  for (const count of [10, 15]) {
+    const seen = []
+    const questions = page => Array.from({ length: 5 }, (_, i) => {
+      const sourceFact = `Topic${page} datum ${i + 1} is Color${page}${i + 1}.`
+      const answer = `Color${page}${i + 1}`
+      return {
+        question_type: 'multiple_choice',
+        question: `Which color describes topic ${page} datum ${i + 1}?`,
+        choices: [answer, 'IncorrectRed', 'IncorrectBlue', 'IncorrectGreen'],
+        correct_index: 0, correct_answer: answer,
+        accepted_answers: [answer], explanation: sourceFact,
+        source_fact: sourceFact, source_pages: [page],
+      }
+    })
+    const service = createLocalQuizService({ provider: {
+      async generate(value) {
+        assert.equal(value.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+        assert.equal(value.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+        assert.ok(value.maxTokens < 3000, 'no oversized single-shot generation')
+        const groupSource = value.messages[1].content
+        const page = pagesToUse.find(p => groupSource.includes(`--- PAGE ${p.pageNumber} ---`))
+        assert.ok(page)
+        seen.push(page.pageNumber)
+        return { finishReason: 'stop',
+          text: JSON.stringify({ title: 'Source-backed MCQs', questions: questions(page.pageNumber) }) }
+      },
+    } })
+    const result = await service.generate({
+      pages: pagesToUse, questionCount: count,
+      difficulty: 'hard', questionType: 'multiple_choice',
+    })
+    assert.equal(seen.length, count / 5)
+    assert.equal(result.questions.length, count)
+    assert.equal(new Set(result.questions.map(q => q.question)).size, count)
+    assert.ok(result.questions.every(q => q.choices.length === 4 && q.correct_index === 0))
+  }
+})
+
+test('hard MCQ recovery retains valid questions after model returns malformed choices', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Module ${pageNumber} fact ${i + 1} is Mark${pageNumber}${i + 1}.`).join(' '),
+  }))
+  const rejected = []
+  const service = createLocalQuizService({
+    onRejectedQuestion: info => rejected.push(info),
+    provider: { async generate(request) {
+      const page = parts.find(part =>
+        request.messages[1].content.includes(`--- PAGE ${part.pageNumber} ---`))
+      assert.ok(page)
+      const questions = Array.from({ length: 5 }, (_, i) => {
+        const fact = `Module ${page.pageNumber} fact ${i + 1} is Mark${page.pageNumber}${i + 1}.`
+        const answer = `Mark${page.pageNumber}${i + 1}`
+        return {
+          question_type: 'multiple_choice',
+          question: `Which mark identifies module ${page.pageNumber} fact ${i + 1}?`,
+          choices: i === 0 ? [answer, 'WrongA', 'WrongB'] :
+            [answer, 'WrongA', 'WrongB', 'WrongC'],
+          correct_index: 0, correct_answer: answer,
+          accepted_answers: [answer], explanation: fact,
+          source_pages: [page.pageNumber], source_fact: fact,
+        }
+      })
+      return { finishReason: 'stop', text: JSON.stringify({ title: 'Partial MCQs', questions }) }
+    } },
+  })
+  const result = await service.generate({
+    pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'multiple_choice',
+  })
+  assert.equal(result.questions.length, 12)
+  assert.equal(rejected.length, 3)
+  assert.ok(rejected.every(item => item.reason === 'multiple_choice_shape'))
+  assert.equal(new Set(result.questions.map(q => q.question)).size, 12)
+  assert.ok(result.questions.every(q => q.choices.length === 4))
+  assert.ok(result.questions.every(q => q.correct_answer === q.choices[q.correct_index]))
+})
+
