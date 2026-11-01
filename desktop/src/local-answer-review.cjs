@@ -46,7 +46,12 @@ function normalizeReview(raw, index, source, answer) {
   // exception. Never relax confidence for full credit, contradictions or
   // unsupported/ambiguous responses.
   const groundedPartial = matched > 0 && missing > 0 && !contradicted
-  if (raw.uncertain || raw.confidence < (groundedPartial ? 0.7 : 0.8)) {
+  // A contradiction must have a model-selected contradicted concept with an
+  // exact student quote AND an exact source quote. A free-form claim of
+  // "contradiction" alone is insufficient to relax the confidence threshold.
+  const groundedContradiction = raw.contradiction &&
+    raw.concepts.some(c => c.status === 'contradicted')
+  if (raw.uncertain || raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
     return uncertain(index, raw.reason)
   }
   const credit = contradicted ? 0 : matched / raw.concepts.length
