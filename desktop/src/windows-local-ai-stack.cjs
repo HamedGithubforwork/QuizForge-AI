@@ -62,6 +62,7 @@ function createWindowsLocalAiStack({
   let disposed = false
   let lastQuizValidationIssue = null
   let quizProgressState = null
+  let previousBatchMark = null
   const debugReport = createLocalAiDebugReport()
   let activeOperationId = null
   function diagnostic(event, fields = {}) {
@@ -141,6 +142,17 @@ function createWindowsLocalAiStack({
             !Number.isSafeInteger(value?.validQuestions) ||
             value.completedBatches < 0 || value.totalBatches < 1 ||
             value.completedBatches > value.totalBatches || value.validQuestions < 0) return
+        const now = performance.now()
+        if (value.completedBatches === 0) previousBatchMark = now
+        else if (previousBatchMark !== null) {
+          diagnostic('batch_completed', {
+            batchNumber: value.completedBatches,
+            totalBatches: value.totalBatches,
+            validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+            elapsedMs: now - previousBatchMark,
+          })
+          previousBatchMark = now
+        }
         quizProgressState = Object.freeze({
           ...quizProgressState,
           completedBatches: value.completedBatches,
@@ -157,6 +169,7 @@ function createWindowsLocalAiStack({
     quizService = { async generate(request, options) {
       reviewContext = null
       const epoch = contextEpoch
+      previousBatchMark = null
       quizProgressState = Object.freeze({
         phase: 'generating', completedBatches: 0,
         // Start with one request. Only announce multiple batches once the
@@ -175,10 +188,17 @@ function createWindowsLocalAiStack({
           completedBatches: quizProgressState.totalBatches,
           validQuestions: generated.questions.length,
         })
-        return reviewQuizDistinctness({
+        const distinctnessStarted = performance.now()
+        const verified = await reviewQuizDistinctness({
           provider: activeProvider, quiz: generated,
           pages: request.pages, signal: options?.signal,
         })
+        diagnostic('distinctness_completed', {
+          elapsedMs: performance.now() - distinctnessStarted,
+          status: verified.generation?.distinctness ?? 'unavailable',
+          duplicateCount: verified.generation?.duplicateCount ?? 0,
+        })
+        return verified
       }
       const quiz = typeof provider.withSession === 'function'
         ? await provider.withSession(produce, { signal: options?.signal })
