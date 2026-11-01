@@ -115,7 +115,12 @@ export function shouldRequestAiAnswerReview(
   if (localReview) {
     const exact = [question.correct_answer, ...question.accepted_answers]
       .some(value => normalizeShortAnswer(value) === normalizeShortAnswer(answer))
-    return Boolean(answer.trim()) && !exact && !(grading?.grading_mode === 'numeric' && deterministicGrade.correct)
+    // A fully matched exact-mode list with tightly validated terminology
+    // has no need for a second probabilistic review. This also prevents a
+    // lower-confidence model response from overriding demonstrably equivalent
+    // source-backed terms such as CO2 and carbon dioxide.
+    return Boolean(answer.trim()) && !exact &&
+      !(['numeric', 'exact'].includes(grading?.grading_mode ?? '') && deterministicGrade.correct)
   }
 
   if (
