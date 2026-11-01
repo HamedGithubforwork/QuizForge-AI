@@ -179,6 +179,7 @@ export type DesktopBridge = {
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
   localAiQuizStatus?(): Promise<DesktopLocalAiQuizStatus>
   localAiQuizProgress?(): Promise<DesktopLocalQuizProgress | null>
+  localAiAnswerReviewProgress?(): Promise<{ total: number; decisions: AiAnswerReviewDecision[] } | null>
   generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
   generateLocalDocumentQuiz?(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
   processLocalPdf?(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>
