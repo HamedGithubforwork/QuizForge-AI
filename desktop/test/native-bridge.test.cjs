@@ -257,3 +257,28 @@ test('desktop sign-in accepts only the fixed Google and default methods', async 
   assert.equal(provider, 'google')
   await assert.rejects(handlers['qfn:signIn'](event, 'https://evil.invalid'), /Unsupported desktop sign-in method/)
 })
+
+test('local grading IPC exposes allowlisted failure codes without leaking private exception details', async () => {
+  const handlers = {}
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  const error = new Error('Private PDF content must not appear in renderer errors')
+  error.code = 'busy'
+  const local = { reviewLocalAnswers: async () => { throw error } }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => ({}),
+    getAccount: () => ({ current: () => ({ userId: 'user', enrolled: true }) }),
+    getLocalAi: () => local,
+    openAccountWebsite: () => {},
+  })
+  const request = { cases: [{ question_index: 0, question: 'Question',
+    correct_answer: 'Answer', student_answer: 'Student response' }] }
+  const event = { sender: contents, senderFrame: frame }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'busy' })
+  error.code = 'an_internal_secret_path'
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_unavailable' })
+})
