@@ -1,15 +1,17 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { createLocalAnswerReview, normalizeReview } = require('../src/local-answer-review.cjs')
+const { createLocalAnswerReview, normalizeReview: validateReview } = require('../src/local-answer-review.cjs')
 const { applyDuplicates, reviewQuizDistinctness } = require('../src/local-quiz-distinctness.cjs')
 const source = 'The nucleus stores most of the cell DNA and helps control cell activities.'
 const answer = 'stores most dna and protects it and controls cell activities'
 const question = { question_type: 'short_answer', question: 'What are the main functions of the nucleus?', correct_answer: 'stores most of the cell DNA and helps control cell activities', source_pages: [1] }
+const normalizeReview = (raw, index, source, answer, expected = question.correct_answer) =>
+  validateReview(raw, index, source, answer, expected)
 const valid = { confidence: 0.95, reason: 'Both required functions are expressed.', uncertain: false, contradiction: false,
   concepts: [
-    { concept: 'Stores DNA', status: 'matched', source_quote: 'stores most of the cell DNA', answer_quote: 'stores most dna' },
-    { concept: 'Controls cell activities', status: 'matched', source_quote: 'helps control cell activities', answer_quote: 'controls cell activities' },
+    { concept: 'Stores DNA', expected_quote: 'stores most of the cell DNA', status: 'matched', source_quote: 'stores most of the cell DNA', answer_quote: 'stores most dna' },
+    { concept: 'Controls cell activities', expected_quote: 'helps control cell activities', status: 'matched', source_quote: 'helps control cell activities', answer_quote: 'controls cell activities' },
   ] }
 test('grade derives full, partial, contradictory and uncertain outcomes from validated concept evidence', () => {
   assert.equal(normalizeReview(valid, 0, source, answer).verdict, 'correct')
@@ -50,10 +52,10 @@ test('real pinned Qwen partial result: omission alone must not suppress evidence
     uncertain: true,
     contradiction: false,
     concepts: [
-      { concept: 'Stores most of the cell DNA', status: 'matched',
+      { concept: 'Stores most of the cell DNA', expected_quote: 'stores most of the cell DNA', status: 'matched',
         source_quote: 'Stores most of the cell DNA and helps control cell activities.',
         answer_quote: 'It stores most of the DNA.' },
-      { concept: 'Helps control cell activities', status: 'missing',
+      { concept: 'Helps control cell activities', expected_quote: 'helps control cell activities', status: 'missing',
         source_quote: 'Stores most of the cell DNA and helps control cell activities.',
         answer_quote: '' },
     ],
@@ -96,15 +98,15 @@ test('chloroplast process location earns partial only with verifiable evidence o
     confidence: 0.76, uncertain: false, contradiction: false,
     reason: 'Mentions photosynthesis but omits light capture using chlorophyll.',
     concepts: [
-      { concept: 'Supports photosynthesis', status: 'matched',
+      { concept: 'Supports photosynthesis', expected_quote: 'photosynthesis', status: 'matched',
         source_quote: 'Captures light energy for photosynthesis using',
         answer_quote: 'photosynthesis' },
-      { concept: 'Captures light energy using chlorophyll', status: 'missing',
+      { concept: 'Captures light energy using chlorophyll', expected_quote: 'Captures light energy', status: 'missing',
         source_quote: 'Captures light energy for photosynthesis using',
         answer_quote: '' },
     ],
   }
-  const decision = normalizeReview(review, 0, sourceText, student)
+  const decision = normalizeReview(review, 0, sourceText, student, sourceText)
   assert.equal(decision.verdict, 'partial')
   assert.equal(decision.credit, 0.5)
   // Formatting changes to apostrophes and sentence punctuation must not make
@@ -112,14 +114,14 @@ test('chloroplast process location earns partial only with verifiable evidence o
   const formatted = structuredClone(review)
   formatted.concepts[0].source_quote = 'Captures light energy for photosynthesis, using'
   formatted.concepts[0].answer_quote = "it's where photosynthesis occurs"
-  assert.equal(normalizeReview(formatted, 0, sourceText, student).verdict, 'partial')
+  assert.equal(normalizeReview(formatted, 0, sourceText, student, sourceText).verdict, 'partial')
   assert.equal(normalizeReview({
     ...review,
     concepts: [
       { ...review.concepts[0], source_quote: 'Chloroplasts are a power plant' },
       review.concepts[1],
     ],
-  }, 0, sourceText, student).verdict, 'uncertain')
+  }, 0, sourceText, student, sourceText).verdict, 'uncertain')
 })
 
 test('review uses only supplied local provider, bounds malformed output and never reviews a stale quiz', async () => {
@@ -205,7 +207,7 @@ test('quoted adversarial instructions in study content are not automatically tre
     return { finishReason: 'stop', text: JSON.stringify({
       confidence: 0.95, uncertain: false, contradiction: false,
       reason: 'The student copied the quoted instruction.',
-      concepts: [{ concept: 'Quoted instruction', status: 'matched',
+      concepts: [{ concept: 'Quoted instruction', expected_quote: literal, status: 'matched',
         source_quote: literal, answer_quote: literal }],
     }) }
   } } })
@@ -323,4 +325,49 @@ test('semantic duplicate review removes reversed facts with shared evidence and 
   const result = await reviewQuizDistinctness({ quiz, pages: [], provider: { generate() { throw new Error('Unavailable') } } })
   assert.equal(result.questions.length, 3)
   assert.equal(result.generation.distinctness, 'unavailable')
+})
+
+test('student-only elaboration cannot become a missing expected-answer requirement', async () => {
+  // Regression for CI run 41356127943: Qwen matched both nucleus functions,
+  // then invented a third required "Protects DNA" concept and awarded 2/3.
+  const inflated = structuredClone(valid)
+  inflated.reason = 'Both functions are present, but protection is not in the source.'
+  inflated.concepts.push({ concept: 'Protects DNA', status: 'missing',
+    expected_quote: 'Protects DNA', source_quote: source, answer_quote: '' })
+  assert.equal(normalizeReview(inflated, 0, source, answer).verdict, 'uncertain')
+  inflated.concepts[2].expected_quote = ''
+  assert.equal(normalizeReview(inflated, 0, source, answer).verdict, 'uncertain')
+  inflated.concepts[2].status = 'matched'
+  inflated.concepts[2].answer_quote = 'protects it'
+  assert.equal(normalizeReview(inflated, 0, source, answer).verdict, 'uncertain')
+
+  const decisions = []
+  let calls = 0
+  const grader = createLocalAnswerReview({ provider: { async generate(request) {
+    assert.ok(request.jsonSchema.properties.concepts.items.required.includes('expected_quote'))
+    calls++
+    return { finishReason: 'stop', text: JSON.stringify(calls === 1 ? inflated : valid) }
+  } } })
+  const result = await grader.review({ cases: [{ question_index: 0,
+    question: question.question, correct_answer: question.correct_answer, student_answer: answer }] },
+  { quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }],
+    onDecision: decision => decisions.push(decision) })
+  assert.equal(calls, 2)
+  assert.equal(result.decisions[0].verdict, 'correct')
+  assert.equal(result.decisions[0].credit, 1)
+  assert.equal(decisions.length, 1, 'never publish the unsupported partial score')
+})
+
+test('additional contradictory claims still invalidate an otherwise complete answer', () => {
+  const extraSource = source + ' Mitochondria release energy from food during cellular respiration.'
+  const extraAnswer = answer + ' and the nucleus releases energy from food during cellular respiration'
+  const review = structuredClone(valid)
+  review.contradiction = true
+  review.concepts.push({ concept: 'Assigns cellular respiration to the nucleus',
+    status: 'contradicted', expected_quote: '',
+    source_quote: 'Mitochondria release energy from food during cellular respiration.',
+    answer_quote: 'the nucleus releases energy from food during cellular respiration' })
+  assert.equal(normalizeReview(review, 0, extraSource, extraAnswer).verdict, 'incorrect')
+  review.concepts[2].source_quote = 'The nucleus cannot release energy'
+  assert.equal(normalizeReview(review, 0, extraSource, extraAnswer).verdict, 'uncertain')
 })
