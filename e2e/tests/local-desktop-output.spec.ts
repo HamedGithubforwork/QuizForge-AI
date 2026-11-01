@@ -106,7 +106,16 @@ async function openDesktopUi(
         reminderStatus: async () => ({ supported: false, enabled: false }),
         enableReminders: async () => {},
         disableReminders: async () => {},
-        localAiStatus: async () => ({ model: { ready: true }, capability: { acceleration: 'cpu' } }),
+        localAiStatus: async () => ({
+          phase: 'idle',
+          model: { ready: true, state: 'ready', bytes: 2497280256 },
+          capability: {
+            localEligible: true, recommendation: 'enhanced-local-preview',
+            acceleration: 'cpu',
+            hardware: { gpuDetected: true, gpuAccelerationUsable: false },
+          },
+          lastAccelerationMode: null,
+        }),
         startLocalAiModelDownload: async () => ({}),
         cancelLocalAiModelDownload: async () => ({}),
         removeLocalAiModel: async () => ({}),
