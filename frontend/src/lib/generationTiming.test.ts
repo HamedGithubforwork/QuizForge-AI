@@ -32,6 +32,25 @@ test('estimate starts only after two matching successful settings samples', () =
   assert.equal(overdue.upperRemainingMs, 0)
 })
 
+test('practice timings do not borrow regular quiz estimates and legacy samples remain quizzes', () => {
+  const practice = { ...profile, kind: 'practice' as const }
+  let samples = appendGenerationTiming([], profile, 60_000)
+  samples = appendGenerationTiming(samples, profile, 70_000)
+  assert.equal(estimateGenerationTime(samples, practice, 1_000), null)
+  samples = appendGenerationTiming(samples, practice, 90_000)
+  assert.equal(estimateGenerationTime(samples, practice, 1_000), null)
+  samples = appendGenerationTiming(samples, practice, 110_000)
+  assert.equal(estimateGenerationTime(samples, practice, 10_000)?.sampleCount, 2)
+  assert.equal(estimateGenerationTime(samples, profile, 10_000)?.sampleCount, 2)
+  const loaded = readGenerationTimings({
+    getItem() { return JSON.stringify(samples) },
+  })
+  assert.equal(estimateGenerationTime(loaded, practice, 10_000)?.sampleCount, 2)
+  assert.equal(loaded.filter(x => x.kind === 'practice').length, 2)
+  assert.equal(loaded.filter(x => x.kind === undefined).length, 2)
+  assert.deepEqual(appendGenerationTiming([], { ...practice, kind: 'wrong' as 'practice' }, 3_000), [])
+})
+
 test('only valid durations and settings are stored; limit and failed storage are safe', () => {
   const samples = appendGenerationTiming([], profile, 0)
   assert.deepEqual(samples, [])
