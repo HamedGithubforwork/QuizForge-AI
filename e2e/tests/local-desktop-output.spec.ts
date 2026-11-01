@@ -75,7 +75,7 @@ function syntheticPdf(): Buffer {
 }
 
 async function openDesktopUi(
-  page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
+  page: Page, quiz: ModelQuiz, returnEmpty: boolean | 'insufficient_source' = false, practiceQuiz?: ModelQuiz,
   options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
   pdfMimeType = 'application/pdf',
@@ -143,6 +143,9 @@ async function openDesktopUi(
             return practiceResult
               ? { ok: true, quiz: practiceResult }
               : { ok: false, error: 'insufficient_source' }
+          }
+          if (empty === 'insufficient_source') {
+            return { ok: false, error: 'insufficient_source' }
           }
           return { ok: true, quiz: empty
             ? { title: 'Empty quiz', questions: [] }
@@ -238,11 +241,23 @@ test('a 15-question request displays five safe questions and preserves the reque
   expect(errors).toEqual([])
 })
 
-test('an empty success response shows an error instead of a blank quiz', async ({ page }) => {
+test('zero-question successful response shows actionable guidance instead of a blank quiz', async ({ page }) => {
   const errors = await openDesktopUi(page, readModelQuiz(), true)
-  await expect(page.getByRole('alert')).toContainText('Local AI returned an empty or incomplete quiz')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('Try selecting more pages')
+  await expect(alert).toContainText('changing the difficulty')
   await expect(page.locator('.question-card')).toHaveCount(0)
   await expect(page.locator('#quiz-results')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('insufficient-source response shows the same actionable zero-question guidance', async ({ page }) => {
+  const errors = await openDesktopUi(page, readModelQuiz(), 'insufficient_source')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('uploading a document with more study material')
+  await expect(page.locator('.question-card')).toHaveCount(0)
   expect(errors).toEqual([])
 })
  
