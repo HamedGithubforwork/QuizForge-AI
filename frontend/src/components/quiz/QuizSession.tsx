@@ -61,6 +61,10 @@ type QuizSessionProps = {
     QuestionTypeScore
   getAnswerReview?: (question: QuizQuestion, answer: AnswerValue | undefined) => AiAnswerReviewDecision | undefined
   isReviewingAnswers: boolean
+  shortAnswerReviewMode: 'local-ai' | 'manual'
+  answerReviewProgress: { completed: number; total: number } | null
+  onShortAnswerReviewModeChange: (mode: 'local-ai' | 'manual') => void
+  onManualShortAnswerGrade: (index: number, verdict: 'correct' | 'partial' | 'incorrect') => void
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
@@ -121,6 +125,10 @@ function QuizSession({
   shortAnswerScore,
   getAnswerReview,
   isReviewingAnswers,
+  shortAnswerReviewMode,
+  answerReviewProgress,
+  onShortAnswerReviewModeChange,
+  onManualShortAnswerGrade,
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
@@ -361,6 +369,10 @@ function QuizSession({
                 question={question}
                 answerReview={getAnswerReview?.(question, selectedAnswer)}
                 isReviewing={isReviewingAnswers}
+                allowManualGrade={showResults && generatedSettings?.engine === 'local' && !isReviewingAnswers && (
+                  shortAnswerReviewMode === 'manual' || getAnswerReview?.(question, selectedAnswer)?.verdict === 'uncertain'
+                )}
+                onManualGrade={onManualShortAnswerGrade}
                 questionIndex={
                   questionIndex
                 }
@@ -397,6 +409,21 @@ function QuizSession({
         )}
       </div>
 
+      {!showResults && generatedSettings?.engine === 'local' &&
+        quiz.questions.some(question => question.question_type === 'short_answer') && (
+        <fieldset className="short-review-options">
+          <legend>How should short answers be graded?</legend>
+          <label><input type="radio" name="local-short-review-mode"
+            checked={shortAnswerReviewMode === 'local-ai'}
+            onChange={() => onShortAnswerReviewModeChange('local-ai')} />
+            Local AI — show other answers immediately, then review short answers one by one</label>
+          <label><input type="radio" name="local-short-review-mode"
+            checked={shortAnswerReviewMode === 'manual'}
+            onChange={() => onShortAnswerReviewModeChange('manual')} />
+            Self-check — grade multiple choice and true/false immediately; I will mark short answers</label>
+        </fieldset>
+      )}
+
       {!showResults && (
         <button
           className="button primary-button check-button"
@@ -414,6 +441,8 @@ function QuizSession({
         <QuizResultsCard
           quiz={quiz}
           documentResult={documentResult}
+          isReviewingAnswers={isReviewingAnswers}
+          answerReviewProgress={answerReviewProgress}
           questionCount={
             quiz.questions.length
           }
