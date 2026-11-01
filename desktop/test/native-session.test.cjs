@@ -199,3 +199,21 @@ test('cancel-sign-in does not sign out a previously verified account', async () 
   assert.equal(f.session.status().signedIn, true)
   assert.equal(f.revoked.length, 0)
 })
+
+test('temporary token refresh outage retains session and permits subsequent recovery', async () => {
+  let refreshCount = 0
+  const transient = Object.assign(new Error('private network detail'), { code: 'transient_auth_error' })
+  const f = fixture({ client: { refresh: async () => {
+    refreshCount++
+    if (refreshCount === 1) throw transient
+    return account()
+  } } })
+  await f.login()
+  assert.equal(await f.session.session(true), null)
+  assert.equal(f.session.status().signedIn, true,
+    'temporary outage must not force an account sign-out')
+  assert.deepEqual(f.revoked, [])
+  assert.equal((await f.session.session(true)).accessToken, 'access-one')
+  assert.equal(f.session.status().signedIn, true)
+  assert.equal(refreshCount, 2)
+})
