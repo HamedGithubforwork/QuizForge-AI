@@ -318,7 +318,7 @@ test('failed weak-area practice reports its error beside the completed quiz', as
   await expect(page.locator('#quiz-results').getByRole('alert'))
     .toContainText('Could not build weak-area practice')
   await expect(page.locator('#quiz-results').getByRole('alert'))
-    .toContainText('Choose more pages or use Cloud AI.')
+    .toContainText('Try selecting more pages, uploading a document with more study material, or changing the difficulty.')
   await expect(page.locator('.question-card')).toHaveCount(5)
   expect(errors).toEqual([])
 })
