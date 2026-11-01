@@ -194,6 +194,29 @@ an event history, not a native crash dump. If the whole app freezes, restart it 
 export the retained history. Diagnostic records cannot recover failures from older
 builds that did not record them.
 
+### Detailed Local AI debug capture
+
+To investigate a rejected question, choose **Help → Record next Local AI quiz for
+debugging…**, confirm, then generate the quiz with the failing settings. Choose
+**Help → Save detailed Local AI debug report…** afterward. This separate report
+contains rejected question text, generated answers and bounded cited-page excerpts.
+It records one attempt in memory only (up to 30 rejections / 200,000 characters),
+and is cleared on sign-out, account replacement or app shutdown. It is never
+included in normal diagnostics or uploaded automatically. Review it before sharing.
+
+For generalized quizzes rejected because of a short-answer format or grounding
+failure, the existing single retry now requests exact source evidence and may
+return fewer questions. Invalid retry items are excluded independently; accepted
+retry items retain all existing checks, including exact source quotes, supported
+answers and distinct evidence. A mixed partial result may lack a type when no
+valid question of that type survived. Zero validated questions remains an error.
+The original draft is still regenerated once; this does not yet perform targeted
+answer repair of the original draft.
+
+The Windows acceptance workflow also runs the fixed three-page biology fixture
+with 15 questions, Hard, Mixed and retains its rejection evidence. These are
+non-private fixture contents; user debug reports are never uploaded by CI.
+
 ## Native browser sign-in acceptance (preview 0.1.1)
 
 Use **Help → Test desktop sign-in…** in the installed Windows app. Finish signing in

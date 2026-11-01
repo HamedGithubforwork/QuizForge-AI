@@ -1,6 +1,7 @@
 'use strict'
 
 const path = require('node:path')
+const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
@@ -55,6 +56,7 @@ function createWindowsLocalAiStack({
   let documentController = null
   let disposed = false
   let lastQuizValidationIssue = null
+  const debugReport = createLocalAiDebugReport()
   let activeOperationId = null
   function diagnostic(event, fields = {}) {
     try { onDiagnostic(event, { operationId: activeOperationId, ...fields }) } catch {}
@@ -63,6 +65,9 @@ function createWindowsLocalAiStack({
     const operationId = randomUUID()
     const ownsTrace = activeOperationId === null
     if (ownsTrace) activeOperationId = operationId
+    const debugAttempt = ownsTrace && kind !== 'pdf'
+    if (debugAttempt) debugReport.begin({ operationId, questionCount: request?.questionCount,
+      difficulty: request?.difficulty, questionType: request?.questionType })
     const started = performance.now()
     diagnostic('operation_started', { operationId, kind, questionCount: request?.questionCount,
       difficulty: request?.difficulty, questionType: request?.questionType })
@@ -75,6 +80,7 @@ function createWindowsLocalAiStack({
       diagnostic('operation_failed', { operationId, kind, elapsedMs: performance.now() - started, reason: error?.code })
       throw error
     } finally {
+      if (debugAttempt) debugReport.finish()
       if (ownsTrace) activeOperationId = null
     }
   }
@@ -120,7 +126,12 @@ function createWindowsLocalAiStack({
       modelId: resources.modelId,
     })
     quizService = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
-      onGeneratedResponse: onQuizGeneratedResponse })
+      onGeneratedResponse: onQuizGeneratedResponse,
+      onRejectedQuestion: issue => {
+        diagnostic('question_rejected', { reason: issue.reason, questionNumber: issue.questionNumber,
+          questionType: issue.questionType, sourcePages: issue.sourcePages })
+        debugReport.record(issue)
+      } })
     if (documentProcessor) {
       documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
     }
@@ -250,12 +261,16 @@ function createWindowsLocalAiStack({
   async function dispose() {
     if (disposed) return
     disposed = true
+    debugReport.clear()
     await cancelQuiz().catch(() => {})
     await runtime?.shutdown().catch(() => {})
     await manager.dispose().catch(() => {})
   }
 
   return Object.freeze({
+    armDetailedDebug: debugReport.arm,
+    detailedDebugReport: debugReport.report,
+    clearDetailedDebug: debugReport.clear,
     load: manager.load,
     status: manager.status,
     startDownload: manager.startDownload,

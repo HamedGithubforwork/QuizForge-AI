@@ -1261,6 +1261,8 @@ function parseGeneratedQuiz(text, allowedPages, avoidQuestions = []) {
 function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   requireSourceFact = false,
   allowPartial = false,
+  filterRejected = false,
+  onRejectedQuestion = () => {},
 } = {}) {
   let parsed
   try { parsed = JSON.parse(text) } catch { invalidQuiz('json') }
@@ -1281,7 +1283,11 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   const seen = new Set()
   const seenSourceFacts = new Set()
   const foundTypes = new Set()
-  const questions = parsed.questions.map(item => {
+  const questions = parsed.questions.map((item, index) => {
+    const previousQuestions = new Set(seen)
+    const previousFacts = new Set(seenSourceFacts)
+    const previousTypes = new Set(foundTypes)
+    try {
     if (!plain(item) || Object.keys(item).some(key => ![
       'question_type', 'question', 'choices', 'correct_index', 'correct_answer',
       'accepted_answers', 'explanation', 'source_pages',
@@ -1367,8 +1373,25 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
       explanation: item.explanation.trim(),
       source_pages: Object.freeze([...item.source_pages]),
     })
-  })
-  if (request.questionType === 'mixed' && questions.length >= 3 &&
+    } catch (error) {
+      if (!(error instanceof QuizValidationIssue)) throw error
+      const pages = Array.isArray(item?.source_pages)
+        ? item.source_pages.filter(page => Number.isSafeInteger(page) && allowedPages.has(page)).slice(0, 8) : []
+      try { onRejectedQuestion({ reason: error.reason, questionNumber: index + 1,
+        questionType: item?.question_type, sourcePages: pages,
+        question: typeof item?.question === 'string' ? item.question.slice(0, 500) : '',
+        answer: typeof item?.correct_answer === 'string' ? item.correct_answer.slice(0, 300) : '',
+        sources: pages.map(page => ({ page, excerpt: (sourceTextByPage.get(page) ?? '').slice(0, 8000) })),
+      }) } catch {}
+      if (!filterRejected || !requireSourceFact) throw error
+      for (const [set, previous] of [[seen, previousQuestions], [seenSourceFacts, previousFacts], [foundTypes, previousTypes]]) {
+        set.clear(); for (const value of previous) set.add(value)
+      }
+      return null
+    }
+  }).filter(Boolean)
+  if (questions.length === 0) throw failure('insufficient_source')
+  if (!filterRejected && request.questionType === 'mixed' && questions.length >= 3 &&
       ['multiple_choice', 'true_false', 'short_answer'].some(type => !foundTypes.has(type))) {
     invalidQuiz('mixed_type_coverage')
   }
@@ -1378,7 +1401,7 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {} }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
@@ -1393,6 +1416,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       const hasFlexibleFallback = !targetedMultipleChoice && !useLegacyMultipleChoiceContract
       const partialRetryReasons = new Set([
         'insufficient_source', 'question_count', 'insufficient_source_facts',
+        'short_answer_unsupported_answer', 'short_answer_format',
       ])
       const allowedPages = new Set(
         request.pages.map(page => page.pageNumber),
@@ -1485,7 +1509,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               : request.questionType === 'true_false'
                 ? 'Use choices exactly ["True", "False"] and set correct_index to the correct answer.'
                 : request.questionType === 'short_answer'
-                  ? 'Use choices [], correct_index -1, a concise correct_answer, and accepted_answers with only correct variants.'
+                  ? 'Use choices [], correct_index -1, and a concise correct_answer copied as an exact contiguous phrase from the cited source page. Do not paraphrase it. accepted_answers may contain only variants that the source supports.'
                   : 'Use all three question types: multiple_choice, true_false, and short_answer, at least one each. Use four choices for multiple choice, ["True", "False"] for true/false, and for short answer use choices [], correct_index -1, and copy correct_answer as an exact contiguous phrase from its cited source page; do not paraphrase.'
             messages.push(Object.freeze({
               role: 'user',
@@ -1650,6 +1674,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             {
               requireSourceFact:
                 Boolean(request.practice) || retryValidationReason === 'insufficient_source',
+              onRejectedQuestion,
             },
           )
         }
@@ -2173,6 +2198,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             {
               requireSourceFact: Boolean(request.practice) || partialRetryReasons.has(retryValidationReason),
               allowPartial: hasFlexibleFallback && partialRetryReasons.has(retryValidationReason),
+              filterRejected: hasFlexibleFallback && ['short_answer_unsupported_answer', 'short_answer_format'].includes(retryValidationReason),
+              onRejectedQuestion,
             },
           )
         }
