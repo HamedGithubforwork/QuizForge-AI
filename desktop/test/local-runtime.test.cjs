@@ -142,6 +142,26 @@ test('shutdown cancels an active session, waits for cleanup and prevents restart
   await runtime.shutdown()
 })
 
+test('runtime preserves timeout cause when HTTP reports a generic abort', async () => {
+  const controller = new AbortController()
+  const { runtime } = runtimeFixture({
+    options: {
+      requestFn: async (_port, _key, route, _payload, signal) => {
+        if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        return new Promise((_resolve, reject) => {
+          const onAbort = () => reject(new DOMException('Request aborted', 'AbortError'))
+          signal.addEventListener('abort', onAbort, { once: true })
+          controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'))
+        })
+      },
+    },
+  })
+  await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'test' }] }, {
+    signal: controller.signal,
+  }), { name: 'TimeoutError' })
+  assert.equal(runtime.status().busy, false)
+})
+
 test('a runtime process that exits during startup fails closed', async () => {
   const child = fakeChild({ exited: true })
   const { runtime } = runtimeFixture({ child })
