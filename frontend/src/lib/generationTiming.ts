@@ -2,6 +2,8 @@
 // Never persist PDF pages, questions, source text, user identity, or model output.
 export type GenerationTimingProfile = {
   engine: 'local' | 'cloud'
+  // Missing on legacy samples; treat it as an ordinary quiz.
+  kind?: 'quiz' | 'practice'
   questionCount: number
   difficulty: string
   questionType: string
@@ -28,6 +30,7 @@ function validProfile(value: unknown): value is GenerationTimingProfile {
   if (!value || typeof value !== 'object') return false
   const profile = value as Record<string, unknown>
   return (profile.engine === 'local' || profile.engine === 'cloud') &&
+    (profile.kind === undefined || profile.kind === 'quiz' || profile.kind === 'practice') &&
     [5, 10, 15].includes(profile.questionCount as number) &&
     ['easy', 'medium', 'hard'].includes(profile.difficulty as string) &&
     ['multiple_choice', 'short_answer', 'true_false', 'mixed'].includes(profile.questionType as string)
@@ -59,6 +62,7 @@ export function readGenerationTimings(
     return Array.isArray(parsed)
       ? parsed.slice(-SAMPLE_LIMIT).filter(validSample).map(sample => ({
         engine: sample.engine,
+        ...(sample.kind === 'practice' ? { kind: 'practice' as const } : {}),
         questionCount: sample.questionCount,
         difficulty: sample.difficulty,
         questionType: sample.questionType,
@@ -89,6 +93,7 @@ export function estimateGenerationTime(
   if (!validProfile(profile) || !Number.isFinite(elapsedMs) || elapsedMs < 0) return null
   const matches = samples.filter(s => validSample(s) &&
     s.engine === profile.engine &&
+    (s.kind ?? 'quiz') === (profile.kind ?? 'quiz') &&
     s.questionCount === profile.questionCount &&
     s.difficulty === profile.difficulty &&
     s.questionType === profile.questionType).slice(-5)
