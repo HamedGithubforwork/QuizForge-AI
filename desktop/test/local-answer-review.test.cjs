@@ -137,6 +137,38 @@ test('review uses only supplied local provider, bounds malformed output and neve
   assert.equal(calls, 1)
   await assert.rejects(service.review({ cases: [...request.cases, ...request.cases] }, context), { code: 'invalid_request' })
 })
+test('local answer review publishes each decision as the model finishes it', async () => {
+  const observed = []
+  let resolveSecond
+  const gate = new Promise(resolve => { resolveSecond = resolve })
+  let calls = 0
+  const provider = { async generate() {
+    calls++
+    if (calls === 2) await gate
+    return { text: JSON.stringify(valid), finishReason: 'stop' }
+  } }
+  const grader = createLocalAnswerReview({ provider })
+  const q2 = { ...question, question: 'Name the nucleus functions again.' }
+  const cases = [
+    { question_index: 0, question: question.question, correct_answer: question.correct_answer, student_answer: answer },
+    { question_index: 1, question: q2.question, correct_answer: q2.correct_answer, student_answer: answer },
+  ]
+  const promise = grader.review({ cases }, {
+    quiz: { questions: [question, q2] },
+    pages: [{ pageNumber: 1, text: source }],
+    onDecision: decision => observed.push(decision),
+  })
+  // Yield until the first model response and callback have completed.
+  for (let i = 0; i < 20 && calls < 2; i++) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(observed.length, 1, 'the first answer appears before the next finishes')
+  assert.equal(observed[0].question_index, 0)
+  resolveSecond()
+  const result = await promise
+  assert.equal(result.decisions.length, 2)
+  assert.deepEqual(observed.map(d => d.question_index), [0, 1])
+  assert.ok(observed.every(d => d.verdict === 'correct'))
+})
+
 test('semantic duplicate review removes reversed facts with shared evidence and preserves other concepts', async () => {
   const quiz = { questions: [
     { ...question, question: 'What does the nucleus store?', correct_answer: 'DNA' },
