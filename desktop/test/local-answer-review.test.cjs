@@ -16,6 +16,14 @@ test('grade derives full, partial, contradictory and uncertain outcomes from val
   const partial = structuredClone(valid)
   partial.concepts[1].status = 'missing'; partial.concepts[1].answer_quote = ''
   assert.equal(normalizeReview(partial, 0, source, 'stores most dna').credit, 0.5)
+  // Reproduces real pinned-Qwen response: one evidenced concept matched,
+  // one evidenced concept missing and 0.75 model confidence.
+  partial.confidence = 0.75
+  assert.equal(normalizeReview(partial, 0, source, 'stores most dna').verdict, 'partial')
+  partial.confidence = 0.69
+  assert.equal(normalizeReview(partial, 0, source, 'stores most dna').verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...valid, confidence: 0.75 }, 0, source, answer).verdict, 'uncertain')
+  assert.equal(normalizeReview({ ...valid, contradiction: true, confidence: 0.75 }, 0, source, answer).verdict, 'uncertain')
   assert.equal(normalizeReview({ ...valid, contradiction: true }, 0, source, answer).verdict, 'incorrect')
   assert.equal(normalizeReview({ ...valid, confidence: 0.5 }, 0, source, answer).verdict, 'uncertain')
   const fabricated = structuredClone(valid); fabricated.concepts[0].source_quote = 'The nucleus makes all proteins'
