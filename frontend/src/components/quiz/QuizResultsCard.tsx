@@ -10,6 +10,8 @@ import type {
   UploadResult,
 } from '../../types/quiz'
 import SaveDeckPanel from './SaveDeckPanel.tsx'
+import GenerationTimingPanel from './GenerationTimingPanel.tsx'
+import type { GenerationTimeEstimate } from '../../lib/generationTiming.ts'
 
 type QuizResultsCardProps = {
   quiz: QuizResult
@@ -34,6 +36,9 @@ type QuizResultsCardProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  showPracticeTiming: boolean
+  practiceTimingElapsedMs: number
+  practiceTimingEstimate: GenerationTimeEstimate | null
   weakPracticeError: string
   canCancelWeakPractice: boolean
   isGenerating: boolean
@@ -65,6 +70,9 @@ function QuizResultsCard({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  showPracticeTiming,
+  practiceTimingElapsedMs,
+  practiceTimingEstimate,
   weakPracticeError,
   canCancelWeakPractice,
   isGenerating,
@@ -259,6 +267,14 @@ function QuizResultsCard({
         quiz={quiz}
         documentResult={documentResult}
       />
+
+      {showPracticeTiming && (
+        <GenerationTimingPanel
+          label="Generating weak-area practice quiz"
+          elapsedMs={practiceTimingElapsedMs}
+          estimate={practiceTimingEstimate}
+        />
+      )}
 
       <div className="result-actions">
         <button
