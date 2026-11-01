@@ -559,8 +559,13 @@ test('local generation honors website question counts and every question mode', 
       provider: {
         async generate(value) {
           captured = value
+          // Five normal MCQs use the compact legacy contract; other question
+          // modes use the full typed contract.
+          const output = request.questionType === 'multiple_choice'
+            ? generated.map(({ question_type, correct_answer, accepted_answers, ...item }) => item)
+            : generated
           return {
-            text: JSON.stringify({ title: 'Local study quiz', questions: generated }),
+            text: JSON.stringify({ title: 'Local study quiz', questions: output }),
             finishReason: 'stop',
             usage: null,
           }
@@ -2835,7 +2840,7 @@ test('all four quiz modes use five-item batches for 10 and 15 normal and weak-ar
             const page = BATCH_SOURCE_PAGES.find(item =>
               text.includes('--- PAGE ' + item.pageNumber + ' ---'))
             assert.ok(page)
-            assert.equal(request.messages[0].content.includes('up to 5'), true)
+            assert.match(request.messages[0].content, /up to (?:five|5)/i)
             captured.push({ pageNumber: page.pageNumber, request })
             return {
               finishReason: 'stop',
