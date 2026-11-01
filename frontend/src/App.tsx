@@ -29,6 +29,7 @@ import {
   desktopLocalQuizBridge,
   desktopLocalPdfBridge,
   type DesktopLocalAiQuizStatus,
+  type DesktopLocalQuizProgress,
   type DesktopLocalPdfDocument,
 } from './lib/desktop.ts'
 import {
@@ -123,6 +124,7 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const [localBatchProgress, setLocalBatchProgress] = useState<DesktopLocalQuizProgress | null>(null)
   const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
   const localPdfBridge = localPdfBridgeRef.current
   useEffect(() => {
@@ -181,6 +183,32 @@ function App() {
       active = false
     }
   }, [localQuizBridge])
+
+  useEffect(() => {
+    if (!localQuizBridge || generationMode !== 'local' ||
+        (!isGenerating && !isWeakPracticeGenerating) ||
+        typeof localQuizBridge.localAiQuizProgress !== 'function') {
+      setLocalBatchProgress(null)
+      return
+    }
+    let cancelled = false
+    let inFlight = false
+    const poll = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const progress = await localQuizBridge.localAiQuizProgress?.()
+        if (!cancelled) setLocalBatchProgress(progress ?? null)
+      } catch {
+        // The timer remains available when progress IPC is unsupported.
+      } finally {
+        inFlight = false
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => { void poll() }, 1200)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [localQuizBridge, generationMode, isGenerating, isWeakPracticeGenerating])
 
   const attempt = useQuizAttempt({
     quiz,
@@ -1287,6 +1315,7 @@ function App() {
               generationStage={
                 generationStage
               }
+              localBatchProgress={localBatchProgress}
               generationElapsedMs={generationElapsedMs}
               generationEstimate={generationEstimate}
               onQuestionCountChange={
@@ -1327,6 +1356,7 @@ function App() {
                 showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'results'}
                 practiceTimingElapsedMs={generationElapsedMs}
                 practiceTimingEstimate={practiceEstimate}
+                localBatchProgress={localBatchProgress}
                 documentResult={
                   documentResult
                 }
@@ -1459,6 +1489,7 @@ function App() {
           showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'history'}
           practiceTimingElapsedMs={generationElapsedMs}
           practiceTimingEstimate={practiceEstimate}
+          localBatchProgress={localBatchProgress}
           onPracticeWeakAreas={
             handleHistoryPracticeWeakAreas
           }
