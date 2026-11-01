@@ -363,10 +363,13 @@ function QuizSession({
       </nav>
 
       {showResults && generatedSettings?.engine === 'local' && (
-        <p className="review-section-intro">
-          Multiple-choice and true/false results are shown first. Short answers follow
-          with individual Local AI decisions or your own self-grading.
-        </p>
+        <div className="review-section-intro" role="status">
+          <strong>Multiple-choice and true/false answers have been graded.</strong>
+          {' '}Short answers follow afterward, with individual Local AI decisions or your own grades.
+          {isReviewingAnswers && answerReviewProgress && (
+            <p>Local AI has checked {answerReviewProgress.completed} of {answerReviewProgress.total} short answers. You can read these results while it continues.</p>
+          )}
+        </div>
       )}
       <div className="questions-list">
         {displayedQuestionIndexes.map(
