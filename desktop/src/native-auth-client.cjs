@@ -27,7 +27,15 @@ async function createNativeAuthClient({ poolId, clientId, fetchImpl = globalThis
   async function boundedJson(url, options = {}, allowEmpty = false) {
     const timeout = AbortSignal.timeout(8000)
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout
-    const response = await fetchImpl(url, { ...options, signal, redirect: 'error', credentials: 'omit', cache: 'no-store' })
+    let response
+    try {
+      response = await fetchImpl(url, { ...options, signal, redirect: 'error', credentials: 'omit', cache: 'no-store' })
+    } catch (error) {
+      // Only actual transport failures are retryable. Malformed token data,
+      // failed JWT verification and unexpected code errors are not.
+      if (error instanceof TypeError || ['AbortError', 'TimeoutError'].includes(error?.name)) throw temporaryUnavailable()
+      throw error
+    }
     if (response.status === 429 || response.status >= 500) {
       await response.body?.cancel()
       throw temporaryUnavailable()
@@ -119,9 +127,7 @@ async function createNativeAuthClient({ poolId, clientId, fetchImpl = globalThis
         // A temporary network/server outage must not revoke a valid refresh
         // token and force the user to restart the application. An explicit
         // bad token, invalid JWT or 4xx rejection remains fail-closed.
-        if (error?.code === 'transient_auth_error' ||
-            ['AbortError', 'TimeoutError'].includes(error?.name) ||
-            error instanceof TypeError) throw temporaryUnavailable()
+        if (error?.code === 'transient_auth_error') throw temporaryUnavailable()
         invalid()
       }
     },
