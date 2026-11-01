@@ -303,6 +303,42 @@ assertEqual(
   false,
 )
 
+// Regression: a three-input photosynthesis answer is correct regardless
+// of order or accepted chemical/light terminology, not 2/3 partial credit.
+const photosynthesisInputsQuestion: ShortAnswerQuestion = {
+  ...exactQuestion,
+  correct_answer: 'Carbon dioxide, water, light',
+  accepted_answers: ['Carbon dioxide, water, light'],
+}
+assertEqual(
+  gradeShortAnswer(photosynthesisInputsQuestion, 'water, co 2 , sunlight').correct,
+  true,
+)
+assertEqual(
+  gradeShortAnswer(photosynthesisInputsQuestion, 'sunlight, CO2, water').correct,
+  true,
+)
+assertEqual(
+  gradeShortAnswer(photosynthesisInputsQuestion, 'water, CO2').correct,
+  false,
+)
+assertEqual(
+  gradeShortAnswer(photosynthesisInputsQuestion, 'water, CO2, moonlight').correct,
+  false,
+)
+assertEqual(
+  gradeShortAnswer(photosynthesisInputsQuestion, 'water, CO2, sunlight, incorrect fact').correct,
+  false,
+)
+assertEqual(
+  gradeShortAnswer({
+    ...photosynthesisInputsQuestion,
+    correct_answer: 'Light, lens, colour',
+    accepted_answers: [],
+  }, 'sunlight, lens, colour').correct,
+  false,
+)
+
 const legacyQuestion: ShortAnswerQuestion = {
   correct_answer: 'Playwright',
   accepted_answers: [
