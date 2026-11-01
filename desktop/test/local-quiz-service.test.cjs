@@ -2394,3 +2394,131 @@ test('targeted practice retries validation at most once', async () => {
 test('structured schema requires four unique choices before post-validation', () => {
   assert.equal(QUIZ_SCHEMA.properties.questions.items.properties.choices.uniqueItems, true)
 })
+
+test('a 15-question request returns three strictly grounded questions instead of failing', async () => {
+  const facts = RETRY_FACTS.slice(0, 3)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'multiple_choice',
+    question: 'Which term answers fact ' + (index + 1) + '?',
+    choices: [fact.answer, 'Unrelated A', 'Unrelated B', 'Unrelated C'],
+    correct_index: 0,
+    correct_answer: fact.answer,
+    accepted_answers: [fact.answer],
+    explanation: fact.text,
+    source_pages: [fact.page],
+    source_fact: fact.text,
+  }))
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 1) {
+          assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 15)
+          return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+        }
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 15)
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'), true)
+        assert.match(request.messages[0].content, /up to 15/i)
+        assert.match(request.messages[0].content, /only if zero independently supported/i)
+        return { text: JSON.stringify({ title: 'Short biology quiz', questions }), finishReason: 'stop' }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 15, difficulty: 'medium', questionType: 'multiple_choice',
+  })
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 3)
+  assert.deepEqual(quiz.questions.map(q => q.correct_answer), facts.map(fact => fact.answer))
+  assert.deepEqual(issues, ['insufficient_source'])
+})
+
+test('partial fallback works after an incomplete primary draft for 10 questions', async () => {
+  const facts = RETRY_FACTS.slice(0, 4)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'short_answer', question: 'What fact is described ' + index + '?',
+    choices: [], correct_index: -1, correct_answer: fact.answer,
+    accepted_answers: [fact.answer], explanation: fact.text,
+    source_pages: [fact.page], source_fact: fact.text,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      if (calls === 1) return {
+        text: JSON.stringify({ title: 'First draft', questions: questions.slice(0, 4) }),
+        finishReason: 'stop',
+      }
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+      return { text: JSON.stringify({ title: 'Partial quiz', questions }), finishReason: 'stop' }
+    },
+  } })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 10, difficulty: 'medium', questionType: 'short_answer',
+  })
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 4)
+  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'exact'))
+})
+
+test('mixed practice can return two supported questions without inventing a third question type', async () => {
+  const facts = RETRY_FACTS.slice(0, 2)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'multiple_choice', question: 'Distinct mixed fact ' + index + '?',
+    choices: [fact.answer, 'wrong 1', 'wrong 2', 'wrong 3'],
+    correct_index: 0, correct_answer: fact.answer, accepted_answers: [fact.answer],
+    explanation: fact.text, source_pages: [fact.page], source_fact: fact.text,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate() {
+      calls++
+      return {
+        text: JSON.stringify(calls === 1
+          ? { title: 'Insufficient source material', questions: [] }
+          : { title: 'Mixed partial', questions }),
+        finishReason: 'stop',
+      }
+    },
+  } })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 15, difficulty: 'easy',
+    questionType: 'mixed', practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(quiz.questions.length, 2)
+})
+
+test('partial fallback still rejects unsupported answers, repeated evidence and no usable facts', async () => {
+  for (const variant of ['fabricated', 'duplicate', 'none']) {
+    const facts = RETRY_FACTS.slice(0, 2)
+    const questions = facts.map((fact, index) => ({
+      question_type: 'multiple_choice', question: 'Partial question ' + index + '?',
+      choices: [fact.answer, 'wrong 1', 'wrong 2', 'wrong 3'],
+      correct_index: 0, correct_answer: fact.answer,
+      accepted_answers: [fact.answer], explanation: fact.text,
+      source_pages: [fact.page], source_fact: fact.text,
+    }))
+    if (variant === 'fabricated') questions[0].source_fact = 'This fictional unsupported sentence is not in the notes.'
+    if (variant === 'duplicate') questions[1].source_fact = questions[0].source_fact
+    let calls = 0
+    const service = createLocalQuizService({ provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls === 1 || variant === 'none'
+            ? { title: 'Insufficient source material', questions: [] }
+            : { title: 'Untrusted partial', questions }),
+          finishReason: 'stop',
+        }
+      },
+    } })
+    await assert.rejects(service.generate({
+      pages: pages(), questionCount: 15, difficulty: 'medium', questionType: 'multiple_choice',
+    }), { code: variant === 'none' ? 'insufficient_source' : 'quiz_validation_failed' }, variant)
+    assert.equal(calls, 2, variant)
+  }
+})
