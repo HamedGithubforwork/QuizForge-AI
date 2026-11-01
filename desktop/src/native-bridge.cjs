@@ -67,6 +67,9 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
+    // Reset an abandoned OAuth attempt without clearing the account's local
+    // study data or running the broader sign-out/Local AI cleanup path.
+    cancelSignIn: async () => getSession()?.cancelSignIn?.() ?? false,
     signOut: async () => { getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
