@@ -87,6 +87,11 @@ function QuizResultsCard({
 }: QuizResultsCardProps) {
   const hasIncorrectAnswers =
     score < questionCount
+  const assessedCount = Math.max(0, questionCount - uncertainCount)
+  const earnedCredit = Number((score + partialCredit).toFixed(2))
+  const assessedCreditPercentage = assessedCount > 0
+    ? Math.round((earnedCredit / assessedCount) * 100)
+    : null
 
   return (
     <section
@@ -115,10 +120,11 @@ function QuizResultsCard({
         {uncertainCount > 0 && ` · ${uncertainCount} need review (not marked incorrect)`}
       </p>
 
-      {(partialCount > 0 || uncertainCount > 0) && <p>
-        Study credit: {Number((score + partialCredit).toFixed(2))} / {questionCount - uncertainCount} assessed points.
-        The percentage and saved score count fully correct answers; partial credit is shown separately.
-        {uncertainCount > 0 && ' The overall score is provisional until uncertain answers are reviewed.'}
+      {(partialCount > 0 || uncertainCount > 0) && <p className="assessed-credit-summary">
+        <strong>Study credit: {earnedCredit} / {assessedCount} assessed points
+        {assessedCreditPercentage !== null && ` (${assessedCreditPercentage}%)`}</strong>.
+        {' '}The large score above counts only fully correct answers, not partial credit.
+        {uncertainCount > 0 && ` ${uncertainCount} answer${uncertainCount === 1 ? ' is' : 's are'} pending review and excluded from the assessed points. The overall score is provisional.`}
       </p>}
       <div className="score-breakdown">
         {multipleChoiceScore.total > 0 && (
