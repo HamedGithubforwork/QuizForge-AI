@@ -2253,6 +2253,8 @@ test('weak-area recovery rejects a citation swap to another real but unrelated f
 
 test('weak-area fallback selects answer phrases only from each question own verified quote', async () => {
   const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Fictional biofuel'
+  draft.questions[2].choices[draft.questions[2].correct_index] = 'Unverified interior material'
   let calls = 0
   const service = createLocalQuizService({
     provider: {
