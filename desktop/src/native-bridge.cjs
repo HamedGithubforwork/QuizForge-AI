@@ -100,6 +100,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     },
     localAiQuizStatus: () => localAi().quizStatus(),
     localAiQuizProgress: () => localAi().quizProgress?.() ?? null,
+    localAiAnswerReviewProgress: () => localAi().reviewProgress?.() ?? null,
     processLocalPdf: async value => {
       if (!value || typeof value !== 'object' || Array.isArray(value) ||
           Object.keys(value).some(key => !['bytes', 'filename', 'selectedPages'].includes(key)) ||
