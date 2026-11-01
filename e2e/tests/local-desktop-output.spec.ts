@@ -80,8 +80,9 @@ async function openDesktopUi(
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
   pdfMimeType = 'application/pdf',
   pauseFirstGeneration = false,
+  pausePracticeGeneration = false,
 ) {
-  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected, pauseFirstGeneration }) => {
+  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected, pauseFirstGeneration, pausePracticeGeneration }) => {
     const calls = {
       pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[],
       resolvePendingQuiz: null as null | (() => void),
@@ -153,6 +154,11 @@ async function openDesktopUi(
             return { ok: false, error: 'invalid_request' }
           }
           if (request.practice) {
+            if (pausePracticeGeneration && practiceResult) {
+              return new Promise(resolve => {
+                calls.resolvePendingQuiz = () => resolve({ ok: true, quiz: practiceResult })
+              })
+            }
             return practiceResult
               ? { ok: true, quiz: practiceResult }
               : { ok: false, error: 'insufficient_source' }
@@ -173,7 +179,7 @@ async function openDesktopUi(
         loadSourcePageText: async () => '',
       },
     })
-  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options, pauseFirstGeneration })
+  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options, pauseFirstGeneration, pausePracticeGeneration })
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
@@ -229,6 +235,39 @@ test('the real model output becomes five visible, answerable questions and a res
   expect(result.pdf).toBe(1)
   expect(result.generate).toBe(1)
   expect(result.requests.some(request => request.includes('/api/quizzes/generate'))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('weak-area practice displays live elapsed time and the completed practice duration', async ({ page }) => {
+  const base = readModelQuiz()
+  const practice = { ...base, title: 'Timed Weak-Area Practice' }
+  const errors = await openDesktopUi(
+    page, base, false, practice, undefined, 'application/pdf', false, true,
+  )
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  for (const [index, question] of base.questions.entries()) {
+    const wrong = (question.correct_index + 1) % 4
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? wrong : question.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  const timer = page.getByTestId('quiz-generation-timing')
+  await expect(timer).toContainText('Generating weak-area practice quiz')
+  await expect(timer).toContainText('Elapsed:')
+  await expect(timer).toContainText('An estimate becomes available')
+  await expect(page.locator('#quiz-start')).toContainText(base.title)
+  await page.evaluate(() => {
+    const probe = (window as unknown as {
+      __localOutputProbe: { resolvePendingQuiz: null | (() => void) };
+    }).__localOutputProbe
+    if (!probe.resolvePendingQuiz) throw new Error('Pending practice response missing')
+    probe.resolvePendingQuiz()
+  })
+  await expect(page.locator('#quiz-start')).toContainText('Timed Weak-Area Practice')
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
+  await expect(page.getByTestId('quiz-generation-timing')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
