@@ -2788,3 +2788,137 @@ test('hard MCQ recovery retains valid questions after model returns malformed ch
   assert.ok(result.questions.every(q => q.correct_answer === q.choices[q.correct_index]))
 })
 
+
+
+const BATCH_SOURCE_PAGES = [1, 2, 3].map(pageNumber => ({
+  pageNumber,
+  text: Array.from({ length: 5 }, (_, index) =>
+    'Sample ' + pageNumber + ' fact ' + (index + 1) +
+    ' is Code' + pageNumber + (index + 1) + '.').join(' '),
+}))
+
+function batchQuestions(pageNumber, mode) {
+  return Array.from({ length: 5 }, (_, index) => {
+    const answer = 'Code' + pageNumber + (index + 1)
+    const sourceFact = 'Sample ' + pageNumber + ' fact ' + (index + 1) + ' is ' + answer + '.'
+    const questionType = mode === 'mixed'
+      ? ['multiple_choice', 'true_false', 'short_answer', 'multiple_choice', 'true_false'][index]
+      : mode
+    return {
+      question_type: questionType,
+      question: 'What does sample ' + pageNumber + ' fact ' + (index + 1) + ' state?',
+      choices: questionType === 'multiple_choice'
+        ? [answer, 'WrongA', 'WrongB', 'WrongC']
+        : questionType === 'true_false' ? ['True', 'False'] : [],
+      correct_index: questionType === 'short_answer' ? -1 : 0,
+      correct_answer: questionType === 'true_false' ? 'True' : answer,
+      accepted_answers: [questionType === 'true_false' ? 'True' : answer],
+      explanation: sourceFact,
+      source_pages: [pageNumber],
+      source_fact: sourceFact,
+    }
+  })
+}
+
+test('all four quiz modes use five-item batches for 10 and 15 normal and weak-area questions', async () => {
+  for (const mode of ['multiple_choice', 'true_false', 'short_answer', 'mixed']) {
+    for (const count of [10, 15]) {
+      for (const practice of [false, true]) {
+        const captured = []
+        const service = createLocalQuizService({ provider: {
+          async generate(request) {
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+            assert.ok(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
+            assert.ok(request.maxTokens < 3000)
+            const text = request.messages[1].content
+            const page = BATCH_SOURCE_PAGES.find(item =>
+              text.includes('--- PAGE ' + item.pageNumber + ' ---'))
+            assert.ok(page)
+            assert.equal(request.messages[0].content.includes('up to 5'), true)
+            captured.push({ pageNumber: page.pageNumber, request })
+            return {
+              finishReason: 'stop',
+              text: JSON.stringify({ title: 'Independent study facts',
+                questions: batchQuestions(page.pageNumber, mode) }),
+            }
+          },
+        } })
+        const result = await service.generate({
+          pages: BATCH_SOURCE_PAGES,
+          questionCount: count, difficulty: 'hard', questionType: mode,
+          ...(practice
+            ? { practice: { focusPages: [2], avoidQuestions: ['Previously tested question?'] } }
+            : {}),
+        })
+        assert.equal(captured.length, count / 5, mode + ' ' + count)
+        assert.equal(result.questions.length, count, mode + ' ' + count)
+        assert.equal(new Set(result.questions.map(q => q.question)).size, count)
+        assert.ok(result.questions.every(q => q.question_type === mode || mode === 'mixed'))
+        assert.ok(result.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+        if (practice) {
+          assert.equal(captured[0].pageNumber, 2)
+          for (const { request } of captured) {
+            assert.ok(request.messages.some(m => m.content.includes('Previously tested question?')))
+          }
+          if (captured.length > 1) {
+            assert.ok(captured[1].request.messages.some(m =>
+              m.content.includes('What does sample 2 fact 1 state?')))
+          }
+        }
+      }
+    }
+  }
+})
+
+test('batches salvage valid short and true/false questions when model output is malformed', async () => {
+  for (const mode of ['short_answer', 'true_false']) {
+    const rejected = []
+    const service = createLocalQuizService({
+      onRejectedQuestion: item => rejected.push(item),
+      provider: {
+        async generate(request) {
+          const page = BATCH_SOURCE_PAGES.find(item =>
+            request.messages[1].content.includes('--- PAGE ' + item.pageNumber + ' ---'))
+          assert.ok(page)
+          const questions = batchQuestions(page.pageNumber, mode)
+          if (mode === 'short_answer') questions[0].correct_answer = 'Invented text'
+          else questions[0].choices = ['True']
+          return { finishReason: 'stop',
+            text: JSON.stringify({ title: 'Partly invalid batch', questions }) }
+        },
+      },
+    })
+    const result = await service.generate({
+      pages: BATCH_SOURCE_PAGES, questionCount: 15,
+      difficulty: 'medium', questionType: mode,
+    })
+    assert.equal(result.questions.length, 12, mode)
+    assert.equal(rejected.length, 3, mode)
+    assert.ok(result.questions.every(q => q.question_type === mode))
+    assert.ok(result.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+  }
+})
+
+test('batched weak-area practice preserves prior-question avoidance and cancels between batches', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+      if (calls === 1) controller.abort()
+      const page = BATCH_SOURCE_PAGES.find(item =>
+        request.messages[1].content.includes('--- PAGE ' + item.pageNumber + ' ---'))
+      return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'First part',
+          questions: batchQuestions(page.pageNumber, 'short_answer') }) }
+    },
+  } })
+  await assert.rejects(service.generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15, difficulty: 'hard',
+    questionType: 'short_answer',
+    practice: { focusPages: [2], avoidQuestions: ['Do not repeat me?'] },
+  }, { signal: controller.signal }), { code: 'cancelled' })
+  assert.equal(calls, 1)
+})
