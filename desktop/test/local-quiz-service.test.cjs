@@ -2064,6 +2064,8 @@ test('weak-area recovery refuses nonexistent and ambiguous source quotes', async
     const sourcePages = pages()
     if (kind === 'ambiguous') {
       for (const page of sourcePages) page.text += ' Common repeated source quote.'
+      sourcePages.push({ pageNumber: 8, text: 'Another unrelated study fact.' })
+      draft.questions[0].source_pages = [8]
     }
     let calls = 0
     const reasons = []
