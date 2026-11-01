@@ -124,6 +124,15 @@ function createNativeSession({ clientId, client, openBrowser, onChange = () => {
       }
       return refreshing
     },
+    // Cancelling a browser login is not an account sign-out. The PKCE
+    // verifier is invalidated immediately, and late callbacks or token
+    // exchanges cannot resurrect the cancelled attempt.
+    cancelSignIn() {
+      if (!pending) return false
+      epoch++
+      cancelPending()
+      return true
+    },
     async signOut() {
       const old = invalidate()
       if (!await revoke(old)) throw revocationError()
