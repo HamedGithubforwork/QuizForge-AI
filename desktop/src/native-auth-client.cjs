@@ -8,6 +8,12 @@ const MAX_TOKEN = 16_384
 const USER_SCOPE = 'aws.cognito.signin.user.admin'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function invalid() { throw new Error('Native sign-in could not be verified. Please sign in again.') }
+function temporaryUnavailable() {
+  // No provider response, token or URL is passed to the renderer.
+  return Object.assign(new Error('Desktop authentication is temporarily unavailable.'), {
+    code: 'transient_auth_error',
+  })
+}
 function token(value) { return typeof value === 'string' && value.length > 0 && value.length <= MAX_TOKEN && !/[\x00-\x20\x7f]/.test(value) }
 
 // Main-process-only. The fetch override exists for deterministic HTTP tests;
@@ -22,6 +28,10 @@ async function createNativeAuthClient({ poolId, clientId, fetchImpl = globalThis
     const timeout = AbortSignal.timeout(8000)
     const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout
     const response = await fetchImpl(url, { ...options, signal, redirect: 'error', credentials: 'omit', cache: 'no-store' })
+    if (response.status === 429 || response.status >= 500) {
+      await response.body?.cancel()
+      throw temporaryUnavailable()
+    }
     if (response.status !== 200 || !response.body) { await response.body?.cancel(); invalid() }
     const reader = response.body.getReader()
     const chunks = []
@@ -105,7 +115,15 @@ async function createNativeAuthClient({ poolId, clientId, fetchImpl = globalThis
         if (!previous || !token(previous.refreshToken) || !UUID.test(previous.subject)) invalid()
         const data = await post('/oauth2/token', { grant_type: 'refresh_token', client_id: clientId, refresh_token: previous.refreshToken })
         return await verifyResponse(data, { previous })
-      } catch { invalid() }
+      } catch (error) {
+        // A temporary network/server outage must not revoke a valid refresh
+        // token and force the user to restart the application. An explicit
+        // bad token, invalid JWT or 4xx rejection remains fail-closed.
+        if (error?.code === 'transient_auth_error' ||
+            ['AbortError', 'TimeoutError'].includes(error?.name) ||
+            error instanceof TypeError) throw temporaryUnavailable()
+        invalid()
+      }
     },
     async revoke(refreshToken) {
       try {
