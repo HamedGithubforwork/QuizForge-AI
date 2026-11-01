@@ -72,6 +72,45 @@ async function main() {
     assert.equal(report.duplicates.generation.distinctness, 'checked')
     assert.equal(report.duplicates.questions.length, 2)
     assert.ok(report.duplicates.questions.some(q => q.correct_answer === 'cellular respiration'))
+    // Exercise the complete Windows stack, not just the model provider.
+    // Quiz generation establishes the private source context required by the
+    // native review IPC. The review must work in the same live session without
+    // reopening the app or calling the cloud.
+    const os = require('node:os')
+    const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs')
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-answer-review-stack-'))
+    let stack
+    try {
+      stack = createWindowsLocalAiStack({
+        userDataDirectory: directory,
+        modelDirectory: path.resolve(process.argv[3]),
+        runtimeDirectory: path.resolve(process.argv[2]),
+      })
+      const localQuiz = await stack.generateQuiz({
+        pages: fixture.pages,
+        questionCount: 5, difficulty: 'easy', questionType: 'short_answer',
+      })
+      const index = localQuiz.questions.findIndex(q => q.question_type === 'short_answer')
+      assert.ok(index >= 0, 'The local stack must produce a short-answer question')
+      const selected = localQuiz.questions[index]
+      const review = await stack.reviewLocalAnswers({ cases: [{
+        question_index: index, question: selected.question,
+        correct_answer: selected.correct_answer, student_answer: 's',
+      }] })
+      assert.equal(review.decisions.length, 1)
+      assert.equal(review.decisions[0].question_index, index)
+      assert.equal(review.decisions[0].engine, 'local')
+      assert.notEqual(review.decisions[0].verdict, 'uncertain',
+        'Local short-answer grading must complete after local quiz generation')
+      report.stackReview = { questionIndex: index, verdict: review.decisions[0].verdict,
+        credit: review.decisions[0].credit, outcome: 'pass' }
+      assert.equal(review.decisions[0].verdict, 'incorrect',
+        'A meaningless one-letter response must not receive credit')
+      console.log('PASS: real Windows local quiz -> native stack -> short-answer grading')
+    } finally {
+      if (stack) await stack.dispose()
+      await fs.rm(directory, { recursive: true, force: true })
+    }
     report.outcome = 'pass'
   } finally {
     await fs.writeFile(path.resolve(process.argv[4]), JSON.stringify(report, null, 2) + '\n')
