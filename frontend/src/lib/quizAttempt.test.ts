@@ -275,6 +275,27 @@ assert.deepEqual(
   'history persistence should de-duplicate accepted semantic answers',
 )
 
+const photosynthesisInputQuestion = {
+  ...shortAnswer,
+  question: 'What are the main inputs of photosynthesis?',
+  correct_answer: 'Carbon dioxide, water, light',
+  accepted_answers: ['Carbon dioxide, water, light'],
+  grading: { ...gradingNone, grading_mode: 'exact' },
+}
+const inputQuiz = { title: 'Photosynthesis', questions: [photosynthesisInputQuestion] }
+const inputAnswer = 'water, co 2 , sunlight'
+assert.equal(
+  isAttemptQuestionCorrect(photosynthesisInputQuestion, inputAnswer, {}),
+  true,
+  'sunlight is light and CO2 is carbon dioxide in the full source-derived input list',
+)
+assert.equal(
+  buildAttemptReviewCases(inputQuiz, { 0: inputAnswer }, [0], true).length,
+  0,
+  'the local AI must not override a verified exact-mode synonym list',
+)
+assert.equal(calculateAttemptScore(inputQuiz, { 0: inputAnswer }, {}), 1)
+
 console.log(
   'quiz attempt helper tests passed',
 )
