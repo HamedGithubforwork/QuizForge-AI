@@ -5,6 +5,7 @@ import {
 import MasteryAnalyticsPanel from './MasteryAnalyticsPanel.tsx'
 import GenerationTimingPanel from './components/quiz/GenerationTimingPanel.tsx'
 import type { GenerationTimeEstimate } from './lib/generationTiming.ts'
+import type { DesktopLocalQuizProgress } from './lib/desktop.ts'
 import {
   useQuizHistoryData,
 } from './hooks/useQuizHistoryData.ts'
@@ -35,6 +36,7 @@ type QuizHistoryProps = {
   showPracticeTiming?: boolean
   practiceTimingElapsedMs?: number
   practiceTimingEstimate?: GenerationTimeEstimate | null
+  localBatchProgress?: DesktopLocalQuizProgress | null
   onPracticeWeakAreas?: (
     focus: HistoryPracticeFocus,
   ) => void | Promise<void>
@@ -58,6 +60,7 @@ function QuizHistory({
   showPracticeTiming = false,
   practiceTimingElapsedMs = 0,
   practiceTimingEstimate = null,
+  localBatchProgress = null,
   onPracticeWeakAreas,
 }: QuizHistoryProps) {
   const [expanded, setExpanded] =
@@ -504,6 +507,7 @@ function QuizHistory({
                               label="Generating history-based practice quiz"
                               elapsedMs={practiceTimingElapsedMs}
                               estimate={practiceTimingEstimate}
+                              progress={localBatchProgress}
                             />
                           )}
 
