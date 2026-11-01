@@ -85,18 +85,22 @@ function validateRequest(request) {
         !text(c.student_answer) || c.student_answer.length > 2000)) throw new LocalAiError('invalid_request')
 }
 function createLocalAnswerReview({ provider }) {
-  return { async review(request, { quiz, pages, signal } = {}) {
+  return { async review(request, { quiz, pages, signal, onDecision = () => {} } = {}) {
     validateRequest(request)
     const deadline = AbortSignal.timeout(180000)
     const combined = signal ? AbortSignal.any([signal, deadline]) : deadline
     const decisions = []
+    const publish = decision => {
+      decisions.push(decision)
+      try { onDecision(decision) } catch {}
+    }
     for (const c of request.cases) {
       if (signal?.aborted) throw new LocalAiError('cancelled')
       const question = quiz?.questions[c.question_index]
       const source = question?.source_pages.map(number => pages?.find(p => p.pageNumber === number)?.text ?? '').join('\n') ?? ''
       if (!question || question.question_type !== 'short_answer' || question.question !== c.question ||
           question.correct_answer !== c.correct_answer || !text(source) || source.length > 16000 || combined.aborted) {
-        decisions.push(uncertain(c.question_index)); continue
+        publish(uncertain(c.question_index)); continue
       }
       try {
         const response = await provider.generate({ generationProfile: 'answer-review-v1', jsonSchema: schema, maxTokens: 1800,
@@ -115,12 +119,12 @@ function createLocalAnswerReview({ provider }) {
           ].join('\n') }, { role: 'user', content: JSON.stringify({ question: question.question,
             expected_answer: question.correct_answer, source, student_answer: c.student_answer }) }],
         }, { signal: combined })
-        decisions.push(response.finishReason === 'stop'
+        publish(response.finishReason === 'stop'
           ? normalizeReview(JSON.parse(response.text), c.question_index, source, c.student_answer)
           : uncertain(c.question_index))
       } catch {
         if (signal?.aborted) throw new LocalAiError('cancelled')
-        decisions.push(uncertain(c.question_index))
+        publish(uncertain(c.question_index))
       }
     }
     return { decisions }
