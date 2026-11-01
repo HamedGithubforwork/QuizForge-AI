@@ -113,7 +113,13 @@ function createNativeSession({ clientId, client, openBrowser, onChange = () => {
             current = Object.freeze({ ...result })
             changed()
             return view()
-          } catch {
+          } catch (error) {
+            if (error?.code === 'transient_auth_error') {
+              // An offline device or brief service outage must not destroy a
+              // valid refresh credential. API requests fail closed until the
+              // next verified refresh succeeds.
+              return null
+            }
             if (epoch === operationEpoch && current === old) { invalidate(); await revoke(old) }
             return null
           } finally {
