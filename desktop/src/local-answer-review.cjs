@@ -57,7 +57,17 @@ function normalizeReview(raw, index, source, answer) {
   // "contradiction" alone is insufficient to relax the confidence threshold.
   const groundedContradiction = raw.contradiction &&
     raw.concepts.some(c => c.status === 'contradicted')
-  if (raw.uncertain || raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
+  // Real Qwen can label a clear, quote-grounded partial answer "uncertain"
+  // simply because a second required concept is missing. An incomplete answer
+  // is not itself ambiguous. Only override that flag when the model explicitly
+  // describes an omission, all matched/missing quotes passed the exact source
+  // checks above, and no ambiguity, unsupported claim or contradiction is
+  // reported. Never turn an uncertain full-credit answer into full credit.
+  const omissionOnly = groundedPartial && raw.confidence >= 0.7 &&
+    /\b(incomplete|omits?|omitted|missing|does not mention|did not mention|only included|leaves? out|lacks?)\b/i.test(raw.reason) &&
+    !/\b(unclear|ambiguous|uncertain|unsure|unsupported|unverifiable|contradict\w*|fabricat\w*|incorrect|inaccurate|false claims?|cannot verify|can't verify|insufficient evidence)\b/i.test(raw.reason)
+  if ((raw.uncertain && !omissionOnly) ||
+      raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
     return uncertain(index, raw.reason)
   }
   const credit = contradicted ? 0 : matched / raw.concepts.length
@@ -98,6 +108,7 @@ function createLocalAnswerReview({ provider }) {
             'For photosynthesis inputs, sunlight is a valid form of light, and CO2 / CO 2 means carbon dioxide. Do not mark light missing when the student wrote sunlight. Use the source and question context before interpreting any synonym; a different process may demand a narrower answer.',
             'A response can show relevant but incomplete understanding: naming where a process happens is not the same as describing an organelle main mechanism. Give partial credit for a correct source-supported aspect, and identify the missing function, only when you can quote the evidence and safely separate the concepts. Otherwise remain uncertain rather than inventing a rubric.',
             'For each required concept output matched, missing, or contradicted; an EXACT source_quote supporting the concept; and an EXACT answer_quote supporting matched or contradicted. For missing use answer_quote "".',
+            'An incomplete answer is not automatically uncertain: when it correctly expresses one required concept and clearly omits another, use uncertain false, contradiction false, and a grounded matched/missing rubric with confidence reflecting the evidence. Reserve uncertain true for genuine ambiguity, unverifiable meaning, missing source evidence, or unresolved claims.',
             'Check the ENTIRE student answer for contradictory or fabricated claims. Set contradiction true for any conflicting factual claim, even if required concepts are present. Use uncertain true if claims cannot be assessed from the source.',
             'Do not use outside knowledge. Set uncertain true when the question, expected answer, rubric coverage, or student meaning is ambiguous. Confidence is not proof: only judge when source evidence is clear.',
             'Give concise feedback explaining what was understood, missing, or incorrect. Return JSON only.',
