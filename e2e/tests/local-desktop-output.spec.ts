@@ -174,7 +174,7 @@ async function openDesktopUi(
 
 test('PDF picker accepts a .pdf filename despite a nonstandard Windows MIME association', async ({ page }) => {
   const errors = await openDesktopUi(page, readModelQuiz(), false, undefined, undefined, 'application/octet-stream')
-  await expect(page.getByLabel('Study material PDF')).toHaveAttribute('accept', /\\.pdf/)
+  await expect(page.getByLabel('Study material PDF')).toHaveAttribute('accept', '.pdf,application/pdf')
   await expect(page.locator('.question-card')).toHaveCount(5)
   const probe = await page.evaluate(() => (window as unknown as {
     __localOutputProbe: { pdf: number; generate: number };
