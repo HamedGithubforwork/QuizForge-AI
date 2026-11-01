@@ -290,9 +290,12 @@ export function useQuizAttempt({
       })
       setShowResults(true)
       setAnswerReviewProgress({ completed: 0, total: awaiting.length })
+      const firstObjectiveIndex = indexesToCheck.find(index =>
+        quiz.questions[index]?.question_type !== 'short_answer')
       window.setTimeout(() => {
-        document.getElementById('quiz-results')?.scrollIntoView({
-          behavior: 'smooth', block: 'center',
+        document.getElementById(firstObjectiveIndex === undefined
+          ? 'quiz-results' : `question-${firstObjectiveIndex}`)?.scrollIntoView({
+          behavior: 'smooth', block: 'start',
         })
       }, 100)
       if (manual) {
