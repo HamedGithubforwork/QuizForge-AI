@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   appendGenerationTiming, estimateGenerationTime,
   formatGenerationDuration, readGenerationTimings, storeGenerationTimings,
-  type GenerationTimingProfile,
+  type GenerationTimingProfile, type GenerationTimingSample,
 } from './generationTiming.ts'
 
 const profile: GenerationTimingProfile = {
@@ -36,7 +36,7 @@ test('only valid durations and settings are stored; limit and failed storage are
   const samples = appendGenerationTiming([], profile, 0)
   assert.deepEqual(samples, [])
   assert.deepEqual(appendGenerationTiming(samples, profile, 31 * 60 * 1000), [])
-  let bounded = samples
+  let bounded: GenerationTimingSample[] = [...samples]
   for (let i = 0; i < 60; i++) bounded = appendGenerationTiming(bounded, profile, 1000 + i)
   assert.equal(bounded.length, 24)
   let saved = ''
