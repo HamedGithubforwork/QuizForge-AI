@@ -13,6 +13,11 @@ on:
       - desktop/src/windows-hardware-probe.cjs
       - desktop/src/windows-process-guard.cjs
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-offload-policy.cjs
+      - desktop/src/local-ai-capability.cjs
+      - desktop/src/local-ai-manager.cjs
+      - desktop/test/local-offload-policy.test.cjs
+      - desktop/test/local-runtime.test.cjs
       - desktop/third_party/local-ai/**
       - desktop/scripts/stage-local-runtime.cjs
       - desktop/scripts/download-verified-model.cjs
