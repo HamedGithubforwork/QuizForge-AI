@@ -1407,6 +1407,50 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
   return Object.freeze({
     async generate(value, { signal } = {}) {
       const request = normalizeRequest(value)
+      // A single fifteen-question Hard/Mixed constrained JSON response can
+      // exceed the six-minute runtime inference limit before even one answer
+      // becomes available. With three or more source pages, make three
+      // independent five-question requests on disjoint page groups instead.
+      // The existing five-question source-fact validation runs on each group,
+      // and already validated groups survive a later partial failure.
+      if (request.questionCount === 15 && request.questionType === 'mixed' &&
+          !request.practice && request.pages.length >= 3) {
+        const groups = [[], [], []]
+        request.pages.forEach((page, index) => groups[index % groups.length].push(page))
+        const retained = []
+        let firstFailure = null
+        for (const pages of groups) {
+          if (signal?.aborted) throw failure('cancelled')
+          try {
+            const groupQuiz = await createLocalQuizService({
+              provider, onValidationIssue, onGeneratedResponse, onRejectedQuestion,
+            }).generate({
+              pages, questionCount: 5, difficulty: request.difficulty,
+              questionType: 'mixed',
+              // Require an exact, independently cited source_fact for each
+              // question, without ever sending or saving user material elsewhere.
+              practice: { avoidQuestions: [] },
+            }, { signal })
+            retained.push(...groupQuiz.questions)
+          } catch (error) {
+            if (signal?.aborted || error?.code === 'cancelled') throw error
+            if (!firstFailure) firstFailure = error
+            if (!['insufficient_source', 'quiz_validation_failed', 'timed_out'].includes(error?.code)) {
+              throw error
+            }
+            try { onValidationIssue(Object.freeze({
+              attempt: 'recovery', reason: error.code,
+            })) } catch {}
+          }
+        }
+        if (!retained.length) throw firstFailure ?? failure('insufficient_source')
+        // Page groups are disjoint: no question can cite another group's
+        // material. Each group independently excludes duplicate source facts.
+        return Object.freeze({
+          title: 'Source-backed mixed practice quiz',
+          questions: Object.freeze(retained.slice(0, request.questionCount)),
+        })
+      }
       const useLegacyMultipleChoiceContract = !request.practice &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice'
       // Keep the proven five-MCQ targeted candidate/recovery path unchanged.
