@@ -23,6 +23,8 @@ function normalizeSnapshot(value) {
       !Number.isSafeInteger(value.logicalCpuCount) || value.logicalCpuCount < 1 ||
       typeof value.gpuDetected !== 'boolean' || !DETECTION.has(value.gpuDetection) ||
       value.gpuDetected !== (value.gpuDetection === 'detected') ||
+      (value.gpuDevice !== undefined && value.gpuDevice !== null &&
+        (typeof value.gpuDevice !== 'string' || !/^Vulkan\d+$/.test(value.gpuDevice))) ||
       !arrayOf(value.runtimeAccelerationModes, mode => ACCELERATION.has(mode))) {
     throw failure('invalid_capability')
   }
@@ -34,6 +36,7 @@ function normalizeSnapshot(value) {
     logicalCpuCount: value.logicalCpuCount,
     gpuDetected: value.gpuDetected,
     gpuDetection: value.gpuDetection,
+    gpuDevice: value.gpuDevice ?? null,
     runtimeAccelerationModes: Object.freeze([...new Set(value.runtimeAccelerationModes)]),
   })
 }
@@ -75,7 +78,8 @@ function evaluateLocalAiCapability(snapshotValue, profileValues = []) {
     const memoryOk = snapshot.totalMemoryBytes >= profile.minMemoryBytes
     const diskOk = snapshot.availableDiskBytes >= diskRequiredBytes
     const acceleration = profile.accelerationModes.find(mode =>
-      snapshot.runtimeAccelerationModes.includes(mode) && (mode !== 'gpu' || snapshot.gpuDetected)) ?? null
+      snapshot.runtimeAccelerationModes.includes(mode) &&
+      (mode !== 'gpu' || (snapshot.gpuDetected && snapshot.gpuDevice !== null))) ?? null
     return Object.freeze({ profile, memoryOk, diskOk, acceleration, diskRequiredBytes })
   })
   const eligible = evaluated.filter(item => item.memoryOk && item.diskOk && item.acceleration)
@@ -112,7 +116,8 @@ function evaluateLocalAiCapability(snapshotValue, profileValues = []) {
       gpuDetected: snapshot.gpuDetected,
       gpuDetection: snapshot.gpuDetection,
       gpuAccelerationUsable: snapshot.gpuDetected &&
-        snapshot.runtimeAccelerationModes.includes('gpu'),
+        snapshot.runtimeAccelerationModes.includes('gpu') && snapshot.gpuDevice !== null,
+      gpuDevice: snapshot.gpuDevice,
     }),
     requirements: selected ? Object.freeze({
       modelBytes: selected.profile.modelBytes,

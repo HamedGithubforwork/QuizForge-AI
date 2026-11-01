@@ -37,7 +37,7 @@ for (const [label, factory] of [['neutral', generic], ['windows', generate => wi
     for (const value of [null, {}, [], { messages: [] }, { ...input(), tools: [] },
       { messages: [{ role: 'tool', content: 'bad' }] }, { messages: [{ role: 'user', content: ' ' }] },
       { messages: [{ role: 'user', content: 'é'.repeat(31000) }] }, { ...input(), maxTokens: NaN },
-      { ...input(), maxTokens: 1801 }, { ...input(), maxTokens: 0 },
+      { ...input(), maxTokens: 5201 }, { ...input(), maxTokens: 0 },
       { ...input(), jsonSchema: [] }, { ...input(), jsonSchema: { description: 'x'.repeat(17000) } },
       { ...input(), generationProfile: 'arbitrary' }]) {
       await assert.rejects(provider.generate(value), { code: 'invalid_request' })
@@ -154,6 +154,16 @@ test('structured output schemas and named generation profiles stay trusted and b
   assert.deepEqual(runtimeRequest.chat_template_kwargs, {
     enable_thinking: false,
   })
+
+  await provider.generate({
+    ...input(),
+    generationProfile: 'quiz-mcq-targeted-primary-v1',
+  })
+  assert.equal(runtimeRequest.seed, 71828)
+  assert.equal(runtimeRequest.temperature, 0.9)
+  assert.equal(runtimeRequest.top_p, 0.9)
+  assert.equal(runtimeRequest.top_k, 40)
+  assert.equal(runtimeRequest.presence_penalty, 1.8)
 
   await provider.generate({
     ...input(),

@@ -56,8 +56,18 @@ export default function LocalAiSettings() {
 
   async function refresh() {
     if (!bridge) return
+    let timeout: number | undefined
     try {
-      setStatus(await bridge.localAiStatus())
+      const next = await Promise.race([
+        bridge.localAiStatus(),
+        new Promise<DesktopLocalAiStatus>((_, reject) => {
+          timeout = window.setTimeout(
+            () => reject(new Error('Local AI compatibility check timed out. Close and reopen the app, then try again.')),
+            30_000,
+          )
+        }),
+      ])
+      setStatus(next)
       setError('')
     } catch (caught) {
       setError(
@@ -65,6 +75,8 @@ export default function LocalAiSettings() {
           ? caught.message
           : 'Could not read Local AI status.',
       )
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout)
     }
   }
 
@@ -116,7 +128,18 @@ export default function LocalAiSettings() {
   }
 
   if (!status) {
-    return (
+    return error ? (
+      <div className="settings-alert" role="alert">
+        <p>{error}</p>
+        <button
+          className="button secondary-button"
+          type="button"
+          onClick={() => void refresh()}
+        >
+          Retry compatibility check
+        </button>
+      </div>
+    ) : (
       <div className="settings-loading" role="status">
         Checking Local AI compatibility…
       </div>
@@ -145,9 +168,9 @@ export default function LocalAiSettings() {
         </span>
         <h1>Local AI preview</h1>
         <p>
-          Check this computer and manage the optional on-device model.
-          Local quiz generation is still disabled until runtime and
-          quality acceptance are complete.
+          In Local mode, PDF text extraction and quiz generation run on
+          this computer. Download the optional model below first. Cloud
+          mode continues to process PDFs online; scanned PDFs need OCR.
         </p>
       </div>
 
@@ -184,8 +207,28 @@ export default function LocalAiSettings() {
                 {capability.recommendation === 'enhanced-local-preview'
                   ? 'Enhanced local model'
                   : 'Lightweight local model'}
+              </strong>.
+            </p>
+            <p>
+              Available acceleration: <strong>
+                {capability.acceleration === 'gpu' ? 'GPU (Vulkan)' : 'CPU'}
               </strong>
-              {' '}using {capability.acceleration === 'gpu' ? 'GPU' : 'CPU'} inference.
+            </p>
+            <p>
+              Last successful inference: <strong>
+                {status.lastAccelerationMode === 'gpu'
+                  ? 'GPU (Vulkan)'
+                  : status.lastAccelerationMode === 'cpu'
+                    ? 'CPU'
+                    : status.lastAccelerationMode === null
+                      ? 'Not used yet'
+                      : status.lastAccelerationMode === 'unknown'
+                        ? 'Could not confirm GPU offload'
+                        : 'Not reported by this build'}
+              </strong>
+              {capability.acceleration === 'gpu' &&
+                status.lastAccelerationMode === 'cpu' &&
+                ' (GPU startup fell back to CPU)'}
             </p>
             {capability.hardware.gpuDetected &&
               !capability.hardware.gpuAccelerationUsable && (
@@ -208,8 +251,8 @@ export default function LocalAiSettings() {
           <div>
             <h2>Local model</h2>
             <p>
-              Models are downloaded separately from app updates and
-              only after you explicitly choose Download.
+              The model is managed separately from app updates. If you skipped
+              its download during setup, choose Download below.
             </p>
           </div>
           <span className={

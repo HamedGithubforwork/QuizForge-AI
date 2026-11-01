@@ -37,6 +37,8 @@ type UseQuizAttemptInput = {
   quiz: QuizResult | null
   documentResult: UploadResult | null
   generatedSettings: GeneratedSettings | null
+  /** Local quizzes must never send a user's answer text to the cloud grader. */
+  allowRemoteAnswerReview: boolean
   setError: (message: string) => void
   onHistorySaved: () => void
 }
@@ -76,6 +78,7 @@ export function useQuizAttempt({
   quiz,
   documentResult,
   generatedSettings,
+  allowRemoteAnswerReview,
   setError,
   onHistorySaved,
 }: UseQuizAttemptInput) {
@@ -226,11 +229,13 @@ export function useQuizAttempt({
     setSaveMessage('')
 
     const reviewCases =
-      buildAttemptReviewCases(
-        quiz,
-        selectedAnswers,
-        indexesToCheck,
-      )
+      allowRemoteAnswerReview
+        ? buildAttemptReviewCases(
+            quiz,
+            selectedAnswers,
+            indexesToCheck,
+          )
+        : []
 
     if (reviewCases.length > 0) {
       setIsReviewingAnswers(true)

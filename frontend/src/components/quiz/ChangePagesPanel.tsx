@@ -50,7 +50,7 @@ export default function ChangePagesPanel({ currentFile, filename, sourceSha256, 
             <p id="change-pages-file-help">{supportsCachedSelection
               ? `You can apply cached pages without a file. Choose ${getDisplayFilename(filename)} only if additional pages need processing.`
               : `Choose ${getDisplayFilename(filename)}. The original file is only kept in this browser while the page is open.`}</p>
-            <input id="change-pages-file" className="file-input" type="file" accept="application/pdf"
+            <input id="change-pages-file" className="file-input" type="file" accept=".pdf,application/pdf"
               aria-describedby="change-pages-file-help" disabled={busy}
               onChange={event => { setReselectedFile(event.target.files?.[0] ?? null); setError('') }} />
           </div>

@@ -1,6 +1,7 @@
 'use strict'
 
 const APP_ORIGIN = 'https://quizfromnotes.com'
+const LOCAL_RENDERER_ORIGIN = 'qfn://app'
 // Public hosted-login origin used by the production frontend, not a credential.
 const AUTH_ORIGIN = 'https://quizforge-399311815467.auth.ca-central-1.amazoncognito.com'
 const AUTH_PATHS = new Set([
@@ -11,7 +12,11 @@ const AUTH_PATHS = new Set([
 function allowedNavigation(value) {
   try {
     const url = new URL(value)
-    if (url.username || url.password || url.protocol !== 'https:') return false
+    if (url.username || url.password) return false
+    if (url.protocol === 'qfn:') {
+      return url.hostname === 'app' && !url.port
+    }
+    if (url.protocol !== 'https:') return false
     if (url.origin === APP_ORIGIN) return true
     return url.origin === AUTH_ORIGIN && AUTH_PATHS.has(url.pathname)
   } catch {
@@ -38,4 +43,4 @@ function windowOptions() {
   }
 }
 
-module.exports = { APP_ORIGIN, AUTH_ORIGIN, allowedNavigation, windowOptions }
+module.exports = { APP_ORIGIN, AUTH_ORIGIN, LOCAL_RENDERER_ORIGIN, allowedNavigation, windowOptions }

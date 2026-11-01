@@ -15,6 +15,7 @@ const ROLES = new Set(['system', 'user', 'assistant'])
 const PROFILES = new Set([
   'quiz-mcq-v1',
   'quiz-mcq-retry-v1',
+  'quiz-mcq-targeted-primary-v1',
   'quiz-mcq-targeted-retry-v1',
   'quiz-mcq-targeted-retry-v2',
   'quiz-mcq-targeted-retry-v3',
@@ -88,7 +89,7 @@ function normalizeRequest(value) {
     if (!serialized || encoder.encode(serialized).byteLength > 16000) throw failure('invalid_request')
     try { jsonSchema = JSON.parse(serialized) } catch { throw failure('invalid_request') }
   }
-  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 1800 ||
+  if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > 5200 ||
       encoder.encode(JSON.stringify({ messages, jsonSchema })).byteLength > 60000) throw failure('invalid_request')
   const generationProfile = value.generationProfile
   if (generationProfile !== undefined && !PROFILES.has(generationProfile)) {

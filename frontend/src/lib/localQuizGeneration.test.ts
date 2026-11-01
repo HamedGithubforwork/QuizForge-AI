@@ -5,6 +5,7 @@ import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  readLocalPdfBytes,
 } from './localQuizGeneration.ts'
 import type {
   DesktopLocalAiQuizStatus,
@@ -17,8 +18,8 @@ const status: DesktopLocalAiQuizStatus = {
   modelId: 'qwen3-4b-q4-k-m',
   execution: 'local',
   constraints: {
-    questionCount: 5,
-    questionType: 'multiple_choice',
+    questionCounts: [5, 10, 15],
+    questionTypes: ['multiple_choice', 'true_false', 'short_answer', 'mixed'],
     maxSourceBytes: 8000,
   },
 }
@@ -45,6 +46,58 @@ const document = {
     },
   ],
 }
+
+test(
+  'rejects oversized Local AI PDFs before reading the file into memory',
+  async () => {
+    let readAttempted = false
+    await assert.rejects(
+      readLocalPdfBytes({
+        size: 15 * 1024 * 1024 + 1,
+        async arrayBuffer() {
+          readAttempted = true
+          return new ArrayBuffer(8)
+        },
+      }),
+      /over the 15 MB limit/,
+    )
+    assert.equal(readAttempted, false)
+
+    await assert.rejects(
+      readLocalPdfBytes({
+        size: 0,
+        async arrayBuffer() {
+          readAttempted = true
+          return new ArrayBuffer(8)
+        },
+      }),
+      /valid PDF file/,
+    )
+    assert.equal(readAttempted, false)
+
+    const accepted = await readLocalPdfBytes({
+      size: 15 * 1024 * 1024,
+      async arrayBuffer() {
+        return new ArrayBuffer(8)
+      },
+    })
+    assert.equal(accepted.byteLength, 8)
+  },
+)
+
+test('passes the selected question count and mode through to Local AI', async () => {
+  const request = await buildLocalQuizRequest(
+    document,
+    'easy',
+    status,
+    async (_sha, pageNumber) => `text ${pageNumber}`,
+    undefined,
+    15,
+    'mixed',
+  )
+  assert.equal(request.questionCount, 15)
+  assert.equal(request.questionType, 'mixed')
+})
 
 test(
   'builds a five-question MCQ request from authenticated source pages',
@@ -147,7 +200,7 @@ test(
         error:
           'quiz_validation_failed',
       }),
-      /invalid quiz/,
+      /valid quiz after retrying/,
     )
     assert.match(
       localQuizErrorMessage({
@@ -162,7 +215,7 @@ test(
 
 
 test(
-  'builds targeted-practice requests from only the selected weak pages',
+  'retains all processed pages while prioritizing weak-area source pages',
   async () => {
     const calls: number[] = []
     const request =
@@ -187,17 +240,18 @@ test(
 
     assert.deepEqual(
       calls,
-      [7],
+      [2, 7],
     )
     assert.deepEqual(
       request.pages.map(
         page => page.pageNumber,
       ),
-      [7],
+      [2, 7],
     )
     assert.deepEqual(
       request.practice,
       {
+        focusPages: [7],
         avoidQuestions: [
           'What did you miss?',
           'Which fact was confusing?',
@@ -206,6 +260,27 @@ test(
     )
   },
 )
+
+test('weak-area requests carry 5/10/15 counts, every mode and difficulty', async () => {
+  const modes = ['multiple_choice', 'true_false', 'short_answer', 'mixed'] as const
+  const difficulties = ['easy', 'medium', 'hard'] as const
+  for (const count of [5, 10, 15] as const) {
+    for (const questionType of modes) {
+      for (const difficulty of difficulties) {
+        const request = await buildLocalPracticeRequest(
+          document, difficulty, status, [7], ['Old question?'],
+          async (_sha, pageNumber) => 'Source page ' + pageNumber,
+          undefined, count, questionType,
+        )
+        assert.equal(request.questionCount, count)
+        assert.equal(request.questionType, questionType)
+        assert.equal(request.difficulty, difficulty)
+        assert.deepEqual(request.practice?.focusPages, [7])
+        assert.deepEqual(request.practice?.avoidQuestions, ['Old question?'])
+      }
+    }
+  }
+})
 
 test(
   'targeted-practice request rejects pages that are not in the processed selection',
@@ -241,13 +316,13 @@ test(
 
     assert.deepEqual(
       request.practice,
-      { avoidQuestions: [] },
+      { focusPages: [2], avoidQuestions: [] },
     )
     assert.deepEqual(
       request.pages.map(
         page => page.pageNumber,
       ),
-      [2],
+      [2, 7],
     )
   },
 )

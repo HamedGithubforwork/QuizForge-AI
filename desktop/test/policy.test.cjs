@@ -9,6 +9,9 @@ test('keeps application routes and existing PKCE login/logout redirects in the s
     `${AUTH_ORIGIN}/login`, `${AUTH_ORIGIN}/signup`, `${AUTH_ORIGIN}/logout`]) {
     assert.equal(allowedNavigation(url), true, url)
   }
+  for (const url of ['qfn://app/', 'qfn://app/index.html', 'qfn://app/settings/local-ai']) {
+    assert.equal(allowedNavigation(url), true, url)
+  }
 })
 
 test('rejects native protocols, embedded credentials, lookalike hosts and unreviewed auth pages', () => {
@@ -16,6 +19,8 @@ test('rejects native protocols, embedded credentials, lookalike hosts and unrevi
     'http://quizfromnotes.com', 'https://quizfromnotes.com.evil.test',
     'https://quizfromnotes.com@evil.test', 'https://user:pass@quizfromnotes.com',
     'https://quizfromnotes.com:444', 'https://evil.test', `${AUTH_ORIGIN}/unreviewed`,
+    'qfn://evil/index.html', 'qfn://app.evil.test/index.html', 'qfn://app:444/index.html',
+    'qfn://user@app/index.html',
     'https://other.auth.ca-central-1.amazoncognito.com/login', 'not a url']) {
     assert.equal(allowedNavigation(url), false, url)
   }

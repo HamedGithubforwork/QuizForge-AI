@@ -81,10 +81,7 @@ function QuizSettingsPanel({
                 Number(event.target.value),
               )
             }}
-            disabled={
-              settingsDisabled ||
-              generationMode === 'local'
-            }
+            disabled={settingsDisabled}
           >
             <option value={5}>
               5 questions
@@ -141,10 +138,7 @@ function QuizSettingsPanel({
                 onQuestionTypeChange(value)
               }
             }}
-            disabled={
-              settingsDisabled ||
-              generationMode === 'local'
-            }
+            disabled={settingsDisabled}
           >
             <option value="multiple_choice">
               Multiple Choice
@@ -208,23 +202,27 @@ function QuizSettingsPanel({
               {localAiAvailable
                 ? (
                   <>
-                    Local preview is the
-                    default no-recurring-AI-cost
-                    engine on this desktop. It
-                    generates five multiple-choice
-                    questions on this computer. PDF
-                    processing and source page
-                    retrieval still use your
-                    signed-in Quiz From Notes
-                    account in this preview.
+                    Local AI extracts the selected
+                    PDF pages and generates your quiz on this
+                    computer. The original PDF is not
+                    uploaded in Local mode. Account
+                    sign-in and saving results to your
+                    account history need internet.
+                    Offline results are not queued for
+                    later sync yet. The optional model
+                    must be installed first. Cloud AI
+                    uploads the PDF for online processing
+                    and generation.
                   </>
                 )
                 : (
                   <>
-                    Local AI is currently
-                    unavailable. Choose Cloud AI
-                    explicitly if you want to use
-                    server generation instead.
+                    Local AI runs only in the desktop
+                    app and is unavailable in this
+                    browser. It will not switch to Cloud
+                    automatically. Choose Cloud AI
+                    explicitly to use online PDF
+                    processing and generation.
                   </>
                 )}
             </p>

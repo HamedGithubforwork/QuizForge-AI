@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { desktopFetch, desktopLocalAiBridge, desktopLocalQuizBridge, desktopSourceTextBridge, type DesktopBridge, type DesktopLocalAiBridge, type DesktopLocalQuizBridge } from './desktop.ts'
+import { desktopFetch, desktopLocalAiBridge, desktopLocalDocumentQuizBridge, desktopLocalPdfBridge, desktopLocalQuizBridge, desktopSourceTextBridge, type DesktopBridge, type DesktopLocalAiBridge, type DesktopLocalQuizBridge } from './desktop.ts'
 test('desktop fetch serializes multipart files and never forwards authorization or arbitrary headers', async () => {
   let captured: unknown
   const bridge = { request: async (request: unknown) => { captured = request; return { status: 200, body: '{"ok":true}', contentType: 'application/json' } } } as DesktopBridge
@@ -52,6 +52,36 @@ test('Local quiz feature detection requires all fixed generation methods', () =>
     cancelLocalAiQuiz: async () => {},
   } as unknown as DesktopLocalQuizBridge
   assert.equal(desktopLocalQuizBridge(quizBridge), quizBridge)
+})
+
+test('local PDF quiz bridge is optional and requires cancellation support', () => {
+  const modelBridge = {
+    version: 1,
+    localAiStatus: async () => ({}),
+    startLocalAiModelDownload: async () => ({}),
+    cancelLocalAiModelDownload: async () => ({}),
+    removeLocalAiModel: async () => ({}),
+  } as unknown as DesktopLocalAiBridge
+  assert.equal(desktopLocalDocumentQuizBridge(modelBridge), undefined)
+  const documentBridge = {
+    ...modelBridge,
+    generateLocalDocumentQuiz: async () => ({ ok: false, error: 'runtime_unavailable' }),
+    cancelLocalAiQuiz: async () => {},
+  } as unknown as DesktopBridge
+  assert.equal(desktopLocalDocumentQuizBridge(documentBridge), documentBridge)
+})
+
+test('local PDF processing bridge is feature-detected separately', () => {
+  const modelBridge = {
+    version: 1,
+    localAiStatus: async () => ({}),
+    startLocalAiModelDownload: async () => ({}),
+    cancelLocalAiModelDownload: async () => ({}),
+    removeLocalAiModel: async () => ({}),
+  } as unknown as DesktopLocalAiBridge
+  assert.equal(desktopLocalPdfBridge(modelBridge), undefined)
+  const pdfBridge = { ...modelBridge, processLocalPdf: async () => ({ ok: false as const, error: 'processing_failed' as const }) } as unknown as DesktopBridge
+  assert.equal(desktopLocalPdfBridge(pdfBridge), pdfBridge)
 })
 
 

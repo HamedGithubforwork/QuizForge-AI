@@ -21,6 +21,7 @@ function approvedHost(hostname) {
     hostname.endsWith('.hf.co')
 }
 const RESERVE = 512 * 1024 * 1024
+const MODEL_DOWNLOAD_TIMEOUT_MS = 20 * 60 * 1000
 const failure = code => Object.assign(new Error('Local model operation failed: ' + code), { code })
 
 function reviewedUrl(value) {
@@ -38,6 +39,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       !Number.isSafeInteger(model.bytes) || model.bytes < 4 || model.bytes > 8 * 1024 ** 3) throw failure('invalid_configuration')
   const spec = Object.freeze({ ...model, url: reviewedUrl(model.url) })
   const filename = path.join(directory, spec.sha256 + '.gguf')
+  let verifiedFingerprint = null
   let pending = Promise.resolve()
   function serial(operation) {
     const next = pending.then(operation); pending = next.catch(() => {}); return next
@@ -54,7 +56,14 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       if (error.code === 'ENOENT') return { ready: false }
       throw error
     }
-    if (!info.isFile() || info.isSymbolicLink() || info.size !== spec.bytes) throw failure('invalid_model')
+    if (!info.isFile() || info.isSymbolicLink() || info.size !== spec.bytes) {
+      verifiedFingerprint = null
+      throw failure('invalid_model')
+    }
+    // Reuse a successful digest check while the same file identity and timestamps remain.
+    // Any replacement or write changes this fingerprint and forces a fresh SHA-256 pass.
+    const fingerprint = [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs].join(':')
+    if (verifiedFingerprint === fingerprint) return { ready: true, path: filename, bytes: spec.bytes }
     const handle = await fs.open(filename, 'r')
     try {
       const opened = await handle.stat()
@@ -63,7 +72,11 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
       for await (const chunk of handle.createReadStream({ autoClose: false })) {
         signal?.throwIfAborted(); hash.update(chunk)
       }
-      if (hash.digest('hex') !== spec.sha256) throw failure('invalid_model')
+      if (hash.digest('hex') !== spec.sha256) {
+        verifiedFingerprint = null
+        throw failure('invalid_model')
+      }
+      verifiedFingerprint = fingerprint
       return { ready: true, path: filename, bytes: spec.bytes }
     } finally { await handle.close() }
   }
@@ -91,7 +104,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
     },
     download({ signal, progress = () => {} } = {}) {
       return serial(async () => {
-        const bounded = AbortSignal.any([AbortSignal.timeout(20 * 60 * 1000), ...(signal ? [signal] : [])])
+        const bounded = AbortSignal.any([AbortSignal.timeout(MODEL_DOWNLOAD_TIMEOUT_MS), ...(signal ? [signal] : [])])
         bounded.throwIfAborted(); await ready()
         const existing = await inspect(bounded)
         if (existing.ready) return existing
@@ -135,10 +148,11 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
           const info = await fs.lstat(filename)
           if (!info.isFile() || info.isSymbolicLink()) throw failure('unsafe_model')
           await fs.unlink(filename)
+          verifiedFingerprint = null
         } catch (error) { if (error.code !== 'ENOENT') throw error }
       })
     },
   }
 }
 
-module.exports = { CANDIDATE, approvedHost, createLocalModelStore, reviewedUrl }
+module.exports = { CANDIDATE, MODEL_DOWNLOAD_TIMEOUT_MS, approvedHost, createLocalModelStore, reviewedUrl }

@@ -11,7 +11,7 @@ function expectedConfiguration(poolId) {
     UserPoolId: poolId, ClientName: 'quiz-from-notes-desktop-preview', GenerateSecret: false,
     AllowedOAuthFlowsUserPoolClient: true, AllowedOAuthFlows: ['code'],
     AllowedOAuthScopes: ['openid', 'email', 'aws.cognito.signin.user.admin'],
-    SupportedIdentityProviders: ['COGNITO'], CallbackURLs: [CALLBACK_URL], LogoutURLs: [APP_ORIGIN + '/'],
+    SupportedIdentityProviders: ['COGNITO', 'Google'], CallbackURLs: [CALLBACK_URL], LogoutURLs: [APP_ORIGIN + '/'],
     ExplicitAuthFlows: ['ALLOW_REFRESH_TOKEN_AUTH'], PreventUserExistenceErrors: 'ENABLED', EnableTokenRevocation: true,
     ReadAttributes: ['email', 'email_verified', 'sub'], WriteAttributes: ['email'],
     AuthSessionValidity: 5, AccessTokenValidity: 5, IdTokenValidity: 5, RefreshTokenValidity: 1,

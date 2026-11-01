@@ -43,15 +43,16 @@ test('opens only the generated authorization URL and ignores unrelated and dupli
   assert.ok(f.changes() >= 2)
 })
 
-test('replacing a pending attempt cancels it and never accepts its old callback', async () => {
+test('repeated sign-in reuses one browser attempt instead of opening orphaned login tabs', async () => {
   const f = fixture()
   const first = await f.begin()
-  const oldCallback = f.callback()
-  const second = await f.begin()
-  assert.equal(await first.result, false)
-  assert.equal(await f.session.handleCallback(oldCallback), false)
+  const second = f.session.signIn().then(() => true, () => false)
+  assert.throws(() => f.session.signIn('google'), /already open/)
+  await Promise.resolve()
+  assert.equal(f.opened.length, 1)
   assert.equal(await f.session.handleCallback(f.callback()), true)
-  assert.equal(await second.result, true)
+  assert.equal(await first.result, true)
+  assert.equal(await second, true)
 })
 
 test('logout discards and revokes an exchange that finishes late', async () => {
@@ -150,4 +151,21 @@ test('successful refresh is shared, updates the access token and keeps refresh t
   assert.equal(calls, 1)
   await f.session.signOut()
   assert.deepEqual(f.revoked, ['new-refresh'])
+})
+
+
+test('Google sign-in uses the fixed provider and accepts the same verified callback flow', async () => {
+  const f = fixture()
+  const result = f.session.signIn('google').then(() => true, () => false)
+  await Promise.resolve()
+  assert.equal(new URL(f.opened[0]).searchParams.get('identity_provider'), 'Google')
+  assert.equal(await f.session.handleCallback(f.callback()), true)
+  assert.equal(await result, true)
+  assert.equal((await f.session.session()).email, 'one@example.invalid')
+})
+
+test('unsupported provider names are rejected before a browser is opened', () => {
+  const f = fixture()
+  assert.throws(() => f.session.signIn('https://evil.invalid'), /Unsupported desktop sign-in method/)
+  assert.deepEqual(f.opened, [])
 })

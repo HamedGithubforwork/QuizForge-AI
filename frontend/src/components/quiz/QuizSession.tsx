@@ -55,6 +55,7 @@ type QuizSessionProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  weakPracticeError: string
   canCancelWeakPractice: boolean
   isGenerating: boolean
   saveMessage: string
@@ -108,6 +109,7 @@ function QuizSession({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  weakPracticeError,
   canCancelWeakPractice,
   isGenerating,
   saveMessage,
@@ -400,6 +402,7 @@ function QuizSession({
           isWeakPracticeGenerating={
             isWeakPracticeGenerating
           }
+          weakPracticeError={weakPracticeError}
           canCancelWeakPractice={
             canCancelWeakPractice
           }
