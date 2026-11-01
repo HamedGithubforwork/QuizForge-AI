@@ -18,6 +18,8 @@ type QuizResultsCardProps = {
   quiz: QuizResult
   documentResult: UploadResult
   questionCount: number
+  isReviewingAnswers: boolean
+  answerReviewProgress: { completed: number; total: number } | null
   partialCount?: number
   uncertainCount?: number
   partialCredit?: number
@@ -58,6 +60,8 @@ function QuizResultsCard({
   quiz,
   documentResult,
   questionCount,
+  isReviewingAnswers,
+  answerReviewProgress,
   partialCount = 0,
   uncertainCount = 0,
   partialCredit = 0,
@@ -88,8 +92,7 @@ function QuizResultsCard({
   onGenerateNewQuiz,
   onUploadNewPdf,
 }: QuizResultsCardProps) {
-  const hasIncorrectAnswers =
-    score < questionCount
+  const hasIncorrectAnswers = score < questionCount && uncertainCount === 0 && !isReviewingAnswers
   const assessedCount = Math.max(0, questionCount - uncertainCount)
   const earnedCredit = Number((score + partialCredit).toFixed(2))
   const assessedCreditPercentage = assessedCount > 0
@@ -114,8 +117,14 @@ function QuizResultsCard({
       </h2>
 
       <p className="score-message">
-        {getScoreMessage(percentage)}
+        {uncertainCount > 0 ? 'Provisional result — ungraded short answers are not counted as incorrect.' : getScoreMessage(percentage)}
       </p>
+      {isReviewingAnswers && answerReviewProgress && (
+        <p className="answer-review-status" role="status">
+          Local AI: {answerReviewProgress.completed} of {answerReviewProgress.total} short answers reviewed.
+          You can inspect multiple-choice and true/false results now. Each short answer will update as it is checked.
+        </p>
+      )}
 
       <p className="incorrect-count">
         {questionCount - score - partialCount - uncertainCount} incorrect
@@ -293,7 +302,7 @@ function QuizResultsCard({
           onClick={onSaveResult}
           disabled={
             isSavingHistory ||
-            resultSaved
+            resultSaved || isReviewingAnswers || uncertainCount > 0
           }
         >
           {isSavingHistory
@@ -309,7 +318,7 @@ function QuizResultsCard({
             type="button"
             onClick={onRetryIncorrect}
             disabled={
-              isWeakPracticeGenerating
+              isWeakPracticeGenerating || isReviewingAnswers || uncertainCount > 0
             }
           >
             Retry Incorrect
@@ -325,7 +334,7 @@ function QuizResultsCard({
             }
             disabled={
               isWeakPracticeGenerating ||
-              isGenerating
+              isGenerating || isReviewingAnswers || uncertainCount > 0
             }
           >
             {isWeakPracticeGenerating
