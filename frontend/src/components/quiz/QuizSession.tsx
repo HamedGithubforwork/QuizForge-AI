@@ -13,13 +13,16 @@ import type {
   QuizResult,
   UploadResult,
 } from '../../types/quiz'
-import { formatGenerationDuration } from '../../lib/generationTiming.ts'
+import { formatGenerationDuration, type GenerationTimeEstimate } from '../../lib/generationTiming.ts'
 import QuizQuestionCard from './QuizQuestionCard.tsx'
 import QuizResultsCard from './QuizResultsCard.tsx'
 
 type QuizSessionProps = {
   quiz: QuizResult
   generationDurationMs: number | null
+  showPracticeTiming: boolean
+  practiceTimingElapsedMs: number
+  practiceTimingEstimate: GenerationTimeEstimate | null
   documentResult: UploadResult
   generatedSettings:
     | GeneratedSettings
@@ -92,6 +95,9 @@ type QuizSessionProps = {
 function QuizSession({
   quiz,
   generationDurationMs,
+  showPracticeTiming,
+  practiceTimingElapsedMs,
+  practiceTimingEstimate,
   documentResult,
   generatedSettings,
   selectedAnswers,
@@ -423,6 +429,9 @@ function QuizSession({
           isWeakPracticeGenerating={
             isWeakPracticeGenerating
           }
+          showPracticeTiming={showPracticeTiming}
+          practiceTimingElapsedMs={practiceTimingElapsedMs}
+          practiceTimingEstimate={practiceTimingEstimate}
           weakPracticeError={weakPracticeError}
           canCancelWeakPractice={
             canCancelWeakPractice
