@@ -8,6 +8,7 @@ import {
   showGenerationModeSelector,
 } from '../../lib/generationModePolicy'
 import type { GenerationTimeEstimate } from '../../lib/generationTiming.ts'
+import type { DesktopLocalQuizProgress } from '../../lib/desktop.ts'
 import GenerationTimingPanel from './GenerationTimingPanel.tsx'
 
 type QuizSettingsPanelProps = {
@@ -21,6 +22,7 @@ type QuizSettingsPanelProps = {
   isWeakPracticeGenerating: boolean
   scannedLikely: boolean
   generationStage: string
+  localBatchProgress: DesktopLocalQuizProgress | null
   generationElapsedMs: number
   generationEstimate: GenerationTimeEstimate | null
   onQuestionCountChange:
@@ -46,6 +48,7 @@ function QuizSettingsPanel({
   isWeakPracticeGenerating,
   scannedLikely,
   generationStage,
+  localBatchProgress,
   generationElapsedMs,
   generationEstimate,
   onQuestionCountChange,
@@ -269,7 +272,7 @@ function QuizSettingsPanel({
           )}
 
           {isGenerating && (
-            <GenerationTimingPanel elapsedMs={generationElapsedMs} estimate={generationEstimate} />
+            <GenerationTimingPanel elapsedMs={generationElapsedMs} estimate={generationEstimate} progress={localBatchProgress} />
           )}
 
           {generationStage && (
