@@ -639,7 +639,7 @@ function promptFor(request, { allowPartial = false } = {}) {
         ? 'For each short-answer question use choices [], correct_index -1, and copy correct_answer as an exact contiguous phrase from its cited source page; do not paraphrase or combine separated phrases. accepted_answers may contain only source-supported variants.'
         : 'Follow the output shape for each type: multiple choice has four choices; true/false has ["True", "False"]; short answer has choices [], correct_index -1, and an exact contiguous correct_answer phrase copied from its cited source page. Do not paraphrase short answers. Supply accepted_answers for every item.'
   const lines = [
-    request.practice && request.questionCount === QUESTION_COUNT && requestedMode === 'multiple_choice'
+    request.practice && !allowPartial && request.questionCount === QUESTION_COUNT && requestedMode === 'multiple_choice'
       ? 'Create a multiple-choice practice quiz using ONLY the supplied study material. The final product requires five questions; targeted-practice generation may request extra backup candidates that will be deterministically filtered before the user sees the quiz.'
       : allowPartial
         ? 'Create a practice quiz using ONLY the supplied study material. Generate as many different, source-supported questions as possible, up to ' + countLabel + ', in the requested mode: ' + requestedMode + '. One valid question is enough to return a useful quiz.'
