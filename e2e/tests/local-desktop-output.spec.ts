@@ -282,7 +282,11 @@ test('a 15-question request displays five safe questions and preserves the reque
   const errors = await openDesktopUi(page, original, false, followup,
     { count: 15, difficulty: 'easy', type: 'multiple_choice' })
   await expect(page.locator('.question-card')).toHaveCount(5)
-  await expect(page.getByRole('status').filter({ hasText: 'Generated 5 of 15 requested questions' })).toBeVisible()
+  // The settings notice and the in-quiz banner both legitimately announce
+  // partial generation. Scope to the active quiz banner rather than matching
+  // two live regions and triggering Playwright strict-mode errors.
+  await expect(page.locator('#quiz-start .weak-practice-banner[role="status"]'))
+    .toContainText('Generated 5 of 15 requested questions')
   for (const [index, q] of original.questions.entries()) {
     await page.locator('.question-card').nth(index)
       .locator('input[type=radio]')
