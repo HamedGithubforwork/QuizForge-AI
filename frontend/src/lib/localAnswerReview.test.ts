@@ -58,3 +58,20 @@ test('local review distinguishes a busy runtime, missing bridge and incomplete d
   }, cases)
   assert.match(incomplete[0].reason, /did not return a decision/)
 })
+
+test('expired account and missing source context are explained instead of generic unavailable', async () => {
+  const cases = buildAttemptReviewCases(quiz, { 0: 's' }, [0], true)
+  assert.equal(cases.length, 1)
+  for (const [error, expected] of [
+    ['account_unavailable', 'Sign in again'],
+    ['review_context_missing', 'Generate a new local quiz'],
+    ['desktop_connection_failed', 'desktop connection'],
+  ]) {
+    const bridge = { reviewLocalAnswers: async () => error === 'desktop_connection_failed'
+      ? Promise.reject(new Error('Private IPC failure')) : { ok: false as const, error } }
+    const decisions = await reviewAnswersLocally(bridge, cases)
+    assert.equal(decisions[0].verdict, 'uncertain')
+    assert.match(decisions[0].reason, new RegExp(expected, 'i'))
+    assert.doesNotMatch(decisions[0].reason, /Private IPC/)
+  }
+})
