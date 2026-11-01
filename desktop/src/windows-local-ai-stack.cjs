@@ -369,7 +369,7 @@ function createWindowsLocalAiStack({
     clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
-      return traceOperation('answer_review', {}, () => runQuiz(signal => {
+      return traceOperation('answer_review', {}, () => runQuiz(async signal => {
         reviewProgressState = { total: request.cases.length, decisions: [] }
         const context = { ...reviewContext, signal, onDecision: decision => {
           if (!reviewProgressState || signal.aborted) return
