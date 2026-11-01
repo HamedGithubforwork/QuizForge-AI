@@ -12,7 +12,10 @@ async function main() {
   const store = createLocalModelStore({ directory: path.resolve(process.argv[3]) })
   const runtime = createLocalRuntime({ directory: path.resolve(process.argv[2]), modelStore: store })
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId: CANDIDATE.id })
-  const report = { grading: [], duplicates: null, outcome: 'pending' }
+  // This runner uses only the checked-in, public biology fixture. Keep the
+  // model's structured responses in the CI artifact so a conservative or
+  // malformed grading decision can be diagnosed without weakening validation.
+  const report = { grading: [], duplicates: null, modelResponses: [], outcome: 'pending' }
   const question = { question_type: 'short_answer', question: 'What are the two main functions of the nucleus in a cell?',
     correct_answer: 'Stores most of the cell DNA and helps control cell activities.', source_pages: [1] }
   const cases = [
@@ -26,7 +29,13 @@ async function main() {
   // Runtime transport permits loopback only; fail immediately on any accidental fetch/cloud request.
   globalThis.fetch = async () => { throw new Error('External fetch is forbidden during local grading') }
   try {
-    const grader = createLocalAnswerReview({ provider })
+    const observedProvider = { async generate(request, options) {
+      const result = await provider.generate(request, options)
+      report.modelResponses.push({ profile: request.generationProfile,
+        finishReason: result.finishReason, text: result.text })
+      return result
+    } }
+    const grader = createLocalAnswerReview({ provider: observedProvider })
     for (const [answer, expected] of cases) {
       const result = await grader.review({ cases: [{ question_index: 0, question: question.question,
         correct_answer: question.correct_answer, student_answer: answer }] }, { quiz: { questions: [question] }, pages: fixture.pages })
@@ -39,7 +48,7 @@ async function main() {
       { ...question, question: 'Which structure stores most of the cell DNA?', correct_answer: 'Nucleus' },
       { ...question, question: 'What process releases energy from food in the mitochondrion?', correct_answer: 'cellular respiration' },
     ] }
-    report.duplicates = await reviewQuizDistinctness({ provider, quiz, pages: fixture.pages })
+    report.duplicates = await reviewQuizDistinctness({ provider: observedProvider, quiz, pages: fixture.pages })
     assert.equal(report.duplicates.generation.distinctness, 'checked')
     assert.equal(report.duplicates.questions.length, 2)
     assert.ok(report.duplicates.questions.some(q => q.correct_answer === 'cellular respiration'))
