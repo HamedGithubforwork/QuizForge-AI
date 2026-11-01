@@ -249,7 +249,7 @@ function QuizQuestionCard({
                 <blockquote>{concept.source_quote}</blockquote>
               </li>)}</ul>
             </>}
-            <p>{answerReview.engine === 'manual' ? 'Marked by you · No AI grading' : answerReview.engine === 'local' ? 'Reviewed on your device · No cloud review request' : 'Reviewed using Cloud AI'}</p>
+            <p>{answerReview.engine === 'manual' ? 'Marked by you · No AI grading' : answerReview.engine === 'local' ? 'Local AI mode · No cloud review request' : 'Reviewed using Cloud AI'}</p>
             {answerReview.verdict === 'uncertain' && <p>No credit decision was made. Compare your answer with the cited source.</p>}
           </div>}
 
