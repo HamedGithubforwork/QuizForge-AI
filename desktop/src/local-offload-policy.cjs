@@ -10,7 +10,7 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 const { MANIFEST } = require('./local-runtime.cjs')
 
 const GIB = 1024 ** 3
-const CACHE_VERSION = 1
+const CACHE_VERSION = 2
 const MAX_CACHE_BYTES = 4096
 const MAX_SAMPLES = 8
 
@@ -54,7 +54,8 @@ function signature(hardware) {
 function safeCache(value, expectedSignature, candidates) {
   if (!value || value.schema !== CACHE_VERSION || value.signature !== expectedSignature ||
       !value.timings || typeof value.timings !== 'object' || Array.isArray(value.timings) ||
-      !Array.isArray(value.failed)) return null
+      !Array.isArray(value.failed) || !value.failureCounts ||
+      typeof value.failureCounts !== 'object' || Array.isArray(value.failureCounts)) return null
   const timings = {}
   for (const [key, score] of Object.entries(value.timings)) {
     const layers = Number(key)
@@ -69,7 +70,15 @@ function safeCache(value, expectedSignature, candidates) {
   if (value.failed.length > candidates.length ||
       value.failed.some(x => !candidates.includes(x) || x === 0) ||
       new Set(value.failed).size !== value.failed.length) return null
-  return { timings, failed: [...value.failed] }
+  const failureCounts = {}
+  for (const [key, count] of Object.entries(value.failureCounts)) {
+    const layers = Number(key)
+    if (!candidates.includes(layers) || layers === 0 ||
+        !Number.isSafeInteger(count) || count < 1 || count > 2) return null
+    failureCounts[key] = count
+  }
+  if (value.failed.some(x => failureCounts[String(x)] !== 2)) return null
+  return { timings, failed: [...value.failed], failureCounts }
 }
 
 function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
@@ -82,6 +91,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   let fingerprint = null
   let timings = {}
   let failed = []
+  let failureCounts = {}
   let ready = false
   let selected = 0
   let writes = Promise.resolve()
@@ -107,6 +117,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
         if (cached) {
           timings = cached.timings
           failed = cached.failed
+          failureCounts = cached.failureCounts
         }
       }
     } catch {
@@ -142,7 +153,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   function save() {
     const document = JSON.stringify({
       schema: CACHE_VERSION, signature: fingerprint,
-      timings, failed,
+      timings, failed, failureCounts,
     })
     writes = writes.then(async () => {
       const temp = path.join(directory, '.offload-' + randomBytes(8).toString('hex') + '.tmp')
@@ -157,7 +168,12 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
 
   function recordFailure(value) {
     if (!ready || value === 0 || !candidates.includes(value) || failed.includes(value)) return
-    failed.push(value)
+    // A single GPU startup failure may be an intermittent watchdog or
+    // Windows driver hiccup. Require two failures before remembering that
+    // allocation as unavailable on future launches.
+    const count = Math.min(2, (failureCounts[String(value)] ?? 0) + 1)
+    failureCounts[String(value)] = count
+    if (count >= 2) failed.push(value)
     save()
   }
 
