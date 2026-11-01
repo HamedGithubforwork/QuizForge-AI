@@ -367,6 +367,30 @@ export function useQuizAttempt({
     }
   }
 
+  function stopLocalAnswerReview() {
+    if (allowRemoteAnswerReview || !isReviewingAnswers || !quiz) return
+    reviewEpoch.current += 1
+    reviewingRef.current = false
+    setIsReviewingAnswers(false)
+    setAnswerReviewProgress(null)
+    setAiGradeReviews(previous => {
+      const next = { ...previous }
+      quiz.questions.forEach((question, index) => {
+        const answer = selectedAnswers[index]
+        if (question.question_type !== 'short_answer' || typeof answer !== 'string') return
+        const key = buildAiAnswerReviewKey(question, answer)
+        if (next[key]?.verdict === 'uncertain' &&
+            next[key]?.reason.startsWith('Waiting for Local AI')) {
+          next[key] = { ...next[key],
+            reason: 'Local AI review was stopped. Compare this answer with the source and grade it manually.' }
+        }
+      })
+      return next
+    })
+    setSaveMessage('Local AI review stopped. Completed grades remain visible; mark any remaining uncertain short answers yourself.')
+    void desktopBridge()?.cancelLocalAiQuiz?.().catch(() => {})
+  }
+
   function handleTryAgain() {
     resetAttempt()
     setError('')
@@ -560,6 +584,7 @@ export function useQuizAttempt({
     setShortAnswerReviewMode,
     answerReviewProgress,
     setManualShortAnswerGrade,
+    stopLocalAnswerReview,
     activeQuestionIndexes,
     answeredCount,
     score,
