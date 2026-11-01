@@ -46,6 +46,13 @@ import {
   reportLocalGenerationUsage,
 } from './lib/generationUsage.ts'
 import {
+  appendGenerationTiming,
+  estimateGenerationTime,
+  readGenerationTimings,
+  storeGenerationTimings,
+  type GenerationTimingProfile,
+} from './lib/generationTiming.ts'
+import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
 import type {
@@ -88,6 +95,12 @@ function App() {
     useState(false)
   const [generationStage, setGenerationStage] =
     useState('')
+  const [generationElapsedMs, setGenerationElapsedMs] = useState(0)
+  const [generationDurationMs, setGenerationDurationMs] = useState<number | null>(null)
+  const generationStartedAt = useRef<number | null>(null)
+  const [generationTimings, setGenerationTimings] = useState(() => {
+    try { return readGenerationTimings(window.localStorage) } catch { return [] }
+  })
   const [error, setError] = useState('')
   const [weakPracticeError, setWeakPracticeError] = useState('')
   const [
@@ -110,6 +123,15 @@ function App() {
     localQuizBridgeRef.current
   const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
   const localPdfBridge = localPdfBridgeRef.current
+  useEffect(() => {
+    if (!isGenerating) return
+    const ticker = window.setInterval(() => {
+      if (generationStartedAt.current !== null) {
+        setGenerationElapsedMs(Math.max(0, performance.now() - generationStartedAt.current))
+      }
+    }, 1000)
+    return () => window.clearInterval(ticker)
+  }, [isGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
   const generationModeUserSelected =
@@ -474,6 +496,22 @@ function App() {
         questionType,
       }
 
+    const timingProfile: GenerationTimingProfile = {
+      engine: generationMode, questionCount, difficulty, questionType,
+    }
+    const startedAt = performance.now()
+    generationStartedAt.current = startedAt
+    setGenerationElapsedMs(0)
+    setGenerationDurationMs(null)
+    const recordSuccess = () => {
+      const durationMs = Math.max(0, performance.now() - startedAt)
+      setGenerationDurationMs(durationMs)
+      setGenerationElapsedMs(durationMs)
+      const updated = appendGenerationTiming(generationTimings, timingProfile, durationMs)
+      setGenerationTimings(updated)
+      try { storeGenerationTimings(window.localStorage, updated) } catch {}
+    }
+
     setIsGenerating(true)
     setGenerationStage(
       generationMode === 'local'
@@ -575,6 +613,7 @@ function App() {
         }
 
         setGenerationStage('Quiz ready!')
+        recordSuccess()
         setQuiz(result.quiz)
         void reportLocalGenerationUsage(
           apiFetch,
@@ -647,6 +686,7 @@ function App() {
       }
 
       setGenerationStage('Quiz ready!')
+      recordSuccess()
       setQuiz(data as QuizResult)
       setGeneratedSettings({
         ...settingsForRequest,
@@ -691,6 +731,7 @@ function App() {
         localGenerationController.current =
           null
       }
+      generationStartedAt.current = null
       setIsGenerating(false)
       window.setTimeout(() => {
         setGenerationStage('')
@@ -865,6 +906,7 @@ function App() {
         }
       }
 
+      setGenerationDurationMs(null)
       setQuiz(data)
       setGeneratedSettings({
         engine: generationMode === 'local' ? 'local' : 'cloud',
@@ -1007,6 +1049,7 @@ function App() {
         }
       }
 
+      setGenerationDurationMs(null)
       setQuiz(data)
       setGeneratedSettings({
         engine: generationMode === 'local' ? 'local' : 'cloud',
@@ -1094,6 +1137,11 @@ function App() {
     })
   }
 
+  const generationEstimate = isGenerating
+    ? estimateGenerationTime(generationTimings, {
+      engine: generationMode, questionCount, difficulty, questionType,
+    }, generationElapsedMs)
+    : null
   const documentBusy = isProcessing || isGenerating || isWeakPracticeGenerating || attempt.isReviewingAnswers || attempt.isSavingHistory
 
   const masteryDelta =
@@ -1201,6 +1249,8 @@ function App() {
               generationStage={
                 generationStage
               }
+              generationElapsedMs={generationElapsedMs}
+              generationEstimate={generationEstimate}
               onQuestionCountChange={
                 setQuestionCount
               }
@@ -1235,6 +1285,7 @@ function App() {
             {quiz ? (
               <QuizSession
                 quiz={quiz}
+                generationDurationMs={generationDurationMs}
                 documentResult={
                   documentResult
                 }
