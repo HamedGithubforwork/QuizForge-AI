@@ -313,8 +313,17 @@ function createWindowsLocalAiStack({
     clearQuizReview: () => { contextEpoch++; reviewContext = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
-      return traceOperation('answer_review', {}, () => runQuiz(signal =>
-        answerReview.review(request, { ...reviewContext, signal })))
+      return traceOperation('answer_review', {}, () => runQuiz(signal => {
+        const context = { ...reviewContext, signal }
+        // One short-answer submission may contain several answers. Avoid
+        // reloading Qwen between each answer, but still release it when the
+        // review finishes or is cancelled.
+        if (request.cases.length > 1 && typeof provider.withSession === 'function') {
+          return provider.withSession(scopedProvider =>
+            createLocalAnswerReview({ provider: scopedProvider }).review(request, context), { signal })
+        }
+        return answerReview.review(request, context)
+      }))
     },
     processDocument,
     generateDocumentQuiz,
