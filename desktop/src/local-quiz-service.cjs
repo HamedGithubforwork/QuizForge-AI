@@ -1440,7 +1440,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             { pageNumber: current.pageNumber, text: left },
             { pageNumber: current.pageNumber, text: right })
         }
-        const groups = Array.from({ length: Math.min(batchCount, segments.length) }, () => [])
+        // Tiny notes may not contain enough text to form independent batches.
+        // Keep the existing single-request partial/insufficient-source path
+        // rather than repeatedly asking a 5-question model for the same fact.
+        if (segments.length >= batchCount) {
+        const groups = Array.from({ length: batchCount }, () => [])
         segments.forEach((page, index) => groups[index % groups.length].push(page))
         const retained = []
         let firstFailure = null
@@ -1471,6 +1475,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           title: 'Source-backed ' + (request.questionType === 'mixed' ? 'mixed' : 'multiple-choice') + ' quiz',
           questions: Object.freeze(retained.slice(0, request.questionCount)),
         })
+        }
       }
       const useLegacyMultipleChoiceContract = !request.practice && !allowSourceBackedPartial &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice'
