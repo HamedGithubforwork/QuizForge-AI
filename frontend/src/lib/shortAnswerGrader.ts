@@ -461,6 +461,31 @@ function gradeNumericAnswer(
   }
 }
 
+// A tightly scoped, deterministic equivalence for simple comma-separated
+// source-derived lists. Never credit a subset, negation or extra claims.
+function equivalentInputList(expected: string, submitted: string): boolean {
+  const expectedItems = expected.split(',').map(normalizeShortAnswer)
+  const submittedItems = submitted.split(',').map(normalizeShortAnswer)
+  if (expectedItems.length < 3 || expectedItems.length !== submittedItems.length ||
+      expectedItems.some(item => !item) || submittedItems.some(item => !item)) return false
+
+  const expectedSet = new Set(expectedItems)
+  // "Sunlight" supplies the light input in the common photosynthesis list.
+  // Outside the water + carbon dioxide + light context, keep "sunlight" and
+  // "light" distinct (e.g., questions about artificial illumination).
+  const photosynthesisInputs = ['carbon dioxide', 'water', 'light']
+    .every(item => expectedSet.has(item))
+
+  const canonical = (item: string) => {
+    if (/^co\\s*2$/.test(item)) return 'carbon dioxide'
+    if (photosynthesisInputs && item === 'sunlight') return 'light'
+    return item
+  }
+  const a = expectedItems.map(canonical).sort()
+  const b = submittedItems.map(canonical).sort()
+  return a.every((item, index) => item === b[index])
+}
+
 function gradeExactAnswer(
   question: ShortAnswerQuestion,
   answer: string,
@@ -475,9 +500,10 @@ function gradeExactAnswer(
     .map(normalizeShortAnswer)
     .filter(Boolean)
 
-  const correct = acceptedAnswers.includes(
-    normalizedUser,
-  )
+  const exact = acceptedAnswers.includes(normalizedUser)
+  const equivalent = !exact && [question.correct_answer, ...question.accepted_answers]
+    .some(expected => equivalentInputList(expected, answer))
+  const correct = exact || equivalent
 
   return {
     correct,
@@ -485,9 +511,11 @@ function gradeExactAnswer(
     requiredGroups: 1,
     totalGroups: 1,
     borderline: false,
-    feedback: correct
-      ? 'Answer matched an accepted exact response.'
-      : 'Answer did not match an accepted exact response.',
+    feedback: equivalent
+      ? 'All required list items matched, including equivalent scientific terminology.'
+      : correct
+        ? 'Answer matched an accepted exact response.'
+        : 'Answer did not match an accepted exact response.',
   }
 }
 
