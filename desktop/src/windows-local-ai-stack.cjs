@@ -61,6 +61,7 @@ function createWindowsLocalAiStack({
   let documentController = null
   let disposed = false
   let lastQuizValidationIssue = null
+  let quizProgressState = null
   const debugReport = createLocalAiDebugReport()
   let activeOperationId = null
   function diagnostic(event, fields = {}) {
@@ -133,6 +134,20 @@ function createWindowsLocalAiStack({
     const createGenerator = activeProvider => createLocalQuizService({
       provider: activeProvider, onValidationIssue: captureQuizValidationIssue,
       onGeneratedResponse: onQuizGeneratedResponse,
+      onBatchProgress: value => {
+        if (!quizProgressState || quizProgressState.phase !== 'generating') return
+        if (!Number.isSafeInteger(value?.completedBatches) ||
+            !Number.isSafeInteger(value?.totalBatches) ||
+            !Number.isSafeInteger(value?.validQuestions) ||
+            value.completedBatches < 0 || value.totalBatches < 1 ||
+            value.completedBatches > value.totalBatches || value.validQuestions < 0) return
+        quizProgressState = Object.freeze({
+          ...quizProgressState,
+          completedBatches: value.completedBatches,
+          totalBatches: value.totalBatches,
+          validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+        })
+      },
       onRejectedQuestion: issue => {
         diagnostic('question_rejected', { reason: issue.reason, questionNumber: issue.questionNumber,
           questionType: issue.questionType, sourcePages: issue.sourcePages })
@@ -142,11 +157,23 @@ function createWindowsLocalAiStack({
     quizService = { async generate(request, options) {
       reviewContext = null
       const epoch = contextEpoch
+      quizProgressState = Object.freeze({
+        phase: 'generating', completedBatches: 0,
+        totalBatches: [5, 10, 15].includes(request?.questionCount)
+          ? request.questionCount / 5 : 1,
+        validQuestions: 0,
+        requestedQuestions: request?.questionCount ?? 5,
+      })
       // Quiz generation, all five-item batches and the distinctness check
       // share one guarded local model process. The scoped provider cannot
       // open another session, and the model stops after this one quiz.
       const produce = async activeProvider => {
         const generated = await createGenerator(activeProvider).generate(request, options)
+        quizProgressState = Object.freeze({
+          ...quizProgressState, phase: 'checking_duplicates',
+          completedBatches: quizProgressState.totalBatches,
+          validQuestions: generated.questions.length,
+        })
         return reviewQuizDistinctness({
           provider: activeProvider, quiz: generated,
           pages: request.pages, signal: options?.signal,
@@ -243,6 +270,7 @@ function createWindowsLocalAiStack({
     } finally {
       if (quizOperation === currentOperation) quizOperation = null
       if (quizController === controller) quizController = null
+      quizProgressState = null
       selectedGpuLayers = null
       await offloadPolicy.flush()
     }
@@ -309,6 +337,8 @@ function createWindowsLocalAiStack({
     cancelDownload: manager.cancelDownload,
     removeModel: manager.removeModel,
     quizStatus,
+    quizProgress: () => quizOperation && quizProgressState
+      ? Object.freeze({ ...quizProgressState }) : null,
     generateQuiz,
     clearQuizReview: () => { contextEpoch++; reviewContext = null },
     reviewLocalAnswers: request => {
