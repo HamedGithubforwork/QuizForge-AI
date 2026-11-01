@@ -1402,7 +1402,7 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, allowSourceBackedPartial = false }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
@@ -1415,7 +1415,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           typeof provider.withSession === 'function') {
         return provider.withSession(scopedProvider => createLocalQuizService({
           provider: scopedProvider, onValidationIssue, onGeneratedResponse,
-          onRejectedQuestion, allowSourceBackedPartial,
+          onRejectedQuestion, onBatchProgress, allowSourceBackedPartial,
         }).generate(request, { signal }), { signal })
       }
       // All four question modes can exceed the bounded local-model inference
@@ -1460,7 +1460,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           const retained = []
           const seenQuestions = new Set()
           let firstFailure = null
-          for (const pages of groups) {
+          try { onBatchProgress(Object.freeze({ completedBatches: 0, totalBatches: groups.length, validQuestions: 0 })) } catch {}
+          for (const [groupIndex, pages] of groups.entries()) {
             if (signal?.aborted) throw failure('cancelled')
             try {
               const groupPages = new Set(pages.map(page => page.pageNumber))
@@ -1511,6 +1512,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 attempt: 'recovery', reason: error.code,
               })) } catch {}
             }
+            try { onBatchProgress(Object.freeze({ completedBatches: groupIndex + 1, totalBatches: groups.length, validQuestions: retained.length })) } catch {}
           }
           if (!retained.length) throw firstFailure ?? failure('insufficient_source')
           return Object.freeze({
