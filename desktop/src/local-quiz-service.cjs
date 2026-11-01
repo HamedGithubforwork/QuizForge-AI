@@ -652,6 +652,7 @@ function promptFor(request, { allowPartial = false } = {}) {
       ? 'Make multiple-choice distractors plausible but incorrect answers to that specific question. A term from elsewhere in the supplied study material may be used as a distractor when it does not answer this question. Never repeat the correct answer, repeat a distractor, or create multiple choices that are simultaneously correct.'
       : 'Do not add distractor choices to question types that do not use them.',
     'Keep questions, choices, and explanations concise. Do not repeat the question in the explanation or add background not needed to justify the answer.',
+    'Make question wording match the scope of the expected answer. If the answer lists multiple required inputs, factors, roles, or components, ask what the main inputs/factors/roles ARE, not what the single main input IS. Avoid questions where a singular prompt has a multi-item correct_answer.',
     'Use source_pages only from the supplied PAGE markers, and cite only pages that directly support the question and selected correct answer.',
     'Write each question, its choices, and its explanation in the natural language of the supplied study material unless the supplied material itself intentionally mixes languages.',
     'Do not mix writing systems that are absent from the supplied study material into a question, choice, or explanation.',
