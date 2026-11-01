@@ -2997,3 +2997,46 @@ test('batch progress reports counts only after validation, including failed grou
     'completedBatches', 'totalBatches', 'validQuestions',
   ])
 })
+
+test('failed five-question source-backed batch retries with three concise candidates', async () => {
+  let retryCalls = 0
+  let totalCalls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate(request) {
+        totalCalls++
+        const page = BATCH_SOURCE_PAGES.find(part =>
+          request.messages[1].content.includes('--- PAGE ' + part.pageNumber + ' ---'))
+        assert.ok(page)
+        if (page.pageNumber === 2) {
+          if (retryCalls++ === 0) {
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+            return { finishReason: 'stop', text: '{malformed' }
+          }
+          assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 3)
+          assert.ok(request.maxTokens < 2300)
+          assert.ok(request.messages[0].content.includes('up to 3'))
+          return { finishReason: 'stop', text: JSON.stringify({
+            title: 'Recovered',
+            questions: batchQuestions(2, 'multiple_choice').slice(0, 3),
+          }) }
+        }
+        return { finishReason: 'stop', text: JSON.stringify({
+          title: 'Valid',
+          questions: batchQuestions(page.pageNumber, 'multiple_choice'),
+        }) }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15,
+    questionType: 'multiple_choice', difficulty: 'medium',
+  })
+  assert.equal(totalCalls, 4)
+  assert.equal(retryCalls, 2)
+  assert.equal(quiz.questions.length, 13)
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 13)
+  assert.ok(issues.some(issue => issue.attempt === 'primary' && issue.reason === 'json'))
+})
