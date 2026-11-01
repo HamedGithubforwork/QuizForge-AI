@@ -149,6 +149,16 @@ function QuizSession({
   onGenerateNewQuiz,
   onUploadNewPdf,
 }: QuizSessionProps) {
+  // Keep the original numbering and jump targets, but on the results screen
+  // present instant objective scores first. Then show the short answers as
+  // Local AI finishes reviewing them or the student grades them manually.
+  const displayedQuestionIndexes = showResults
+    ? [
+        ...activeQuestionIndexes.filter(index => quiz.questions[index].question_type !== 'short_answer'),
+        ...activeQuestionIndexes.filter(index => quiz.questions[index].question_type === 'short_answer'),
+      ]
+    : activeQuestionIndexes
+
   return (
     <section
       className="quiz-section"
@@ -350,8 +360,14 @@ function QuizSession({
         </div>
       </nav>
 
+      {showResults && generatedSettings?.engine === 'local' && (
+        <p className="review-section-intro">
+          Multiple-choice and true/false results are shown first. Short answers follow
+          with individual Local AI decisions or your own self-grading.
+        </p>
+      )}
       <div className="questions-list">
-        {activeQuestionIndexes.map(
+        {displayedQuestionIndexes.map(
           (questionIndex) => {
             const question =
               quiz.questions[
