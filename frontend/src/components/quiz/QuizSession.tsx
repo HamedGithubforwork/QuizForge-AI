@@ -196,6 +196,20 @@ function QuizSession({
         </div>
       </div>
 
+      {generatedSettings?.requestedQuestionCount &&
+        quiz.questions.length < generatedSettings.requestedQuestionCount && (
+          <div className="weak-practice-banner" role="status">
+            <strong>
+              Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions
+            </strong>
+            <span>
+              The app kept the questions it could validate and excluded unsupported or
+              malformed candidates. For more questions, try selecting additional source
+              pages or a lower difficulty.
+            </span>
+          </div>
+        )}
+
       {practiceMode &&
         practiceFocus && (
           <div className="weak-practice-banner">
