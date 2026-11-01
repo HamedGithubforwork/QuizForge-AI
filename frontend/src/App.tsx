@@ -557,7 +557,8 @@ function App() {
         }
 
         if (!result.quiz || !Array.isArray(result.quiz.questions) ||
-            result.quiz.questions.length !== questionCount ||
+            result.quiz.questions.length < 1 ||
+            result.quiz.questions.length > questionCount ||
             result.quiz.questions.some(question => !question ||
               typeof question.question !== 'string' || !question.question.trim())) {
           throw new Error(
@@ -572,7 +573,8 @@ function App() {
           'quiz',
         )
         setGeneratedSettings({
-          questionCount,
+          questionCount: result.quiz.questions.length,
+          requestedQuestionCount: questionCount as 5 | 10 | 15,
           difficulty,
           questionType,
         })
@@ -637,9 +639,11 @@ function App() {
 
       setGenerationStage('Quiz ready!')
       setQuiz(data as QuizResult)
-      setGeneratedSettings(
-        settingsForRequest,
-      )
+      setGeneratedSettings({
+        ...settingsForRequest,
+        questionCount: data.questions.length,
+        requestedQuestionCount: questionCount as 5 | 10 | 15,
+      })
 
       window.setTimeout(() => {
         document
@@ -783,7 +787,7 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
@@ -855,6 +859,7 @@ function App() {
       setGeneratedSettings({
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -924,7 +929,7 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
@@ -995,6 +1000,7 @@ function App() {
       setGeneratedSettings({
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -1202,6 +1208,13 @@ function App() {
                 handleCancelLocalQuiz
               }
             />
+
+            {quiz && generatedSettings?.requestedQuestionCount &&
+              quiz.questions.length < generatedSettings.requestedQuestionCount && (
+              <p className="generation-mode-note" role="status" aria-live="polite">
+                Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions from the supplied study material. Only the source-supported questions were included.
+              </p>
+            )}
 
             {quiz ? (
               <QuizSession
