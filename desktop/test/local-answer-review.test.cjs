@@ -42,6 +42,37 @@ test('grade derives full, partial, contradictory and uncertain outcomes from val
   const fabricatedStudent = structuredClone(valid); fabricatedStudent.concepts[0].answer_quote = 'I never wrote this'
   assert.equal(normalizeReview(fabricatedStudent, 0, source, answer).verdict, 'uncertain')
 })
+test('chloroplast process location earns partial only with verifiable evidence of related function', () => {
+  const sourceText = [
+    'Chloroplast   Captures light energy for photosynthesis using',
+    'chlorophyll.',
+    'Photosynthetic eukaryotes',
+  ].join('\\n')
+  const student = "its where photosynthesis occurs"
+  const review = {
+    confidence: 0.76, uncertain: false, contradiction: false,
+    reason: 'Mentions photosynthesis but omits light capture using chlorophyll.',
+    concepts: [
+      { concept: 'Supports photosynthesis', status: 'matched',
+        source_quote: 'Captures light energy for photosynthesis using',
+        answer_quote: 'photosynthesis' },
+      { concept: 'Captures light energy using chlorophyll', status: 'missing',
+        source_quote: 'Captures light energy for photosynthesis using',
+        answer_quote: '' },
+    ],
+  }
+  const decision = normalizeReview(review, 0, sourceText, student)
+  assert.equal(decision.verdict, 'partial')
+  assert.equal(decision.credit, 0.5)
+  assert.equal(normalizeReview({
+    ...review,
+    concepts: [
+      { ...review.concepts[0], source_quote: 'Chloroplasts are a power plant' },
+      review.concepts[1],
+    ],
+  }, 0, sourceText, student).verdict, 'uncertain')
+})
+
 test('review uses only supplied local provider, bounds malformed output and never reviews a stale quiz', async () => {
   let calls = 0
   const service = createLocalAnswerReview({ provider: { async generate(request) {
