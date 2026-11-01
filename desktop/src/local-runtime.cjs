@@ -238,8 +238,13 @@ function createLocalRuntime({
       } catch {}
       return result
     } catch (error) {
-      diagnostic('runtime_failed', { stage, reason: error?.name === 'TimeoutError' ? 'timed_out' : error?.name === 'AbortError' ? 'cancelled' : error?.code })
-      throw error
+      // Node's HTTP request abort can surface as AbortError even when the
+      // bounded runtime timer was the real cause. Preserve the timeout reason
+      // so callers can distinguish a slow inference from user cancellation.
+      const cause = bounded.aborted && bounded.reason?.name === 'TimeoutError'
+        ? bounded.reason : error
+      diagnostic('runtime_failed', { stage, reason: cause?.name === 'TimeoutError' ? 'timed_out' : cause?.name === 'AbortError' ? 'cancelled' : cause?.code })
+      throw cause
     } finally {
       let cleanupError = null
       try {
