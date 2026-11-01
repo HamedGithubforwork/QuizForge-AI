@@ -2317,7 +2317,7 @@ test('weak-area recovery rejects answer substitution from an unrelated source fa
     pages: pages(), questionCount: 5, difficulty: 'medium',
     questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4)
+  assert.equal(calls, 5)
   assert.equal(issues.at(-1).reason, 'unsupported_answer')
 })
 
