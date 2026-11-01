@@ -355,7 +355,12 @@ export function useQuizAttempt({
         setAiGradeReviews(previous =>
           mergeAttemptReviewDecisions(previous, quiz, reviewCases, decisions))
         setAnswerReviewProgress({ completed: decisions.length, total: reviewCases.length })
-        setSaveMessage(`${local ? 'Local AI' : 'Cloud AI'} reviewed ${decisions.length} short ${decisions.length === 1 ? 'answer' : 'answers'}. Any uncertain answers can be checked manually.`)
+        const completed = decisions.filter(decision =>
+          decision.verdict === 'correct' || decision.verdict === 'partial' || decision.verdict === 'incorrect',
+        ).length
+        setSaveMessage(local
+          ? `Local AI graded ${completed} of ${reviewCases.length} short answers. ${reviewCases.length - completed} still need review and can be retried or graded manually.`
+          : `Cloud AI reviewed ${decisions.length} short answers. Any uncertain answers can be checked manually.`)
       } catch {
         if (epoch === reviewEpoch.current) {
           setSaveMessage(local
