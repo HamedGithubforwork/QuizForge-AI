@@ -506,6 +506,83 @@ test('duplicate repair will not use the generic fallback for non-English questio
   assert.equal(calls, 2)
 })
 
+test('pinned-Qwen French director duplicate choices recover without changing the source-backed correct choice', async () => {
+  const source = 'La station Boréale a ouvert en 2037. Sa directrice est Léa Morel. Elle possède sept capteurs. Le capteur vert mesure la pression. Le capteur orange mesure l’humidité.'
+  const questions = [
+    { question: 'En quelle année a ouvert la station Boréale?', choices: ['2036', '2037', '2038', '2039'], correct_index: 1,
+      explanation: 'Ouverture en 2037.', source_pages: [1], source_fact: 'La station Boréale a ouvert en 2037.' },
+    { question: 'Qui est la directrice de la station Boréale?', choices: ['Léa Morel', 'Léa Morel', 'Léa Morel', 'Léa Morel'], correct_index: 0,
+      explanation: 'Sa directrice est Léa Morel.', source_pages: [1], source_fact: 'Sa directrice est Léa Morel.' },
+    { question: 'Combien de capteurs possède la station Boréale?', choices: ['six', 'sept', 'huit', 'neuf'], correct_index: 1,
+      explanation: 'Elle possède sept capteurs.', source_pages: [1], source_fact: 'Elle possède sept capteurs.' },
+    { question: 'Quel capteur mesure la pression?', choices: ['le capteur vert', 'le capteur orange', 'aucun capteur', 'un autre capteur'], correct_index: 0,
+      explanation: 'Le capteur vert mesure la pression.', source_pages: [1], source_fact: 'Le capteur vert mesure la pression.' },
+    { question: 'Quel capteur mesure l’humidité?', choices: ['le capteur vert', 'le capteur orange', 'aucun capteur', 'un autre capteur'], correct_index: 1,
+      explanation: 'Le capteur orange mesure l’humidité.', source_pages: [1], source_fact: 'Le capteur orange mesure l’humidité.' },
+  ]
+  const issues = []
+  let calls = 0
+  const quiz = await createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: { async generate(request) {
+      calls++
+      if (calls === 1) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      if (calls === 2) return { text: JSON.stringify({ title: 'Boréale', questions }), finishReason: 'stop' }
+      assert.deepEqual(request.jsonSchema.required, ['q1_c1', 'q1_c2', 'q1_c3'])
+      return { text: JSON.stringify({
+        q1_c1: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+        q1_c2: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+        q1_c3: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+      }), finishReason: 'stop' }
+    } },
+  }).generate({ pages: [{ pageNumber: 1, text: source }], questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice' })
+  assert.equal(calls, 3)
+  assert.deepEqual(issues, ['insufficient_source', 'duplicate_choices'])
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[1].correct_answer, 'Léa Morel')
+  assert.equal(quiz.questions[1].choices[0], 'Léa Morel')
+  assert.deepEqual(quiz.questions[1].source_pages, [1])
+  assert.equal(new Set(quiz.questions[1].choices.map(choice => choice.toLocaleLowerCase())).size, 4)
+  assert.ok(quiz.questions[1].choices.slice(1).every(name => !source.includes(name)))
+  assert.ok(quiz.questions.every(question =>
+    new Set(question.choices.map(choice => choice.toLocaleLowerCase())).size === 4))
+})
+
+test('French identity recovery refuses an invented citation or a question about a different fact', async () => {
+  const source = 'Sa directrice est Léa Morel.'
+  for (const question of [
+    { question: 'Qui est la directrice?', source_fact: 'La directrice est Léa Morel.' },
+    { question: 'Qui est le mécanicien?', source_fact: 'Sa directrice est Léa Morel.' },
+  ]) {
+    const invalid = rawQuiz()
+    invalid.questions[0] = {
+      question: question.question, choices: ['Léa Morel', 'Léa Morel', 'Léa Morel', 'Léa Morel'],
+      correct_index: 0, explanation: 'Sa directrice est Léa Morel.',
+      source_pages: [2], source_fact: question.source_fact,
+    }
+    // The model's repeated names must not trigger a catalogue of invented
+    // alternatives without an exact, role-matching source quotation.
+    let calls = 0
+    const service = createLocalQuizService({ provider: { async generate() {
+      calls++
+      if (calls === 1) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      if (calls === 2) return { text: JSON.stringify({ title: 'Invalid French facts', questions: invalid.questions.map(q => ({
+        ...q, source_fact: q.source_fact ?? 'Sa directrice est Léa Morel.',
+      })) }), finishReason: 'stop' }
+      return { text: JSON.stringify({
+        q0_c1: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+        q0_c2: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+        q0_c3: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+      }), finishReason: 'stop' }
+    } } })
+    await assert.rejects(service.generate({ pages: [{ pageNumber: 2, text: source }],
+      questionCount: 5, difficulty: 'medium', questionType: 'multiple_choice' }),
+    { code: 'quiz_validation_failed' })
+    assert.ok(calls <= 3)
+  }
+})
+
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
     { questionCount: 5, questionType: 'multiple_choice' },
