@@ -5,6 +5,12 @@ on:
   pull_request:
     paths:
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-offload-policy.cjs
+      - desktop/src/windows-hardware-probe.cjs
+      - desktop/src/local-ai-capability.cjs
+      - desktop/src/local-ai-manager.cjs
+      - desktop/test/local-offload-policy.test.cjs
+      - desktop/test/local-runtime.test.cjs
       - desktop/src/local-ai-distribution-policy.json
       - desktop/src/local-quiz-service.cjs
       - desktop/third_party/local-ai/**
