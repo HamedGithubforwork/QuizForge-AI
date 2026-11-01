@@ -78,6 +78,7 @@ async function openDesktopUi(
   page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
   options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
+  pdfMimeType = 'application/pdf',
 ) {
   await page.addInitScript(({ fixture, generated, empty, practiceResult, selected }) => {
     const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
@@ -158,7 +159,7 @@ async function openDesktopUi(
   await expect(page.getByText('Signed in as local-ui@example.test')).toBeVisible()
   await page.getByLabel('Study material PDF').setInputFiles({
     name: 'synthetic-biology-study-notes.pdf',
-    mimeType: 'application/pdf',
+    mimeType: pdfMimeType,
     buffer: syntheticPdf(),
   })
   await page.getByRole('button', { name: 'Process PDF on this computer' }).click()
@@ -170,6 +171,18 @@ async function openDesktopUi(
   await page.getByRole('button', { name: 'Generate Locally' }).click()
   return pageErrors
 }
+
+test('PDF picker accepts a .pdf filename despite a nonstandard Windows MIME association', async ({ page }) => {
+  const errors = await openDesktopUi(page, readModelQuiz(), false, undefined, undefined, 'application/octet-stream')
+  await expect(page.getByLabel('Study material PDF')).toHaveAttribute('accept', /\\.pdf/)
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { pdf: number; generate: number };
+  }).__localOutputProbe)
+  expect(probe.pdf).toBe(1)
+  expect(probe.generate).toBe(1)
+  expect(errors).toEqual([])
+})
 
 test('the real model output becomes five visible, answerable questions and a results screen', async ({ page }) => {
   const quiz = readModelQuiz()
