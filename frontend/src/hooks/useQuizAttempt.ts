@@ -263,9 +263,20 @@ export function useQuizAttempt({
       index => quiz.questions[index]?.question_type === 'short_answer' &&
         typeof selectedAnswers[index] === 'string',
     )
-    const reviewCases = manual ? [] : buildAttemptReviewCases(
+    const allReviewCases = manual ? [] : buildAttemptReviewCases(
       quiz, selectedAnswers, indexesToCheck, local,
     )
+    // A retry from the results screen must not erase already validated
+    // correct/partial/incorrect grades. Retry only review-needed answers.
+    const reviewCases = local && showResults
+      ? allReviewCases.filter(item => {
+          const answer = selectedAnswers[item.question_index]
+          if (typeof answer !== 'string') return false
+          return aiGradeReviews[buildAiAnswerReviewKey(
+            quiz.questions[item.question_index], answer,
+          )]?.verdict === 'uncertain'
+        })
+      : allReviewCases
     const awaiting = manual ? shortAnswerIndexes : reviewCases.map(item => item.question_index)
     const epoch = reviewEpoch.current
 
