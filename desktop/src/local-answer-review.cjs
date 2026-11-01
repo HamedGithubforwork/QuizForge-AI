@@ -107,7 +107,11 @@ function validateRequest(request) {
 function createLocalAnswerReview({ provider }) {
   return { async review(request, { quiz, pages, signal, onDecision = () => {} } = {}) {
     validateRequest(request)
-    const deadline = AbortSignal.timeout(180000)
+    // A single three-minute deadline for the entire batch can abort valid
+    // later answers on CPU-only devices. Scale the bounded budget with the
+    // number of answers, while preserving cancellation and a 15-minute cap.
+    const reviewBudgetMs = Math.min(900000, 180000 + (request.cases.length - 1) * 90000)
+    const deadline = AbortSignal.timeout(reviewBudgetMs)
     const combined = signal ? AbortSignal.any([signal, deadline]) : deadline
     const decisions = []
     const publish = decision => {
