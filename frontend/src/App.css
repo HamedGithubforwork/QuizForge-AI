@@ -626,6 +626,35 @@ button {
 }
 
 
+.generation-timing {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #d9d5fa;
+  border-radius: 10px;
+  background: #fbfaff;
+  color: #3b365d;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.generation-timing p {
+  margin: 0;
+}
+
+.generation-timing p + p {
+  margin-top: 4px;
+}
+
+.generation-timing-note {
+  color: #68647c;
+  font-size: 12px;
+}
+
+.generation-duration {
+  color: #45416e;
+  font-weight: 600;
+}
+
 /* LOADING */
 
 .generation-status {
