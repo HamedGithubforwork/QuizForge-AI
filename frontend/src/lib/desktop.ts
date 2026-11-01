@@ -167,6 +167,8 @@ export type DesktopBridge = {
   version: 1
   status(): Promise<{ available: boolean; account: DesktopAccount | null }>
   signIn(method?: DesktopSignInMethod): Promise<DesktopAccount>
+  // Optional so existing installed clients remain compatible with the web UI.
+  cancelSignIn?(): Promise<boolean>
   signOut(): Promise<void>
   request(request: DesktopRequest): Promise<{ status: number; body: string; contentType: string }>
   loadSourcePageText?(request: { documentSha256: string; pageNumber: number }): Promise<string>
