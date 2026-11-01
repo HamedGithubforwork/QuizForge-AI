@@ -130,6 +130,9 @@ export function useQuizAttempt({
   const reviewingRef = useRef(false)
   useEffect(() => {
     reviewEpoch.current += 1
+    reviewingRef.current = false
+    setIsReviewingAnswers(false)
+    setAnswerReviewProgress(null)
     setAiGradeReviews({})
     return () => {
       reviewEpoch.current += 1
@@ -153,6 +156,8 @@ export function useQuizAttempt({
     if (reviewingRef.current && !allowRemoteAnswerReview) {
       void desktopBridge()?.cancelLocalAiQuiz?.()
     }
+    reviewingRef.current = false
+    setIsReviewingAnswers(false)
     setAiGradeReviews({})
     setAnswerReviewProgress(null)
     setSelectedAnswers({})
@@ -345,8 +350,10 @@ export function useQuizAttempt({
         }
       } finally {
         if (timer !== null) clearInterval(timer)
-        reviewingRef.current = false
-        if (epoch === reviewEpoch.current) setIsReviewingAnswers(false)
+        if (epoch === reviewEpoch.current) {
+          reviewingRef.current = false
+          setIsReviewingAnswers(false)
+        }
       }
     }
 
@@ -377,7 +384,7 @@ export function useQuizAttempt({
   }
 
   function handleRetryIncorrect() {
-    if (!quiz) {
+    if (!quiz || isReviewingAnswers) {
       return
     }
 
