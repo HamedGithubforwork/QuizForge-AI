@@ -220,13 +220,25 @@ function createLocalRuntime({
       stage = 'inference'
       diagnostic('runtime_ready', { acceleration: mode })
       async function infer(requestPayload, requestSignal = null) {
-        const boundedRequest = requestSignal ? AbortSignal.any([owned, requestSignal]) : owned
+        // Preserve the existing six-minute per-request ceiling even inside a
+        // longer multi-batch session, so one stuck model call cannot occupy
+        // the full quiz budget.
+        const deadline = sessionCallback ? AbortSignal.timeout(6 * 60 * 1000) : null
+        const boundedRequest = AbortSignal.any([
+          owned, ...(requestSignal ? [requestSignal] : []), ...(deadline ? [deadline] : []),
+        ])
         boundedRequest.throwIfAborted()
         const generationStarted = performance.now()
-        const result = await requestFn(port, key, '/v1/chat/completions',
-          { ...requestPayload, model: alias, stream: false,
-            max_tokens: Math.min(requestPayload.max_tokens || 1800, 5200) },
-          boundedRequest)
+        let result
+        try {
+          result = await requestFn(port, key, '/v1/chat/completions',
+            { ...requestPayload, model: alias, stream: false,
+              max_tokens: Math.min(requestPayload.max_tokens || 1800, 5200) },
+            boundedRequest)
+        } catch (error) {
+          throw deadline?.aborted && deadline.reason?.name === 'TimeoutError'
+            ? deadline.reason : error
+        }
         const gpuOffloaded = offloadTracker.state()
         lastAccelerationMode = mode === 'cpu'
           ? 'cpu'
