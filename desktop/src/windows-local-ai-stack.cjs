@@ -62,6 +62,7 @@ function createWindowsLocalAiStack({
   let disposed = false
   let lastQuizValidationIssue = null
   let quizProgressState = null
+  let reviewProgressState = null
   let previousBatchMark = null
   const debugReport = createLocalAiDebugReport()
   let activeOperationId = null
@@ -292,6 +293,7 @@ function createWindowsLocalAiStack({
       if (quizOperation === currentOperation) quizOperation = null
       if (quizController === controller) quizController = null
       quizProgressState = null
+      reviewProgressState = null
       selectedGpuLayers = null
       await offloadPolicy.flush()
     }
@@ -360,12 +362,22 @@ function createWindowsLocalAiStack({
     quizStatus,
     quizProgress: () => quizOperation && quizProgressState
       ? Object.freeze({ ...quizProgressState }) : null,
+    reviewProgress: () => quizOperation && reviewProgressState
+      ? Object.freeze({ total: reviewProgressState.total,
+          decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
       return traceOperation('answer_review', {}, () => runQuiz(signal => {
-        const context = { ...reviewContext, signal }
+        reviewProgressState = { total: request.cases.length, decisions: [] }
+        const context = { ...reviewContext, signal, onDecision: decision => {
+          if (!reviewProgressState || signal.aborted) return
+          if (request.cases.some(c => c.question_index === decision.question_index) &&
+              !reviewProgressState.decisions.some(d => d.question_index === decision.question_index)) {
+            reviewProgressState.decisions.push(decision)
+          }
+        } }
         // One short-answer submission may contain several answers. Avoid
         // reloading Qwen between each answer, but still release it when the
         // review finishes or is cancelled.
