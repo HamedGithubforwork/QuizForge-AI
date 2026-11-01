@@ -2251,6 +2251,46 @@ test('weak-area recovery rejects a citation swap to another real but unrelated f
   assert.equal(issues.at(-1).reason, 'unsupported_answer')
 })
 
+test('weak-area fallback selects answer phrases only from each question own verified quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls <= 2) return {
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+          finishReason: 'stop',
+        }
+        if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+        if (calls === 4) {
+          const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
+            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+          }))
+          repairs[0].answer = 'Fictional biofuel'
+          repairs[2].answer = 'Unverified interior material'
+          return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
+        }
+        assert.equal(calls, 5)
+        assert.ok(request.jsonSchema.properties.q1.enum.includes('ATP'))
+        assert.ok(request.jsonSchema.properties.q3.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q1.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q3.enum.includes('ATP'))
+        return { text: JSON.stringify({ q1: 'ATP', q3: 'inner membrane' }), finishReason: 'stop' }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 5)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].correct_answer, 'ATP')
+  assert.equal(result.questions[2].correct_answer, 'inner membrane')
+})
+
 test('weak-area answer repair rejects model-proposed answers absent from its cited excerpt', async () => {
   const weakDraft = withRetrySourceFacts(rawQuiz())
   weakDraft.questions[0].choices[weakDraft.questions[0].correct_index] = 'Invented fuel'
@@ -2279,7 +2319,7 @@ test('weak-area answer repair rejects model-proposed answers absent from its cit
     questionType: 'multiple_choice',
     practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4)
+  assert.equal(calls, 5)
   assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
     ['primary', 'insufficient_source'], ['retry', 'insufficient_source'],
     ['recovery', 'unsupported_answer'],
