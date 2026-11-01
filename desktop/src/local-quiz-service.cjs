@@ -1408,16 +1408,40 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
   return Object.freeze({
     async generate(value, { signal } = {}) {
       const request = normalizeRequest(value)
-      // A single fifteen-question Hard/Mixed constrained JSON response can
-      // exceed the six-minute runtime inference limit before even one answer
-      // becomes available. With three or more source pages, make three
-      // independent five-question requests on disjoint page groups instead.
-      // The existing five-question source-fact validation runs on each group,
-      // and already validated groups survive a later partial failure.
-      if (request.questionCount === 15 && request.questionType === 'mixed' &&
-          !request.practice && request.pages.length >= 3) {
-        const groups = [[], [], []]
-        request.pages.forEach((page, index) => groups[index % groups.length].push(page))
+      // Larger MCQ/Mixed constrained JSON outputs may exceed the runtime's
+      // six-minute per-inference limit before any questions are delivered.
+      // Generate bounded five-question batches instead, using disjoint source
+      // excerpts so the same fact cannot be repeated across batches.
+      if ((request.questionCount === 10 || request.questionCount === 15) &&
+          ['multiple_choice', 'mixed'].includes(request.questionType) &&
+          !request.practice) {
+        const batchCount = request.questionCount / QUESTION_COUNT
+        const segments = request.pages.map(page => ({ ...page }))
+        // A one- or two-page PDF must still be usable for a 15-question quiz.
+        // Split its longest page into non-overlapping text fragments instead
+        // of reverting to one oversized model call. Keep original page IDs.
+        while (segments.length < batchCount) {
+          const longest = segments.reduce((index, page, i) =>
+            page.text.length > segments[index].text.length ? i : index, 0)
+          const current = segments[longest]
+          if (current.text.length < 450) break
+          const midpoint = Math.floor(current.text.length / 2)
+          const candidates = [...current.text.matchAll(/\\n|[.!?]\\s+/g)]
+            .map(match => match.index + match[0].length)
+            .filter(index => index > 150 && current.text.length - index > 150)
+          const boundary = candidates.length
+            ? candidates.reduce((best, index) => Math.abs(index - midpoint) < Math.abs(best - midpoint) ? index : best)
+            : current.text.lastIndexOf(' ', midpoint)
+          if (boundary <= 150 || current.text.length - boundary <= 150) break
+          const left = current.text.slice(0, boundary).trim()
+          const right = current.text.slice(boundary).trim()
+          if (!left || !right) break
+          segments.splice(longest, 1,
+            { pageNumber: current.pageNumber, text: left },
+            { pageNumber: current.pageNumber, text: right })
+        }
+        const groups = Array.from({ length: Math.min(batchCount, segments.length) }, () => [])
+        segments.forEach((page, index) => groups[index % groups.length].push(page))
         const retained = []
         let firstFailure = null
         for (const pages of groups) {
@@ -1427,11 +1451,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               provider, onValidationIssue, onGeneratedResponse, onRejectedQuestion,
               allowSourceBackedPartial: true,
             }).generate({
-              pages, questionCount: 5, difficulty: request.difficulty,
-              questionType: 'mixed',
-              // Require an exact, independently cited source_fact for each
-              // question, without ever sending or saving user material elsewhere.
-              practice: { avoidQuestions: [] },
+              pages, questionCount: QUESTION_COUNT,
+              difficulty: request.difficulty, questionType: request.questionType,
             }, { signal })
             retained.push(...groupQuiz.questions)
           } catch (error) {
@@ -1446,14 +1467,12 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           }
         }
         if (!retained.length) throw firstFailure ?? failure('insufficient_source')
-        // Page groups are disjoint: no question can cite another group's
-        // material. Each group independently excludes duplicate source facts.
         return Object.freeze({
-          title: 'Source-backed mixed practice quiz',
+          title: 'Source-backed ' + (request.questionType === 'mixed' ? 'mixed' : 'multiple-choice') + ' quiz',
           questions: Object.freeze(retained.slice(0, request.questionCount)),
         })
       }
-      const useLegacyMultipleChoiceContract = !request.practice &&
+      const useLegacyMultipleChoiceContract = !request.practice && !allowSourceBackedPartial &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice'
       // Keep the proven five-MCQ targeted candidate/recovery path unchanged.
       // Other practice counts and modes use the full source-backed quiz schema.
@@ -1720,7 +1739,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             sourceTextByPage,
             {
               requireSourceFact:
-                Boolean(request.practice) || retryValidationReason === 'insufficient_source',
+                Boolean(request.practice) || allowSourceBackedPartial || retryValidationReason === 'insufficient_source',
               allowPartial: allowSourceBackedPartial,
               filterRejected: allowSourceBackedPartial,
               onRejectedQuestion,
@@ -2245,7 +2264,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             allowedPages,
             sourceTextByPage,
             {
-              requireSourceFact: Boolean(request.practice) || partialRetryReasons.has(retryValidationReason),
+              requireSourceFact: Boolean(request.practice) || allowSourceBackedPartial || partialRetryReasons.has(retryValidationReason),
               allowPartial: allowSourceBackedPartial ||
                 (hasFlexibleFallback && partialRetryReasons.has(retryValidationReason)),
               filterRejected: allowSourceBackedPartial ||
