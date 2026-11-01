@@ -267,6 +267,11 @@ export function buildQuizForHistory(
           ]
 
         if (!review) return question
+        // Self-assessment is not a verified synonym: persist the student's
+        // mark, but never promote it into the AI accepted-answer vocabulary.
+        if (review.engine === 'manual') {
+          return { ...question, answer_review: { answer, decision: review } }
+        }
         if (review.verdict !== 'correct') {
           return { ...question, answer_review: { answer, decision: review } }
         }
