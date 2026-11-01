@@ -171,6 +171,7 @@ function createLocalRuntime({
   async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99, sessionCallback = null) {
     let child, childClosed, processGuard
     let stage = 'verification'
+    const startupStarted = performance.now()
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
       const model = await modelStore.status({ signal: bounded })
@@ -218,7 +219,9 @@ function createLocalRuntime({
         await delay(100, undefined, { signal: startup })
       }
       stage = 'inference'
-      diagnostic('runtime_ready', { acceleration: mode })
+      diagnostic('runtime_ready', {
+        acceleration: mode, startupMs: performance.now() - startupStarted,
+      })
       async function infer(requestPayload, requestSignal = null) {
         // Preserve the existing six-minute per-request ceiling even inside a
         // longer multi-batch session, so one stuck model call cannot occupy
@@ -249,6 +252,7 @@ function createLocalRuntime({
             acceleration: lastAccelerationMode,
             elapsedMs: performance.now() - generationStarted,
             completionTokens: result?.usage?.completion_tokens ?? null,
+            promptTokens: result?.usage?.prompt_tokens ?? null,
           }))
         } catch {}
         return result
