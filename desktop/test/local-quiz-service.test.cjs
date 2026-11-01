@@ -2023,6 +2023,73 @@ test('targeted practice recovers from two false insufficient-source abstentions 
   ])
 })
 
+test('weak-area recovery corrects a mistaken page only when its exact quote has one source', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions.forEach((item, index) => {
+    item.question = 'Supported follow-up question ' + (index + 1) + '?'
+    item.source_pages = [item.source_pages[0] === 2 ? 5 : 2]
+  })
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls <= 2
+            ? { title: 'Insufficient source material', questions: [] } : draft),
+          finishReason: 'stop',
+        }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: ['Old missed question?'] },
+  })
+  assert.equal(calls, 3, 'Only the citation needs correction; no extra model generation')
+  assert.deepEqual(quiz.questions.map(q => q.source_pages), [[2], [5], [2], [5], [2]])
+  assert.deepEqual(issues.map(issue => issue.reason), ['insufficient_source', 'insufficient_source'])
+})
+
+test('weak-area recovery refuses nonexistent and ambiguous source quotes', async () => {
+  for (const kind of ['fabricated', 'ambiguous']) {
+    const draft = withRetrySourceFacts(rawQuiz())
+    draft.questions[0].source_pages = [5]
+    draft.questions[0].source_fact = kind === 'fabricated'
+      ? 'The nucleus is powered by fictional fuel.'
+      : 'Common repeated source quote.'
+    const sourcePages = pages()
+    if (kind === 'ambiguous') {
+      for (const page of sourcePages) page.text += ' Common repeated source quote.'
+    }
+    let calls = 0
+    const reasons = []
+    const service = createLocalQuizService({
+      onValidationIssue: issue => reasons.push(issue.reason),
+      provider: {
+        async generate() {
+          calls++
+          return {
+            text: JSON.stringify(calls <= 2
+              ? { title: 'Insufficient source material', questions: [] } : draft),
+            finishReason: 'stop',
+          }
+        },
+      },
+    })
+    await assert.rejects(service.generate({
+      pages: sourcePages, questionCount: 5, difficulty: 'easy',
+      questionType: 'multiple_choice',
+      practice: { focusPages: [2], avoidQuestions: [] },
+    }), { code: 'quiz_validation_failed' }, kind)
+    assert.equal(calls, 3, kind)
+    assert.equal(reasons.at(-1), 'unsupported_source_fact', kind)
+  }
+})
+
 test('weak-area recovery repairs paraphrased answers only with exact source excerpts', async () => {
   const weakDraft = withRetrySourceFacts(rawQuiz())
   weakDraft.questions[0].choices[weakDraft.questions[0].correct_index] = 'Energy from the food'
