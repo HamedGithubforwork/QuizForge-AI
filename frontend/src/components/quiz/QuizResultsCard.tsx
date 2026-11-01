@@ -12,6 +12,7 @@ import type {
 import SaveDeckPanel from './SaveDeckPanel.tsx'
 import GenerationTimingPanel from './GenerationTimingPanel.tsx'
 import type { GenerationTimeEstimate } from '../../lib/generationTiming.ts'
+import type { DesktopLocalQuizProgress } from '../../lib/desktop.ts'
 
 type QuizResultsCardProps = {
   quiz: QuizResult
@@ -39,6 +40,7 @@ type QuizResultsCardProps = {
   showPracticeTiming: boolean
   practiceTimingElapsedMs: number
   practiceTimingEstimate: GenerationTimeEstimate | null
+  localBatchProgress: DesktopLocalQuizProgress | null
   weakPracticeError: string
   canCancelWeakPractice: boolean
   isGenerating: boolean
@@ -73,6 +75,7 @@ function QuizResultsCard({
   showPracticeTiming,
   practiceTimingElapsedMs,
   practiceTimingEstimate,
+  localBatchProgress,
   weakPracticeError,
   canCancelWeakPractice,
   isGenerating,
@@ -279,6 +282,7 @@ function QuizResultsCard({
           label="Generating weak-area practice quiz"
           elapsedMs={practiceTimingElapsedMs}
           estimate={practiceTimingEstimate}
+          progress={localBatchProgress}
         />
       )}
 
