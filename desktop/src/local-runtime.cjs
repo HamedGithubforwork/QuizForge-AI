@@ -247,7 +247,8 @@ function createLocalRuntime({
         // Never expose a reusable server beyond this single controlled quiz,
         // nor allow concurrent requests competing for model memory.
         const scopedComplete = async (requestPayload, { signal } = {}) => {
-          if (finished || bounded.aborted) throw fail('runtime_closed')
+          if (finished) throw fail('runtime_closed')
+          bounded.throwIfAborted()
           if (inFlight) throw fail('busy')
           if (!requestPayload || !Array.isArray(requestPayload.messages) ||
               requestPayload.tools || requestPayload.stream) throw fail('invalid_request')
