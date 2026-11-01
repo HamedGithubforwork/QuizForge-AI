@@ -1,4 +1,5 @@
 import type { AiAnswerReviewDecision } from '../../lib/answerFallback.ts'
+import type { DesktopLocalQuizProgress } from '../../lib/desktop.ts'
 import {
   getQuestionTypeLabel,
   isQuestionAnswered,
@@ -23,6 +24,7 @@ type QuizSessionProps = {
   showPracticeTiming: boolean
   practiceTimingElapsedMs: number
   practiceTimingEstimate: GenerationTimeEstimate | null
+  localBatchProgress: DesktopLocalQuizProgress | null
   documentResult: UploadResult
   generatedSettings:
     | GeneratedSettings
@@ -98,6 +100,7 @@ function QuizSession({
   showPracticeTiming,
   practiceTimingElapsedMs,
   practiceTimingEstimate,
+  localBatchProgress,
   documentResult,
   generatedSettings,
   selectedAnswers,
@@ -446,6 +449,7 @@ function QuizSession({
           showPracticeTiming={showPracticeTiming}
           practiceTimingElapsedMs={practiceTimingElapsedMs}
           practiceTimingEstimate={practiceTimingEstimate}
+          localBatchProgress={localBatchProgress}
           weakPracticeError={weakPracticeError}
           canCancelWeakPractice={
             canCancelWeakPractice
