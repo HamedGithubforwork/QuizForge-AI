@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - desktop/src/local-benchmark-models.cjs
+      - desktop/src/local-deepseek-adapter.cjs
+      - desktop/src/windows-local-ai-provider.cjs
+      - desktop/test/local-deepseek-adapter.test.cjs
       - desktop/src/local-model-store.cjs
       - desktop/src/windows-local-ai-manager.cjs
       - desktop/src/windows-local-ai-stack.cjs
@@ -37,7 +40,7 @@ jobs:
       - name: Regression tests and allowlist validation
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore Qwen baseline cache if available
         uses: actions/cache/restore@v4
@@ -70,7 +73,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "SHA-verified model preparation failed for $model" }
               # Exactly the same two passages, difficulty, 5-question JSON schema,
               # offline pipeline, and acceptance oracle for every model.
-              node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$model.json" cpu 1 $model
+              node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$model.json" cpu 3 $model
               if ($LASTEXITCODE -ne 0) { Write-Warning "Quality benchmark failed for $model; preserving the report" }
             } catch {
               Write-Warning "Model could not complete: $model"
@@ -79,6 +82,8 @@ jobs:
               Get-ChildItem $modelDir -Filter '*.gguf' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
             }
           }
+          # 3 repeats x 2 fixtures = 6 independent full quizzes per model.
+          # Report is written before failing if any candidate has invalid output.
           node desktop/scripts/summarize-local-model-comparison.cjs $reports
           exit $LASTEXITCODE
       - name: Upload comparison evidence even if a model fails
