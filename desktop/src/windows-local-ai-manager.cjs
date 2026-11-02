@@ -3,36 +3,47 @@
 const path = require('node:path')
 const { createLocalAiManager, createModelStoreContract } = require('./local-ai.cjs')
 const { CANDIDATE, createLocalModelStore } = require('./local-model-store.cjs')
-const { probeWindowsLocalAiCapability } = require('./windows-hardware-probe.cjs')
+const { getBenchmarkModel } = require('./local-benchmark-models.cjs')
+const { probeWindowsLocalAiCapability, WINDOWS_EXPERIMENTAL_PROFILES } = require('./windows-hardware-probe.cjs')
 
 function createWindowsLocalAiResources({
   userDataDirectory,
   modelDirectory = path.join(userDataDirectory, 'local-ai', 'models'),
   runtimeDirectory,
+  benchmarkModelId = null,
 } = {}) {
   if (typeof userDataDirectory !== 'string' || !path.isAbsolute(userDataDirectory) ||
       typeof modelDirectory !== 'string' || !path.isAbsolute(modelDirectory)) {
     throw new Error('Local AI manager configuration is invalid.')
   }
-  const rawModelStore = createLocalModelStore({ directory: modelDirectory })
+  // Benchmark override is an internal, allowlisted evaluation path only.
+  // The shipped desktop continues to default to the verified Qwen candidate.
+  const candidate = benchmarkModelId === null ? CANDIDATE : getBenchmarkModel(benchmarkModelId)
+  const rawModelStore = createLocalModelStore({ directory: modelDirectory, model: candidate })
   const modelStore = createModelStoreContract({
-    id: CANDIDATE.id,
+    id: candidate.id,
     store: rawModelStore,
   })
   const manager = createLocalAiManager({
     modelStore,
     modelMetadata: {
-      id: CANDIDATE.id,
-      displayName: CANDIDATE.displayName,
-      repository: CANDIDATE.repository,
-      license: CANDIDATE.license,
+      id: candidate.id,
+      displayName: candidate.displayName,
+      repository: candidate.repository,
+      license: candidate.license,
     },
     capabilityProbe: () => probeWindowsLocalAiCapability({
       storageDirectory: modelDirectory,
       ...(typeof runtimeDirectory === 'string' ? { runtimeDirectory } : {}),
+      ...(benchmarkModelId === null ? {} : { profiles: [{
+        ...WINDOWS_EXPERIMENTAL_PROFILES[0],
+        id: candidate.id, modelBytes: candidate.bytes,
+        minMemoryBytes: candidate.bytes > 4 * 1024 ** 3 ? 12 * 1024 ** 3 : 8 * 1024 ** 3,
+      }] }),
     }),
   })
-  return Object.freeze({ manager, modelStore, rawModelStore, modelId: CANDIDATE.id })
+  return Object.freeze({ manager, modelStore, rawModelStore,
+    modelId: candidate.id, modelSha256: candidate.sha256 })
 }
 
 function createWindowsLocalAiManager(options) {
