@@ -253,6 +253,21 @@ function aliasMatches(
   )
 }
 
+// Unlike substring concept matching, this accepts only a full, token-by-token
+// alias match. Local AI may be skipped for this narrow case; extra claims must
+// still go to semantic review to check for contradictions.
+export function fullAnswerConceptAliasMatches(
+  answer: string,
+  groups: string[][],
+) {
+  const submitted = tokenize(answer)
+  return submitted.length > 0 && groups.some(group => group.some(alias => {
+    const expected = tokenize(alias)
+    return submitted.length === expected.length &&
+      expected.every((word, index) => tokenMatches(submitted[index], word))
+  }))
+}
+
 function hasUnexpectedNegation(
   answer: string,
   expectedAnswer: string,
