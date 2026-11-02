@@ -131,7 +131,7 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
     verdict: credit === 1 ? 'correct' : credit > 0 ? 'partial' : 'incorrect',
     confidence: raw.confidence,
     reason: concepts.some((c, i) => c.status !== raw.concepts[i].status)
-      ? 'The required functions are both present in the answer.'
+      ? 'The student expressed the source-supported function without repeating its auxiliary wording.'
       : raw.reason,
     credit, concepts }
 }
