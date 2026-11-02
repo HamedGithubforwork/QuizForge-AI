@@ -94,7 +94,14 @@ test('never generates from scanned or invalid local processor results', async ()
     localDocument({ pages: Array.from({ length: 21 }, (_, i) => ({ pageNumber: i + 1, text: 'page text' })) }),
   ]) {
     const { service, calls } = setup({ document })
-    await assert.rejects(service.generate({ bytes, questionCount: 5, difficulty: 'hard', questionType: 'multiple_choice' }))
+    await assert.rejects(service.generate({ bytes, questionCount: 5, difficulty: 'hard', questionType: 'multiple_choice' }),
+      error => {
+        if (document.scannedLikely === true) {
+          assert.equal(error.code, 'insufficient_source')
+          assert.match(error.message, /scanned images|OCR/i)
+        }
+        return true
+      })
     assert.equal(calls.generate.length, 0)
   }
 })

@@ -1,16 +1,29 @@
 'use strict'
 
-// Runs only against the repository's fixed synthetic biology fixture.
-// Reproduces the desktop flow: miss one answer, prioritize its cited pages,
-// keep the whole processed PDF available, and avoid repeating that question.
+// Exercise the actual Windows desktop pipeline using the fixed, synthetic
+// biology fixture. Never collect private PDF excerpts or model responses.
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
+const os = require('node:os')
 const path = require('node:path')
-const { createLocalRuntime } = require('../src/local-runtime.cjs')
-const { CANDIDATE, createLocalModelStore } = require('../src/local-model-store.cjs')
-const { createWindowsLocalAiProvider } = require('../src/windows-local-ai-provider.cjs')
-const { createLocalQuizService } = require('../src/local-quiz-service.cjs')
+const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs')
 const fixture = require('../test/fixtures/biology-study-notes.json')
+
+const DIAGNOSTIC_EVENTS = new Set([
+  'operation_started', 'operation_completed', 'operation_failed',
+  'runtime_launch', 'runtime_started', 'runtime_ready', 'runtime_failed',
+  'runtime_stopped', 'generation_completed', 'validation_failed',
+  'question_rejected', 'execution_selected',
+])
+function safeDiagnostic(event, fields) {
+  if (!DIAGNOSTIC_EVENTS.has(event)) return null
+  const result = { event }
+  for (const name of ['kind', 'reason', 'stage', 'acceleration']) {
+    const value = fields?.[name]
+    if (typeof value === 'string' && /^[a-z_]{1,64}$/.test(value)) result[name] = value
+  }
+  return result
+}
 
 async function main() {
   if (process.platform !== 'win32') throw new Error('Windows only')
@@ -18,9 +31,6 @@ async function main() {
   if (![runtimeArg, modelArg, baselineArg, outputArg].every(Boolean)) {
     throw new Error('Usage: node verify-local-biology-practice.cjs RUNTIME MODEL BASELINE OUTPUT')
   }
-  // '-' exercises real Qwen practice without depending on an unrelated
-  // ordinary-quiz generation run (which can separately fail choice repair).
-  // This question is taken verbatim from the fixed biology fixture.
   let missed = { question: 'Which organelle stores most cell DNA?', source_pages: [1] }
   if (baselineArg !== '-') {
     const baseline = JSON.parse(await fs.readFile(path.resolve(baselineArg), 'utf8'))
@@ -32,44 +42,47 @@ async function main() {
   const focusPages = [...new Set(missed.source_pages)]
   const sourcePages = fixture.pages.map(page => page.pageNumber)
   assert.ok(focusPages.length > 0 && focusPages.every(page => sourcePages.includes(page)))
+  const profileDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-weak-area-'))
   const report = {
-    schema: 1,
-    pdfSha256: fixture.pdfSha256,
-    focusPages,
-    avoidQuestions: [missed.question],
-    validationIssues: [],
-    // CI-only: fixed public synthetic biology notes, no user text.
-    recoveryDraft: null,
-    evidenceRepairDraft: null,
-    outcome: 'running',
+    schema: 2, pipeline: 'desktop-windows-stack',
+    pdfSha256: fixture.pdfSha256, focusPages,
+    avoidQuestionCount: 1, validationReasons: [], diagnostics: [],
+    stage: 'initializing', outcome: 'running', errorCode: null,
+    questionCount: 0,
   }
-  const modelStore = createLocalModelStore({ directory: path.resolve(modelArg) })
-  const runtime = createLocalRuntime({ directory: path.resolve(runtimeArg), modelStore })
-  const provider = createWindowsLocalAiProvider({ runtime, modelStore, modelId: CANDIDATE.id })
-  const service = createLocalQuizService({
-    provider,
-    onGeneratedResponse(response) {
-      if (response.phase === 'weak-area-recovery') {
-        report.recoveryDraft = typeof response.text === 'string'
-          ? response.text.slice(0, 16000) : null
-      } else if (response.phase === 'weak-area-grounding-repair') {
-        report.evidenceRepairDraft = typeof response.text === 'string'
-          ? response.text.slice(0, 16000) : null
-      }
-    },
-    onValidationIssue(issue) {
-      report.validationIssues.push({ attempt: issue.attempt, reason: issue.reason })
-      console.log('BIOLOGY PRACTICE VALIDATION:', issue.attempt, issue.reason)
-    },
-  })
+  let stack
   try {
-    const quiz = await service.generate({
+    stack = createWindowsLocalAiStack({
+      userDataDirectory: profileDir,
+      modelDirectory: path.resolve(modelArg),
+      runtimeDirectory: path.resolve(runtimeArg),
+      onDiagnostic(event, fields) {
+        const eventInfo = safeDiagnostic(event, fields)
+        if (eventInfo && report.diagnostics.length < 80) {
+          report.diagnostics.push(eventInfo)
+        }
+      },
+      onQuizValidationIssue(issue) {
+        if (typeof issue?.reason === 'string' && /^[a-z_]{1,64}$/.test(issue.reason)) {
+          report.validationReasons.push(issue.reason)
+        }
+      },
+    })
+    report.stage = 'checking_model_and_runtime'
+    const ready = await stack.quizStatus()
+    assert.equal(ready.available, true, 'Verified Windows Local AI stack must be ready')
+    report.stage = 'generating_weak_area_quiz'
+    // Critical: same app stack, warm session, offload calibration, scoped model
+    // lifecycle, and distinctness validation as an actual Windows user.
+    const quiz = await stack.generateQuiz({
       pages: fixture.pages,
       questionCount: 5,
       difficulty: 'easy',
       questionType: 'multiple_choice',
       practice: { focusPages, avoidQuestions: [missed.question] },
     })
+    report.questionCount = quiz.questions.length
+    report.stage = 'validating_output'
     assert.equal(quiz.questions.length, 5)
     const uniqueQuestions = new Set()
     for (const question of quiz.questions) {
@@ -84,18 +97,28 @@ async function main() {
       uniqueQuestions.add(wording)
     }
     report.outcome = 'pass'
+    report.stage = 'complete'
+    // Only this public synthetic fixture may be included in CI evidence.
     report.quiz = quiz
-    console.log('PASS: real-model weak-area biology follow-up retains full PDF, avoids missed wording and returns five valid questions')
+    console.log('PASS: desktop Windows Local AI stack generates distinct grounded weak-area questions')
   } catch (error) {
-    report.outcome = error?.code || error?.name || 'failure'
+    report.outcome = 'fail'
+    report.errorCode = typeof error?.code === 'string' && /^[a-z_]{1,64}$/.test(error.code)
+      ? error.code : (error?.name === 'AssertionError' ? 'acceptance_assertion' : 'unclassified')
+    console.error('Real-model weak-area test failed at stage:', report.stage,
+      'reason:', report.errorCode)
     throw error
   } finally {
     await fs.writeFile(path.resolve(outputArg), JSON.stringify(report, null, 2) + '\n')
-    await runtime.shutdown()
+    await stack?.dispose().catch(() => {})
+    await fs.rm(profileDir, { recursive: true, force: true })
   }
 }
 
-main().catch(error => {
-  console.error('Real-model biology weak-area practice failed:', error?.code || error?.message || 'unknown')
-  process.exitCode = 1
-})
+if (require.main === module) {
+  main().catch(error => {
+    console.error('Windows weak-area acceptance failed:', error?.code || error?.message || 'unknown')
+    process.exitCode = 1
+  })
+}
+module.exports = { safeDiagnostic }
