@@ -141,10 +141,10 @@ export function localDeterministicAnswerReview(
   // Only a descriptive question with a long expected answer can safely
   // reject a lone unrelated character without invoking the language model.
   // Do not reject symbols in concise factual, numeric or unit questions.
-  const descriptive = /\b(?:function|purpose|role|describe|explain|why|how does|what does)\b/i
+  const symbolicQuestion = /\\b(?:symbol|letter|abbreviat\\w*|variable|notation|formula|unit|base pair|initial)\\b/i
     .test(question.question)
-  const unsupportedLetter = /^[a-z]$/.test(normalized) &&
-    descriptive && normalizeShortAnswer(question.correct_answer).split(' ').length >= 3 &&
+  const unsupportedLetter = /^[a-z]$/.test(normalized) && !symbolicQuestion &&
+    normalizeShortAnswer(question.correct_answer).length >= 4 &&
     !accepted.includes(normalized) && !grade.correct
   if (unsupportedLetter) return {
     question_index: questionIndex, verdict: 'incorrect', credit: 0, confidence: 1,
