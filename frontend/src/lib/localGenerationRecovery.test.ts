@@ -80,6 +80,25 @@ test('aborting before generation never starts page loading or inference', async 
   assert.equal(started, false)
 })
 
+test('cancelling in the same event-loop turn prevents starting native inference', async () => {
+  const controller = new AbortController()
+  let started = false
+  let cancelled = 0
+  const result = runRecoverableLocalGeneration(async () => {
+    started = true
+    return 'unexpected'
+  }, {
+    signal: controller.signal,
+    timeoutMs: 200,
+    cancelNative: async () => { cancelled++ },
+  })
+  controller.abort()
+  await assert.rejects(result, { name: 'AbortError' })
+  await tick()
+  assert.equal(started, false)
+  assert.equal(cancelled, 1)
+})
+
 test('ordinary model errors propagate without a spurious cancellation', async () => {
   let cancellations = 0
   await assert.rejects(runRecoverableLocalGeneration(async () => {
