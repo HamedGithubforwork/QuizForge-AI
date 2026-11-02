@@ -47,6 +47,23 @@ function validateBenchmarkReport(report) {
         'Reject CPU fallback masquerading as GPU benchmark evidence')
     }
     assert.ok(Number.isFinite(run.elapsedSeconds) && run.elapsedSeconds >= 0)
+    for (const metric of ['runtimeStartupSeconds', 'inferenceElapsedSeconds',
+      'prefillSeconds', 'decodeSeconds', 'decodeTokensPerSecond']) {
+      if (run[metric] !== undefined && run[metric] !== null) {
+        assert.ok(Number.isFinite(run[metric]) && run[metric] >= 0,
+          'Reject malformed or unsafe numeric benchmark timing')
+      }
+    }
+    if (run.selectedContextTokens !== undefined && run.selectedContextTokens !== null) {
+      assert.ok([8192, 12288].includes(run.selectedContextTokens),
+        'Reject unknown context configuration')
+    }
+    for (const metric of ['promptTokens', 'completionTokens']) {
+      if (run[metric] !== undefined) {
+        assert.ok(Number.isSafeInteger(run[metric]) && run[metric] >= 0,
+          'Reject malformed token counters')
+      }
+    }
     if (run.outcome === 'pass') {
       assert.equal(run.questionCount, 5)
       assert.equal(run.distinctFacts, 5)
