@@ -10,7 +10,7 @@ const {
   createLocalQuizService,
   createLocalDocumentQuizService,
 } = require('./local-ai.cjs')
-const { createLocalRuntime, verifyRuntime } = require('./local-runtime.cjs')
+const { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, boundedCpuThreads } = require('./local-runtime.cjs')
 const { createWindowsLocalAiProvider } = require('./windows-local-ai-provider.cjs')
 const { createWindowsLocalAiResources } = require('./windows-local-ai-manager.cjs')
 const { createLocalOffloadPolicy } = require('./local-offload-policy.cjs')
@@ -104,7 +104,7 @@ function createWindowsLocalAiStack({
   }
 
   if (typeof runtimeDirectory === 'string' && path.isAbsolute(runtimeDirectory)) {
-    runtime = createLocalRuntime({
+    runtime = createWarmLocalRuntime(createLocalRuntime({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
       accelerationMode: () => selectedGpuLayers === 0
@@ -127,6 +127,11 @@ function createWindowsLocalAiStack({
         diagnostic(pid === null ? 'runtime_stopped' : 'runtime_started')
         onRuntimeProcess(pid)
       },
+    }), {
+      profile: () => selectedGpuLayers === null ? 'cpu-default' : String(selectedGpuLayers),
+      // The CPU runtime retains its existing bounded thread count until
+      // measured hardware tuning can pick a faster, verified profile.
+      idleMs: 3 * 60 * 1000,
     })
     const provider = createWindowsLocalAiProvider({
       runtime,
@@ -346,6 +351,7 @@ function createWindowsLocalAiStack({
     debugReport.clear()
     reviewContext = null
     await cancelQuiz().catch(() => {})
+    documentQuizService?.clearCache?.()
     await runtime?.shutdown().catch(() => {})
     await manager.dispose().catch(() => {})
   }
@@ -366,7 +372,7 @@ function createWindowsLocalAiStack({
       ? Object.freeze({ total: reviewProgressState.total,
           decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.() },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.(); void runtime?.cooldown?.().catch(() => {}) },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
       // Local grading requires the exact quiz and source from this process.
