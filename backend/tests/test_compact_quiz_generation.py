@@ -65,7 +65,8 @@ def generate(monkeypatch, outputs, mode, on_model_call=None):
     async def scenario():
         def handler(request):
             requests.append(json.loads(request.content))
-            payload = outputs[min(len(requests) - 1, len(outputs) - 1)]
+            payload = ({'duplicates': []} if requests[-1].get('text', {}).get('format', {}).get('name') == 'RepeatedFactReview'
+                       else outputs[min(len(requests) - 1, len(outputs) - 1)])
             return httpx.Response(200, json={'id': 'resp_synthetic', 'object': 'response', 'created_at': 0,
                 'status': 'completed', 'model': 'gpt-5.6-luna', 'parallel_tool_calls': False,
                 'tool_choice': 'auto', 'tools': [], 'output': [{'id': 'msg_synthetic', 'type': 'message',
@@ -89,7 +90,7 @@ def test_sdk_schema_and_expansion_preserve_complete_public_quiz(monkeypatch, mod
     expected = fixtures(mode)
     result, requests = generate(monkeypatch, [compact(expected)], mode)
     assert result == expected
-    assert len(requests) == 1
+    assert len(requests) == 2
     schema = requests[0]['text']['format']['schema']
     if mode != 'short_answer':
         fields = schema['$defs']['GeneratedChoiceQuestion']['properties']
@@ -110,11 +111,11 @@ def test_bad_output_still_requires_retry_and_full_validation(monkeypatch, failur
     if failure == 'choices': first['choices'] = ['A', 'B', 'C']
     if failure == 'source': first['source_pages'] = [1]
     if failure == 'duplicate': bad['questions'][1] = copy.deepcopy(first)
-    if failure == 'count': bad['questions'].pop()
+    if failure == 'count': bad['questions'].append(copy.deepcopy(first))
     if failure == 'schema': del first['explanation']
     if failure == 'mode': first.update(question_type='true_false', choices=['True', 'False'])
     result, requests = generate(monkeypatch, [bad, compact(expected)], 'multiple_choice')
-    assert result == expected and len(requests) == 2
+    assert result == expected and len(requests) == 3
     assert 'VALIDATION RETRY' in requests[1]['input'][0]['content']
     with pytest.raises(HTTPException) as error:
         generate(monkeypatch, [bad], 'multiple_choice')
@@ -126,7 +127,7 @@ def test_invalid_short_answer_rubric_remains_rejected_in_mixed_quiz(monkeypatch)
     bad = compact(expected)
     bad['questions'][2]['grading']['required_group_count'] = 999
     result, requests = generate(monkeypatch, [bad, compact(expected)], 'mixed')
-    assert result == expected and len(requests) == 2
+    assert result == expected and len(requests) == 3
 
 
 def test_choice_output_is_smaller_for_the_same_content():
@@ -155,5 +156,23 @@ def test_model_call_callback_counts_each_paid_retry_attempt(monkeypatch):
     )
 
     assert result == expected
-    assert len(requests) == 2
-    assert calls == ['model_call', 'model_call']
+    assert len(requests) == 3
+    assert calls == ['model_call', 'model_call', 'model_call']
+
+
+def test_valid_smaller_quiz_is_accepted_without_padding(monkeypatch):
+    expected = fixtures('multiple_choice')
+    expected.questions = expected.questions[:3]
+    result, requests = generate(monkeypatch, [compact(expected)], 'multiple_choice')
+    assert len(result.questions) == 3
+    assert len(requests) == 2  # generation plus bounded semantic duplicate review
+
+
+def test_reversed_fact_removed_only_with_shared_source_evidence():
+    quiz = fixtures('multiple_choice')
+    review = service.RepeatedFactReview(duplicates=[service.RepeatedFactPair(
+        keep=0, remove=1, fact='Photosynthesis stores energy', source_quote='Photosynthesis stores chemical energy')])
+    result = service.exclude_repeated_facts(quiz, [{'page_number': 7, 'text': 'Photosynthesis stores chemical energy.'}], review)
+    assert len(result.questions) == 4
+    with pytest.raises(ValueError):
+        service.exclude_repeated_facts(quiz, [{'page_number': 7, 'text': 'Unrelated text'}], review)

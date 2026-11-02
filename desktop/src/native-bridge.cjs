@@ -19,7 +19,7 @@ function validLocalDocumentRequest(value) {
   return true
 }
 
-function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, openAccountWebsite }) {
+function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, isCallbackRegistered = () => true, onLocalReviewFailure = () => {}, openAccountWebsite }) {
   function trusted(event) {
     const contents = getWindow()?.webContents
     const frame = event.senderFrame
@@ -53,8 +53,18 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       if (provider !== undefined && !['default', 'google'].includes(provider))
         throw new Error('Unsupported desktop sign-in method.')
       const session = getSession(), account = getAccount()
-      if (session?.status().signingIn || !canSignIn()) throw new Error('Finish the desktop sign-in test first.')
+      if (session?.status().signingIn) throw new Error('Desktop sign-in is already in progress. Cancel it before trying again.')
+      if (!canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
+      // The web browser may authenticate successfully, but no callback can
+      // arrive if a previous Windows preview owns the private URI scheme.
+      // Check BEFORE creating a PKCE attempt or launching the system browser.
+      let callbackReady = false
+      try { callbackReady = isCallbackRegistered() === true } catch {}
+      if (!callbackReady) {
+        throw new Error('Desktop sign-in callback is not registered to this installation. Repair or reinstall Quiz From Notes Preview.')
+      }
+      getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.()
       account.clear()
       const operation = session.signIn(provider)
       const generation = session.generation()
@@ -65,7 +75,10 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
-    signOut: async () => { await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
+    // Reset an abandoned OAuth attempt without clearing the account's local
+    // study data or running the broader sign-out/Local AI cleanup path.
+    cancelSignIn: async () => getSession()?.cancelSignIn?.() ?? false,
+    signOut: async () => { getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
       if (!account) throw new Error('Sign in to your desktop account first.')
@@ -98,6 +111,8 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         await confirmLocalAiRemoval(status) ? await manager.removeModel() : status)
     },
     localAiQuizStatus: () => localAi().quizStatus(),
+    localAiQuizProgress: () => localAi().quizProgress?.() ?? null,
+    localAiAnswerReviewProgress: () => localAi().reviewProgress?.() ?? null,
     processLocalPdf: async value => {
       if (!value || typeof value !== 'object' || Array.isArray(value) ||
           Object.keys(value).some(key => !['bytes', 'filename', 'selectedPages'].includes(key)) ||
@@ -177,10 +192,37 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         }
       }
     },
+    reviewLocalAnswers: async value => {
+      // Fail with a diagnostic reason BEFORE invoking the model. Previously
+      // both expired desktop identity and an absent model manager were caught
+      // as the unhelpful, generic "review_unavailable" response.
+      let reason = null
+      try {
+        const account = getAccount()?.current()
+        if (!account?.userId || account.enrolled !== true) {
+          reason = 'account_unavailable'
+        } else {
+          const manager = getLocalAi()
+          if (!manager?.reviewLocalAnswers) reason = 'runtime_unavailable'
+          else return { ok: true, ...await manager.reviewLocalAnswers(value) }
+        }
+      } catch (error) {
+        // Do not return exception text, model output, study notes or paths.
+        const allowed = new Set([
+          'busy', 'cancelled', 'timed_out', 'model_missing', 'invalid_model',
+          'runtime_invalid', 'runtime_unavailable', 'invalid_request', 'invalid_response',
+          'review_context_missing',
+        ])
+        reason = allowed.has(error?.code) ? error.code
+          : error?.name === 'TimeoutError' ? 'timed_out' : 'review_unavailable'
+      }
+      try { onLocalReviewFailure(reason) } catch {}
+      return { ok: false, error: reason }
+    },
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),
   }
-  const argumentCounts = Object.freeze({ signIn: 1, request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
+  const argumentCounts = Object.freeze({ reviewLocalAnswers: 1, signIn: 1, request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('qfn:' + name, async (event, ...args) => {
       if (!trusted(event) || args.length !== (argumentCounts[name] ?? 0)) throw new Error('Desktop command is not permitted.')

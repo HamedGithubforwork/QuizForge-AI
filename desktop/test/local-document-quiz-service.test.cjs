@@ -165,3 +165,32 @@ test('requires both local services and exposes bounded public error codes', () =
   assert.equal(error.code, 'processing_failed')
   assert.doesNotMatch(error.message, /secret/)
 })
+
+test('repeated same PDF/pages reuses locally validated text, not generated quiz; changed selection invalidates cache', async () => {
+  const { service, calls } = setup()
+  const make = selectedPages => ({ bytes, selectedPages, questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice' })
+  await service.generate(make([2]))
+  await service.generate(make([2]))
+  assert.equal(calls.process.length, 1)
+  assert.equal(calls.generate.length, 2, 'new questions still require fresh generation')
+  await service.generate(make([1]))
+  assert.equal(calls.process.length, 2)
+  await service.generate(make([2]))
+  assert.equal(calls.process.length, 3, 'cache holds only one source selection')
+  service.clearCache()
+  await service.generate(make([2]))
+  assert.equal(calls.process.length, 4)
+})
+
+test('PDF cache cannot bypass cancellation or an invalid request', async () => {
+  const { service, calls } = setup()
+  const request = { bytes, selectedPages: [2], questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice' }
+  await service.generate(request)
+  const aborted = AbortSignal.abort()
+  await assert.rejects(service.generate(request, { signal: aborted }), { code: 'cancelled' })
+  await assert.rejects(service.generate({ ...request, questionCount: 3 }), { code: 'invalid_request' })
+  assert.equal(calls.generate.length, 1)
+  assert.equal(calls.process.length, 1)
+})

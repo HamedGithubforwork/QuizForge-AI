@@ -50,6 +50,10 @@ function publicCapability(value) {
       !value.hardware || typeof value.hardware !== 'object' ||
       typeof value.hardware.gpuDetected !== 'boolean' ||
       typeof value.hardware.gpuAccelerationUsable !== 'boolean' ||
+      (value.hardware.gpuMemoryBytes !== undefined && value.hardware.gpuMemoryBytes !== null &&
+        (!Number.isSafeInteger(value.hardware.gpuMemoryBytes) || value.hardware.gpuMemoryBytes < 1)) ||
+      (value.hardware.logicalCpuCount !== undefined &&
+        (!Number.isSafeInteger(value.hardware.logicalCpuCount) || value.hardware.logicalCpuCount < 1)) ||
       (value.hardware.gpuDevice !== null && value.hardware.gpuDevice !== undefined &&
         (typeof value.hardware.gpuDevice !== 'string' || !/^Vulkan\d+$/.test(value.hardware.gpuDevice)))) {
     throw failure('invalid_capability')
@@ -82,6 +86,8 @@ function publicCapability(value) {
       gpuDetected: value.hardware.gpuDetected,
       gpuAccelerationUsable: value.hardware.gpuAccelerationUsable,
       gpuDevice: value.hardware.gpuDevice ?? null,
+      gpuMemoryBytes: value.hardware.gpuMemoryBytes ?? null,
+      logicalCpuCount: value.hardware.logicalCpuCount ?? null,
     }),
     requirements,
   })

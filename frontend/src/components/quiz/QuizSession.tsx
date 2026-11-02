@@ -1,3 +1,5 @@
+import type { AiAnswerReviewDecision } from '../../lib/answerFallback.ts'
+import type { DesktopLocalQuizProgress } from '../../lib/desktop.ts'
 import {
   getQuestionTypeLabel,
   isQuestionAnswered,
@@ -12,11 +14,17 @@ import type {
   QuizResult,
   UploadResult,
 } from '../../types/quiz'
+import { formatGenerationDuration, type GenerationTimeEstimate } from '../../lib/generationTiming.ts'
 import QuizQuestionCard from './QuizQuestionCard.tsx'
 import QuizResultsCard from './QuizResultsCard.tsx'
 
 type QuizSessionProps = {
   quiz: QuizResult
+  generationDurationMs: number | null
+  showPracticeTiming: boolean
+  practiceTimingElapsedMs: number
+  practiceTimingEstimate: GenerationTimeEstimate | null
+  localBatchProgress: DesktopLocalQuizProgress | null
   documentResult: UploadResult
   generatedSettings:
     | GeneratedSettings
@@ -51,7 +59,13 @@ type QuizSessionProps = {
     QuestionTypeScore
   shortAnswerScore:
     QuestionTypeScore
+  getAnswerReview?: (question: QuizQuestion, answer: AnswerValue | undefined) => AiAnswerReviewDecision | undefined
   isReviewingAnswers: boolean
+  shortAnswerReviewMode: 'local-ai' | 'manual'
+  answerReviewProgress: { completed: number; total: number } | null
+  onShortAnswerReviewModeChange: (mode: 'local-ai' | 'manual') => void
+  onManualShortAnswerGrade: (index: number, verdict: 'correct' | 'partial' | 'incorrect') => void
+  onStopLocalAnswerReview: () => void
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
@@ -87,6 +101,11 @@ type QuizSessionProps = {
 
 function QuizSession({
   quiz,
+  generationDurationMs,
+  showPracticeTiming,
+  practiceTimingElapsedMs,
+  practiceTimingEstimate,
+  localBatchProgress,
   documentResult,
   generatedSettings,
   selectedAnswers,
@@ -105,7 +124,13 @@ function QuizSession({
   multipleChoiceScore,
   trueFalseScore,
   shortAnswerScore,
+  getAnswerReview,
   isReviewingAnswers,
+  shortAnswerReviewMode,
+  answerReviewProgress,
+  onShortAnswerReviewModeChange,
+  onManualShortAnswerGrade,
+  onStopLocalAnswerReview,
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
@@ -126,6 +151,16 @@ function QuizSession({
   onGenerateNewQuiz,
   onUploadNewPdf,
 }: QuizSessionProps) {
+  // Keep the original numbering and jump targets, but on the results screen
+  // present instant objective scores first. Then show the short answers as
+  // Local AI finishes reviewing them or the student grades them manually.
+  const displayedQuestionIndexes = showResults
+    ? [
+        ...activeQuestionIndexes.filter(index => quiz.questions[index].question_type !== 'short_answer'),
+        ...activeQuestionIndexes.filter(index => quiz.questions[index].question_type === 'short_answer'),
+      ]
+    : activeQuestionIndexes
+
   return (
     <section
       className="quiz-section"
@@ -141,6 +176,12 @@ function QuizSession({
         </div>
 
         <div className="quiz-meta">
+          {generationDurationMs !== null && (
+            <span className="generation-duration">
+              Generated in {formatGenerationDuration(generationDurationMs)}
+              {generatedSettings?.engine ? ` • ${generatedSettings.engine === 'local' ? 'Local AI' : 'Cloud AI'}` : ''}
+            </span>
+          )}
           <span>
             {quiz.questions.length}{' '}
             questions
@@ -177,6 +218,20 @@ function QuizSession({
           )}
         </div>
       </div>
+
+      {generatedSettings?.requestedQuestionCount &&
+        quiz.questions.length < generatedSettings.requestedQuestionCount && (
+          <div className="weak-practice-banner" role="status">
+            <strong>
+              Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions
+            </strong>
+            <span>
+              The app kept the questions it could validate and excluded unsupported or
+              malformed candidates. For more questions, try selecting additional source
+              pages or a lower difficulty.
+            </span>
+          </div>
+        )}
 
       {practiceMode &&
         practiceFocus && (
@@ -268,7 +323,8 @@ function QuizSession({
                 'question-nav-button'
 
               if (showResults) {
-                navClass += correct
+                const verdict = getAnswerReview?.(question, selectedAnswers[questionIndex])?.verdict
+                navClass += verdict === 'uncertain' || verdict === 'partial' ? ' nav-review' : correct
                   ? ' nav-correct'
                   : ' nav-incorrect'
               } else if (answered) {
@@ -306,8 +362,17 @@ function QuizSession({
         </div>
       </nav>
 
+      {showResults && generatedSettings?.engine === 'local' && (
+        <div className="review-section-intro" role="status">
+          <strong>Multiple-choice and true/false answers have been graded.</strong>
+          {' '}Short answers follow afterward, with individual Local AI decisions or your own grades.
+          {isReviewingAnswers && answerReviewProgress && (
+            <p>Local AI has checked {answerReviewProgress.completed} of {answerReviewProgress.total} short answers. You can read these results while it continues.</p>
+          )}
+        </div>
+      )}
       <div className="questions-list">
-        {activeQuestionIndexes.map(
+        {displayedQuestionIndexes.map(
           (questionIndex) => {
             const question =
               quiz.questions[
@@ -323,6 +388,12 @@ function QuizSession({
               <QuizQuestionCard
                 key={questionIndex}
                 question={question}
+                answerReview={getAnswerReview?.(question, selectedAnswer)}
+                isReviewing={isReviewingAnswers}
+                allowManualGrade={showResults && generatedSettings?.engine === 'local' && !isReviewingAnswers && (
+                  shortAnswerReviewMode === 'manual' || getAnswerReview?.(question, selectedAnswer)?.verdict === 'uncertain'
+                )}
+                onManualGrade={onManualShortAnswerGrade}
                 questionIndex={
                   questionIndex
                 }
@@ -359,6 +430,21 @@ function QuizSession({
         )}
       </div>
 
+      {!showResults && generatedSettings?.engine === 'local' &&
+        quiz.questions.some(question => question.question_type === 'short_answer') && (
+        <fieldset className="short-review-options">
+          <legend>How should short answers be graded?</legend>
+          <label><input type="radio" name="local-short-review-mode"
+            checked={shortAnswerReviewMode === 'local-ai'}
+            onChange={() => onShortAnswerReviewModeChange('local-ai')} />
+            Local AI — show other answers immediately, then review short answers one by one</label>
+          <label><input type="radio" name="local-short-review-mode"
+            checked={shortAnswerReviewMode === 'manual'}
+            onChange={() => onShortAnswerReviewModeChange('manual')} />
+            Self-check — grade multiple choice and true/false immediately; I will mark short answers</label>
+        </fieldset>
+      )}
+
       {!showResults && (
         <button
           className="button primary-button check-button"
@@ -372,13 +458,34 @@ function QuizSession({
         </button>
       )}
 
+      {showResults && generatedSettings?.engine === 'local' &&
+        shortAnswerReviewMode === 'local-ai' && !isReviewingAnswers &&
+        quiz.questions.some((question, index) =>
+          question.question_type === 'short_answer' &&
+          getAnswerReview?.(question, selectedAnswers[index])?.verdict === 'uncertain'
+        ) && (
+          <button type="button" className="button secondary-button"
+            onClick={onCheckAnswers}>
+            Retry Local AI review for answers needing review
+          </button>
+        )}
+
       {showResults && (
         <QuizResultsCard
           quiz={quiz}
           documentResult={documentResult}
+          isReviewingAnswers={isReviewingAnswers}
+          answerReviewProgress={answerReviewProgress}
+          onStopLocalAnswerReview={onStopLocalAnswerReview}
           questionCount={
             quiz.questions.length
           }
+          partialCount={quiz.questions.filter((q, i) => getAnswerReview?.(q, selectedAnswers[i])?.verdict === 'partial').length}
+          uncertainCount={quiz.questions.filter((q, i) => getAnswerReview?.(q, selectedAnswers[i])?.verdict === 'uncertain').length}
+          partialCredit={quiz.questions.reduce((total, q, i) => {
+            const review = getAnswerReview?.(q, selectedAnswers[i])
+            return total + (review?.verdict === 'partial' ? review.credit ?? 0 : 0)
+          }, 0)}
           score={score}
           percentage={percentage}
           multipleChoiceScore={
@@ -402,6 +509,10 @@ function QuizSession({
           isWeakPracticeGenerating={
             isWeakPracticeGenerating
           }
+          showPracticeTiming={showPracticeTiming}
+          practiceTimingElapsedMs={practiceTimingElapsedMs}
+          practiceTimingEstimate={practiceTimingEstimate}
+          localBatchProgress={localBatchProgress}
           weakPracticeError={weakPracticeError}
           canCancelWeakPractice={
             canCancelWeakPractice

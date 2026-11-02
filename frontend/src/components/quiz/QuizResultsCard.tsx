@@ -10,11 +10,20 @@ import type {
   UploadResult,
 } from '../../types/quiz'
 import SaveDeckPanel from './SaveDeckPanel.tsx'
+import GenerationTimingPanel from './GenerationTimingPanel.tsx'
+import type { GenerationTimeEstimate } from '../../lib/generationTiming.ts'
+import type { DesktopLocalQuizProgress } from '../../lib/desktop.ts'
 
 type QuizResultsCardProps = {
   quiz: QuizResult
   documentResult: UploadResult
   questionCount: number
+  isReviewingAnswers: boolean
+  answerReviewProgress: { completed: number; total: number } | null
+  onStopLocalAnswerReview: () => void
+  partialCount?: number
+  uncertainCount?: number
+  partialCredit?: number
   score: number
   percentage: number
   multipleChoiceScore:
@@ -31,6 +40,10 @@ type QuizResultsCardProps = {
   isSavingHistory: boolean
   resultSaved: boolean
   isWeakPracticeGenerating: boolean
+  showPracticeTiming: boolean
+  practiceTimingElapsedMs: number
+  practiceTimingEstimate: GenerationTimeEstimate | null
+  localBatchProgress: DesktopLocalQuizProgress | null
   weakPracticeError: string
   canCancelWeakPractice: boolean
   isGenerating: boolean
@@ -48,6 +61,12 @@ function QuizResultsCard({
   quiz,
   documentResult,
   questionCount,
+  isReviewingAnswers,
+  answerReviewProgress,
+  onStopLocalAnswerReview,
+  partialCount = 0,
+  uncertainCount = 0,
+  partialCredit = 0,
   score,
   percentage,
   multipleChoiceScore,
@@ -59,6 +78,10 @@ function QuizResultsCard({
   isSavingHistory,
   resultSaved,
   isWeakPracticeGenerating,
+  showPracticeTiming,
+  practiceTimingElapsedMs,
+  practiceTimingEstimate,
+  localBatchProgress,
   weakPracticeError,
   canCancelWeakPractice,
   isGenerating,
@@ -71,8 +94,12 @@ function QuizResultsCard({
   onGenerateNewQuiz,
   onUploadNewPdf,
 }: QuizResultsCardProps) {
-  const hasIncorrectAnswers =
-    score < questionCount
+  const hasIncorrectAnswers = score < questionCount && uncertainCount === 0 && !isReviewingAnswers
+  const assessedCount = Math.max(0, questionCount - uncertainCount)
+  const earnedCredit = Number((score + partialCredit).toFixed(2))
+  const assessedCreditPercentage = assessedCount > 0
+    ? Math.round((earnedCredit / assessedCount) * 100)
+    : null
 
   return (
     <section
@@ -88,19 +115,33 @@ function QuizResultsCard({
       </div>
 
       <h2>
-        {score} / {questionCount} correct
+        {score} / {questionCount} fully correct
       </h2>
 
       <p className="score-message">
-        {getScoreMessage(percentage)}
+        {uncertainCount > 0 ? 'Provisional result — ungraded short answers are not counted as incorrect.' : getScoreMessage(percentage)}
       </p>
+      {isReviewingAnswers && answerReviewProgress && (
+        <div className="answer-review-status" role="status">
+          <p>Local AI: {answerReviewProgress.completed} of {answerReviewProgress.total} short answers reviewed. Multiple-choice and true/false scores are ready now; short answers update individually.</p>
+          <button type="button" className="button secondary-button" onClick={onStopLocalAnswerReview}>
+            Stop Local AI Review — finish manually
+          </button>
+        </div>
+      )}
 
       <p className="incorrect-count">
-        You answered{' '}
-        {questionCount - score}{' '}
-        incorrectly.
+        {questionCount - score - partialCount - uncertainCount} incorrect
+        {partialCount > 0 && ` · ${partialCount} partially correct`}
+        {uncertainCount > 0 && ` · ${uncertainCount} need review (not marked incorrect)`}
       </p>
 
+      {(partialCount > 0 || uncertainCount > 0) && <p className="assessed-credit-summary">
+        <strong>Study credit: {earnedCredit} / {assessedCount} assessed points
+        {assessedCreditPercentage !== null && ` (${assessedCreditPercentage}%)`}</strong>.
+        {' '}The large score above counts only fully correct answers, not partial credit.
+        {uncertainCount > 0 && ` ${uncertainCount} answer${uncertainCount === 1 ? ' is' : 's are'} pending review and excluded from the assessed points. The overall score is provisional.`}
+      </p>}
       <div className="score-breakdown">
         {multipleChoiceScore.total > 0 && (
           <div>
@@ -249,6 +290,15 @@ function QuizResultsCard({
         documentResult={documentResult}
       />
 
+      {showPracticeTiming && (
+        <GenerationTimingPanel
+          label="Generating weak-area practice quiz"
+          elapsedMs={practiceTimingElapsedMs}
+          estimate={practiceTimingEstimate}
+          progress={localBatchProgress}
+        />
+      )}
+
       <div className="result-actions">
         <button
           className="button secondary-button"
@@ -256,7 +306,7 @@ function QuizResultsCard({
           onClick={onSaveResult}
           disabled={
             isSavingHistory ||
-            resultSaved
+            resultSaved || isReviewingAnswers || uncertainCount > 0
           }
         >
           {isSavingHistory
@@ -272,7 +322,7 @@ function QuizResultsCard({
             type="button"
             onClick={onRetryIncorrect}
             disabled={
-              isWeakPracticeGenerating
+              isWeakPracticeGenerating || isReviewingAnswers || uncertainCount > 0
             }
           >
             Retry Incorrect
@@ -288,7 +338,7 @@ function QuizResultsCard({
             }
             disabled={
               isWeakPracticeGenerating ||
-              isGenerating
+              isGenerating || isReviewingAnswers || uncertainCount > 0
             }
           >
             {isWeakPracticeGenerating

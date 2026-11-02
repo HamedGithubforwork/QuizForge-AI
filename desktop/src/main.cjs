@@ -4,6 +4,7 @@ const { app, BrowserWindow, dialog, Menu, session, clipboard, shell, ipcMain, No
 const { APP_ORIGIN, windowOptions } = require('./policy.cjs')
 
 const { guardContents } = require('./guards.cjs')
+const { armDebugReport, saveDebugReport } = require('./local-ai-debug-report.cjs')
 const { createDiagnostics, showDiagnostics } = require('./diagnostics.cjs')
 const diagnostics = createDiagnostics({
   appVersion: app.getVersion(), electronVersion: process.versions.electron,
@@ -292,6 +293,7 @@ if (!app.requestSingleInstanceLock()) {
   // Cold callbacks cannot match a prior process's private PKCE transaction.
   void receiveCallback(process.argv)
   app.whenReady().then(async () => {
+    diagnostics.startPersistence(path.join(app.getPath('userData'), 'diagnostics'))
     const browserSession = session.fromPartition('quiz-from-notes-preview')
     const localAiRuntimeDirectory = typeof process.resourcesPath === 'string' && process.platform === 'win32'
       ? path.join(process.resourcesPath, 'local-ai-runtime')
@@ -330,16 +332,23 @@ if (!app.requestSingleInstanceLock()) {
         { type: 'separator' },
         { label: 'Desktop diagnostics…', click: () => {
         showDiagnostics({ dialog, clipboard, diagnostics }).catch(() => {})
-      } }] },
+      } },
+        { label: 'Record next Local AI quiz for debugging…', click: () => { void armDebugReport({ dialog, manager: localAiManager }).catch(() => {}) } },
+        { label: 'Save detailed Local AI debug report…', click: () => { void saveDebugReport({ dialog, manager: localAiManager }).catch(() => {}) } },
+      ] },
       { label: 'View', submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
     ]))
     installNativeBridge({ ipcMain, getWindow: () => mainWindow,
       getSession: () => nativeSession, getAccount: () => nativeAccount, getReminders: () => reminders,
       getLocalAi: () => localAiManager,
       getSourceTextCache: () => sourceTextCache,
+      onLocalReviewFailure: reason => diagnostics.record('answer_review_failed', { reason }),
       confirmLocalAiDownload,
       confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
+      // A stale/competing Windows protocol handler prevents the browser from
+      // returning. Never override it silently; require a conscious repair.
+      isCallbackRegistered: () => app.isDefaultProtocolClient(PROTOCOL),
       openAccountWebsite: () => shell.openExternal(APP_ORIGIN + '/settings/security') })
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
@@ -351,6 +360,7 @@ if (!app.requestSingleInstanceLock()) {
           : undefined
       localAiManager = createWindowsLocalAiStack({
         userDataDirectory: app.getPath('userData'),
+        onDiagnostic: (event, fields) => diagnostics.record(event, fields),
         ...(runtimeDirectory ? { runtimeDirectory } : {}),
         documentProcessor: createLocalDocumentProcessor({ engine: createPdfJsLocalEngine() }),
       })
@@ -388,7 +398,7 @@ if (!app.requestSingleInstanceLock()) {
         if (!mainWindow || mainWindow.isDestroyed()) return
         nativeSession = createNativeSession({ clientId: config.clientId, client,
           openBrowser: url => shell.openExternal(url), onChange: () => {
-            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
+            if (!nativeSession?.status().signedIn) { nativeAccount?.clear(); localAiManager?.clearDetailedDebug?.(); localAiManager?.clearQuizReview?.(); void localAiManager?.cancelQuiz?.(); reminders?.clear(); offlineMenu?.clear(); void localAiManager?.cancelDownload() }
             updateNativeMenu()
           } })
         nativeAccount = createNativeAccount({ session: nativeSession })

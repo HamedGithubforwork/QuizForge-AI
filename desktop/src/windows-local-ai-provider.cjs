@@ -2,6 +2,8 @@
 
 const { LocalAiError, createLocalAiProvider, failure, validId } = require('./local-ai-provider.cjs')
 const GENERATION_PROFILES = Object.freeze({
+  'answer-review-v1': Object.freeze({ temperature: 0, top_p: 1, seed: 42,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }) }),
   'quiz-mcq-v1': Object.freeze({
     temperature: 0.7,
     top_p: 0.8,
@@ -99,7 +101,7 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
   if (!runtime || typeof runtime.complete !== 'function' || !modelStore ||
       typeof modelStore.status !== 'function' || !validId(modelId)) throw failure('invalid_provider')
   const supported = () => platform === 'win32' && arch === 'x64'
-  return createLocalAiProvider({
+  const provider = createLocalAiProvider({
     id: 'windows-local',
     async capability({ signal }) {
       if (!supported()) return { available: false, reason: 'unsupported_platform', modelId }
@@ -132,6 +134,22 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
           totalTokens: response.usage.total_tokens }
       }
       return { text: choice?.message?.content, finishReason: choice?.finish_reason, usage }
+    },
+  })
+  if (typeof runtime.withSession !== 'function') return provider
+  // The scoped provider can only run while its owning quiz is executing.
+  // The runtime enforces single-inference access and unconditionally stops
+  // the server/model in a finally block when the quiz ends or is cancelled.
+  return Object.freeze({
+    ...provider,
+    async withSession(callback, { signal } = {}) {
+      if (typeof callback !== 'function') throw failure('invalid_request')
+      try {
+        return await runtime.withSession(async scopedComplete =>
+          callback(createWindowsLocalAiProvider({
+            runtime: { complete: scopedComplete }, modelStore, modelId, platform, arch,
+          })), { signal })
+      } catch (error) { throw runtimeError(error) }
     },
   })
 }

@@ -210,6 +210,14 @@ test(
       }),
       /not available/,
     )
+    const noQuestionsMessage = localQuizErrorMessage({
+      ok: false,
+      error: 'insufficient_source',
+    })
+    assert.match(noQuestionsMessage, /No valid questions could be generated/)
+    assert.match(noQuestionsMessage, /selecting more pages/)
+    assert.match(noQuestionsMessage, /uploading a document/)
+    assert.match(noQuestionsMessage, /changing the difficulty/)
   },
 )
 

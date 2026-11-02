@@ -7,7 +7,7 @@ const path = require('node:path')
 const http = require('node:http')
 const { EventEmitter } = require('node:events')
 const { createHash } = require('node:crypto')
-const { createLocalRuntime, verifyRuntime, runtimeEnvironment, request } = require('../src/local-runtime.cjs')
+const { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, runtimeEnvironment, request } = require('../src/local-runtime.cjs')
 
 test('runtime verification rejects changed, missing and unexpected library files', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-runtime-'))
@@ -112,6 +112,53 @@ test('runtime lifecycle exposes bounded busy state and cleans successful session
   assert.equal(child.kills.length, 1)
 })
 
+test('one scoped quiz session reuses a single private model launch across three inferences', async () => {
+  const child = fakeChild()
+  let launches = 0
+  let requests = 0
+  let savedCompletion
+  const alias = 'qfn-' + 'ab'.repeat(16)
+  const { runtime } = runtimeFixture({
+    child,
+    options: {
+      spawnProcess: () => { launches++; return child },
+      requestFn: async (_port, _key, route) => {
+        if (route === '/v1/models') return { data: [{ id: alias }] }
+        requests++
+        return { choices: [{ message: { content: 'batch-' + requests }, finish_reason: 'stop' }] }
+      },
+    },
+  })
+  const session = runtime.withSession(async complete => {
+    savedCompletion = complete
+    assert.equal((await complete({ messages: [{ role: 'user', content: 'one' }] })).choices[0].message.content, 'batch-1')
+    assert.deepEqual(runtime.status(), { busy: true, closed: false })
+    await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'intrusion' }] }), { code: 'busy' })
+    await complete({ messages: [{ role: 'user', content: 'two' }] })
+    await complete({ messages: [{ role: 'user', content: 'three' }] })
+    return requests
+  })
+  assert.equal(await session, 3)
+  assert.equal(launches, 1)
+  assert.equal(requests, 3)
+  assert.equal(child.kills.length, 1)
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+  await assert.rejects(savedCompletion({ messages: [] }), { code: 'runtime_closed' })
+})
+
+test('scoped quiz sessions honor abort and clean up even when a later batch fails', async () => {
+  const controller = new AbortController()
+  const { child, runtime } = runtimeFixture()
+  await assert.rejects(runtime.withSession(async complete => {
+    await complete({ messages: [{ role: 'user', content: 'first batch' }] })
+    controller.abort()
+    await complete({ messages: [{ role: 'user', content: 'must not run' }] })
+  }, { signal: controller.signal }), { name: 'AbortError' })
+  assert.equal(child.kills.length, 1)
+  assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
 test('shutdown cancels an active session, waits for cleanup and prevents restart', async () => {
   let started
   const reachedCompletion = new Promise(resolve => { started = resolve })
@@ -140,6 +187,26 @@ test('shutdown cancels an active session, waits for cleanup and prevents restart
     { code: 'runtime_closed' },
   )
   await runtime.shutdown()
+})
+
+test('runtime preserves timeout cause when HTTP reports a generic abort', async () => {
+  const controller = new AbortController()
+  const { runtime } = runtimeFixture({
+    options: {
+      requestFn: async (_port, _key, route, _payload, signal) => {
+        if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        return new Promise((_resolve, reject) => {
+          const onAbort = () => reject(new DOMException('Request aborted', 'AbortError'))
+          signal.addEventListener('abort', onAbort, { once: true })
+          controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'))
+        })
+      },
+    },
+  })
+  await assert.rejects(runtime.complete({ messages: [{ role: 'user', content: 'test' }] }, {
+    signal: controller.signal,
+  }), { name: 'TimeoutError' })
+  assert.equal(runtime.status().busy, false)
 })
 
 test('a runtime process that exits during startup fails closed', async () => {
@@ -322,4 +389,216 @@ test('unexpected watchdog loss aborts the active runtime and cleans its child', 
   await assert.rejects(operation)
   assert.notEqual(child.signalCode, null)
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
+})
+
+test('partial Vulkan offload retries a smaller allocation before CPU', async () => {
+  const launches = []
+  const failures = []
+  const children = [fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuLayerCount: () => 24,
+      gpuFallbackLayers: () => [8, 0],
+      onGpuStartupFailure: layers => failures.push(layers),
+      spawnProcess: (_exe, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 2)
+  assert.equal(launches[0][launches[0].indexOf('-ngl') + 1], '24')
+  assert.equal(launches[1][launches[1].indexOf('-ngl') + 1], '8')
+  assert.deepEqual(failures, [24])
+})
+
+test('GPU OOM-like early startup exits fall back to CPU after bounded partial attempts', async () => {
+  const launches = []
+  const failures = []
+  const children = [fakeChild({ exited: true }), fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuLayerCount: () => 24,
+      gpuFallbackLayers: () => [8, 0],
+      onGpuStartupFailure: layers => failures.push(layers),
+      spawnProcess: (_exe, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.deepEqual(launches.map(args => args[args.indexOf('-ngl') + 1]), ['24', '8', '0'])
+  assert.deepEqual(failures, [24, 8])
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+})
+
+test('runtime performance callback receives only bounded timing and token counts', async () => {
+  const observations = []
+  const { runtime } = runtimeFixture({
+    options: {
+      onInferenceCompleted: value => observations.push(value),
+      requestFn: async (_port, _key, route) => route === '/v1/models'
+        ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 250, completion_tokens: 120 } },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
+  assert.equal(observations.length, 1)
+  assert.deepEqual(Object.keys(observations[0]).sort(),
+    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens', 'threads'])
+  assert.equal(observations[0].layers, 0)
+  assert.equal(observations[0].completionTokens, 120)
+  assert.equal(observations[0].promptTokens, 250)
+  assert.ok(observations[0].threads >= 1 && observations[0].threads <= 8,
+    'thread selection must stay within the safe CPU bound')
+  assert.ok(observations[0].elapsedMs >= 0)
+})
+
+test('diagnostics distinguish runtime startup, inference failure and private error content', async () => {
+  const events = []
+  const fixture = runtimeFixture({ options: {
+    onDiagnostic: (event, fields) => events.push({ event, ...fields }),
+    requestFn: async (_port, _key, route) => {
+      if (route === '/v1/models') return { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+      throw Object.assign(new Error('private prompt and credential'), { code: 'request_failed' })
+    },
+  } })
+  await assert.rejects(fixture.runtime.complete({ messages: [] }), { code: 'request_failed' })
+  assert.deepEqual(events.map(x => x.event), ['runtime_launch', 'runtime_ready', 'runtime_failed'])
+  assert.ok(events.find(x => x.event === 'runtime_ready').startupMs >= 0)
+  assert.equal(events.at(-1).stage, 'inference')
+  assert.equal(events.at(-1).reason, 'request_failed')
+  assert.doesNotMatch(JSON.stringify(events), /private|credential/)
+})
+
+test('warm runtime reuses process between quizzes and releases it at idle timeout', async () => {
+  let launches = 0, stops = 0, inferCalls = 0
+  const timers = new Map()
+  let timerId = 0
+  const base = {
+    async withSession(callback) {
+      launches++
+      try { await callback(async () => { inferCalls++; return { ok: true } }) }
+      finally { stops++ }
+    },
+    async shutdown() {},
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(base, {
+    idleMs: 180000, freeMemory: () => 8 * 1024 ** 3,
+    setTimer: cb => { const id = ++timerId; timers.set(id, cb); return id },
+    clearTimer: id => timers.delete(id),
+  })
+  assert.deepEqual(await warm.complete({ messages: [] }), { ok: true })
+  assert.equal(launches, 1)
+  assert.equal(stops, 0)
+  assert.equal(warm.status().warm, true)
+  await warm.withSession(async complete => {
+    await complete({ messages: [] })
+    await complete({ messages: [] })
+  })
+  assert.equal(launches, 1)
+  assert.equal(inferCalls, 3)
+  const expiry = [...timers.values()][0]
+  expiry()
+  // Give the underlying session's asynchronous finally block a microtask.
+  await warm.cooldown()
+  assert.equal(stops, 1)
+  await warm.complete({ messages: [] })
+  assert.equal(launches, 2)
+  await warm.shutdown()
+  assert.equal(stops, 2)
+  assert.equal(warm.status().closed, true)
+  await assert.rejects(warm.complete({ messages: [] }), { code: 'runtime_closed' })
+})
+
+test('warm runtime does not retain a model when memory is low or account changes', async () => {
+  let starts = 0, stops = 0
+  const base = {
+    async withSession(fn) {
+      starts++
+      try { await fn(async () => ({ choices: [] })) } finally { stops++ }
+    },
+    shutdown: async () => {},
+    lastAccelerationMode: () => 'cpu',
+  }
+  let free = 8 * 1024 ** 3
+  let profile = 'gpu-99'
+  const warm = createWarmLocalRuntime(base, {
+    profile: () => profile, freeMemory: () => free,
+  })
+  await warm.complete({})
+  profile = 'cpu-0'
+  await warm.complete({})
+  assert.equal(starts, 2, 'hardware profile changes require a new process')
+  assert.equal(stops, 1)
+  free = 256 * 1024 ** 2
+  await warm.complete({})
+  await warm.cooldown()
+  assert.equal(stops, 3)
+  assert.equal(warm.status().warm, false)
+  await warm.shutdown()
+})
+
+test('warm shutdown unblocks a held native session and exits without waiting for idle timeout', async () => {
+  let worker = null
+  let stopped = 0
+  const fake = {
+    async withSession(callback) {
+      worker = Promise.resolve().then(() => callback(async () => ({ choices: [] })))
+      try { await worker } finally { stopped++ }
+    },
+    async shutdown() {
+      // Same dependency as the real native runtime: shutdown awaits its
+      // outstanding session callback. Old warm.shutdown deadlocked here.
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  await warm.complete({ messages: [] })
+  assert.equal(warm.status().warm, true)
+  const shutdown = warm.shutdown()
+  const settled = await Promise.race([
+    shutdown.then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(settled, 'closed', 'release warm session hold before native shutdown')
+  assert.equal(stopped, 1)
+  assert.equal(warm.status().closed, true)
+})
+
+test('warm shutdown interrupts active scoped request and releases its native hold', async () => {
+  let finishRequest = null, enteredRequest
+  const entered = new Promise(resolve => { enteredRequest = resolve })
+  let worker = null
+  const fake = {
+    async withSession(callback) {
+      worker = callback(async () => {
+        enteredRequest()
+        return new Promise(resolve => { finishRequest = resolve })
+      })
+      await worker
+    },
+    async shutdown() {
+      finishRequest?.({ choices: [] })
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  const pending = warm.withSession(async complete => complete({ messages: [] }))
+  await entered
+  const outcome = await Promise.race([
+    warm.shutdown().then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(outcome, 'closed')
+  await pending.catch(() => {})
+  assert.equal(warm.status().warm, false)
 })

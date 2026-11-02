@@ -123,3 +123,21 @@ test('unusable or oversized signing-key responses have no fallback', async () =>
     await assert.rejects(client.exchange(request), { message: 'Native sign-in could not be verified. Please sign in again.' })
   }
 })
+
+test('transient network and server refresh errors do not masquerade as invalid credentials', async () => {
+  for (const httpResponse of [
+    () => new Response('', { status: 503 }),
+    () => new Response('', { status: 429 }),
+    () => { throw new TypeError('private network path') },
+  ]) {
+    const { client } = await fixture({ httpResponse })
+    await assert.rejects(client.refresh({ refreshToken: 'synthetic-refresh', subject }), error => {
+      assert.equal(error.code, 'transient_auth_error')
+      assert.doesNotMatch(error.message, /private network path/)
+      return true
+    })
+  }
+  const invalidToken = await fixture({ httpResponse: () => new Response('denied', { status: 400 }) })
+  await assert.rejects(invalidToken.client.refresh({ refreshToken: 'synthetic-refresh', subject }),
+    /could not be verified/i)
+})

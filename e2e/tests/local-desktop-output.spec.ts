@@ -75,13 +75,18 @@ function syntheticPdf(): Buffer {
 }
 
 async function openDesktopUi(
-  page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
+  page: Page, quiz: ModelQuiz, returnEmpty: boolean | 'insufficient_source' = false, practiceQuiz?: ModelQuiz,
   options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
   pdfMimeType = 'application/pdf',
+  pauseFirstGeneration = false,
+  pausePracticeGeneration = false,
 ) {
-  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected }) => {
-    const calls = { pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[] }
+  await page.addInitScript(({ fixture, generated, empty, practiceResult, selected, pauseFirstGeneration, pausePracticeGeneration }) => {
+    const calls = {
+      pdf: 0, generate: 0, requests: [] as unknown[], quizRequests: [] as unknown[],
+      resolvePendingQuiz: null as null | (() => void),
+    }
     const account = { userId: 'local-ui-e2e', email: 'local-ui@example.test', enrolled: true }
     const json = (body: unknown) => ({ status: 200, body: JSON.stringify(body), contentType: 'application/json' })
     Object.assign(window, {
@@ -102,7 +107,16 @@ async function openDesktopUi(
         reminderStatus: async () => ({ supported: false, enabled: false }),
         enableReminders: async () => {},
         disableReminders: async () => {},
-        localAiStatus: async () => ({ model: { ready: true }, capability: { acceleration: 'cpu' } }),
+        localAiStatus: async () => ({
+          phase: 'idle',
+          model: { ready: true, state: 'ready', bytes: 2497280256 },
+          capability: {
+            localEligible: true, recommendation: 'enhanced-local-preview',
+            acceleration: 'cpu',
+            hardware: { gpuDetected: true, gpuAccelerationUsable: false },
+          },
+          lastAccelerationMode: null,
+        }),
         startLocalAiModelDownload: async () => ({}),
         cancelLocalAiModelDownload: async () => ({}),
         removeLocalAiModel: async () => ({}),
@@ -140,9 +154,22 @@ async function openDesktopUi(
             return { ok: false, error: 'invalid_request' }
           }
           if (request.practice) {
+            if (pausePracticeGeneration && practiceResult) {
+              return new Promise(resolve => {
+                calls.resolvePendingQuiz = () => resolve({ ok: true, quiz: practiceResult })
+              })
+            }
             return practiceResult
               ? { ok: true, quiz: practiceResult }
               : { ok: false, error: 'insufficient_source' }
+          }
+          if (empty === 'insufficient_source') {
+            return { ok: false, error: 'insufficient_source' }
+          }
+          if (pauseFirstGeneration && calls.generate === 1) {
+            return new Promise(resolve => {
+              calls.resolvePendingQuiz = () => resolve({ ok: true, quiz: generated })
+            })
           }
           return { ok: true, quiz: empty
             ? { title: 'Empty quiz', questions: [] }
@@ -152,7 +179,7 @@ async function openDesktopUi(
         loadSourcePageText: async () => '',
       },
     })
-  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options })
+  }, { fixture: biology, generated: quiz, empty: returnEmpty, practiceResult: practiceQuiz, selected: options, pauseFirstGeneration, pausePracticeGeneration })
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
@@ -190,6 +217,7 @@ test('the real model output becomes five visible, answerable questions and a res
   await expect(page.locator('#quiz-start')).toBeVisible()
   await expect(page.locator('.question-card')).toHaveCount(5)
   await expect(page.locator('#quiz-start')).toContainText(quiz.title)
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
   for (const [index, question] of quiz.questions.entries()) {
     const card = page.locator('.question-card').nth(index)
     await expect(card.locator('h3')).toHaveText(question.question)
@@ -200,7 +228,7 @@ test('the real model output becomes five visible, answerable questions and a res
   await expect(page.getByText('5 of 5 answered')).toBeVisible()
   await page.getByRole('button', { name: 'Check Answers' }).click()
   await expect(page.locator('#quiz-results')).toBeVisible()
-  await expect(page.locator('#quiz-results')).toContainText('5 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('5 / 5 fully correct')
   const result = await page.evaluate(() => (window as unknown as {
     __localOutputProbe: { pdf: number; generate: number; requests: string[] }
   }).__localOutputProbe)
@@ -210,11 +238,119 @@ test('the real model output becomes five visible, answerable questions and a res
   expect(errors).toEqual([])
 })
 
-test('an empty success response shows an error instead of a blank quiz', async ({ page }) => {
+test('weak-area practice displays live elapsed time and the completed practice duration', async ({ page }) => {
+  const base = readModelQuiz()
+  const practice = { ...base, title: 'Timed Weak-Area Practice' }
+  const errors = await openDesktopUi(
+    page, base, false, practice, undefined, 'application/pdf', false, true,
+  )
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  for (const [index, question] of base.questions.entries()) {
+    const wrong = (question.correct_index + 1) % 4
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? wrong : question.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  const timer = page.getByTestId('quiz-generation-timing')
+  await expect(timer).toContainText('Generating weak-area practice quiz')
+  await expect(timer).toContainText('Elapsed:')
+  await expect(timer).toContainText('An estimate becomes available')
+  await expect(page.locator('#quiz-start')).toContainText(base.title)
+  await page.evaluate(() => {
+    const probe = (window as unknown as {
+      __localOutputProbe: { resolvePendingQuiz: null | (() => void) };
+    }).__localOutputProbe
+    if (!probe.resolvePendingQuiz) throw new Error('Pending practice response missing')
+    probe.resolvePendingQuiz()
+  })
+  await expect(page.locator('#quiz-start')).toContainText('Timed Weak-Area Practice')
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
+  await expect(page.getByTestId('quiz-generation-timing')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a 15-question request displays five safe questions and preserves the requested count for practice', async ({ page }) => {
+  const original = readModelQuiz()
+  const followup: ModelQuiz = {
+    title: 'Partial Weak Area Practice',
+    questions: original.questions.map((q, index) => ({
+      ...q, question: 'New source-backed practice question ' + index + '?',
+    })),
+  }
+  const errors = await openDesktopUi(page, original, false, followup,
+    { count: 15, difficulty: 'easy', type: 'multiple_choice' })
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  // The settings notice and the in-quiz banner both legitimately announce
+  // partial generation. Scope to the active quiz banner rather than matching
+  // two live regions and triggering Playwright strict-mode errors.
+  await expect(page.locator('#quiz-start .weak-practice-banner[role="status"]'))
+    .toContainText('Generated 5 of 15 requested questions')
+  for (const [index, q] of original.questions.entries()) {
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? (q.correct_index + 1) % 4 : q.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 fully correct')
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { quizRequests: Array<{ questionCount: number }> }
+  }).__localOutputProbe)
+  expect(probe.quizRequests.map(r => r.questionCount)).toEqual([15, 15])
+  expect(errors).toEqual([])
+})
+
+
+test('changing to Local AI settings and back preserves the pending quiz and PDF without a busy retry', async ({ page }) => {
+  const quiz = readModelQuiz()
+  const errors = await openDesktopUi(page, quiz, false, undefined, undefined,
+    'application/pdf', true)
+  await expect(page.getByRole('button', { name: 'Cancel Local Generation' })).toBeVisible()
+  await expect(page.getByTestId('quiz-generation-timing')).toContainText('Elapsed:')
+  await expect(page.getByTestId('quiz-generation-timing')).toContainText('An estimate becomes available')
+  await page.getByRole('button', { name: 'Local AI', exact: true }).click()
+  await expect(page.getByText('Available acceleration:')).toBeVisible()
+  await page.getByRole('button', { name: 'Quiz', exact: true }).click()
+  await expect(page.getByText('PDF processed successfully')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel Local Generation' })).toBeVisible()
+  await page.evaluate(() => {
+    const probe = (window as unknown as {
+      __localOutputProbe: { resolvePendingQuiz: null | (() => void) };
+    }).__localOutputProbe
+    if (!probe.resolvePendingQuiz) throw new Error('The quiz was unexpectedly restarted')
+    probe.resolvePendingQuiz()
+  })
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  await expect(page.locator('#quiz-start')).toContainText(quiz.title)
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { pdf: number; generate: number };
+  }).__localOutputProbe)
+  expect(probe.pdf).toBe(1)
+  expect(probe.generate).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('zero-question successful response shows actionable guidance instead of a blank quiz', async ({ page }) => {
   const errors = await openDesktopUi(page, readModelQuiz(), true)
-  await expect(page.getByRole('alert')).toContainText('Local AI returned an empty or incomplete quiz')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('Try selecting more pages')
+  await expect(alert).toContainText('changing the difficulty')
   await expect(page.locator('.question-card')).toHaveCount(0)
   await expect(page.locator('#quiz-results')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('insufficient-source response shows the same actionable zero-question guidance', async ({ page }) => {
+  const errors = await openDesktopUi(page, readModelQuiz(), 'insufficient_source')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('uploading a document with more study material')
+  await expect(page.locator('.question-card')).toHaveCount(0)
   expect(errors).toEqual([])
 })
  
@@ -238,7 +374,7 @@ test('Practice Weak Areas prioritizes missed pages while retaining PDF context a
       .check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 fully correct')
   await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
   await expect(page.locator('#quiz-start')).toContainText('Weak Areas Follow-up Quiz')
   await expect(page.locator('.question-card')).toHaveCount(5)
@@ -275,7 +411,7 @@ test('failed weak-area practice reports its error beside the completed quiz', as
   await expect(page.locator('#quiz-results').getByRole('alert'))
     .toContainText('Could not build weak-area practice')
   await expect(page.locator('#quiz-results').getByRole('alert'))
-    .toContainText('Choose more pages or use Cloud AI.')
+    .toContainText('Try selecting more pages, uploading a document with more study material, or changing the difficulty.')
   await expect(page.locator('.question-card')).toHaveCount(5)
   expect(errors).toEqual([])
 })
@@ -302,7 +438,7 @@ test('Practice Weak Areas preserves a 10-question hard quiz count and format', a
       .nth(index === 0 ? (question.correct_index + 1) % 4 : question.correct_index).check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('9 / 10 correct')
+  await expect(page.locator('#quiz-results')).toContainText('9 / 10 fully correct')
   await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
   await expect(page.locator('.question-card')).toHaveCount(10)
   await expect(page.locator('#quiz-start')).toContainText('Ten Hard Weak-Area Questions')

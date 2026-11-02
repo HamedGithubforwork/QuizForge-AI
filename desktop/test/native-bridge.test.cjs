@@ -82,6 +82,12 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
     cancelDownload: async () => {},
     removeModel: async () => ({}),
     quizStatus: async () => ({ available: true, reason: null, busy: false }),
+    quizProgress: () => ({ phase: 'generating', completedBatches: 1, totalBatches: 3,
+      validQuestions: 4, requestedQuestions: 15 }),
+    reviewProgress: () => ({ total: 2, decisions: [{
+      question_index: 0, verdict: 'partial', confidence: 0.75, credit: 0.5,
+      reason: 'One concept missing', engine: 'local', concepts: [],
+    }] }),
     generateQuiz: async value => {
       received = value
       return { title: 'Fixture', questions: [] }
@@ -105,6 +111,13 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
   }
   assert.deepEqual(await handlers['qfn:localAiQuizStatus'](event),
     { available: true, reason: null, busy: false })
+  assert.deepEqual(await handlers['qfn:localAiQuizProgress'](event), {
+    phase: 'generating', completedBatches: 1, totalBatches: 3,
+    validQuestions: 4, requestedQuestions: 15,
+  })
+  await assert.rejects(handlers['qfn:localAiQuizProgress'](event, 'extra'), /not permitted/)
+  assert.equal((await handlers['qfn:localAiAnswerReviewProgress'](event)).decisions[0].verdict, 'partial')
+  await assert.rejects(handlers['qfn:localAiAnswerReviewProgress'](event, 'extra'), /not permitted/)
   const generated = await handlers['qfn:generateLocalAiQuiz'](event, request)
   assert.equal(generated.ok, true)
   assert.deepEqual(received, request)
@@ -125,6 +138,8 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
 
   account = null
   await assert.rejects(handlers['qfn:localAiQuizStatus'](event), /Sign in/)
+  await assert.rejects(handlers['qfn:localAiQuizProgress'](event), /Sign in/)
+  await assert.rejects(handlers['qfn:localAiAnswerReviewProgress'](event), /Sign in/)
 })
 
 test('local PDF quiz IPC bounds file bytes, requires the local account path and never calls cloud request', async () => {
@@ -229,6 +244,34 @@ test('source-page cache IPC is fixed, single-argument and does not expose a writ
 })
 
 
+test('Google sign-in refuses a missing or mismatched Windows callback handler before opening browser', async () => {
+  const handlers = {}, frame = { url: 'qfn://app/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let starts = 0, cleared = 0, registered = false
+  const session = { status: () => ({ signingIn: false }), generation: () => 1,
+    signIn: async () => { starts++ } }
+  const account = { clear: () => { cleared++ },
+    verify: async () => ({ userId: 'test', email: 'test@example.invalid', enrolled: true }) }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => session, getAccount: () => account,
+    isCallbackRegistered: () => registered,
+    openAccountWebsite: () => { throw Error('No browser may be opened by a failed preflight') },
+  })
+  const event = { sender: contents, senderFrame: frame }
+  for (const method of ['google', 'default']) {
+    await assert.rejects(handlers['qfn:signIn'](event, method),
+      /callback is not registered to this installation/)
+  }
+  assert.equal(starts, 0)
+  assert.equal(cleared, 0, 'failed callback check must not clear an existing account')
+  registered = true
+  assert.equal((await handlers['qfn:signIn'](event, 'google')).userId, 'test')
+  assert.equal(starts, 1)
+  assert.equal(cleared, 1)
+})
+
 test('desktop sign-in accepts only the fixed Google and default methods', async () => {
   const handlers = {}, frame = { url: 'https://quizfromnotes.com/' }
   const contents = { isDestroyed: () => false, mainFrame: frame }
@@ -241,4 +284,88 @@ test('desktop sign-in accepts only the fixed Google and default methods', async 
   assert.equal((await handlers['qfn:signIn'](event, 'google')).userId, 'user')
   assert.equal(provider, 'google')
   await assert.rejects(handlers['qfn:signIn'](event, 'https://evil.invalid'), /Unsupported desktop sign-in method/)
+})
+
+test('local grading IPC exposes allowlisted failure codes without leaking private exception details', async () => {
+  const handlers = {}
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  const error = new Error('Private PDF content must not appear in renderer errors')
+  error.code = 'busy'
+  const local = { reviewLocalAnswers: async () => { throw error } }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => ({}),
+    getAccount: () => ({ current: () => ({ userId: 'user', enrolled: true }) }),
+    getLocalAi: () => local,
+    openAccountWebsite: () => {},
+  })
+  const request = { cases: [{ question_index: 0, question: 'Question',
+    correct_answer: 'Answer', student_answer: 'Student response' }] }
+  const event = { sender: contents, senderFrame: frame }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'busy' })
+  error.code = 'an_internal_secret_path'
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_unavailable' })
+})
+
+test('cancelSignIn IPC resets only the pending attempt and preserves Local AI work', async () => {
+  const handlers = {}
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let cancelled = 0
+  let signedOut = 0
+  let localCleanup = 0
+  const session = { cancelSignIn: () => { cancelled++; return true },
+    signOut: async () => { signedOut++ } }
+  installNativeBridge({
+    ipcMain: { handle: (name, handler) => { handlers[name] = handler } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => session,
+    getAccount: () => ({ current: () => null }),
+    getLocalAi: () => ({ clearQuizReview: () => { localCleanup++ } }),
+    openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  assert.equal(await handlers['qfn:cancelSignIn'](event), true)
+  assert.equal(cancelled, 1)
+  assert.equal(signedOut, 0)
+  assert.equal(localCleanup, 0)
+  await assert.rejects(handlers['qfn:cancelSignIn'](event, 'extra'))
+})
+
+test('Local AI grading explains expired account, lost review context and unknown failures safely', async () => {
+  const handlers = {}, failures = []
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let account = null
+  let reviewFailure = Object.assign(new Error('private source text from C:\\secret.pdf'), { code: 'review_context_missing' })
+  const local = { reviewLocalAnswers: async () => { throw reviewFailure } }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }), getSession: () => ({}),
+    getAccount: () => ({ current: () => account }),
+    getLocalAi: () => local,
+    onLocalReviewFailure: reason => failures.push(reason),
+    openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  const request = { cases: [{ question_index: 0, question: 'What is the main function of the cell membrane?',
+    correct_answer: 'Controls what enters and leaves the cell. It is selectively permeable.',
+    student_answer: 's' }] }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'account_unavailable' })
+  account = { userId: 'user', enrolled: true }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_context_missing' })
+  reviewFailure = new Error('Sensitive PDF content must remain private')
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_unavailable' })
+  local.reviewLocalAnswers = async () => ({ decisions: [{ question_index: 0, verdict: 'incorrect', credit: 0 }] })
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: true, decisions: [{ question_index: 0, verdict: 'incorrect', credit: 0 }] })
+  assert.deepEqual(failures, ['account_unavailable', 'review_context_missing', 'review_unavailable'])
+  assert.equal(JSON.stringify(failures).includes('Sensitive PDF'), false)
 })

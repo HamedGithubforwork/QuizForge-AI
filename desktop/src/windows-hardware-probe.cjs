@@ -73,17 +73,17 @@ async function queryWindowsVulkanDevices({
   exec = execFile,
   verifyRuntimeFn = verifyRuntime,
 } = {}) {
-  if (platform !== 'win32') return Object.freeze({ detected: false, deviceId: null })
+  if (platform !== 'win32') return Object.freeze({ detected: false, deviceId: null, memoryBytes: null })
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) {
-    return Object.freeze({ detected: false, deviceId: null })
+    return Object.freeze({ detected: false, deviceId: null, memoryBytes: null })
   }
   let safe
   try {
     await verifyRuntimeFn(directory, MANIFEST)
     safe = safeEnvironment(env)
-    if (!safe.SystemRoot) return Object.freeze({ detected: false, deviceId: null })
+    if (!safe.SystemRoot) return Object.freeze({ detected: false, deviceId: null, memoryBytes: null })
   } catch {
-    return Object.freeze({ detected: false, deviceId: null })
+    return Object.freeze({ detected: false, deviceId: null, memoryBytes: null })
   }
   const executable = path.join(directory, 'llama-server.exe')
   return await new Promise(resolve => {
@@ -94,10 +94,16 @@ async function queryWindowsVulkanDevices({
       maxBuffer: 65536,
       env: safe,
     }, (error, stdout, stderr) => {
-      if (error) return resolve(Object.freeze({ detected: false, deviceId: null }))
+      if (error) return resolve(Object.freeze({ detected: false, deviceId: null, memoryBytes: null }))
       const output = String(stdout || '') + '\n' + String(stderr || '')
-      const device = output.match(/\b(Vulkan\d+)\s*:\s*[^\r\n]+/i)?.[1] ?? null
-      resolve(Object.freeze({ detected: device !== null, deviceId: device }))
+      const deviceLine = output.match(/\b(Vulkan\d+)\s*:\s*[^\r\n]+/i)
+      const device = deviceLine?.[1] ?? null
+      // llama.cpp's Vulkan --list-devices reports memory in MiB on most
+      // supported builds. Unknown memory is *not* treated as zero.
+      const mib = deviceLine?.[0].match(/\b(\d{3,6})\s*MiB\b/i)
+      const memoryBytes = mib && Number(mib[1]) >= 256 && Number(mib[1]) <= 262144
+        ? Number(mib[1]) * MIB : null
+      resolve(Object.freeze({ detected: device !== null, deviceId: device, memoryBytes }))
     })
   })
 }
@@ -146,6 +152,7 @@ async function snapshotWindowsHardware({
     gpuDetected: gpu.detected,
     gpuDetection: gpu.detection,
     gpuDevice: vulkan.deviceId,
+    gpuMemoryBytes: vulkan.memoryBytes,
     runtimeAccelerationModes: Object.freeze(accelerationModes),
   })
 }

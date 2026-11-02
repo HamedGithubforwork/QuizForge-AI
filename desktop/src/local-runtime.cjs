@@ -9,6 +9,7 @@ const net = require('node:net')
 const { createHash, randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
+const { performance } = require('node:perf_hooks')
 const MANIFEST = require('./local-runtime-manifest.json')
 const { createWindowsProcessGuard } = require('./windows-process-guard.cjs')
 const fail = code => Object.assign(new Error('Local runtime: ' + code), { code })
@@ -150,17 +151,28 @@ function createLocalRuntime({
   accelerationMode = () => 'cpu',
   gpuDevice = () => 'Vulkan0',
   cpuThreadCount = boundedCpuThreads,
+  contextTokens = () => 12288,
+  gpuLayerCount = () => 99,
+  gpuFallbackLayers = () => [0],
+  onGpuStartupFailure = () => {},
+  onInferenceCompleted = () => {},
+  onDiagnostic = () => {},
   platform = process.platform,
   arch = process.arch,
   guardProcess = createWindowsProcessGuard,
 }) {
+  function diagnostic(event, fields) {
+    try { onDiagnostic(event, fields) } catch {}
+  }
   let active = null
   let closed = false
   let lastAccelerationMode = null
   const ownerAbort = new AbortController()
 
-  async function runBackend(payload, bounded, mode, fallbackState = null) {
+  async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99, sessionCallback = null) {
     let child, childClosed, processGuard
+    let stage = 'verification'
+    const startupStarted = performance.now()
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
       const model = await modelStore.status({ signal: bounded })
@@ -169,15 +181,23 @@ function createLocalRuntime({
       const key = randomBytesFn(32).toString('hex')
       const alias = 'qfn-' + randomBytesFn(16).toString('hex')
       const port = await freePortFn()
-      const threads = String(cpuThreadCount())
+      const selectedThreads = cpuThreadCount()
+      const threads = String(Number.isSafeInteger(selectedThreads) &&
+        selectedThreads > 0 && selectedThreads <= 16 ? selectedThreads : boundedCpuThreads())
       const selectedGpuDevice = gpuDevice()
+      const gpuLayers = Number.isSafeInteger(requestedLayers) && requestedLayers > 0 && requestedLayers <= 99
+        ? requestedLayers : 99
+      const proposedContext = contextTokens()
+      const contextSize = proposedContext === 8192 ? 8192 : 12288
       const gpuArgs = mode === 'gpu'
         ? ['--device', typeof selectedGpuDevice === 'string' && /^Vulkan\d+$/.test(selectedGpuDevice)
-          ? selectedGpuDevice : 'Vulkan0', '-ngl', '99']
+          ? selectedGpuDevice : 'Vulkan0', '-ngl', String(gpuLayers)]
         : ['--device', 'none', '-ngl', '0']
       if (fallbackState && mode === 'gpu') fallbackState.eligible = true
+      stage = 'startup'
+      diagnostic('runtime_launch', { acceleration: mode, layers: mode === 'gpu' ? gpuLayers : 0 })
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
-        '-c', '12288', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
+        '-c', String(contextSize), '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
       { cwd: directory, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment(key) })
       const offloadTracker = trackGpuLayerOffload(child)
@@ -203,14 +223,73 @@ function createLocalRuntime({
         } catch { startup.throwIfAborted() }
         await delay(100, undefined, { signal: startup })
       }
-      const result = await requestFn(port, key, '/v1/chat/completions',
-        { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 5200) },
-        owned)
-      const gpuOffloaded = offloadTracker.state()
-      lastAccelerationMode = mode === 'cpu'
-        ? 'cpu'
-        : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
-      return result
+      stage = 'inference'
+      diagnostic('runtime_ready', {
+        acceleration: mode, startupMs: performance.now() - startupStarted,
+      })
+      async function infer(requestPayload, requestSignal = null) {
+        // Preserve the existing six-minute per-request ceiling even inside a
+        // longer multi-batch session, so one stuck model call cannot occupy
+        // the full quiz budget.
+        const deadline = sessionCallback ? AbortSignal.timeout(6 * 60 * 1000) : null
+        const boundedRequest = AbortSignal.any([
+          owned, ...(requestSignal ? [requestSignal] : []), ...(deadline ? [deadline] : []),
+        ])
+        boundedRequest.throwIfAborted()
+        const generationStarted = performance.now()
+        let result
+        try {
+          result = await requestFn(port, key, '/v1/chat/completions',
+            { ...requestPayload, model: alias, stream: false,
+              max_tokens: Math.min(requestPayload.max_tokens || 1800, 5200) },
+            boundedRequest)
+        } catch (error) {
+          throw deadline?.aborted && deadline.reason?.name === 'TimeoutError'
+            ? deadline.reason : error
+        }
+        const gpuOffloaded = offloadTracker.state()
+        lastAccelerationMode = mode === 'cpu'
+          ? 'cpu'
+          : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
+        try {
+          onInferenceCompleted(Object.freeze({
+            layers: mode === 'gpu' ? gpuLayers : 0,
+            acceleration: lastAccelerationMode,
+            elapsedMs: performance.now() - generationStarted,
+            completionTokens: result?.usage?.completion_tokens ?? null,
+            promptTokens: result?.usage?.prompt_tokens ?? null,
+            threads: Number(threads),
+          }))
+        } catch {}
+        return result
+      }
+      if (sessionCallback) {
+        let finished = false
+        let inFlight = false
+        // Never expose a reusable server beyond this single controlled quiz,
+        // nor allow concurrent requests competing for model memory.
+        const scopedComplete = async (requestPayload, { signal } = {}) => {
+          if (finished) throw fail('runtime_closed')
+          bounded.throwIfAborted()
+          if (inFlight) throw fail('busy')
+          if (!requestPayload || !Array.isArray(requestPayload.messages) ||
+              requestPayload.tools || requestPayload.stream) throw fail('invalid_request')
+          inFlight = true
+          try { return await infer(requestPayload, signal) }
+          finally { inFlight = false }
+        }
+        try { return await sessionCallback(scopedComplete) }
+        finally { finished = true }
+      }
+      return await infer(payload)
+    } catch (error) {
+      // Node's HTTP request abort can surface as AbortError even when the
+      // bounded runtime timer was the real cause. Preserve the timeout reason
+      // so callers can distinguish a slow inference from user cancellation.
+      const cause = bounded.aborted && bounded.reason?.name === 'TimeoutError'
+        ? bounded.reason : error
+      diagnostic('runtime_failed', { stage, reason: cause?.name === 'TimeoutError' ? 'timed_out' : cause?.name === 'AbortError' ? 'cancelled' : cause?.code })
+      throw cause
     } finally {
       let cleanupError = null
       try {
@@ -229,26 +308,47 @@ function createLocalRuntime({
         cleanupError ||= fail('shutdown_failed')
       }
       try { onProcessChange(null) } catch {}
-      if (cleanupError) throw cleanupError
+      if (cleanupError) {
+        diagnostic('runtime_failed', { stage: 'cleanup', reason: cleanupError.code })
+        throw cleanupError
+      }
     }
   }
 
-  async function run(payload, signal) {
+  async function run(payload, signal, sessionCallback = null) {
     const bounded = AbortSignal.any([
-      AbortSignal.timeout(6 * 60 * 1000),
+      // One quiz can issue up to three sequential five-question calls. Keep
+      // a finite total session budget without forcing another model startup.
+      AbortSignal.timeout(sessionCallback ? 12 * 60 * 1000 : 6 * 60 * 1000),
       ownerAbort.signal,
       ...(signal ? [signal] : []),
     ])
     const mode = accelerationMode() === 'gpu' ? 'gpu' : 'cpu'
-    if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu')
-    const fallbackState = { eligible: false, ready: false }
-    try {
-      return await runBackend(payload, bounded, 'gpu', fallbackState)
-    } catch (error) {
-      const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
-      if (!fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) throw error
-      return runBackend(payload, bounded, 'cpu')
+    if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu', null, 99, sessionCallback)
+    const initial = gpuLayerCount()
+    const first = Number.isSafeInteger(initial) && initial > 0 && initial <= 99 ? initial : 99
+    let fallbacks
+    try { fallbacks = gpuFallbackLayers() } catch { fallbacks = [0] }
+    // Only step DOWN the layer count on startup failure. A failed higher
+    // allocation must never lead to another, larger Vulkan allocation.
+    const smaller = Array.isArray(fallbacks)
+      ? [...new Set(fallbacks.filter(value => Number.isSafeInteger(value) && value >= 0 && value < first))]
+          .sort((a, b) => b - a).slice(0, 2)
+      : []
+    const attempts = [first, ...smaller.filter(value => value !== 0), 0]
+    for (const layers of attempts) {
+      const fallbackState = { eligible: false, ready: false }
+      try {
+        return await runBackend(payload, bounded, layers > 0 ? 'gpu' : 'cpu', fallbackState, layers, sessionCallback)
+      } catch (error) {
+        const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
+        if (layers === 0 || !fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) {
+          throw error
+        }
+        try { onGpuStartupFailure(layers) } catch {}
+      }
     }
+    throw fail('startup_failed')
   }
 
   function complete(payload, { signal } = {}) {
@@ -260,6 +360,19 @@ function createLocalRuntime({
       return Promise.reject(fail('invalid_request'))
     }
     const operation = run(payload, signal)
+    active = operation
+    void operation.finally(() => {
+      if (active === operation) active = null
+    }).catch(() => {})
+    return operation
+  }
+
+  function withSession(callback, { signal } = {}) {
+    if (closed) return Promise.reject(fail('runtime_closed'))
+    if (active) return Promise.reject(fail('busy'))
+    if (platform !== 'win32' || arch !== 'x64') return Promise.reject(fail('unsupported_platform'))
+    if (typeof callback !== 'function') return Promise.reject(fail('invalid_request'))
+    const operation = run(null, signal, callback)
     active = operation
     void operation.finally(() => {
       if (active === operation) active = null
@@ -291,7 +404,132 @@ function createLocalRuntime({
     return lastAccelerationMode
   }
 
-  return Object.freeze({ complete, shutdown, status, lastAccelerationMode: accelerationStatus })
+  return Object.freeze({ complete, withSession, shutdown, status, lastAccelerationMode: accelerationStatus })
 }
 
-module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }
+
+// Retain the private loopback model only between nearby foreground operations.
+// The underlying runtime still owns its process guard, per-request deadlines,
+// private API key and bounded 12-minute maximum session. Nothing is persisted.
+// Any cancellation/failure, changed hardware profile, sign-out or shutdown
+// releases the underlying process rather than retaining a poisoned context.
+function createWarmLocalRuntime(base, {
+  idleMs = 180000, maxSessionMs = 8 * 60 * 1000,
+  profile = () => 'default', freeMemory = () => os.freemem(),
+  minimumFreeBytes = 1024 ** 3,
+  now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout,
+} = {}) {
+  if (!base || typeof base.withSession !== 'function' ||
+      typeof base.shutdown !== 'function' || !Number.isSafeInteger(idleMs) ||
+      idleMs < 0 || idleMs > 600000) throw new TypeError('Invalid warm runtime')
+  let session = null
+  let starting = null
+  let busy = false
+  let closed = false
+  let timer = null
+  let stopOperation = Promise.resolve()
+  function cancelTimer() { if (timer !== null) { clearTimer(timer); timer = null } }
+  async function release() {
+    cancelTimer()
+    const old = session
+    session = null
+    if (!old) return
+    old.finish()
+    await old.worker.catch(() => {})
+  }
+  async function start() {
+    await stopOperation
+    if (closed) throw fail('runtime_closed')
+    if (session) return session
+    if (starting) return starting
+    let resolveReady, rejectReady, finish
+    const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+    const hold = new Promise(resolve => { finish = resolve })
+    const state = { complete: null, finish, worker: null, started: now(), key: profile() }
+    state.worker = base.withSession(async complete => {
+      state.complete = complete
+      resolveReady(state)
+      await hold
+    })
+    // Handle both startup failures and unexpected model exits. The catch is
+    // intentionally attached immediately to avoid an unhandled rejection.
+    void state.worker.catch(error => { rejectReady(error) }).finally(() => {
+      if (session === state) session = null
+    })
+    starting = ready.then(value => {
+      if (closed) { value.finish(); throw fail('runtime_closed') }
+      session = value
+      return value
+    }).finally(() => { starting = null })
+    return starting
+  }
+  function armIdle() {
+    cancelTimer()
+    if (closed || !session) return
+    if (idleMs === 0 || freeMemory() < minimumFreeBytes) {
+      stopOperation = release()
+      return
+    }
+    const old = session
+    timer = setTimer(() => {
+      timer = null
+      if (!busy && session === old) stopOperation = release()
+    }, idleMs)
+    timer?.unref?.()
+  }
+  async function execute(callback, { signal } = {}) {
+    if (closed) throw fail('runtime_closed')
+    if (busy) throw fail('busy')
+    busy = true
+    cancelTimer()
+    try {
+      signal?.throwIfAborted()
+      if (session && (session.key !== profile() ||
+          now() - session.started >= maxSessionMs ||
+          freeMemory() < minimumFreeBytes)) {
+        stopOperation = release()
+        await stopOperation
+      }
+      const current = await start()
+      signal?.throwIfAborted()
+      return await callback((payload, options = {}) =>
+        current.complete(payload, { ...options, signal: options.signal ?? signal }))
+    } catch (error) {
+      stopOperation = release()
+      await stopOperation.catch(() => {})
+      throw error
+    } finally {
+      busy = false
+      armIdle()
+    }
+  }
+  return Object.freeze({
+    complete(payload, options = {}) {
+      return execute(complete => complete(payload), options)
+    },
+    withSession(callback, options = {}) {
+      if (typeof callback !== 'function') return Promise.reject(fail('invalid_request'))
+      return execute(callback, options)
+    },
+    async cooldown() {
+      cancelTimer()
+      stopOperation = release()
+      await stopOperation
+    },
+    async shutdown() {
+      closed = true
+      cancelTimer()
+      // The base session callback is deliberately blocked on the warm hold
+      // promise. Release that hold BEFORE awaiting base.shutdown(), otherwise
+      // shutdown waits for a callback that cannot finish: Windows tests print
+      // PASS but the llama-server child (and Node process) never exits.
+      const cleanup = release()
+      await base.shutdown().finally(() => cleanup)
+      await cleanup
+    },
+    status() { return Object.freeze({ busy, closed, warm: session !== null && !busy }) },
+    lastAccelerationMode: () => base.lastAccelerationMode(),
+  })
+}
+
+module.exports = { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }

@@ -29,12 +29,14 @@ import {
   desktopLocalQuizBridge,
   desktopLocalPdfBridge,
   type DesktopLocalAiQuizStatus,
+  type DesktopLocalQuizProgress,
   type DesktopLocalPdfDocument,
 } from './lib/desktop.ts'
 import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  NO_VALID_QUESTIONS_MESSAGE,
   readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
@@ -44,6 +46,13 @@ import {
 import {
   reportLocalGenerationUsage,
 } from './lib/generationUsage.ts'
+import {
+  appendGenerationTiming,
+  estimateGenerationTime,
+  readGenerationTimings,
+  storeGenerationTimings,
+  type GenerationTimingProfile,
+} from './lib/generationTiming.ts'
 import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
@@ -87,6 +96,14 @@ function App() {
     useState(false)
   const [generationStage, setGenerationStage] =
     useState('')
+  const [generationElapsedMs, setGenerationElapsedMs] = useState(0)
+  const [generationDurationMs, setGenerationDurationMs] = useState<number | null>(null)
+  const [practiceTimingProfile, setPracticeTimingProfile] = useState<GenerationTimingProfile | null>(null)
+  const [practiceTimingOrigin, setPracticeTimingOrigin] = useState<'results' | 'history' | null>(null)
+  const generationStartedAt = useRef<number | null>(null)
+  const [generationTimings, setGenerationTimings] = useState(() => {
+    try { return readGenerationTimings(window.localStorage) } catch { return [] }
+  })
   const [error, setError] = useState('')
   const [weakPracticeError, setWeakPracticeError] = useState('')
   const [
@@ -107,8 +124,18 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const [localBatchProgress, setLocalBatchProgress] = useState<DesktopLocalQuizProgress | null>(null)
   const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
   const localPdfBridge = localPdfBridgeRef.current
+  useEffect(() => {
+    if (!isGenerating && !isWeakPracticeGenerating) return
+    const ticker = window.setInterval(() => {
+      if (generationStartedAt.current !== null) {
+        setGenerationElapsedMs(Math.max(0, performance.now() - generationStartedAt.current))
+      }
+    }, 1000)
+    return () => window.clearInterval(ticker)
+  }, [isGenerating, isWeakPracticeGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
   const generationModeUserSelected =
@@ -157,11 +184,37 @@ function App() {
     }
   }, [localQuizBridge])
 
+  useEffect(() => {
+    if (!localQuizBridge || generationMode !== 'local' ||
+        (!isGenerating && !isWeakPracticeGenerating) ||
+        typeof localQuizBridge.localAiQuizProgress !== 'function') {
+      setLocalBatchProgress(null)
+      return
+    }
+    let cancelled = false
+    let inFlight = false
+    const poll = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const progress = await localQuizBridge.localAiQuizProgress?.()
+        if (!cancelled) setLocalBatchProgress(progress ?? null)
+      } catch {
+        // The timer remains available when progress IPC is unsupported.
+      } finally {
+        inFlight = false
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => { void poll() }, 1200)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [localQuizBridge, generationMode, isGenerating, isWeakPracticeGenerating])
+
   const attempt = useQuizAttempt({
     quiz,
     documentResult,
     generatedSettings,
-    allowRemoteAnswerReview: generationMode !== 'local',
+    allowRemoteAnswerReview: (generatedSettings?.engine ?? generationMode) !== 'local',
     setError,
     onHistorySaved: () => {
       setHistoryRefreshKey(
@@ -423,6 +476,11 @@ function App() {
         )
       }
 
+      // A malformed successful response must not open an empty practice quiz.
+      if (!result.quiz?.questions?.length) {
+        throw new Error(NO_VALID_QUESTIONS_MESSAGE)
+      }
+
       void reportLocalGenerationUsage(
         apiFetch,
         'targeted_practice',
@@ -438,6 +496,22 @@ function App() {
           null
       }
     }
+  }
+
+  function beginGenerationTiming() {
+    const startedAt = performance.now()
+    generationStartedAt.current = startedAt
+    setGenerationElapsedMs(0)
+    return startedAt
+  }
+
+  function recordGenerationTiming(startedAt: number, profile: GenerationTimingProfile) {
+    const elapsedMs = Math.max(0, performance.now() - startedAt)
+    setGenerationDurationMs(elapsedMs)
+    setGenerationElapsedMs(elapsedMs)
+    const updated = appendGenerationTiming(generationTimings, profile, elapsedMs)
+    setGenerationTimings(updated)
+    try { storeGenerationTimings(window.localStorage, updated) } catch {}
   }
 
   async function handleGenerateQuiz() {
@@ -467,6 +541,12 @@ function App() {
         difficulty,
         questionType,
       }
+
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
+    }
+    const startedAt = beginGenerationTiming()
+    setGenerationDurationMs(null)
 
     setIsGenerating(true)
     setGenerationStage(
@@ -557,22 +637,28 @@ function App() {
         }
 
         if (!result.quiz || !Array.isArray(result.quiz.questions) ||
-            result.quiz.questions.length !== questionCount ||
+            result.quiz.questions.length === 0) {
+          throw new Error(NO_VALID_QUESTIONS_MESSAGE)
+        }
+        if (result.quiz.questions.length > questionCount ||
             result.quiz.questions.some(question => !question ||
               typeof question.question !== 'string' || !question.question.trim())) {
           throw new Error(
-            'Local AI returned an empty or incomplete quiz. Nothing was displayed. Please try again or use Cloud AI.',
+            'Local AI returned an invalid quiz. Please try again or use Cloud AI.',
           )
         }
 
         setGenerationStage('Quiz ready!')
+        recordGenerationTiming(startedAt, timingProfile)
         setQuiz(result.quiz)
         void reportLocalGenerationUsage(
           apiFetch,
           'quiz',
         )
         setGeneratedSettings({
-          questionCount,
+          engine: 'local',
+          questionCount: result.quiz.questions.length,
+          requestedQuestionCount: questionCount as 5 | 10 | 15,
           difficulty,
           questionType,
         })
@@ -636,10 +722,14 @@ function App() {
       }
 
       setGenerationStage('Quiz ready!')
+      recordGenerationTiming(startedAt, timingProfile)
       setQuiz(data as QuizResult)
-      setGeneratedSettings(
-        settingsForRequest,
-      )
+      setGeneratedSettings({
+        ...settingsForRequest,
+        engine: 'cloud',
+        questionCount: data.questions.length,
+        requestedQuestionCount: questionCount as 5 | 10 | 15,
+      })
 
       window.setTimeout(() => {
         document
@@ -677,6 +767,7 @@ function App() {
         localGenerationController.current =
           null
       }
+      generationStartedAt.current = null
       setIsGenerating(false)
       window.setTimeout(() => {
         setGenerationStage('')
@@ -783,10 +874,17 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'practice', engine: generationMode, questionCount: practiceQuestionCount,
+      difficulty: practiceDifficulty, questionType: practiceQuestionType,
+    }
+    const practiceStartedAt = beginGenerationTiming()
+    setPracticeTimingProfile(timingProfile)
+    setPracticeTimingOrigin('results')
     setIsWeakPracticeGenerating(true)
     setWeakPracticeError('')
     setError('')
@@ -851,10 +949,16 @@ function App() {
         }
       }
 
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error('Practice generation returned no questions.')
+      }
+      recordGenerationTiming(practiceStartedAt, timingProfile)
       setQuiz(data)
       setGeneratedSettings({
+        engine: generationMode === 'local' ? 'local' : 'cloud',
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -898,6 +1002,9 @@ function App() {
         )
       }
     } finally {
+      generationStartedAt.current = null
+      setPracticeTimingProfile(null)
+      setPracticeTimingOrigin(null)
       setIsWeakPracticeGenerating(false)
     }
   }
@@ -924,10 +1031,17 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'practice', engine: generationMode, questionCount: practiceQuestionCount,
+      difficulty: practiceDifficulty, questionType: practiceQuestionType,
+    }
+    const practiceStartedAt = beginGenerationTiming()
+    setPracticeTimingProfile(timingProfile)
+    setPracticeTimingOrigin('history')
     setIsWeakPracticeGenerating(true)
     setError('')
     attempt.clearSaveMessage()
@@ -991,10 +1105,16 @@ function App() {
         }
       }
 
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error('Practice generation returned no questions.')
+      }
+      recordGenerationTiming(practiceStartedAt, timingProfile)
       setQuiz(data)
       setGeneratedSettings({
+        engine: generationMode === 'local' ? 'local' : 'cloud',
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -1040,6 +1160,9 @@ function App() {
         )
       }
     } finally {
+      generationStartedAt.current = null
+      setPracticeTimingProfile(null)
+      setPracticeTimingOrigin(null)
       setIsWeakPracticeGenerating(false)
     }
   }
@@ -1058,6 +1181,7 @@ function App() {
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
+    setGenerationDurationMs(null)
     attempt.resetAttempt()
     setQuestionCount(5)
     setDifficulty('medium')
@@ -1076,6 +1200,14 @@ function App() {
     })
   }
 
+  const generationEstimate = isGenerating
+    ? estimateGenerationTime(generationTimings, {
+      kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
+    }, generationElapsedMs)
+    : null
+  const practiceEstimate = isWeakPracticeGenerating && practiceTimingProfile
+    ? estimateGenerationTime(generationTimings, practiceTimingProfile, generationElapsedMs)
+    : null
   const documentBusy = isProcessing || isGenerating || isWeakPracticeGenerating || attempt.isReviewingAnswers || attempt.isSavingHistory
 
   const masteryDelta =
@@ -1183,6 +1315,9 @@ function App() {
               generationStage={
                 generationStage
               }
+              localBatchProgress={localBatchProgress}
+              generationElapsedMs={generationElapsedMs}
+              generationEstimate={generationEstimate}
               onQuestionCountChange={
                 setQuestionCount
               }
@@ -1203,9 +1338,25 @@ function App() {
               }
             />
 
+            {quiz?.generation?.distinctness === 'unavailable' && <div className="notice" role="status">
+              The check for repeated facts was unavailable. Some questions may cover the same fact.
+            </div>}
+            {quiz && generatedSettings?.requestedQuestionCount &&
+              quiz.questions.length < generatedSettings.requestedQuestionCount && (
+              <p className="generation-mode-note" role="status" aria-live="polite">
+                <strong>Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions in this attempt.</strong>{' '}
+                Only questions that passed validation were included. {quiz.generation?.duplicateCount ? `${quiz.generation.duplicateCount} repeated questions were removed. ` : ''}Another attempt or broader page coverage may produce more questions. This does not mean the document contains only {quiz.questions.length} possible questions.
+              </p>
+            )}
+
             {quiz ? (
               <QuizSession
                 quiz={quiz}
+                generationDurationMs={generationDurationMs}
+                showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'results'}
+                practiceTimingElapsedMs={generationElapsedMs}
+                practiceTimingEstimate={practiceEstimate}
+                localBatchProgress={localBatchProgress}
                 documentResult={
                   documentResult
                 }
@@ -1252,9 +1403,15 @@ function App() {
                 shortAnswerScore={
                   attempt.shortAnswerScore
                 }
+                getAnswerReview={attempt.getAnswerReview}
                 isReviewingAnswers={
                   attempt.isReviewingAnswers
                 }
+                shortAnswerReviewMode={attempt.shortAnswerReviewMode}
+                onShortAnswerReviewModeChange={attempt.setShortAnswerReviewMode}
+                answerReviewProgress={attempt.answerReviewProgress}
+                onManualShortAnswerGrade={attempt.setManualShortAnswerGrade}
+                onStopLocalAnswerReview={attempt.stopLocalAnswerReview}
                 isSavingHistory={
                   attempt.isSavingHistory
                 }
@@ -1334,6 +1491,10 @@ function App() {
           isPracticeGenerating={
             isWeakPracticeGenerating
           }
+          showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'history'}
+          practiceTimingElapsedMs={generationElapsedMs}
+          practiceTimingEstimate={practiceEstimate}
+          localBatchProgress={localBatchProgress}
           onPracticeWeakAreas={
             handleHistoryPracticeWeakAreas
           }

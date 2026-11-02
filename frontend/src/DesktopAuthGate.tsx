@@ -5,6 +5,7 @@ import ProgressPage from './components/progress/ProgressPage'
 import StudyNotificationsSettings from './components/account/StudyNotificationsSettings'
 import LocalAiSettings from './components/account/LocalAiSettings'
 import { desktopBridge, desktopLocalAiBridge, type DesktopAccount, type DesktopSignInMethod } from './lib/desktop'
+import { desktopSignInErrorMessage } from './lib/desktopSignInMessages'
 import './AuthGate.css'
 
 const bridge = desktopBridge()!
@@ -45,17 +46,46 @@ export default function DesktopAuthGate() {
     finally { setBusy(false) }
   }
   async function startSignIn(method: DesktopSignInMethod) {
+    const revision = ++authRevision.current
     setSignInComplete(false)
     setSignInMethod(method)
-    await run(async () => {
-      const revision = ++authRevision.current
+    setBusy(true)
+    setError('')
+    try {
       const next = await bridge.signIn(method)
       if (revision === authRevision.current) {
         setAccount(next)
         setSignInComplete(true)
       }
-    })
-    setSignInMethod(null)
+    } catch (error) {
+      // Electron IPC errors contain technical prefixes. Show a safe,
+      // actionable status instead of leaving the app in a stale login state.
+      if (revision === authRevision.current) setError(desktopSignInErrorMessage(error))
+    } finally {
+      if (revision === authRevision.current) {
+        setBusy(false)
+        setSignInMethod(null)
+      }
+    }
+  }
+  async function cancelPendingSignIn() {
+    // Invalidate the older renderer promise before requesting cancellation.
+    // A late callback or rejection must never overwrite a new login attempt.
+    const revision = ++authRevision.current
+    setError('')
+    try {
+      if (bridge.cancelSignIn) await bridge.cancelSignIn()
+      else await bridge.signOut() // Compatibility with older desktop previews.
+    } catch {
+      if (revision === authRevision.current) {
+        setError('Could not reset sign-in. Check the desktop installation and try again.')
+      }
+    } finally {
+      if (revision === authRevision.current) {
+        setBusy(false)
+        setSignInMethod(null)
+      }
+    }
   }
   async function signOut() {
     authRevision.current++
@@ -119,7 +149,10 @@ export default function DesktopAuthGate() {
           <span className="auth-cta-arrow" aria-hidden="true">↗</span>
         </button>
       </div>
-      {busy && <div className="auth-login-signout"><button className="sign-out-button" onClick={() => void bridge.signOut().catch(() => {})}>Cancel sign-in</button></div>}
+      {busy && signInMethod && <div className="auth-login-signout">
+        <p role="status">Waiting for your browser to return to Quiz From Notes. If it does not return, cancel this attempt and try again without restarting the app.</p>
+        <button className="sign-out-button" type="button" onClick={() => void cancelPendingSignIn()}>Cancel sign-in and retry</button>
+      </div>}
       <div className="auth-security-note"><span className="auth-security-dot" aria-hidden="true" />Your saved decks and study progress stay with your account.</div>
     </div></div>
   </section></main>
@@ -150,9 +183,17 @@ export default function DesktopAuthGate() {
     </div></div>
     {signInComplete && <p className="desktop-signin-success" role="status">Signed in—you can close the browser tab and return to Quiz From Notes.</p>}
     {error && <p role="alert">{error}</p>}
+    {/* Keep the quiz screen mounted while visiting other desktop tabs.
+        Unmounting App discards the selected PDF and pending local-generation
+        promise, although llama-server.exe continues in the main process. */}
+    <div hidden={pathname.startsWith('/decks') ||
+      pathname === '/progress' || pathname.startsWith('/settings')}>
+      <App />
+    </div>
     {pathname.startsWith('/decks') ? <DecksPage pathname={pathname} onNavigate={navigate} />
       : pathname === '/progress' ? <ProgressPage onNavigate={navigate} />
       : pathname === '/settings/local-ai' ? <main className="settings-page"><LocalAiSettings /></main>
-      : pathname.startsWith('/settings') ? <main className="settings-page"><StudyNotificationsSettings /></main> : <App />}
+      : pathname.startsWith('/settings') ? <main className="settings-page"><StudyNotificationsSettings /></main>
+      : null}
   </div>
 }

@@ -1,4 +1,14 @@
+import type { AiAnswerReviewDecision } from './answerFallback.ts'
 import type { Quiz } from '../types/api.generated.ts'
+export type DesktopLocalQuizProgress = {
+  phase: 'generating' | 'checking_duplicates'
+  completedBatches: number
+  totalBatches: number
+  validQuestions: number
+  requestedQuestions: number
+  previewQuestions?: string[]
+}
+
 export type DesktopLocalAiQuizStatus = {
   available: boolean
   reason:
@@ -158,6 +168,8 @@ export type DesktopBridge = {
   version: 1
   status(): Promise<{ available: boolean; account: DesktopAccount | null }>
   signIn(method?: DesktopSignInMethod): Promise<DesktopAccount>
+  // Optional so existing installed clients remain compatible with the web UI.
+  cancelSignIn?(): Promise<boolean>
   signOut(): Promise<void>
   request(request: DesktopRequest): Promise<{ status: number; body: string; contentType: string }>
   loadSourcePageText?(request: { documentSha256: string; pageNumber: number }): Promise<string>
@@ -169,9 +181,13 @@ export type DesktopBridge = {
   cancelLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
   localAiQuizStatus?(): Promise<DesktopLocalAiQuizStatus>
+  localAiQuizProgress?(): Promise<DesktopLocalQuizProgress | null>
+  localAiAnswerReviewProgress?(): Promise<{ total: number; decisions: AiAnswerReviewDecision[] } | null>
   generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
   generateLocalDocumentQuiz?(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
   processLocalPdf?(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>
+  reviewLocalAnswers?(request: { cases: Array<{ question_index: number; question: string; correct_answer: string; student_answer: string }> }): Promise<
+    { ok: true; decisions: AiAnswerReviewDecision[] } | { ok: false; error: string }>
   cancelLocalAiQuiz?(): Promise<void>
   openAccountWebsite(): Promise<void>
 }

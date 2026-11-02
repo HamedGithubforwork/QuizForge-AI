@@ -23,6 +23,8 @@ function normalizeSnapshot(value) {
       !Number.isSafeInteger(value.logicalCpuCount) || value.logicalCpuCount < 1 ||
       typeof value.gpuDetected !== 'boolean' || !DETECTION.has(value.gpuDetection) ||
       value.gpuDetected !== (value.gpuDetection === 'detected') ||
+      (value.gpuMemoryBytes !== undefined && value.gpuMemoryBytes !== null &&
+        (!safeInteger(value.gpuMemoryBytes) || value.gpuMemoryBytes < 1)) ||
       (value.gpuDevice !== undefined && value.gpuDevice !== null &&
         (typeof value.gpuDevice !== 'string' || !/^Vulkan\d+$/.test(value.gpuDevice))) ||
       !arrayOf(value.runtimeAccelerationModes, mode => ACCELERATION.has(mode))) {
@@ -37,6 +39,7 @@ function normalizeSnapshot(value) {
     gpuDetected: value.gpuDetected,
     gpuDetection: value.gpuDetection,
     gpuDevice: value.gpuDevice ?? null,
+    gpuMemoryBytes: value.gpuMemoryBytes ?? null,
     runtimeAccelerationModes: Object.freeze([...new Set(value.runtimeAccelerationModes)]),
   })
 }
@@ -118,6 +121,8 @@ function evaluateLocalAiCapability(snapshotValue, profileValues = []) {
       gpuAccelerationUsable: snapshot.gpuDetected &&
         snapshot.runtimeAccelerationModes.includes('gpu') && snapshot.gpuDevice !== null,
       gpuDevice: snapshot.gpuDevice,
+      gpuMemoryBytes: snapshot.gpuMemoryBytes,
+      logicalCpuCount: snapshot.logicalCpuCount,
     }),
     requirements: selected ? Object.freeze({
       modelBytes: selected.profile.modelBytes,

@@ -506,9 +506,86 @@ test('duplicate repair will not use the generic fallback for non-English questio
   assert.equal(calls, 2)
 })
 
+test('pinned-Qwen French director duplicate choices recover without changing the source-backed correct choice', async () => {
+  const source = 'La station Boréale a ouvert en 2037. Sa directrice est Léa Morel. Elle possède sept capteurs. Le capteur vert mesure la pression. Le capteur orange mesure l’humidité.'
+  const questions = [
+    { question: 'En quelle année a ouvert la station Boréale?', choices: ['2036', '2037', '2038', '2039'], correct_index: 1,
+      explanation: 'Ouverture en 2037.', source_pages: [1], source_fact: 'La station Boréale a ouvert en 2037.' },
+    { question: 'Qui est la directrice de la station Boréale?', choices: ['Léa Morel', 'Léa Morel', 'Léa Morel', 'Léa Morel'], correct_index: 0,
+      explanation: 'Sa directrice est Léa Morel.', source_pages: [1], source_fact: 'Sa directrice est Léa Morel.' },
+    { question: 'Combien de capteurs possède la station Boréale?', choices: ['six', 'sept', 'huit', 'neuf'], correct_index: 1,
+      explanation: 'Elle possède sept capteurs.', source_pages: [1], source_fact: 'Elle possède sept capteurs.' },
+    { question: 'Quel capteur mesure la pression?', choices: ['le capteur vert', 'le capteur orange', 'aucun capteur', 'un autre capteur'], correct_index: 0,
+      explanation: 'Le capteur vert mesure la pression.', source_pages: [1], source_fact: 'Le capteur vert mesure la pression.' },
+    { question: 'Quel capteur mesure l’humidité?', choices: ['le capteur vert', 'le capteur orange', 'aucun capteur', 'un autre capteur'], correct_index: 1,
+      explanation: 'Le capteur orange mesure l’humidité.', source_pages: [1], source_fact: 'Le capteur orange mesure l’humidité.' },
+  ]
+  const issues = []
+  let calls = 0
+  const quiz = await createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: { async generate(request) {
+      calls++
+      if (calls === 1) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      if (calls === 2) return { text: JSON.stringify({ title: 'Boréale', questions }), finishReason: 'stop' }
+      assert.deepEqual(request.jsonSchema.required, ['q1_c1', 'q1_c2', 'q1_c3'])
+      return { text: JSON.stringify({
+        q1_c1: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+        q1_c2: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+        q1_c3: ['Léa Morel', ' léa morel ', 'LÉA MOREL'],
+      }), finishReason: 'stop' }
+    } },
+  }).generate({ pages: [{ pageNumber: 1, text: source }], questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice' })
+  assert.equal(calls, 3)
+  assert.deepEqual(issues, ['insufficient_source', 'duplicate_choices'])
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[1].correct_answer, 'Léa Morel')
+  assert.equal(quiz.questions[1].choices[0], 'Léa Morel')
+  assert.deepEqual(quiz.questions[1].source_pages, [1])
+  assert.equal(new Set(quiz.questions[1].choices.map(choice => choice.toLocaleLowerCase())).size, 4)
+  assert.ok(quiz.questions[1].choices.slice(1).every(name => !source.includes(name)))
+  assert.ok(quiz.questions.every(question =>
+    new Set(question.choices.map(choice => choice.toLocaleLowerCase())).size === 4))
+})
+
+test('French identity recovery refuses an invented citation or a question about a different fact', async () => {
+  const source = 'Sa directrice est Léa Morel.'
+  for (const question of [
+    { question: 'Qui est la directrice?', source_fact: 'La directrice est Léa Morel.' },
+    { question: 'Qui est le mécanicien?', source_fact: 'Sa directrice est Léa Morel.' },
+  ]) {
+    const invalid = rawQuiz()
+    invalid.questions[0] = {
+      question: question.question, choices: ['Léa Morel', 'Léa Morel', 'Léa Morel', 'Léa Morel'],
+      correct_index: 0, explanation: 'Sa directrice est Léa Morel.',
+      source_pages: [2], source_fact: question.source_fact,
+    }
+    // The model's repeated names must not trigger a catalogue of invented
+    // alternatives without an exact, role-matching source quotation.
+    let calls = 0
+    const service = createLocalQuizService({ provider: { async generate() {
+      calls++
+      if (calls === 1) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      if (calls === 2) return { text: JSON.stringify({ title: 'Invalid French facts', questions: invalid.questions.map(q => ({
+        ...q, source_fact: q.source_fact ?? 'Sa directrice est Léa Morel.',
+      })) }), finishReason: 'stop' }
+      return { text: JSON.stringify({
+        q0_c1: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+        q0_c2: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+        q0_c3: ['Léa Morel', 'Léa Morel', 'Léa Morel'],
+      }), finishReason: 'stop' }
+    } } })
+    await assert.rejects(service.generate({ pages: [{ pageNumber: 2, text: source }],
+      questionCount: 5, difficulty: 'medium', questionType: 'multiple_choice' }),
+    { code: 'quiz_validation_failed' })
+    assert.ok(calls <= 3)
+  }
+})
+
 test('local generation honors website question counts and every question mode', async () => {
   const cases = [
-    { questionCount: 10, questionType: 'multiple_choice' },
+    { questionCount: 5, questionType: 'multiple_choice' },
     { questionCount: 5, questionType: 'true_false' },
     { questionCount: 5, questionType: 'short_answer' },
     { questionCount: 5, questionType: 'mixed' },
@@ -559,8 +636,13 @@ test('local generation honors website question counts and every question mode', 
       provider: {
         async generate(value) {
           captured = value
+          // Five normal MCQs use the compact legacy contract; other question
+          // modes use the full typed contract.
+          const output = request.questionType === 'multiple_choice'
+            ? generated.map(({ question_type, correct_answer, accepted_answers, ...item }) => item)
+            : generated
           return {
-            text: JSON.stringify({ title: 'Local study quiz', questions: generated }),
+            text: JSON.stringify({ title: 'Local study quiz', questions: output }),
             finishReason: 'stop',
             usage: null,
           }
@@ -580,8 +662,15 @@ test('local generation honors website question counts and every question mode', 
     assert.equal(captured.jsonSchema.oneOf[0].properties.questions.minItems, request.questionCount)
     assert.equal(captured.jsonSchema.oneOf[0].properties.questions.maxItems, request.questionCount)
     if (request.questionType === 'short_answer' || request.questionType === 'mixed') {
-      assert.ok(quiz.questions.filter(question => question.question_type === 'short_answer')
-        .every(question => question.grading.grading_mode === 'exact'))
+      const shorts = quiz.questions.filter(question => question.question_type === 'short_answer')
+      assert.ok(shorts.every(question =>
+        question.grading.grading_mode === 'concepts' &&
+        question.grading.required_group_count === 1 &&
+        question.grading.answer_groups.length === 1 &&
+        question.grading.answer_groups[0].includes(question.correct_answer)))
+    }
+    if (request.questionType === 'mixed') {
+      assert.match(captured.messages[0].content, /exact contiguous correct_answer phrase copied from its cited source page/i)
     }
   }
 })
@@ -983,7 +1072,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.ok(
           request.messages.at(-1).content.includes(
-            'JSON data: ["Question 1?","Question 2?"]',
+            'JSON data: ["Question 1?"]',
           ),
         )
         return {
@@ -1001,7 +1090,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
     difficulty: 'medium',
     questionType: 'multiple_choice',
     practice: {
-      avoidQuestions: ['Question 1?', 'Question 2?'],
+      avoidQuestions: ['Question 1?'],
       focusPages: [2],
     },
   })
@@ -2023,6 +2112,121 @@ test('targeted practice recovers from two false insufficient-source abstentions 
   ])
 })
 
+test('weak-area recovery corrects a mistaken page only when its exact quote has one source', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions.forEach((item, index) => {
+    item.question = 'Supported follow-up question ' + (index + 1) + '?'
+    item.source_pages = [item.source_pages[0] === 2 ? 5 : 2]
+  })
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls <= 2
+            ? { title: 'Insufficient source material', questions: [] } : draft),
+          finishReason: 'stop',
+        }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: ['Old missed question?'] },
+  })
+  assert.equal(calls, 3, 'Only the citation needs correction; no extra model generation')
+  assert.deepEqual(quiz.questions.map(q => q.source_pages), [[2], [5], [2], [5], [2]])
+  assert.deepEqual(issues.map(issue => issue.reason), ['insufficient_source', 'insufficient_source'])
+})
+
+test('weak-area recovery uses one closely anchored original sentence, not a paraphrased quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate ATP through cellular energy.'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 3)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[0].correct_answer, 'ATP')
+  assert.deepEqual(quiz.questions[0].source_pages, [2])
+})
+
+test('weak-area recovery never accepts a loosely matching invented fact', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate fictional water from microbes.'
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 3)
+  assert.equal(issues.at(-1), 'unsupported_source_fact')
+})
+
+test('weak-area recovery refuses nonexistent and ambiguous source quotes', async () => {
+  for (const kind of ['fabricated', 'ambiguous']) {
+    const draft = withRetrySourceFacts(rawQuiz())
+    draft.questions[0].source_pages = [5]
+    draft.questions[0].source_fact = kind === 'fabricated'
+      ? 'The nucleus is powered by fictional fuel.'
+      : 'Common repeated source quote.'
+    const sourcePages = pages()
+    if (kind === 'ambiguous') {
+      for (const page of sourcePages) page.text += ' Common repeated source quote.'
+      sourcePages.push({ pageNumber: 8, text: 'Another unrelated study fact.' })
+      draft.questions[0].source_pages = [8]
+    }
+    let calls = 0
+    const reasons = []
+    const service = createLocalQuizService({
+      onValidationIssue: issue => reasons.push(issue.reason),
+      provider: {
+        async generate() {
+          calls++
+          return {
+            text: JSON.stringify(calls <= 2
+              ? { title: 'Insufficient source material', questions: [] } : draft),
+            finishReason: 'stop',
+          }
+        },
+      },
+    })
+    await assert.rejects(service.generate({
+      pages: sourcePages, questionCount: 5, difficulty: 'easy',
+      questionType: 'multiple_choice',
+      practice: { focusPages: [2], avoidQuestions: [] },
+    }), { code: 'quiz_validation_failed' }, kind)
+    assert.equal(calls, 3, kind)
+    assert.equal(reasons.at(-1), 'unsupported_source_fact', kind)
+  }
+})
+
 test('weak-area recovery repairs paraphrased answers only with exact source excerpts', async () => {
   const weakDraft = withRetrySourceFacts(rawQuiz())
   weakDraft.questions[0].choices[weakDraft.questions[0].correct_index] = 'Energy from the food'
@@ -2040,13 +2244,15 @@ test('weak-area recovery repairs paraphrased answers only with exact source exce
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         assert.equal(request.generationProfile, 'quiz-mcq-retry-v1')
         assert.equal(request.jsonSchema.properties.repairs.minItems, 5)
+        assert.deepEqual(request.jsonSchema.properties.repairs.items.required, ['answer'])
+        assert.deepEqual(Object.keys(request.jsonSchema.properties.repairs.items.properties), ['answer'])
         assert.match(request.messages[0].content, /EXACT CONTIGUOUS substring/)
         assert.equal(request.messages.length, 2)
         assert.ok(!request.messages[1].content.includes('PAGE 5:'))
         assert.equal(JSON.parse(request.messages[1].content)[0].index, 1)
         return {
           text: JSON.stringify({ repairs: RETRY_FACTS.slice(0, 5).map(fact => ({
-            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+            answer: fact.answer,
           })) }),
           finishReason: 'stop',
         }
@@ -2093,7 +2299,7 @@ test('weak-area answer repair keeps each source fact tied to its original questi
       }
       if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
       return { text: JSON.stringify({ repairs: facts.map(fact => ({
-        answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+        answer: fact.answer,
       })) }), finishReason: 'stop' }
     } },
   })
@@ -2107,14 +2313,82 @@ test('weak-area answer repair keeps each source fact tied to its original questi
   assert.equal(quiz.questions[1].correct_answer, 'ribosomal RNA')
 })
 
-test('weak-area recovery rejects a citation swap to another real but unrelated fact', async () => {
+
+test('weak-area answer repair locks a verified Chlorophyll quotation and accepts only answer text', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  const quote = 'Chlorophyll absorbs light energy.'
+  draft.questions[3].question = 'What absorbs light energy?'
+  draft.questions[3].source_fact = quote
+  draft.questions[3].source_pages = [2]
+  draft.questions[3].choices[draft.questions[3].correct_index] = 'Sunlight'
+  const sourcePages = pages()
+  sourcePages[0].text += ' ' + quote
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      if (calls <= 2) return {
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+        finishReason: 'stop',
+      }
+      if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+      assert.deepEqual(request.jsonSchema.properties.repairs.items.required, ['answer'])
+      assert.deepEqual(Object.keys(request.jsonSchema.properties.repairs.items.properties), ['answer'])
+      // Previously the real model misspelled this locked source quote as
+      // "Chlorophopia absorbs light energy." It is no longer regenerated.
+      const answers = RETRY_FACTS.slice(0, 5).map(fact => ({ answer: fact.answer }))
+      answers[3].answer = 'Chlorophyll absorbs light energy'
+      return { text: JSON.stringify({ repairs: answers }), finishReason: 'stop' }
+    } },
+  })
+  const quiz = await service.generate({
+    pages: sourcePages, questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 4)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[3].correct_answer, 'Chlorophyll absorbs light energy')
+  assert.deepEqual(quiz.questions[3].source_pages, [2])
+  assert.equal(quiz.questions[3].explanation, quote)
+})
+
+test('weak-area repair refuses model attempts to replace an anchored source excerpt or page', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Incorrect source paraphrase'
+  let calls = 0
+  const reasons = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => reasons.push(issue.reason),
+    provider: { async generate() {
+      calls++
+      if (calls <= 2) return {
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+        finishReason: 'stop',
+      }
+      if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+      const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({ answer: fact.answer }))
+      repairs[0].source_fact = 'Fictional source fact about a different subject.'
+      repairs[0].source_page = 5
+      return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 4)
+  assert.equal(reasons.at(-1), 'question_shape')
+})
+
+test('weak-area recovery rejects answer substitution from an unrelated source fact', async () => {
   const draft = withRetrySourceFacts(rawQuiz())
   draft.questions[0].question = 'What do mitochondria produce?'
   draft.questions[0].choices[draft.questions[0].correct_index] = 'Molecule that stores energy'
   const untrusted = [
-    { answer: 'ribosomal RNA', source_fact: 'Ribosomes contain ribosomal RNA.', source_page: 5 },
+    { answer: 'ribosomal RNA' },
     ...RETRY_FACTS.slice(1, 5).map(fact => ({
-      answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+      answer: fact.answer,
     })),
   ]
   let calls = 0
@@ -2132,8 +2406,50 @@ test('weak-area recovery rejects a citation swap to another real but unrelated f
     pages: pages(), questionCount: 5, difficulty: 'medium',
     questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4)
+  assert.equal(calls, 5)
   assert.equal(issues.at(-1).reason, 'unsupported_answer')
+})
+
+test('weak-area fallback selects answer phrases only from each question own verified quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Fictional biofuel'
+  draft.questions[2].choices[draft.questions[2].correct_index] = 'Unverified interior material'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls <= 2) return {
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+          finishReason: 'stop',
+        }
+        if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+        if (calls === 4) {
+          const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
+            answer: fact.answer,
+          }))
+          repairs[0].answer = 'Fictional biofuel'
+          repairs[2].answer = 'Unverified interior material'
+          return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
+        }
+        assert.equal(calls, 5)
+        assert.ok(request.jsonSchema.properties.q1.enum.includes('ATP'))
+        assert.ok(request.jsonSchema.properties.q3.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q1.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q3.enum.includes('ATP'))
+        return { text: JSON.stringify({ q1: 'ATP', q3: 'inner membrane' }), finishReason: 'stop' }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 5)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].correct_answer, 'ATP')
+  assert.equal(result.questions[2].correct_answer, 'inner membrane')
 })
 
 test('weak-area answer repair rejects model-proposed answers absent from its cited excerpt', async () => {
@@ -2152,7 +2468,7 @@ test('weak-area answer repair rejects model-proposed answers absent from its cit
         }
         if (calls === 3) return { text: JSON.stringify(weakDraft), finishReason: 'stop' }
         const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
-          answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+          answer: fact.answer,
         }))
         repairs[0].answer = 'Invented fuel'
         return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
@@ -2164,7 +2480,7 @@ test('weak-area answer repair rejects model-proposed answers absent from its cit
     questionType: 'multiple_choice',
     practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4)
+  assert.equal(calls, 5)
   assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
     ['primary', 'insufficient_source'], ['retry', 'insufficient_source'],
     ['recovery', 'unsupported_answer'],
@@ -2199,12 +2515,13 @@ test('weak-area abstention recovery rejects fabricated facts and repeated prior 
       questionType: 'multiple_choice',
       practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
     }), { code: 'quiz_validation_failed' }, variant)
-    // Reject unsupported citations and repeated questions immediately,
-    // without spending another model call trying to alter their meaning.
-    assert.equal(calls, 3)
+    // Fabricated citations fail immediately. A repeated prior wording can
+    // request ONE bounded replacement batch, but the mocked model returns
+    // the same invalid content, so no duplicate is ever admitted.
+    assert.equal(calls, variant === 'fabricated' ? 3 : 4)
     assert.equal(issues.at(-1).attempt, 'recovery')
     assert.equal(issues.at(-1).reason, variant === 'fabricated'
-      ? 'unsupported_source_fact' : 'avoided_question')
+      ? 'unsupported_source_fact' : 'candidate_pool_exhausted')
   }
 })
 
@@ -2236,4 +2553,658 @@ test('targeted practice retries validation at most once', async () => {
 
 test('structured schema requires four unique choices before post-validation', () => {
   assert.equal(QUIZ_SCHEMA.properties.questions.items.properties.choices.uniqueItems, true)
+})
+
+test('a 15-question request returns three strictly grounded questions instead of failing', async () => {
+  const facts = RETRY_FACTS.slice(0, 3)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'multiple_choice',
+    question: 'Which term answers fact ' + (index + 1) + '?',
+    choices: [fact.answer, 'Unrelated A', 'Unrelated B', 'Unrelated C'],
+    correct_index: 0,
+    correct_answer: fact.answer,
+    accepted_answers: [fact.answer],
+    explanation: fact.text,
+    source_pages: [fact.page],
+    source_fact: fact.text,
+  }))
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 1) {
+          assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 15)
+          return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+        }
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 15)
+        assert.equal(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'), true)
+        assert.match(request.messages[0].content, /up to 15/i)
+        assert.match(request.messages[0].content, /only if zero independently supported/i)
+        return { text: JSON.stringify({ title: 'Short biology quiz', questions }), finishReason: 'stop' }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 15, difficulty: 'medium', questionType: 'multiple_choice',
+  })
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 3)
+  assert.deepEqual(quiz.questions.map(q => q.correct_answer), facts.map(fact => fact.answer))
+  assert.deepEqual(issues, ['insufficient_source'])
+})
+
+test('partial fallback works after an incomplete primary draft for 10 questions', async () => {
+  const facts = RETRY_FACTS.slice(0, 4)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'short_answer', question: 'What fact is described ' + index + '?',
+    choices: [], correct_index: -1, correct_answer: fact.answer,
+    accepted_answers: [fact.answer], explanation: fact.text,
+    source_pages: [fact.page], source_fact: fact.text,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      if (calls === 1) return {
+        text: JSON.stringify({ title: 'First draft', questions: questions.slice(0, 4) }),
+        finishReason: 'stop',
+      }
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+      return { text: JSON.stringify({ title: 'Partial quiz', questions }), finishReason: 'stop' }
+    },
+  } })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 10, difficulty: 'medium', questionType: 'short_answer',
+  })
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 4)
+  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'concepts'))
+})
+
+test('mixed practice can return two supported questions without inventing a third question type', async () => {
+  const facts = RETRY_FACTS.slice(0, 2)
+  const questions = facts.map((fact, index) => ({
+    question_type: 'multiple_choice', question: 'Distinct mixed fact ' + index + '?',
+    choices: [fact.answer, 'wrong 1', 'wrong 2', 'wrong 3'],
+    correct_index: 0, correct_answer: fact.answer, accepted_answers: [fact.answer],
+    explanation: fact.text, source_pages: [fact.page], source_fact: fact.text,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate() {
+      calls++
+      return {
+        text: JSON.stringify(calls === 1
+          ? { title: 'Insufficient source material', questions: [] }
+          : { title: 'Mixed partial', questions }),
+        finishReason: 'stop',
+      }
+    },
+  } })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 15, difficulty: 'easy',
+    questionType: 'mixed', practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(quiz.questions.length, 2)
+})
+
+test('partial fallback still rejects unsupported answers, repeated evidence and no usable facts', async () => {
+  for (const variant of ['fabricated', 'duplicate', 'none']) {
+    const facts = RETRY_FACTS.slice(0, 2)
+    const questions = facts.map((fact, index) => ({
+      question_type: 'multiple_choice', question: 'Partial question ' + index + '?',
+      choices: [fact.answer, 'wrong 1', 'wrong 2', 'wrong 3'],
+      correct_index: 0, correct_answer: fact.answer,
+      accepted_answers: [fact.answer], explanation: fact.text,
+      source_pages: [fact.page], source_fact: fact.text,
+    }))
+    if (variant === 'fabricated') questions[0].source_fact = 'This fictional unsupported sentence is not in the notes.'
+    if (variant === 'duplicate') questions[1].source_fact = questions[0].source_fact
+    let calls = 0
+    const service = createLocalQuizService({ provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls === 1 || variant === 'none'
+            ? { title: 'Insufficient source material', questions: [] }
+            : { title: 'Untrusted partial', questions }),
+          finishReason: 'stop',
+        }
+      },
+    } })
+    await assert.rejects(service.generate({
+      pages: pages(), questionCount: 15, difficulty: 'medium', questionType: 'multiple_choice',
+    }), { code: variant === 'none' ? 'insufficient_source' : 'quiz_validation_failed' }, variant)
+    assert.equal(calls, 2, variant)
+  }
+})
+
+
+test('fifteen mixed questions are generated in bounded, source-fact-validated page batches', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Topic ${pageNumber} fact ${i + 1} is Label${pageNumber}${i + 1}.`).join(' '),
+  }))
+  const makeQuestions = page => Array.from({ length: 5 }, (_, i) => {
+    const fact = `Topic ${page} fact ${i + 1} is Label${page}${i + 1}.`
+    const answer = `Label${page}${i + 1}`
+    const type = i % 3 === 0 ? 'multiple_choice' : i % 3 === 1 ? 'true_false' : 'short_answer'
+    return {
+      question_type: type,
+      question: `For topic ${page}, what is fact ${i + 1}?`,
+      choices: type === 'multiple_choice' ? [answer, 'Red', 'Blue', 'Green'] :
+        type === 'true_false' ? ['True', 'False'] : [],
+      correct_index: type === 'multiple_choice' ? 0 : type === 'true_false' ? 0 : -1,
+      correct_answer: type === 'true_false' ? 'True' : answer,
+      accepted_answers: [type === 'true_false' ? 'True' : answer],
+      explanation: fact, source_fact: fact, source_pages: [page],
+    }
+  })
+  const observed = []
+  const quiz = await createLocalQuizService({ provider: {
+    async generate(request) {
+      const pagesInBatch = request.messages[1].content
+      const page = parts.find(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`))
+      assert.ok(page)
+      assert.equal(parts.filter(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`)).length, 1)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+      assert.ok(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
+      assert.ok(request.maxTokens < 3000)
+      observed.push(page.pageNumber)
+      return { text: JSON.stringify({ title: 'Part quiz', questions: makeQuestions(page.pageNumber) }), finishReason: 'stop' }
+    },
+  } }).generate({ pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed' })
+  assert.deepEqual(observed, [1, 2, 3])
+  assert.equal(quiz.questions.length, 15)
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 15)
+  assert.equal(quiz.questions.filter(q => q.question_type === 'short_answer').length, 3)
+  assert.ok(quiz.questions.every(q => q.grading && !Object.hasOwn(q, 'source_fact')))
+})
+
+test('mixed page batching retains validated questions when a later page has no usable facts', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: `Part ${pageNumber} contains element A${pageNumber} and element B${pageNumber}.`,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      if (calls <= 2) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      const page = calls === 3 ? 2 : 3
+      const fact = `Part ${page} contains element A${page}`
+      return { text: JSON.stringify({ title: 'Partial batch', questions: [
+        { question_type: 'multiple_choice', question: `Which element is in part ${page}?`,
+          choices: [`A${page}`, 'C', 'D', 'E'], correct_index: 0, correct_answer: `A${page}`,
+          accepted_answers: [`A${page}`], explanation: fact, source_fact: fact, source_pages: [page] },
+      ] }), finishReason: 'stop' }
+    },
+  } })
+  const quiz = await service.generate({ pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed' })
+  assert.ok(quiz.questions.length >= 1 && quiz.questions.length < 15)
+  assert.ok(calls >= 4)
+})
+
+test('source-backed mixed batches filter unsupported answers but retain the valid ones', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber, text: `Part ${pageNumber} marks token as Code${pageNumber}.`,
+  }))
+  const rejections = []
+  const provider = {
+    async generate(request) {
+      const page = parts.find(part => request.messages[1].content.includes(`--- PAGE ${part.pageNumber} ---`))
+      assert.ok(page)
+      const valid = {
+        question_type: 'multiple_choice', question: `What token is used in part ${page.pageNumber}?`,
+        choices: [`Code${page.pageNumber}`, 'Other', 'Else', 'Invalid'],
+        correct_index: 0, correct_answer: `Code${page.pageNumber}`,
+        accepted_answers: [`Code${page.pageNumber}`],
+        explanation: page.text, source_fact: page.text,
+        source_pages: [page.pageNumber],
+      }
+      return {
+        finishReason: 'stop',
+        text: JSON.stringify({ title: 'Part quiz', questions: [
+          { ...valid, question: `Unsupported item on ${page.pageNumber}?`,
+            correct_answer: 'Invented', choices: ['Invented', 'Other', 'Else', 'Invalid'],
+            accepted_answers: ['Invented'], source_fact: `Invented fact for ${page.pageNumber}` },
+          valid,
+        ] }),
+      }
+    },
+  }
+  const quiz = await createLocalQuizService({
+    provider, onRejectedQuestion: value => rejections.push(value),
+  }).generate({
+    pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed',
+  })
+  assert.equal(quiz.questions.length, 3)
+  assert.equal(rejections.length, 3)
+  assert.ok(rejections.every(item => item.reason === 'unsupported_source_fact'))
+  assert.deepEqual(quiz.questions.map(q => q.correct_answer), ['Code1', 'Code2', 'Code3'])
+  assert.ok(quiz.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+})
+
+test('large MCQ requests use bounded, source-backed five-item batches', async () => {
+  const pagesToUse = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Topic${pageNumber} datum ${i + 1} is Color${pageNumber}${i + 1}.`).join(' '),
+  }))
+  for (const count of [10, 15]) {
+    const seen = []
+    const questions = page => Array.from({ length: 5 }, (_, i) => {
+      const sourceFact = `Topic${page} datum ${i + 1} is Color${page}${i + 1}.`
+      const answer = `Color${page}${i + 1}`
+      return {
+        question_type: 'multiple_choice',
+        question: `Which color describes topic ${page} datum ${i + 1}?`,
+        choices: [answer, 'IncorrectRed', 'IncorrectBlue', 'IncorrectGreen'],
+        correct_index: 0, correct_answer: answer,
+        accepted_answers: [answer], explanation: sourceFact,
+        source_fact: sourceFact, source_pages: [page],
+      }
+    })
+    const service = createLocalQuizService({ provider: {
+      async generate(value) {
+        assert.equal(value.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+        assert.equal(value.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+        assert.ok(value.maxTokens < 3000, 'no oversized single-shot generation')
+        const groupSource = value.messages[1].content
+        const page = pagesToUse.find(p => groupSource.includes(`--- PAGE ${p.pageNumber} ---`))
+        assert.ok(page)
+        seen.push(page.pageNumber)
+        return { finishReason: 'stop',
+          text: JSON.stringify({ title: 'Source-backed MCQs', questions: questions(page.pageNumber) }) }
+      },
+    } })
+    const result = await service.generate({
+      pages: pagesToUse, questionCount: count,
+      difficulty: 'hard', questionType: 'multiple_choice',
+    })
+    assert.equal(seen.length, count / 5)
+    assert.equal(result.questions.length, count)
+    assert.equal(new Set(result.questions.map(q => q.question)).size, count)
+    assert.ok(result.questions.every(q => q.choices.length === 4 && q.correct_index === 0))
+  }
+})
+
+test('hard MCQ recovery retains valid questions after model returns malformed choices', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Module ${pageNumber} fact ${i + 1} is Mark${pageNumber}${i + 1}.`).join(' '),
+  }))
+  const rejected = []
+  const service = createLocalQuizService({
+    onRejectedQuestion: info => rejected.push(info),
+    provider: { async generate(request) {
+      const page = parts.find(part =>
+        request.messages[1].content.includes(`--- PAGE ${part.pageNumber} ---`))
+      assert.ok(page)
+      const questions = Array.from({ length: 5 }, (_, i) => {
+        const fact = `Module ${page.pageNumber} fact ${i + 1} is Mark${page.pageNumber}${i + 1}.`
+        const answer = `Mark${page.pageNumber}${i + 1}`
+        return {
+          question_type: 'multiple_choice',
+          question: `Which mark identifies module ${page.pageNumber} fact ${i + 1}?`,
+          choices: i === 0 ? [answer, 'WrongA', 'WrongB'] :
+            [answer, 'WrongA', 'WrongB', 'WrongC'],
+          correct_index: 0, correct_answer: answer,
+          accepted_answers: [answer], explanation: fact,
+          source_pages: [page.pageNumber], source_fact: fact,
+        }
+      })
+      return { finishReason: 'stop', text: JSON.stringify({ title: 'Partial MCQs', questions }) }
+    } },
+  })
+  const result = await service.generate({
+    pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'multiple_choice',
+  })
+  assert.equal(result.questions.length, 12)
+  assert.equal(rejected.length, 3)
+  assert.ok(rejected.every(item => item.reason === 'multiple_choice_shape'))
+  assert.equal(new Set(result.questions.map(q => q.question)).size, 12)
+  assert.ok(result.questions.every(q => q.choices.length === 4))
+  assert.ok(result.questions.every(q => q.correct_answer === q.choices[q.correct_index]))
+})
+
+
+
+const BATCH_SOURCE_PAGES = [1, 2, 3].map(pageNumber => ({
+  pageNumber,
+  text: Array.from({ length: 5 }, (_, index) =>
+    'Sample ' + pageNumber + ' fact ' + (index + 1) +
+    ' is Code' + pageNumber + (index + 1) + '.').join(' '),
+}))
+
+function batchQuestions(pageNumber, mode) {
+  return Array.from({ length: 5 }, (_, index) => {
+    const answer = 'Code' + pageNumber + (index + 1)
+    const sourceFact = 'Sample ' + pageNumber + ' fact ' + (index + 1) + ' is ' + answer + '.'
+    const questionType = mode === 'mixed'
+      ? ['multiple_choice', 'true_false', 'short_answer', 'multiple_choice', 'true_false'][index]
+      : mode
+    return {
+      question_type: questionType,
+      question: 'What does sample ' + pageNumber + ' fact ' + (index + 1) + ' state?',
+      choices: questionType === 'multiple_choice'
+        ? [answer, 'WrongA', 'WrongB', 'WrongC']
+        : questionType === 'true_false' ? ['True', 'False'] : [],
+      correct_index: questionType === 'short_answer' ? -1 : 0,
+      correct_answer: questionType === 'true_false' ? 'True' : answer,
+      accepted_answers: [questionType === 'true_false' ? 'True' : answer],
+      explanation: sourceFact,
+      source_pages: [pageNumber],
+      source_fact: sourceFact,
+    }
+  })
+}
+
+test('all four quiz modes use five-item batches for 10 and 15 normal and weak-area questions', async () => {
+  for (const mode of ['multiple_choice', 'true_false', 'short_answer', 'mixed']) {
+    for (const count of [10, 15]) {
+      for (const practice of [false, true]) {
+        const captured = []
+        const service = createLocalQuizService({ provider: {
+          async generate(request) {
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+            assert.ok(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
+            assert.ok(request.maxTokens < 3000)
+            const text = request.messages[1].content
+            const page = BATCH_SOURCE_PAGES.find(item =>
+              text.includes('--- PAGE ' + item.pageNumber + ' ---'))
+            assert.ok(page)
+            assert.match(request.messages[0].content, /up to (?:five|5)/i)
+            captured.push({ pageNumber: page.pageNumber, request })
+            return {
+              finishReason: 'stop',
+              text: JSON.stringify({ title: 'Independent study facts',
+                questions: batchQuestions(page.pageNumber, mode) }),
+            }
+          },
+        } })
+        const result = await service.generate({
+          pages: BATCH_SOURCE_PAGES,
+          questionCount: count, difficulty: 'hard', questionType: mode,
+          ...(practice
+            ? { practice: { focusPages: [2], avoidQuestions: ['Previously tested question?'] } }
+            : {}),
+        })
+        assert.equal(captured.length, count / 5, mode + ' ' + count)
+        assert.equal(result.questions.length, count, mode + ' ' + count)
+        assert.equal(new Set(result.questions.map(q => q.question)).size, count)
+        assert.ok(result.questions.every(q => q.question_type === mode || mode === 'mixed'))
+        assert.ok(result.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+        if (practice) {
+          assert.equal(captured[0].pageNumber, 2)
+          for (const { request } of captured) {
+            assert.ok(request.messages.some(m => m.content.includes('Previously tested question?')))
+          }
+          if (captured.length > 1) {
+            assert.ok(captured[1].request.messages.some(m =>
+              m.content.includes('What does sample 2 fact 1 state?')))
+          }
+        }
+      }
+    }
+  }
+})
+
+test('batches salvage valid short and true/false questions when model output is malformed', async () => {
+  for (const mode of ['short_answer', 'true_false']) {
+    const rejected = []
+    const service = createLocalQuizService({
+      onRejectedQuestion: item => rejected.push(item),
+      provider: {
+        async generate(request) {
+          const page = BATCH_SOURCE_PAGES.find(item =>
+            request.messages[1].content.includes('--- PAGE ' + item.pageNumber + ' ---'))
+          assert.ok(page)
+          const questions = batchQuestions(page.pageNumber, mode)
+          if (mode === 'short_answer') questions[0].correct_answer = 'Invented text'
+          else questions[0].choices = ['True']
+          return { finishReason: 'stop',
+            text: JSON.stringify({ title: 'Partly invalid batch', questions }) }
+        },
+      },
+    })
+    const result = await service.generate({
+      pages: BATCH_SOURCE_PAGES, questionCount: 15,
+      difficulty: 'medium', questionType: mode,
+    })
+    assert.equal(result.questions.length, 12, mode)
+    assert.equal(rejected.length, 3, mode)
+    assert.ok(result.questions.every(q => q.question_type === mode))
+    assert.ok(result.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+  }
+})
+
+test('batched weak-area practice preserves prior-question avoidance and cancels between batches', async () => {
+  const controller = new AbortController()
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+      if (calls === 1) controller.abort()
+      const page = BATCH_SOURCE_PAGES.find(item =>
+        request.messages[1].content.includes('--- PAGE ' + item.pageNumber + ' ---'))
+      return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'First part',
+          questions: batchQuestions(page.pageNumber, 'short_answer') }) }
+    },
+  } })
+  await assert.rejects(service.generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15, difficulty: 'hard',
+    questionType: 'short_answer',
+    practice: { focusPages: [2], avoidQuestions: ['Do not repeat me?'] },
+  }, { signal: controller.signal }), { code: 'cancelled' })
+  assert.equal(calls, 1)
+})
+
+
+test('all-mode batching acquires one bounded runtime session per quiz, never one per batch', async () => {
+  for (const mode of ['multiple_choice', 'true_false', 'short_answer', 'mixed']) {
+    let opened = 0
+    let closed = 0
+    let calls = 0
+    const provider = {
+      async generate() { throw new Error('Should only use the scoped runtime provider') },
+      async withSession(callback, { signal } = {}) {
+        opened++
+        assert.ok(!signal?.aborted)
+        try {
+          return await callback({
+            async generate(request) {
+              calls++
+              const part = BATCH_SOURCE_PAGES.find(page =>
+                request.messages[1].content.includes('--- PAGE ' + page.pageNumber + ' ---'))
+              assert.ok(part)
+              return {
+                finishReason: 'stop',
+                text: JSON.stringify({ title: 'Scoped model',
+                  questions: batchQuestions(part.pageNumber, mode) }),
+              }
+            },
+          })
+        } finally { closed++ }
+      },
+    }
+    const quiz = await createLocalQuizService({ provider }).generate({
+      pages: BATCH_SOURCE_PAGES,
+      questionCount: 15, difficulty: 'medium', questionType: mode,
+    })
+    assert.equal(quiz.questions.length, 15)
+    assert.equal(calls, 3, mode)
+    assert.equal(opened, 1, mode)
+    assert.equal(closed, 1, mode)
+  }
+})
+
+
+test('batch progress reports counts only after validation, including failed groups', async () => {
+  const progress = []
+  const provider = {
+    async generate(request) {
+      const page = BATCH_SOURCE_PAGES.find(part =>
+        request.messages[1].content.includes('--- PAGE ' + part.pageNumber + ' ---'))
+      assert.ok(page)
+      if (page.pageNumber === 2) {
+        return { finishReason: 'stop',
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      }
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Source-backed',
+        questions: batchQuestions(page.pageNumber, 'multiple_choice'),
+      }) }
+    },
+  }
+  const quiz = await createLocalQuizService({
+    provider, onBatchProgress: info => progress.push(info),
+  }).generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15,
+    questionType: 'multiple_choice', difficulty: 'medium',
+  })
+  assert.deepEqual(progress.map(({ previewQuestions, ...counts }) => counts), [
+    { completedBatches: 0, totalBatches: 3, validQuestions: 0 },
+    { completedBatches: 1, totalBatches: 3, validQuestions: 5 },
+    { completedBatches: 2, totalBatches: 3, validQuestions: 5 },
+    { completedBatches: 3, totalBatches: 3, validQuestions: 10 },
+  ])
+  assert.equal(quiz.questions.length, 10)
+  assert.deepEqual(Object.keys(progress[3]).sort(), [
+    'completedBatches', 'previewQuestions', 'totalBatches', 'validQuestions',
+  ])
+  assert.equal(progress[0].previewQuestions, undefined)
+  assert.equal(progress[1].previewQuestions.length, 5)
+  assert.equal(progress[2].previewQuestions.length, 5)
+  assert.equal(progress[3].previewQuestions.length, 10)
+  assert.deepEqual(progress[3].previewQuestions, quiz.questions.map(q => q.question))
+})
+
+test('failed five-question source-backed batch retries with three concise candidates', async () => {
+  let retryCalls = 0
+  let totalCalls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate(request) {
+        totalCalls++
+        const page = BATCH_SOURCE_PAGES.find(part =>
+          request.messages[1].content.includes('--- PAGE ' + part.pageNumber + ' ---'))
+        assert.ok(page)
+        if (page.pageNumber === 2) {
+          if (retryCalls++ === 0) {
+            assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+            return { finishReason: 'stop', text: '{malformed' }
+          }
+          assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 3)
+          assert.ok(request.maxTokens < 2300)
+          assert.ok(request.messages[0].content.includes('up to 3'))
+          return { finishReason: 'stop', text: JSON.stringify({
+            title: 'Recovered',
+            questions: batchQuestions(2, 'multiple_choice').slice(0, 3),
+          }) }
+        }
+        return { finishReason: 'stop', text: JSON.stringify({
+          title: 'Valid',
+          questions: batchQuestions(page.pageNumber, 'multiple_choice'),
+        }) }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: BATCH_SOURCE_PAGES, questionCount: 15,
+    questionType: 'multiple_choice', difficulty: 'medium',
+  })
+  assert.equal(totalCalls, 4)
+  assert.equal(retryCalls, 2)
+  assert.equal(quiz.questions.length, 13)
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 13)
+  assert.ok(issues.some(issue => issue.attempt === 'primary' && issue.reason === 'json'))
+})
+
+test('real-Qwen-style weak-area recovery preserves four grounded questions and replaces a prior wording', async () => {
+  const recovered = withRetrySourceFacts(rawQuiz())
+  recovered.questions[0].question = 'Previously asked fact?'
+  const candidate = {
+    ...recovered.questions[0],
+    question: 'Which information does messenger RNA carry?',
+    source_pages: [RETRY_FACTS[5].page],
+    source_fact: RETRY_FACTS[5].text,
+    choices: ['coding information', 'glucose', 'ATP', 'proteins'],
+    correct_index: 0,
+    explanation: RETRY_FACTS[5].text,
+  }
+  let calls = 0
+  const rejected = { ...recovered.questions[0], choices: [...recovered.questions[0].choices] }
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      if (calls <= 2) return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
+      assert.equal(request.generationProfile, 'quiz-mcq-targeted-retry-v1')
+      assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+      assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
+      assert.match(request.messages.at(-1).content, /REJECTED CANDIDATES AND FILTER REASONS/)
+      assert.match(request.messages.at(-1).content, /Previously asked fact\?/)
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Only replacement candidates', questions: [
+          rejected,
+          { ...recovered.questions[1], question: 'Same source as already retained?' },
+          candidate,
+        ],
+      }) }
+    } },
+  })
+  const quiz = await service.generate({
+    pages: pages(), difficulty: 'medium', questionCount: 5,
+    questionType: 'multiple_choice',
+    practice: { avoidQuestions: ['Previously asked fact?'] },
+  })
+  assert.equal(calls, 4)
+  assert.equal(quiz.questions.length, 5)
+  assert.ok(!quiz.questions.some(q => q.question === 'Previously asked fact?'))
+  assert.ok(quiz.questions.some(q => q.question === candidate.question))
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 5)
+  assert.ok(quiz.questions.every(q => q.source_pages.every(p => [2, 5].includes(p))))
+})
+
+test('weak-area recovery never admits repeated or fabricated replacements', async () => {
+  const recovered = withRetrySourceFacts(rawQuiz())
+  recovered.questions[0].question = 'Previously asked fact?'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate() {
+      calls++
+      if (calls <= 2) return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Invalid candidate replacements',
+        questions: [
+          { ...recovered.questions[0], question: 'Previously asked fact?' },
+          { ...recovered.questions[1], question: 'Same source fact in new words?' },
+          { ...recovered.questions[2], question: 'Invented citation?',
+            source_fact: 'This phrase was not present in the uploaded notes.' },
+        ],
+      }) }
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), difficulty: 'medium', questionCount: 5,
+    questionType: 'multiple_choice',
+    practice: { avoidQuestions: ['Previously asked fact?'] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 4, 'never loop endlessly or accept an unsafe fallback')
 })

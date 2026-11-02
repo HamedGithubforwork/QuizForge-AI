@@ -5,6 +5,12 @@ on:
   pull_request:
     paths:
       - desktop/src/local-runtime-manifest.json
+      - desktop/src/local-offload-policy.cjs
+      - desktop/src/windows-hardware-probe.cjs
+      - desktop/src/local-ai-capability.cjs
+      - desktop/src/local-ai-manager.cjs
+      - desktop/test/local-offload-policy.test.cjs
+      - desktop/test/local-runtime.test.cjs
       - desktop/src/local-ai-distribution-policy.json
       - desktop/src/local-quiz-service.cjs
       - desktop/third_party/local-ai/**
@@ -79,6 +85,11 @@ jobs:
         shell: pwsh
         run: |
           npm ci --prefix ../frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # This stacked preview PR does not target main, so the general CI
+          # frontend test workflow will not run on it. Exercise shared fuzzy
+          # grading and local routing tests before packaging the installer.
+          npm test --prefix ../frontend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix ../frontend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
