@@ -94,7 +94,7 @@ test('vague French pronoun wording stays rejected as candidate, not falsely pass
   const bad = { ...response(french, 1), question: 'Qui est sa directrice ?',
     explanation: 'Sa directrice est Léa Morel.' }
   assert.equal(inspectGroundedQuestion(bad, french, frPlans[1]).reason,
-    'oracle_wording_mismatch_candidate')
+    'ambiguous_or_wrong_french_subject')
 })
 test('fabricated quotes, unsupported answers, duplicate choices and source pages never pass', () => {
   const correct = response(english, 0)
