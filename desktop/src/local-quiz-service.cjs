@@ -1552,7 +1552,17 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 attempt: 'recovery', reason: error.code,
               })) } catch {}
             }
-            try { onBatchProgress(Object.freeze({ completedBatches: groupIndex + 1, totalBatches: groups.length, validQuestions: retained.length })) } catch {}
+            // Reveal only already-parsed, source-validated questions from
+            // finished batches. These are provisional until the cross-batch
+            // semantic distinctness check completes; never expose raw JSON,
+            // unvalidated candidates, choices or answers.
+            try { onBatchProgress(Object.freeze({
+              completedBatches: groupIndex + 1,
+              totalBatches: groups.length,
+              validQuestions: retained.length,
+              previewQuestions: Object.freeze(retained.slice(0, request.questionCount)
+                .map(q => q.question.slice(0, 180))),
+            })) } catch {}
           }
           if (!retained.length) throw firstFailure ?? failure('insufficient_source')
           return Object.freeze({
