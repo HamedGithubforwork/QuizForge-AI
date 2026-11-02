@@ -1,0 +1,91 @@
+name: Local AI Qwen vs DeepSeek comparison
+
+on:
+  pull_request:
+    paths:
+      - desktop/src/local-benchmark-models.cjs
+      - desktop/src/local-model-store.cjs
+      - desktop/src/windows-local-ai-manager.cjs
+      - desktop/src/windows-local-ai-stack.cjs
+      - desktop/src/local-offload-policy.cjs
+      - desktop/scripts/ensure-verified-model.cjs
+      - desktop/scripts/benchmark-local-generation.cjs
+      - desktop/scripts/summarize-local-model-comparison.cjs
+      - desktop/test/local-benchmark-models.test.cjs
+      - .github/workflows/local-ai-model-comparison.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qfn-model-comparison-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-windows-cpu:
+    name: Three verified models, same synthetic quizzes and Windows runner
+    runs-on: windows-2025
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Regression tests and allowlist validation
+        shell: pwsh
+        run: |
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          exit $LASTEXITCODE
+      - name: Restore Qwen baseline cache if available
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      - name: Download and verify pinned llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Compare Qwen3 4B, DeepSeek R1 1.5B and DeepSeek R1 7B
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modelDir = "$env:RUNNER_TEMP/models"
+          $reports = "$env:RUNNER_TEMP/comparison"
+          New-Item -ItemType Directory $modelDir, $reports -Force | Out-Null
+          $models = @('qwen3-4b-q4-k-m', 'deepseek-r1-qwen-1.5b-q4-k-m', 'deepseek-r1-qwen-7b-q4-k-m')
+          foreach ($model in $models) {
+            Write-Host "Starting verified comparison for $model"
+            try {
+              node desktop/scripts/ensure-verified-model.cjs $modelDir $model
+              if ($LASTEXITCODE -ne 0) { throw "SHA-verified model preparation failed for $model" }
+              # Exactly the same two passages, difficulty, 5-question JSON schema,
+              # offline pipeline, and acceptance oracle for every model.
+              node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$model.json" cpu 1 $model
+              if ($LASTEXITCODE -ne 0) { Write-Warning "Quality benchmark failed for $model; preserving the report" }
+            } catch {
+              Write-Warning "Model could not complete: $model"
+            } finally {
+              # Avoid exhausting hosted Windows disk space with all three GGUFs.
+              Get-ChildItem $modelDir -Filter '*.gguf' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+            }
+          }
+          node desktop/scripts/summarize-local-model-comparison.cjs $reports
+          exit $LASTEXITCODE
+      - name: Upload comparison evidence even if a model fails
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen3-vs-deepseek-1p5b-vs-7b-windows
+          path: ${{ runner.temp }}/comparison/*.json
+          if-no-files-found: warn
+          retention-days: 14
