@@ -239,7 +239,7 @@ function QuizQuestionCard({
           </strong>
 
           {answerReview && <div className="answer-review-feedback">
-            <p><strong>{answerReview.engine === 'manual' ? 'Self-check' : answerReview.engine === 'local' ? 'Local AI review' : 'AI review'}</strong></p>
+            <p><strong>{answerReview.engine === 'manual' ? 'Self-check' : answerReview.engine === 'local' ? (answerReview.reason.startsWith('Local matching:') ? 'Local matching' : 'Local AI review') : 'AI review'}</strong></p>
             <p>{answerReview.reason}</p>
             {answerReview.concepts && answerReview.concepts.length > 0 && <>
               <p>{answerReview.concepts.filter(c => c.status === 'matched').length}/{answerReview.concepts.length} required concepts matched
@@ -249,7 +249,7 @@ function QuizQuestionCard({
                 <blockquote>{concept.source_quote}</blockquote>
               </li>)}</ul>
             </>}
-            <p>{answerReview.engine === 'manual' ? 'Marked by you · No AI grading' : answerReview.engine === 'local' ? 'Local AI mode · No cloud review request' : 'Reviewed using Cloud AI'}</p>
+            <p>{answerReview.engine === 'manual' ? 'Marked by you · No AI grading' : answerReview.engine === 'local' ? (answerReview.reason.startsWith('Local matching:') ? 'Graded without Qwen · No cloud review request' : 'Local AI mode · No cloud review request') : 'Reviewed using Cloud AI'}</p>
             {answerReview.verdict === 'uncertain' && <p>No credit decision was made. Compare your answer with the cited source.</p>}
           </div>}
 
