@@ -145,9 +145,19 @@ jobs:
       - name: Verify generated API contract
         run: python scripts/generate_api_contract.py --check
 
+  backend-image-ocr:
+    name: Backend Docker image and OCR runtime
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
       - name: Build backend Docker image
         run: docker build -t quizforge-backend-ci .
-
       - name: Verify OCR runtime in backend Docker image
         run: docker run --rm quizforge-backend-ci python scripts/verify_ocr_runtime.py
 
@@ -232,6 +242,7 @@ jobs:
     needs:
       - changes
       - backend-tests
+      - backend-image-ocr
       - frontend-checks
       - playwright-e2e
     if: always()
@@ -243,6 +254,7 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          BACKEND_IMAGE_RESULT: ${{ needs.backend-image-ocr.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
         run: |
@@ -250,6 +262,7 @@ jobs:
 
           echo "Change detection: ${CHANGES_RESULT}"
           echo "Backend tests:   ${BACKEND_RESULT}"
+          echo "Backend Docker:  ${BACKEND_IMAGE_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
 
@@ -258,7 +271,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${BACKEND_IMAGE_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
