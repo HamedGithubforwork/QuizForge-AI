@@ -663,7 +663,7 @@ test('local generation honors website question counts and every question mode', 
     assert.equal(captured.jsonSchema.oneOf[0].properties.questions.maxItems, request.questionCount)
     if (request.questionType === 'short_answer' || request.questionType === 'mixed') {
       assert.ok(quiz.questions.filter(question => question.question_type === 'short_answer')
-        .every(question => question.grading.grading_mode === 'exact'))
+        .every(question => question.grading.grading_mode === 'concepts'))
     }
     if (request.questionType === 'mixed') {
       assert.match(captured.messages[0].content, /exact contiguous correct_answer phrase copied from its cited source page/i)
