@@ -3,6 +3,7 @@
 const path = require('node:path')
 const { reviewQuizDistinctness } = require('./local-quiz-distinctness.cjs')
 const { createLocalAnswerReview, validateRequest: validateReviewRequest } = require('./local-answer-review.cjs')
+const { createCachedLocalDocumentProcessor } = require('./local-document-processing.cjs')
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { randomUUID } = require('node:crypto')
 const {
@@ -47,6 +48,8 @@ function createWindowsLocalAiStack({
     ...(runtimeDirectory ? { runtimeDirectory } : {}),
   })
   const manager = resources.manager
+  const cachedDocumentProcessor = documentProcessor
+    ? createCachedLocalDocumentProcessor(documentProcessor) : null
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
   let selectedGpuLayers = null
   let selectedCpuThreads = null
@@ -221,8 +224,9 @@ function createWindowsLocalAiStack({
       reviewContext = { quiz, pages: request.pages.map(page => ({ ...page })) }
       return quiz
     } }
-    if (documentProcessor) {
-      documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
+    if (cachedDocumentProcessor) {
+      documentQuizService = createLocalDocumentQuizService({
+        documentProcessor: cachedDocumentProcessor, quizService })
     }
   }
 
@@ -335,11 +339,11 @@ function createWindowsLocalAiStack({
   }
 
   async function processDocumentInternal(request, options) {
-    if (disposed || !documentProcessor) throw new LocalAiError('runtime_unavailable')
+    if (disposed || !cachedDocumentProcessor) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const controller = new AbortController()
     documentController = controller
-    const currentOperation = Promise.resolve().then(() => documentProcessor.processPdf(request, { ...options, signal: controller.signal }))
+    const currentOperation = Promise.resolve().then(() => cachedDocumentProcessor.processPdf(request, { ...options, signal: controller.signal }))
     documentOperation = currentOperation
     try {
       return await currentOperation
@@ -369,6 +373,7 @@ function createWindowsLocalAiStack({
     reviewContext = null
     await cancelQuiz().catch(() => {})
     documentQuizService?.clearCache?.()
+    cachedDocumentProcessor?.clearCache?.()
     await runtime?.shutdown().catch(() => {})
     await manager.dispose().catch(() => {})
   }
@@ -389,7 +394,7 @@ function createWindowsLocalAiStack({
       ? Object.freeze({ total: reviewProgressState.total,
           decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.(); void runtime?.cooldown?.().catch(() => {}) },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.(); cachedDocumentProcessor?.clearCache?.(); void runtime?.cooldown?.().catch(() => {}) },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
       // Local grading requires the exact quiz and source from this process.
