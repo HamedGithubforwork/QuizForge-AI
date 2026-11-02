@@ -605,3 +605,24 @@ test('warm shutdown interrupts active scoped request and releases its native hol
   await pending.catch(() => {})
   assert.equal(warm.status().warm, false)
 })
+
+test('runtime never exposes untrusted or impossible internal timing values', async () => {
+  const observations = []
+  const { runtime } = runtimeFixture({
+    options: {
+      onInferenceCompleted: value => observations.push(value),
+      requestFn: async (_port, _key, route) => route === '/v1/models'
+        ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 50, completion_tokens: 20 },
+            timings: { prompt_ms: -100, predicted_ms: 60000000,
+              message: 'never log this content' } },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'private source' }] })
+  assert.equal(observations.length, 1)
+  assert.equal(observations[0].prefillMs, null)
+  assert.equal(observations[0].decodeMs, null)
+  assert.ok(!JSON.stringify(observations).includes('never log this content'))
+  assert.ok(!JSON.stringify(observations).includes('private source'))
+})
