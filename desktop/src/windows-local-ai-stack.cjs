@@ -164,6 +164,10 @@ function createWindowsLocalAiStack({
           completedBatches: value.completedBatches,
           totalBatches: value.totalBatches,
           validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+          previewQuestions: Array.isArray(value.previewQuestions)
+            ? Object.freeze(value.previewQuestions.slice(0, 15).filter(q =>
+                typeof q === 'string' && q.length > 0 && q.length <= 180))
+            : (quizProgressState.previewQuestions ?? Object.freeze([])),
         })
       },
       onRejectedQuestion: issue => {
