@@ -60,7 +60,7 @@ test('local review distinguishes a busy runtime, missing bridge and incomplete d
 })
 
 test('expired account and missing source context are explained instead of generic unavailable', async () => {
-  const cases = buildAttemptReviewCases(quiz, { 0: 's' }, [0], true)
+  const cases = buildAttemptReviewCases(quiz, { 0: 'stores DNA' }, [0], true)
   assert.equal(cases.length, 1)
   for (const [error, expected] of [
     ['account_unavailable', 'Sign in again'],
