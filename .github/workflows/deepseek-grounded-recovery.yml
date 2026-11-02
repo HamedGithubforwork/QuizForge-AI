@@ -1,0 +1,81 @@
+name: DeepSeek grounded French and one-fact recovery
+
+on:
+  pull_request:
+    paths:
+      - desktop/scripts/benchmark-deepseek-grounded.cjs
+      - desktop/test/local-deepseek-grounded.test.cjs
+      - desktop/test/local-deepseek-batch.test.cjs
+      - desktop/scripts/benchmark-small-qwen-scaffold.cjs
+      - desktop/scripts/inspect-synthetic-quiz.cjs
+      - desktop/src/local-deepseek-adapter.cjs
+      - desktop/src/windows-local-ai-provider.cjs
+      - .github/workflows/deepseek-grounded-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qfn-deepseek-grounded-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grounded:
+    name: Grounded quiz check - ${{ matrix.model }}
+    runs-on: windows-2025
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        model:
+          - deepseek-r1-qwen-1p5b-q4-k-m
+          - deepseek-r1-qwen-7b-q4-k-m
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: "Regression: source truth, correct language, rejection and bounded retry"
+        shell: pwsh
+        run: |
+          node --test desktop/test/local-deepseek-grounded.test.cjs desktop/test/local-deepseek-batch.test.cjs desktop/test/local-deepseek-protocol.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-benchmark-inspection.test.cjs
+          exit $LASTEXITCODE
+      - name: Install pinned verified llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Verify exact model and SHA-256
+        shell: pwsh
+        env:
+          BENCHMARK_MODEL_ID: ${{ matrix.model }}
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models" $env:BENCHMARK_MODEL_ID
+          exit $LASTEXITCODE
+      - name: Strict source-by-source English and French benchmark
+        shell: pwsh
+        env:
+          BENCHMARK_MODEL_ID: ${{ matrix.model }}
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/deepseek-grounded" -Force | Out-Null
+          node desktop/scripts/benchmark-deepseek-grounded.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/deepseek-grounded/$env:BENCHMARK_MODEL_ID.json" $env:BENCHMARK_MODEL_ID
+          exit $LASTEXITCODE
+      - name: Preserve numeric-only synthetic report even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deepseek-grounded-${{ matrix.model }}
+          path: ${{ runner.temp }}/deepseek-grounded/${{ matrix.model }}.json
+          retention-days: 14
+          if-no-files-found: warn
