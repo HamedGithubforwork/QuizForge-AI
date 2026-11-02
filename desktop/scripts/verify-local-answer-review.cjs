@@ -10,12 +10,24 @@ const { reviewQuizDistinctness } = require('../src/local-quiz-distinctness.cjs')
 const fixture = require('../test/fixtures/biology-study-notes.json')
 async function main() {
   const store = createLocalModelStore({ directory: path.resolve(process.argv[3]) })
-  const runtime = createLocalRuntime({ directory: path.resolve(process.argv[2]), modelStore: store })
+  // The first grading request has sometimes failed *before* a model response
+  // reaches the service. Capture bounded runtime phases and provider codes,
+  // not stack traces, source text, paths or model prompts.
+  const report = { grading: [], duplicates: null, modelResponses: [],
+    runtimeEvents: [], providerFailures: [], outcome: 'pending' }
+  const safeCode = value => typeof value === 'string' && /^[a-z_]{1,64}$/.test(value)
+    ? value : 'unclassified'
+  const runtime = createLocalRuntime({
+    directory: path.resolve(process.argv[2]), modelStore: store,
+    onDiagnostic(event, fields) {
+      if (!['runtime_launch', 'runtime_ready', 'runtime_failed', 'runtime_stopped'].includes(event) ||
+          report.runtimeEvents.length >= 30) return
+      report.runtimeEvents.push({ event,
+        ...(fields?.stage ? { stage: safeCode(fields.stage) } : {}),
+        ...(fields?.reason ? { reason: safeCode(fields.reason) } : {}) })
+    },
+  })
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId: CANDIDATE.id })
-  // This runner uses only the checked-in, public biology fixture. Keep the
-  // model's structured responses in the CI artifact so a conservative or
-  // malformed grading decision can be diagnosed without weakening validation.
-  const report = { grading: [], duplicates: null, modelResponses: [], outcome: 'pending' }
   const question = { question_type: 'short_answer', question: 'What are the two main functions of the nucleus in a cell?',
     correct_answer: 'Stores most of the cell DNA and helps control cell activities.', source_pages: [1] }
   const cases = [
@@ -30,10 +42,20 @@ async function main() {
   globalThis.fetch = async () => { throw new Error('External fetch is forbidden during local grading') }
   try {
     const observedProvider = { async generate(request, options) {
-      const result = await provider.generate(request, options)
-      report.modelResponses.push({ profile: request.generationProfile,
-        finishReason: result.finishReason, text: result.text })
-      return result
+      try {
+        const result = await provider.generate(request, options)
+        report.modelResponses.push({ profile: request.generationProfile,
+          finishReason: result.finishReason, text: result.text })
+        return result
+      } catch (error) {
+        const code = safeCode(error?.code)
+        report.providerFailures.push({ code,
+          name: ['TimeoutError', 'AbortError', 'LocalAiError'].includes(error?.name)
+            ? error.name : 'unclassified',
+          retryable: error?.retryable === true })
+        console.error('Local grading provider failed with code:', code)
+        throw error
+      }
     } }
     const grader = createLocalAnswerReview({ provider: observedProvider })
     for (const [answer, expected] of cases) {
