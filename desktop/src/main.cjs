@@ -346,6 +346,9 @@ if (!app.requestSingleInstanceLock()) {
       confirmLocalAiDownload,
       confirmLocalAiRemoval,
       canSignIn: () => !nativeTest?.status().running,
+      // A stale/competing Windows protocol handler prevents the browser from
+      // returning. Never override it silently; require a conscious repair.
+      isCallbackRegistered: () => app.isDefaultProtocolClient(PROTOCOL),
       openAccountWebsite: () => shell.openExternal(APP_ORIGIN + '/settings/security') })
     createWindow()
     if (app.isPackaged && process.platform === 'win32') {
