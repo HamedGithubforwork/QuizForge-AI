@@ -22,7 +22,7 @@ test('estimate starts only after two matching successful settings samples', () =
   const two = appendGenerationTiming(one, profile, 95_000)
   assert.equal(estimateGenerationTime(two, { ...profile, engine: 'cloud' }, 3_000), null)
   assert.equal(estimateGenerationTime(two, { ...profile, questionType: 'mixed' }, 3_000), null)
-  const estimate = estimateGenerationTime(two, profile, 50_000)
+  const estimate = estimateGenerationTime(two, profile, 40_000)
   assert.ok(estimate)
   assert.equal(estimate.sampleCount, 2)
   assert.ok(estimate.lowerRemainingMs > 0)
