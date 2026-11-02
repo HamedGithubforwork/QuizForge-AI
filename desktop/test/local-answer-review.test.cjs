@@ -388,3 +388,66 @@ test('native review grades a one-letter non-answer without running Qwen', async 
   assert.equal(result.decisions[0].credit, 0)
   assert.equal(calls, 0)
 })
+
+test('replay real pinned-Qwen nucleus rubric: source-grounded helper verb is not a missing function', () => {
+  const sourcePage = 'Nucleus   Stores most of the cell DNA and helps control cell activities.'
+  const expected = 'Stores most of the cell DNA and helps control cell activities.'
+  const student = 'stores most dna and protects it and controls cell activities'
+  // Exact model response captured by Windows product acceptance #41369144634.
+  // Qwen asserts control is present in its reason yet marks the corresponding
+  // rubric entry missing because the student did not repeat "helps".
+  const response = {
+    confidence: 0.95,
+    reason: "Student correctly identified storing DNA and controlling cell activities, but omitted 'helps control cell activities' in the expected answer.",
+    uncertain: false, contradiction: false,
+    concepts: [
+      { concept: 'Stores most of the cell DNA', status: 'matched',
+        expected_quote: 'Stores most of the cell DNA',
+        source_quote: sourcePage, answer_quote: 'stores most dna' },
+      { concept: 'Helps control cell activities', status: 'missing',
+        expected_quote: 'helps control cell activities',
+        source_quote: sourcePage, answer_quote: '' },
+    ],
+  }
+  const corrected = normalizeReview(response, 0, sourcePage, student, expected)
+  assert.equal(corrected.verdict, 'correct')
+  assert.equal(corrected.credit, 1)
+  assert.equal(corrected.concepts[1].status, 'matched')
+  assert.equal(corrected.concepts[1].answer_quote, 'controls cell activities')
+  assert.doesNotMatch(corrected.reason, /omitted/i)
+
+  // A different auxiliary verb must use the same grammatical rule; the
+  // correction must not depend on nucleus biology vocabulary.
+  const genericSource = 'The cooling system helps regulate room temperature.'
+  const genericExpected = 'helps regulate room temperature'
+  const generic = normalizeReview({ ...response, concepts: [
+    { concept: 'Regulate room temperature', status: 'missing',
+      expected_quote: genericExpected,
+      source_quote: genericSource, answer_quote: '' },
+  ] }, 0, genericSource, 'The system regulates room temperature', genericExpected)
+  assert.equal(generic.verdict, 'correct')
+  assert.equal(generic.concepts[0].answer_quote, 'regulates room temperature')
+
+  for (const variant of [
+    'stores most dna but does not control cell activities',
+    'stores most dna but never controls cell activities',
+    'stores most dna and controls some unrelated process',
+  ]) {
+    const declined = normalizeReview(response, 0, sourcePage, variant, expected)
+    assert.notEqual(declined.verdict, 'correct', variant)
+  }
+  assert.notEqual(normalizeReview({ ...response, uncertain: true }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...response, contradiction: true }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...response, confidence: 0.75 }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.equal(normalizeReview({ ...response, concepts: [
+    response.concepts[0],
+    { ...response.concepts[1], source_quote: 'The cell controls weather.' },
+  ] }, 0, sourcePage, student, expected).verdict, 'uncertain')
+  // A single correct function cannot become two required matches.
+  const oneFunction = normalizeReview({ ...response, concepts: [
+    { ...response.concepts[0], status: 'missing', answer_quote: '' },
+    response.concepts[1],
+  ] }, 0, sourcePage, 'controls cell activities', expected)
+  assert.equal(oneFunction.verdict, 'partial')
+  assert.equal(oneFunction.credit, 0.5)
+})
