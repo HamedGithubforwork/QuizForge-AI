@@ -73,3 +73,17 @@ test('multipart serialization accepts bounded PDF bytes without renderer headers
   const request=validateRequest({path:'/api/documents/upload',method:'POST',form:[{name:'file',filename:'notes.pdf',bytes:new Uint8Array([1,2])}]})
   assert.equal(request.body.get('file').size,2); assert.deepEqual(request.headers,{})
 })
+
+test('desktop API denial is distinct from an OS callback failure without leaking credentials', async () => {
+  const f = fixture()
+  f.setFetch(async () => new Response(JSON.stringify({ detail: 'PRIVATE-ERROR-MARKER' }), {
+    status: 401, headers: { 'Content-Type': 'application/json' },
+  }))
+  await assert.rejects(f.account.verify(), error => {
+    assert.match(error.message, /Desktop account token was rejected by the server/)
+    assert.doesNotMatch(error.message, /PRIVATE-ERROR-MARKER|private-token|https?:\/\//)
+    return true
+  })
+  assert.equal(f.account.current(), null)
+  assert.equal(f.session.status().signedIn, false)
+})
