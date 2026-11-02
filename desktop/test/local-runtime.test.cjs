@@ -544,3 +544,61 @@ test('warm runtime does not retain a model when memory is low or account changes
   assert.equal(warm.status().warm, false)
   await warm.shutdown()
 })
+
+test('warm shutdown unblocks a held native session and exits without waiting for idle timeout', async () => {
+  let worker = null
+  let stopped = 0
+  const fake = {
+    async withSession(callback) {
+      worker = Promise.resolve().then(() => callback(async () => ({ choices: [] })))
+      try { await worker } finally { stopped++ }
+    },
+    async shutdown() {
+      // Same dependency as the real native runtime: shutdown awaits its
+      // outstanding session callback. Old warm.shutdown deadlocked here.
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  await warm.complete({ messages: [] })
+  assert.equal(warm.status().warm, true)
+  const shutdown = warm.shutdown()
+  const settled = await Promise.race([
+    shutdown.then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(settled, 'closed', 'release warm session hold before native shutdown')
+  assert.equal(stopped, 1)
+  assert.equal(warm.status().closed, true)
+})
+
+test('warm shutdown interrupts active scoped request and releases its native hold', async () => {
+  let finishRequest = null, enteredRequest
+  const entered = new Promise(resolve => { enteredRequest = resolve })
+  let worker = null
+  const fake = {
+    async withSession(callback) {
+      worker = callback(async () => {
+        enteredRequest()
+        return new Promise(resolve => { finishRequest = resolve })
+      })
+      await worker
+    },
+    async shutdown() {
+      finishRequest?.({ choices: [] })
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  const pending = warm.withSession(async complete => complete({ messages: [] }))
+  await entered
+  const outcome = await Promise.race([
+    warm.shutdown().then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(outcome, 'closed')
+  await pending.catch(() => {})
+  assert.equal(warm.status().warm, false)
+})
