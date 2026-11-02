@@ -104,6 +104,18 @@ function validateRequest(request) {
         !text(c.question) || c.question.length > 2000 || !text(c.correct_answer) || c.correct_answer.length > 2000 ||
         !text(c.student_answer) || c.student_answer.length > 2000)) throw new LocalAiError('invalid_request')
 }
+// The native service has a narrow fail-fast fallback, too. A direct IPC caller
+// must not run Qwen for an unrelated one-letter response to a descriptive
+// question, even when the frontend has not applied the shared fuzzy grader.
+// Preserve true single-character scientific symbols when accepted explicitly.
+function isUninformativeDescriptiveAnswer(question, submitted) {
+  const input = normalize(submitted)
+  if (!/^[a-z]$/.test(input) ||
+      !/\b(?:function|purpose|role|describe|explain|why|how does|what does)\b/i.test(question.question) ||
+      normalize(question.correct_answer).split(' ').length < 3) return false
+  return ![question.correct_answer, ...(question.accepted_answers ?? [])]
+    .some(value => normalize(value) === input)
+}
 function createLocalAnswerReview({ provider }) {
   return { async review(request, { quiz, pages, signal, onDecision = () => {} } = {}) {
     validateRequest(request)
@@ -140,6 +152,12 @@ function createLocalAnswerReview({ provider }) {
           confidence: 1, credit: 0, concepts: [],
           reason: 'The answer gives direct instructions to override the grade instead of answering the question. Those instructions were ignored; no credit was awarded.',
         })
+        continue
+      }
+      if (isUninformativeDescriptiveAnswer(question, c.student_answer)) {
+        publish({ question_index: c.question_index, engine: 'local',
+          verdict: 'incorrect', confidence: 1, credit: 0, concepts: [],
+          reason: 'A single unrelated letter does not answer this descriptive question.' })
         continue
       }
       try {
