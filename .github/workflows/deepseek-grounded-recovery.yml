@@ -5,6 +5,7 @@ on:
     paths:
       - desktop/scripts/benchmark-deepseek-grounded.cjs
       - desktop/test/local-deepseek-grounded.test.cjs
+      - desktop/test/local-deepseek-batch.test.cjs
       - desktop/scripts/benchmark-small-qwen-scaffold.cjs
       - desktop/scripts/inspect-synthetic-quiz.cjs
       - desktop/src/local-deepseek-adapter.cjs
@@ -41,7 +42,7 @@ jobs:
       - name: Regression: source truth, correct language, rejection and bounded retry
         shell: pwsh
         run: |
-          node --test desktop/test/local-deepseek-grounded.test.cjs desktop/test/local-deepseek-protocol.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-benchmark-inspection.test.cjs
+          node --test desktop/test/local-deepseek-grounded.test.cjs desktop/test/local-deepseek-batch.test.cjs desktop/test/local-deepseek-protocol.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-benchmark-inspection.test.cjs
           exit $LASTEXITCODE
       - name: Install pinned verified llama.cpp runtime
         shell: pwsh
