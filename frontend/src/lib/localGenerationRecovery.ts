@@ -15,12 +15,15 @@ export class LocalGenerationUnresponsiveError extends Error {
 type RecoveryOptions = {
   signal?: AbortSignal
   cancelNative: () => Promise<unknown>
+  // Abort the caller's source-loading/inference controller when the watchdog
+  // expires; otherwise a delayed page read could start new model work later.
+  onTimeout: () => void
   timeoutMs?: number
 }
 
 export async function runRecoverableLocalGeneration<T>(
   task: () => Promise<T>,
-  { signal, cancelNative, timeoutMs = LOCAL_GENERATION_WATCHDOG_MS }: RecoveryOptions,
+  { signal, cancelNative, onTimeout, timeoutMs = LOCAL_GENERATION_WATCHDOG_MS }: RecoveryOptions,
 ): Promise<T> {
   if (signal?.aborted) {
     throw new DOMException('Local generation cancelled.', 'AbortError')
@@ -47,8 +50,11 @@ export async function runRecoverableLocalGeneration<T>(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     timeout = setTimeout(() => {
-      requestCancellation()
+      // Preserve the timeout message: reject before aborting the signal,
+      // whose synchronous listener would otherwise win with AbortError.
       reject(new LocalGenerationUnresponsiveError())
+      try { onTimeout() } catch {}
+      requestCancellation()
     }, timeoutMs)
   })
 
