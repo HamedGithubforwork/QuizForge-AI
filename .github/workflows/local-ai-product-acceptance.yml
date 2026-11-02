@@ -32,6 +32,8 @@ on:
       - desktop/scripts/verify-local-biology-sample.cjs
       - desktop/scripts/verify-local-biology-mixed.cjs
       - desktop/scripts/verify-local-biology-practice.cjs
+      - desktop/scripts/verify-local-pdf-native-stack.cjs
+      - desktop/test/local-weak-area-acceptance.test.cjs
       - desktop/test/fixtures/biology-study-notes.json
       - e2e/tests/local-desktop-output.spec.ts
       - .github/workflows/local-ai-product-acceptance.yml
@@ -164,6 +166,19 @@ jobs:
         run: |
           node desktop/scripts/verify-local-choice-repair.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models"
           exit $LASTEXITCODE
+      - name: Extract real PDF bytes and generate five strictly source-checked quiz questions offline
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-local-pdf-native-stack.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-pdf-native.json"
+          exit $LASTEXITCODE
+      - name: Upload PDF import and model evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-pdf-to-quiz-native-windows
+          path: ${{ runner.temp }}/local-ai-pdf-native.json
+          if-no-files-found: warn
+          retention-days: 14
 
   answer-review-model:
     name: Local answer grading and distinct facts
@@ -306,6 +321,11 @@ jobs:
           Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
           New-Item -ItemType Directory "$env:RUNNER_TEMP/llama"
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Check weak-area diagnostic privacy and callback invariants
+        shell: pwsh
+        run: |
+          node --test desktop/test/local-weak-area-acceptance.test.cjs
           exit $LASTEXITCODE
       - name: Verify independent real-model weak-area follow-up after one missed biology question
         shell: pwsh
