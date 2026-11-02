@@ -1,6 +1,8 @@
 'use strict'
 
 const { LocalAiError, createLocalAiProvider, failure, validId } = require('./local-ai-provider.cjs')
+const { isDeepSeekDistill, deepSeekMessages, deepSeekFinalContent,
+  DEEPSEEK_GENERATION } = require('./local-deepseek-adapter.cjs')
 const GENERATION_PROFILES = Object.freeze({
   'answer-review-v1': Object.freeze({ temperature: 0, top_p: 1, seed: 42,
     chat_template_kwargs: Object.freeze({ enable_thinking: false }) }),
@@ -117,11 +119,14 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
         const generation = request.generationProfile
           ? GENERATION_PROFILES[request.generationProfile]
           : null
+        const deepSeek = isDeepSeekDistill(modelId)
         response = await runtime.complete({
-          messages: request.messages,
+          messages: deepSeek ? deepSeekMessages(request.messages) : request.messages,
           max_tokens: request.maxTokens,
           ...(request.jsonSchema ? { json_schema: request.jsonSchema } : {}),
-          ...(generation ?? {}),
+          ...(deepSeek
+            ? { ...DEEPSEEK_GENERATION, seed: generation?.seed ?? 42 }
+            : (generation ?? {})),
         }, { signal })
       } catch (error) { throw runtimeError(error) }
       if (!Array.isArray(response?.choices) || response.choices.length !== 1) throw failure('invalid_response')
@@ -133,7 +138,9 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
         usage = { inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens,
           totalTokens: response.usage.total_tokens }
       }
-      return { text: choice?.message?.content, finishReason: choice?.finish_reason, usage }
+      return { text: isDeepSeekDistill(modelId)
+        ? deepSeekFinalContent(choice?.message?.content) : choice?.message?.content,
+        finishReason: choice?.finish_reason, usage }
     },
   })
   if (typeof runtime.withSession !== 'function') return provider
