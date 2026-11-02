@@ -127,7 +127,13 @@ async function main() {
         } catch (error) {
           const known = typeof error?.code === 'string' &&
             /^[a-z_]{1,64}$/.test(error.code) ? error.code : null
-          failureCode = known ?? 'source_fact_validation_failed'
+          // An assertion in the external semantic oracle is NOT proof that
+          // a quoted source fact was invented. Keep diagnostic classes honest.
+          failureCode = error?.name === 'AssertionError'
+            ? 'semantic_oracle_failed'
+            : known === 'quiz_validation_failed' && validationReason
+              ? validationReason
+              : known ?? 'unexpected_generation_failure'
         }
         const observedModes = [...new Set(inferenceEvents.map(x => x.acceleration))]
         const inferenceAcceleration =
