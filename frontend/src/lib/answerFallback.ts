@@ -4,6 +4,7 @@ import type {
 } from '../types/api.generated.ts'
 import {
   normalizeShortAnswer,
+  fullAnswerConceptAliasMatches,
   type ShortAnswerGrade,
   type ShortAnswerGradingSpec,
 } from './shortAnswerGrader.ts'
