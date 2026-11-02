@@ -7,7 +7,7 @@ const path = require('node:path')
 const http = require('node:http')
 const { EventEmitter } = require('node:events')
 const { createHash } = require('node:crypto')
-const { createLocalRuntime, verifyRuntime, runtimeEnvironment, request } = require('../src/local-runtime.cjs')
+const { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, runtimeEnvironment, request } = require('../src/local-runtime.cjs')
 
 test('runtime verification rejects changed, missing and unexpected library files', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-runtime-'))
@@ -450,10 +450,12 @@ test('runtime performance callback receives only bounded timing and token counts
   await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
   assert.equal(observations.length, 1)
   assert.deepEqual(Object.keys(observations[0]).sort(),
-    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens'])
+    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens', 'threads'])
   assert.equal(observations[0].layers, 0)
   assert.equal(observations[0].completionTokens, 120)
   assert.equal(observations[0].promptTokens, 250)
+  assert.ok(observations[0].threads >= 1 && observations[0].threads <= 8,
+    'thread selection must stay within the safe CPU bound')
   assert.ok(observations[0].elapsedMs >= 0)
 })
 
@@ -472,4 +474,131 @@ test('diagnostics distinguish runtime startup, inference failure and private err
   assert.equal(events.at(-1).stage, 'inference')
   assert.equal(events.at(-1).reason, 'request_failed')
   assert.doesNotMatch(JSON.stringify(events), /private|credential/)
+})
+
+test('warm runtime reuses process between quizzes and releases it at idle timeout', async () => {
+  let launches = 0, stops = 0, inferCalls = 0
+  const timers = new Map()
+  let timerId = 0
+  const base = {
+    async withSession(callback) {
+      launches++
+      try { await callback(async () => { inferCalls++; return { ok: true } }) }
+      finally { stops++ }
+    },
+    async shutdown() {},
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(base, {
+    idleMs: 180000, freeMemory: () => 8 * 1024 ** 3,
+    setTimer: cb => { const id = ++timerId; timers.set(id, cb); return id },
+    clearTimer: id => timers.delete(id),
+  })
+  assert.deepEqual(await warm.complete({ messages: [] }), { ok: true })
+  assert.equal(launches, 1)
+  assert.equal(stops, 0)
+  assert.equal(warm.status().warm, true)
+  await warm.withSession(async complete => {
+    await complete({ messages: [] })
+    await complete({ messages: [] })
+  })
+  assert.equal(launches, 1)
+  assert.equal(inferCalls, 3)
+  const expiry = [...timers.values()][0]
+  expiry()
+  // Give the underlying session's asynchronous finally block a microtask.
+  await warm.cooldown()
+  assert.equal(stops, 1)
+  await warm.complete({ messages: [] })
+  assert.equal(launches, 2)
+  await warm.shutdown()
+  assert.equal(stops, 2)
+  assert.equal(warm.status().closed, true)
+  await assert.rejects(warm.complete({ messages: [] }), { code: 'runtime_closed' })
+})
+
+test('warm runtime does not retain a model when memory is low or account changes', async () => {
+  let starts = 0, stops = 0
+  const base = {
+    async withSession(fn) {
+      starts++
+      try { await fn(async () => ({ choices: [] })) } finally { stops++ }
+    },
+    shutdown: async () => {},
+    lastAccelerationMode: () => 'cpu',
+  }
+  let free = 8 * 1024 ** 3
+  let profile = 'gpu-99'
+  const warm = createWarmLocalRuntime(base, {
+    profile: () => profile, freeMemory: () => free,
+  })
+  await warm.complete({})
+  profile = 'cpu-0'
+  await warm.complete({})
+  assert.equal(starts, 2, 'hardware profile changes require a new process')
+  assert.equal(stops, 1)
+  free = 256 * 1024 ** 2
+  await warm.complete({})
+  await warm.cooldown()
+  assert.equal(stops, 3)
+  assert.equal(warm.status().warm, false)
+  await warm.shutdown()
+})
+
+test('warm shutdown unblocks a held native session and exits without waiting for idle timeout', async () => {
+  let worker = null
+  let stopped = 0
+  const fake = {
+    async withSession(callback) {
+      worker = Promise.resolve().then(() => callback(async () => ({ choices: [] })))
+      try { await worker } finally { stopped++ }
+    },
+    async shutdown() {
+      // Same dependency as the real native runtime: shutdown awaits its
+      // outstanding session callback. Old warm.shutdown deadlocked here.
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  await warm.complete({ messages: [] })
+  assert.equal(warm.status().warm, true)
+  const shutdown = warm.shutdown()
+  const settled = await Promise.race([
+    shutdown.then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(settled, 'closed', 'release warm session hold before native shutdown')
+  assert.equal(stopped, 1)
+  assert.equal(warm.status().closed, true)
+})
+
+test('warm shutdown interrupts active scoped request and releases its native hold', async () => {
+  let finishRequest = null, enteredRequest
+  const entered = new Promise(resolve => { enteredRequest = resolve })
+  let worker = null
+  const fake = {
+    async withSession(callback) {
+      worker = callback(async () => {
+        enteredRequest()
+        return new Promise(resolve => { finishRequest = resolve })
+      })
+      await worker
+    },
+    async shutdown() {
+      finishRequest?.({ choices: [] })
+      if (worker) await worker
+    },
+    lastAccelerationMode: () => 'cpu',
+  }
+  const warm = createWarmLocalRuntime(fake, { idleMs: 180000 })
+  const pending = warm.withSession(async complete => complete({ messages: [] }))
+  await entered
+  const outcome = await Promise.race([
+    warm.shutdown().then(() => 'closed'),
+    new Promise(resolve => setTimeout(() => resolve('deadlock'), 1500)),
+  ])
+  assert.equal(outcome, 'closed')
+  await pending.catch(() => {})
+  assert.equal(warm.status().warm, false)
 })

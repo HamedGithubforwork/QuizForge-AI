@@ -1,0 +1,139 @@
+name: Local AI repeated CPU and GPU benchmark
+
+on:
+  pull_request:
+    paths:
+      - desktop/scripts/benchmark-local-generation.cjs
+      - desktop/scripts/summarize-local-benchmarks.cjs
+      - desktop/scripts/verify-local-product-acceptance.cjs
+      - desktop/src/local-benchmark-metrics.cjs
+      - desktop/test/local-benchmark-metrics.test.cjs
+      - .github/workflows/local-ai-repeat-benchmark.yml
+  workflow_dispatch:
+    inputs:
+      acceleration:
+        description: 'CPU hosted runner, or GPU on a separately configured trusted Vulkan Windows runner'
+        type: choice
+        options: [cpu, gpu]
+        default: cpu
+        required: true
+      repeats:
+        description: 'Iterations of each of two synthetic, source-grounded fixtures'
+        type: choice
+        options: ['2', '3']
+        default: '3'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repeat-cpu:
+    name: Repeated synthetic quizzes (hosted Windows CPU)
+    if: github.event_name == 'pull_request' || inputs.acceleration == 'cpu'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Check benchmark statistics and strict source oracle
+        shell: pwsh
+        run: |
+          node --test desktop/test/local-benchmark-metrics.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node -e "const a=require('./desktop/scripts/verify-local-product-acceptance.cjs'); if(a.FIXTURES.length<2) process.exit(1)"
+          exit $LASTEXITCODE
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      - name: Check pinned Qwen model hash
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+      - name: Download, verify, and stage pinned llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Repeat real Qwen CPU latency, correctness, and uniqueness
+        shell: pwsh
+        run: |
+          $repeats = '${{ github.event_name == 'workflow_dispatch' && inputs.repeats || '3' }}'
+          node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-repeated-cpu.json" cpu $repeats
+          exit $LASTEXITCODE
+      - name: Verify benchmark report
+        shell: pwsh
+        run: |
+          node desktop/scripts/summarize-local-benchmarks.cjs "$env:RUNNER_TEMP/local-ai-repeated-cpu.json"
+          exit $LASTEXITCODE
+      - name: Upload synthetic-only CPU results, even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-repeated-cpu-windows
+          path: ${{ runner.temp }}/local-ai-repeated-cpu.json
+          if-no-files-found: warn
+          retention-days: 21
+
+  repeat-gpu:
+    name: Repeated synthetic quizzes (trusted Vulkan Windows GPU)
+    # Never dispatch pull request code to an optional self-hosted runner.
+    if: github.event_name == 'workflow_dispatch' && inputs.acceleration == 'gpu'
+    runs-on: [self-hosted, Windows, X64, qfn-vulkan-gpu]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Check benchmark statistics and verified model
+        shell: pwsh
+        env:
+          QFN_BENCH_MODEL: ${{ vars.QFN_BENCH_MODEL }}
+          QFN_BENCH_RUNTIME: ${{ vars.QFN_BENCH_RUNTIME }}
+        run: |
+          if (-not $env:QFN_BENCH_MODEL -or -not $env:QFN_BENCH_RUNTIME) { throw 'Configure QFN_BENCH_MODEL and QFN_BENCH_RUNTIME on the trusted runner' }
+          node --test desktop/test/local-benchmark-metrics.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node desktop/scripts/ensure-verified-model.cjs "$env:QFN_BENCH_MODEL"
+          exit $LASTEXITCODE
+      - name: Repeat verified Vulkan GPU inference
+        shell: pwsh
+        env:
+          QFN_BENCH_MODEL: ${{ vars.QFN_BENCH_MODEL }}
+          QFN_BENCH_RUNTIME: ${{ vars.QFN_BENCH_RUNTIME }}
+        run: |
+          node desktop/scripts/benchmark-local-generation.cjs "$env:QFN_BENCH_RUNTIME" "$env:QFN_BENCH_MODEL" "$env:RUNNER_TEMP/local-ai-repeated-gpu.json" gpu '${{ inputs.repeats }}'
+          exit $LASTEXITCODE
+      - name: Verify GPU report
+        shell: pwsh
+        run: |
+          node desktop/scripts/summarize-local-benchmarks.cjs "$env:RUNNER_TEMP/local-ai-repeated-gpu.json"
+          exit $LASTEXITCODE
+      - name: Upload synthetic-only GPU results, even on failure
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-repeated-gpu-windows
+          path: ${{ runner.temp }}/local-ai-repeated-gpu.json
+          if-no-files-found: warn
+          retention-days: 21
