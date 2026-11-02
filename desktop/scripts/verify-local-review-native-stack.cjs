@@ -16,7 +16,7 @@ async function main() {
   const output = path.resolve(process.argv[4])
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-review-stack-'))
   const report = { outcome: 'pending', generationCount: 0, reviewed: false, verdict: null,
-    errorCode: null, diagnostics: [] }
+    errorCode: null, stage: 'initializing', diagnostics: [] }
   let stack
   try {
     // The Local AI preview must not fall back to online grading or API calls.
