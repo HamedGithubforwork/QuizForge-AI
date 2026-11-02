@@ -1,6 +1,8 @@
 'use strict'
 
 const path = require('node:path')
+const { reviewQuizDistinctness } = require('./local-quiz-distinctness.cjs')
+const { createLocalAnswerReview, validateRequest: validateReviewRequest } = require('./local-answer-review.cjs')
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { randomUUID } = require('node:crypto')
 const {
@@ -49,6 +51,9 @@ function createWindowsLocalAiStack({
   let selectedGpuLayers = null
   let runtime = null
   let quizService = null
+  let answerReview = null
+  let reviewContext = null
+  let contextEpoch = 0
   let documentQuizService = null
   let quizOperation = null
   let quizController = null
@@ -65,7 +70,7 @@ function createWindowsLocalAiStack({
     const operationId = randomUUID()
     const ownsTrace = activeOperationId === null
     if (ownsTrace) activeOperationId = operationId
-    const debugAttempt = ownsTrace && kind !== 'pdf'
+    const debugAttempt = ownsTrace && ['quiz', 'document_quiz'].includes(kind)
     if (debugAttempt) debugReport.begin({ operationId, questionCount: request?.questionCount,
       difficulty: request?.difficulty, questionType: request?.questionType })
     const started = performance.now()
@@ -125,13 +130,23 @@ function createWindowsLocalAiStack({
       modelStore: resources.modelStore,
       modelId: resources.modelId,
     })
-    quizService = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
+    const generator = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
       onGeneratedResponse: onQuizGeneratedResponse,
       onRejectedQuestion: issue => {
         diagnostic('question_rejected', { reason: issue.reason, questionNumber: issue.questionNumber,
           questionType: issue.questionType, sourcePages: issue.sourcePages })
         debugReport.record(issue)
       } })
+    answerReview = createLocalAnswerReview({ provider })
+    quizService = { async generate(request, options) {
+      reviewContext = null
+      const epoch = contextEpoch
+      const generated = await generator.generate(request, options)
+      const quiz = await reviewQuizDistinctness({ provider, quiz: generated, pages: request.pages, signal: options?.signal })
+      if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
+      reviewContext = { quiz, pages: request.pages.map(page => ({ ...page })) }
+      return quiz
+    } }
     if (documentProcessor) {
       documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
     }
@@ -185,6 +200,7 @@ function createWindowsLocalAiStack({
   }
 
   async function runQuiz(operation) {
+    const epoch = contextEpoch
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const ready = await quizStatus()
@@ -203,6 +219,9 @@ function createWindowsLocalAiStack({
     diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
       logicalCpuCount: capability?.hardware?.logicalCpuCount, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
       gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes })
+    if (disposed) throw new LocalAiError('runtime_unavailable')
+    if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
+    if (quizOperation || documentOperation) throw new LocalAiError('busy')
     quizController = new AbortController()
     const controller = quizController
     const currentOperation = Promise.resolve().then(() => operation(controller.signal))
@@ -262,6 +281,7 @@ function createWindowsLocalAiStack({
     if (disposed) return
     disposed = true
     debugReport.clear()
+    reviewContext = null
     await cancelQuiz().catch(() => {})
     await runtime?.shutdown().catch(() => {})
     await manager.dispose().catch(() => {})
@@ -278,6 +298,12 @@ function createWindowsLocalAiStack({
     removeModel: manager.removeModel,
     quizStatus,
     generateQuiz,
+    clearQuizReview: () => { contextEpoch++; reviewContext = null },
+    reviewLocalAnswers: request => {
+      validateReviewRequest(request)
+      return traceOperation('answer_review', {}, () => runQuiz(signal =>
+        answerReview.review(request, { ...reviewContext, signal })))
+    },
     processDocument,
     generateDocumentQuiz,
     lastQuizValidationIssue: () => lastQuizValidationIssue,

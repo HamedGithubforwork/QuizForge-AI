@@ -16,8 +16,12 @@ export type AiAnswerReviewQuestion = {
   grading?: ShortAnswerGradingSpec
 }
 
-export type AiAnswerReviewDecision =
-  ApiAnswerReviewDecision
+export type AiAnswerReviewDecision = Omit<ApiAnswerReviewDecision, 'verdict'> & {
+  verdict: 'correct' | 'partial' | 'incorrect' | 'uncertain'
+  engine?: 'local' | 'cloud'
+  credit?: number | null
+  concepts?: Array<{ concept: string; status: 'matched' | 'missing' | 'contradicted'; source_quote: string; answer_quote: string }>
+}
 
 export type AiAnswerReviewCase =
   ApiAnswerReviewCase
@@ -105,8 +109,14 @@ export function shouldRequestAiAnswerReview(
   question: AiAnswerReviewQuestion,
   answer: string,
   deterministicGrade: ShortAnswerGrade,
+  localReview = false,
 ) {
   const grading = question.grading
+  if (localReview) {
+    const exact = [question.correct_answer, ...question.accepted_answers]
+      .some(value => normalizeShortAnswer(value) === normalizeShortAnswer(answer))
+    return Boolean(answer.trim()) && !exact && !(grading?.grading_mode === 'numeric' && deterministicGrade.correct)
+  }
 
   if (
     deterministicGrade.correct ||
@@ -138,13 +148,14 @@ export function buildAiAnswerReviewCase(
   questionIndex: number,
   question: AiAnswerReviewQuestion,
   answer: string,
+  localReview = false,
 ): AiAnswerReviewCase | null {
   const grading = question.grading
 
   if (
-    !grading ||
+    !localReview && (!grading ||
     grading.grading_version < 2 ||
-    grading.grading_mode !== 'concepts'
+    grading.grading_mode !== 'concepts')
   ) {
     return null
   }
@@ -157,9 +168,9 @@ export function buildAiAnswerReviewCase(
     accepted_answers:
       question.accepted_answers,
     answer_groups:
-      grading.answer_groups,
+      grading?.answer_groups ?? [],
     required_group_count:
-      grading.required_group_count,
+      Math.max(1, grading?.required_group_count ?? 1),
     student_answer: answer,
     explanation: question.explanation,
   }

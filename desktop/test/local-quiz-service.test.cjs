@@ -2595,3 +2595,111 @@ test('partial fallback still rejects unsupported answers, repeated evidence and 
     assert.equal(calls, 2, variant)
   }
 })
+
+
+test('fifteen mixed questions are generated in bounded, source-fact-validated page batches', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: Array.from({ length: 5 }, (_, i) =>
+      `Topic ${pageNumber} fact ${i + 1} is Label${pageNumber}${i + 1}.`).join(' '),
+  }))
+  const makeQuestions = page => Array.from({ length: 5 }, (_, i) => {
+    const fact = `Topic ${page} fact ${i + 1} is Label${page}${i + 1}.`
+    const answer = `Label${page}${i + 1}`
+    const type = i % 3 === 0 ? 'multiple_choice' : i % 3 === 1 ? 'true_false' : 'short_answer'
+    return {
+      question_type: type,
+      question: `For topic ${page}, what is fact ${i + 1}?`,
+      choices: type === 'multiple_choice' ? [answer, 'Red', 'Blue', 'Green'] :
+        type === 'true_false' ? ['True', 'False'] : [],
+      correct_index: type === 'multiple_choice' ? 0 : type === 'true_false' ? 0 : -1,
+      correct_answer: type === 'true_false' ? 'True' : answer,
+      accepted_answers: [type === 'true_false' ? 'True' : answer],
+      explanation: fact, source_fact: fact, source_pages: [page],
+    }
+  })
+  const observed = []
+  const quiz = await createLocalQuizService({ provider: {
+    async generate(request) {
+      const pagesInBatch = request.messages[1].content
+      const page = parts.find(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`))
+      assert.ok(page)
+      assert.equal(parts.filter(p => pagesInBatch.includes(`--- PAGE ${p.pageNumber} ---`)).length, 1)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.minItems, 1)
+      assert.equal(request.jsonSchema.oneOf[0].properties.questions.maxItems, 5)
+      assert.ok(request.jsonSchema.oneOf[0].properties.questions.items.required.includes('source_fact'))
+      assert.ok(request.maxTokens < 3000)
+      observed.push(page.pageNumber)
+      return { text: JSON.stringify({ title: 'Part quiz', questions: makeQuestions(page.pageNumber) }), finishReason: 'stop' }
+    },
+  } }).generate({ pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed' })
+  assert.deepEqual(observed, [1, 2, 3])
+  assert.equal(quiz.questions.length, 15)
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 15)
+  assert.equal(quiz.questions.filter(q => q.question_type === 'short_answer').length, 3)
+  assert.ok(quiz.questions.every(q => q.grading && !Object.hasOwn(q, 'source_fact')))
+})
+
+test('mixed page batching retains validated questions when a later page has no usable facts', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber,
+    text: `Part ${pageNumber} contains element A${pageNumber} and element B${pageNumber}.`,
+  }))
+  let calls = 0
+  const service = createLocalQuizService({ provider: {
+    async generate(request) {
+      calls++
+      if (calls <= 2) return { text: JSON.stringify({ title: 'Insufficient source material', questions: [] }), finishReason: 'stop' }
+      const page = calls === 3 ? 2 : 3
+      const fact = `Part ${page} contains element A${page}`
+      return { text: JSON.stringify({ title: 'Partial batch', questions: [
+        { question_type: 'multiple_choice', question: `Which element is in part ${page}?`,
+          choices: [`A${page}`, 'C', 'D', 'E'], correct_index: 0, correct_answer: `A${page}`,
+          accepted_answers: [`A${page}`], explanation: fact, source_fact: fact, source_pages: [page] },
+      ] }), finishReason: 'stop' }
+    },
+  } })
+  const quiz = await service.generate({ pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed' })
+  assert.ok(quiz.questions.length >= 1 && quiz.questions.length < 15)
+  assert.ok(calls >= 4)
+})
+
+test('source-backed mixed batches filter unsupported answers but retain the valid ones', async () => {
+  const parts = [1, 2, 3].map(pageNumber => ({
+    pageNumber, text: `Part ${pageNumber} marks token as Code${pageNumber}.`,
+  }))
+  const rejections = []
+  const provider = {
+    async generate(request) {
+      const page = parts.find(part => request.messages[1].content.includes(`--- PAGE ${part.pageNumber} ---`))
+      assert.ok(page)
+      const valid = {
+        question_type: 'multiple_choice', question: `What token is used in part ${page.pageNumber}?`,
+        choices: [`Code${page.pageNumber}`, 'Other', 'Else', 'Invalid'],
+        correct_index: 0, correct_answer: `Code${page.pageNumber}`,
+        accepted_answers: [`Code${page.pageNumber}`],
+        explanation: page.text, source_fact: page.text,
+        source_pages: [page.pageNumber],
+      }
+      return {
+        finishReason: 'stop',
+        text: JSON.stringify({ title: 'Part quiz', questions: [
+          { ...valid, question: `Unsupported item on ${page.pageNumber}?`,
+            correct_answer: 'Invented', choices: ['Invented', 'Other', 'Else', 'Invalid'],
+            accepted_answers: ['Invented'], source_fact: `Invented fact for ${page.pageNumber}` },
+          valid,
+        ] }),
+      }
+    },
+  }
+  const quiz = await createLocalQuizService({
+    provider, onRejectedQuestion: value => rejections.push(value),
+  }).generate({
+    pages: parts, questionCount: 15, difficulty: 'hard', questionType: 'mixed',
+  })
+  assert.equal(quiz.questions.length, 3)
+  assert.equal(rejections.length, 3)
+  assert.ok(rejections.every(item => item.reason === 'unsupported_source_fact'))
+  assert.deepEqual(quiz.questions.map(q => q.correct_answer), ['Code1', 'Code2', 'Code3'])
+  assert.ok(quiz.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+})

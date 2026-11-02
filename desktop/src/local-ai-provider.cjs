@@ -13,6 +13,7 @@ const ERROR_CODES = new Set([
 const REASONS = new Set(['unsupported_platform', 'model_missing', 'runtime_unavailable', 'runtime_invalid'])
 const ROLES = new Set(['system', 'user', 'assistant'])
 const PROFILES = new Set([
+  'answer-review-v1',
   'quiz-mcq-v1',
   'quiz-mcq-retry-v1',
   'quiz-mcq-targeted-primary-v1',

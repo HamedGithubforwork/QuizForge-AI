@@ -55,7 +55,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       const session = getSession(), account = getAccount()
       if (session?.status().signingIn || !canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
-      getLocalAi()?.clearDetailedDebug?.()
+      getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.()
       account.clear()
       const operation = session.signIn(provider)
       const generation = session.generation()
@@ -66,7 +66,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
-    signOut: async () => { getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
+    signOut: async () => { getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
       if (!account) throw new Error('Sign in to your desktop account first.')
@@ -178,10 +178,14 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         }
       }
     },
+    reviewLocalAnswers: async value => {
+      try { return { ok: true, ...await localAi().reviewLocalAnswers(value) } }
+      catch { return { ok: false, error: 'review_unavailable' } }
+    },
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),
   }
-  const argumentCounts = Object.freeze({ signIn: 1, request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
+  const argumentCounts = Object.freeze({ reviewLocalAnswers: 1, signIn: 1, request: 1, loadSourcePageText: 1, processLocalPdf: 1, generateLocalAiQuiz: 1, generateLocalDocumentQuiz: 1 })
   for (const [name, handler] of Object.entries(handlers)) {
     ipcMain.handle('qfn:' + name, async (event, ...args) => {
       if (!trusted(event) || args.length !== (argumentCounts[name] ?? 0)) throw new Error('Desktop command is not permitted.')

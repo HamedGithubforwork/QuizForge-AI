@@ -32,6 +32,9 @@ export function isAttemptQuestionCorrect(
       return false
     }
 
+    const review = aiGradeReviews[buildAiAnswerReviewKey(question, answer)]
+    if (review) return review.verdict === 'correct'
+
     if (
       gradeShortAnswer(
         question,
@@ -144,6 +147,7 @@ export function buildAttemptReviewCases(
   quiz: QuizResult,
   selectedAnswers: Record<number, AnswerValue>,
   questionIndexes: number[],
+  localReview = false,
 ) {
   return questionIndexes.flatMap(
     (questionIndex): AiAnswerReviewCase[] => {
@@ -172,6 +176,7 @@ export function buildAttemptReviewCases(
           question,
           answer,
           deterministicGrade,
+          localReview,
         )
       ) {
         return []
@@ -182,6 +187,7 @@ export function buildAttemptReviewCases(
           questionIndex,
           question,
           answer,
+          localReview,
         )
 
       return reviewCase
@@ -260,12 +266,14 @@ export function buildQuizForHistory(
             )
           ]
 
-        if (review?.verdict !== 'correct') {
-          return question
+        if (!review) return question
+        if (review.verdict !== 'correct') {
+          return { ...question, answer_review: { answer, decision: review } }
         }
 
         return {
           ...question,
+          answer_review: { answer, decision: review },
           ai_accepted_answers:
             Array.from(
               new Set([

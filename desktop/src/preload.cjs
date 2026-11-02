@@ -22,6 +22,7 @@ if (process.isMainFrame && trustedRenderer) {
     processLocalPdf: value => ipcRenderer.invoke('qfn:processLocalPdf', value),
     generateLocalAiQuiz: value => ipcRenderer.invoke('qfn:generateLocalAiQuiz', value),
     generateLocalDocumentQuiz: value => ipcRenderer.invoke('qfn:generateLocalDocumentQuiz', value),
+    reviewLocalAnswers: value => ipcRenderer.invoke('qfn:reviewLocalAnswers', value),
     cancelLocalAiQuiz: () => ipcRenderer.invoke('qfn:cancelLocalAiQuiz'),
     openAccountWebsite: () => ipcRenderer.invoke('qfn:openAccountWebsite'),
   }))

@@ -123,7 +123,7 @@ try {
     await card.locator('input[type=radio]').nth(item.correct_index).check()
   }
   await page.getByRole('button', { name: 'Check Answers' }).click()
-  await expect(page.locator('#quiz-results')).toContainText('5 / 5 correct')
+  await expect(page.locator('#quiz-results')).toContainText('5 / 5 fully correct')
   const counts = await electron.evaluate(() => globalThis.__qfnOutputE2e)
   if (counts.pdf !== 1 || counts.generated !== 1) {
     throw new Error('Packaged IPC processing/generation calls did not each occur once: ' + JSON.stringify(counts))

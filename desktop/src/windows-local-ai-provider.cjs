@@ -2,6 +2,8 @@
 
 const { LocalAiError, createLocalAiProvider, failure, validId } = require('./local-ai-provider.cjs')
 const GENERATION_PROFILES = Object.freeze({
+  'answer-review-v1': Object.freeze({ temperature: 0, top_p: 1, seed: 42,
+    chat_template_kwargs: Object.freeze({ enable_thinking: false }) }),
   'quiz-mcq-v1': Object.freeze({
     temperature: 0.7,
     top_p: 0.8,

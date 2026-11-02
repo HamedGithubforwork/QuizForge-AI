@@ -15,6 +15,9 @@ type QuizResultsCardProps = {
   quiz: QuizResult
   documentResult: UploadResult
   questionCount: number
+  partialCount?: number
+  uncertainCount?: number
+  partialCredit?: number
   score: number
   percentage: number
   multipleChoiceScore:
@@ -48,6 +51,9 @@ function QuizResultsCard({
   quiz,
   documentResult,
   questionCount,
+  partialCount = 0,
+  uncertainCount = 0,
+  partialCredit = 0,
   score,
   percentage,
   multipleChoiceScore,
@@ -88,7 +94,7 @@ function QuizResultsCard({
       </div>
 
       <h2>
-        {score} / {questionCount} correct
+        {score} / {questionCount} fully correct
       </h2>
 
       <p className="score-message">
@@ -96,11 +102,16 @@ function QuizResultsCard({
       </p>
 
       <p className="incorrect-count">
-        You answered{' '}
-        {questionCount - score}{' '}
-        incorrectly.
+        {questionCount - score - partialCount - uncertainCount} incorrect
+        {partialCount > 0 && ` · ${partialCount} partially correct`}
+        {uncertainCount > 0 && ` · ${uncertainCount} need review (not marked incorrect)`}
       </p>
 
+      {(partialCount > 0 || uncertainCount > 0) && <p>
+        Study credit: {Number((score + partialCredit).toFixed(2))} / {questionCount - uncertainCount} assessed points.
+        The percentage and saved score count fully correct answers; partial credit is shown separately.
+        {uncertainCount > 0 && ' The overall score is provisional until uncertain answers are reviewed.'}
+      </p>}
       <div className="score-breakdown">
         {multipleChoiceScore.total > 0 && (
           <div>
