@@ -10,7 +10,7 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 const { MANIFEST } = require('./local-runtime.cjs')
 
 const GIB = 1024 ** 3
-const CACHE_VERSION = 2
+const CACHE_VERSION = 3
 const MAX_CACHE_BYTES = 4096
 const MAX_SAMPLES = 8
 
@@ -78,7 +78,18 @@ function safeCache(value, expectedSignature, candidates) {
     failureCounts[key] = count
   }
   if (value.failed.some(x => failureCounts[String(x)] !== 2)) return null
-  return { timings, failed: [...value.failed], failureCounts }
+  const cpuTimings = {}
+  if (value.cpuTimings && typeof value.cpuTimings === 'object' &&
+      !Array.isArray(value.cpuTimings)) {
+    for (const [key, score] of Object.entries(value.cpuTimings)) {
+      if (!/^(?:[1-9]|1[0-6])$/.test(key) || !score ||
+          !Number.isSafeInteger(score.tokens) || score.tokens < 1 ||
+          !Number.isFinite(score.ms) || score.ms <= 0 ||
+          !Number.isSafeInteger(score.samples) || score.samples < 1 || score.samples > MAX_SAMPLES) return null
+      cpuTimings[key] = { tokens: score.tokens, ms: score.ms, samples: score.samples }
+    }
+  }
+  return { timings, cpuTimings, failed: [...value.failed], failureCounts }
 }
 
 function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
@@ -90,6 +101,9 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   let candidates = Object.freeze([0])
   let fingerprint = null
   let timings = {}
+  let cpuTimings = {}
+  let cpuCandidates = [8]
+  let selectedCpuThreads = 8
   let failed = []
   let failureCounts = {}
   let ready = false
@@ -99,6 +113,11 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   async function prepare(hardware) {
     if (ready) return
     candidates = offloadCandidates(hardware)
+    const logical = Number.isSafeInteger(hardware?.logicalCpuCount) && hardware.logicalCpuCount > 0
+      ? hardware.logicalCpuCount : 8
+    const first = Math.min(8, Math.max(1, logical))
+    cpuCandidates = [...new Set([first, Math.max(1, first - 2)])]
+    selectedCpuThreads = first
     fingerprint = signature(hardware)
     try {
       await fileSystem.mkdir(directory, { recursive: true, mode: 0o700 })
@@ -116,6 +135,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
         const cached = safeCache(data, fingerprint, candidates)
         if (cached) {
           timings = cached.timings
+          cpuTimings = cached.cpuTimings ?? {}
           failed = cached.failed
           failureCounts = cached.failureCounts
         }
@@ -143,6 +163,17 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     return selected
   }
 
+  function chooseThreads() {
+    const candidate = cpuCandidates.find(value => !cpuTimings[String(value)])
+    if (candidate !== undefined) return (selectedCpuThreads = candidate)
+    selectedCpuThreads = cpuCandidates.reduce((fastest, value) => {
+      const score = cpuTimings[String(value)]
+      const best = cpuTimings[String(fastest)]
+      return score.ms / score.tokens < best.ms / best.tokens * 0.95 ? value : fastest
+    }, cpuCandidates[0])
+    return selectedCpuThreads
+  }
+
   function fallbackLayers() {
     const available = candidates.filter(value => !failed.includes(value))
     const index = available.indexOf(selected)
@@ -153,7 +184,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   function save() {
     const document = JSON.stringify({
       schema: CACHE_VERSION, signature: fingerprint,
-      timings, failed, failureCounts,
+      timings, cpuTimings, failed, failureCounts,
     })
     writes = writes.then(async () => {
       const temp = path.join(directory, '.offload-' + randomBytes(8).toString('hex') + '.tmp')
@@ -177,7 +208,18 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     save()
   }
 
-  function recordInference({ layers, elapsedMs, completionTokens }) {
+  function recordInference({ layers, elapsedMs, completionTokens, threads }) {
+    if (ready && layers === 0 && cpuCandidates.includes(threads) &&
+        Number.isFinite(elapsedMs) && elapsedMs > 0 &&
+        Number.isSafeInteger(completionTokens) && completionTokens >= 16) {
+      const key = String(threads)
+      const old = cpuTimings[key] ?? { tokens: 0, ms: 0, samples: 0 }
+      if (old.samples < MAX_SAMPLES) {
+        cpuTimings[key] = { tokens: old.tokens + completionTokens,
+          ms: old.ms + elapsedMs, samples: old.samples + 1 }
+        save()
+      }
+    }
     if (!ready || !candidates.includes(layers) || failed.includes(layers) ||
         !Number.isFinite(elapsedMs) || elapsedMs <= 0 ||
         !Number.isSafeInteger(completionTokens) || completionTokens < 16) return
@@ -195,7 +237,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
   async function flush() { await writes }
 
   return Object.freeze({
-    prepare, choose, fallbackLayers, recordFailure, recordInference, flush,
+    prepare, choose, chooseThreads, fallbackLayers, recordFailure, recordInference, flush,
     selectedLayers: () => selected,
     snapshot: () => Object.freeze({ selected, candidates, benchmarked: Object.keys(timings).length }),
   })

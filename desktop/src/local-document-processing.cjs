@@ -178,8 +178,48 @@ function createLocalDocumentProcessor({ engine, limits: inputLimits } = {}) {
   return Object.freeze({ processPdf })
 }
 
+
+// Share source extraction across the normal "upload PDF" and "generate quiz"
+// desktop flows. The one-entry cache holds only bounded, already-validated
+// text, never the uploaded PDF bytes; it is wiped on account changes.
+function createCachedLocalDocumentProcessor(processor, { maxCachedCharacters = 32000 } = {}) {
+  if (!processor || typeof processor.processPdf !== 'function' ||
+      !Number.isSafeInteger(maxCachedCharacters) || maxCachedCharacters < 1) {
+    throw new TypeError('A bounded local PDF processor cache is required.')
+  }
+  let entry = null
+  return Object.freeze({
+    clearCache() { entry = null },
+    async processPdf(request, options = {}) {
+      throwIfAborted(options.signal)
+      if (!(request?.bytes instanceof Uint8Array)) {
+        return processor.processPdf(request, options)
+      }
+      const selection = request.selectedPages == null ? '' :
+        Array.isArray(request.selectedPages) ? [...request.selectedPages].sort((a, b) => a - b).join(',') : 'invalid'
+      const name = typeof request.filename === 'string' ? request.filename : ''
+      const key = createHash('sha256').update(request.bytes).digest('hex') + ':' + selection + ':' + name
+      if (entry?.key === key) {
+        throwIfAborted(options.signal)
+        return entry.result
+      }
+      const result = await processor.processPdf(request, options)
+      throwIfAborted(options.signal)
+      if (result?.processing === 'local' && Array.isArray(result.pages) &&
+          Number.isSafeInteger(result.characterCount) &&
+          result.characterCount <= maxCachedCharacters &&
+          result.pages.every(page => Number.isSafeInteger(page.pageNumber) &&
+            typeof page.text === 'string')) {
+        entry = { key, result }
+      } else entry = null
+      return result
+    },
+  })
+}
+
 module.exports = Object.freeze({
   MAX_LOCAL_PDF_BYTES,
   LocalDocumentProcessingError,
   createLocalDocumentProcessor,
+  createCachedLocalDocumentProcessor,
 })

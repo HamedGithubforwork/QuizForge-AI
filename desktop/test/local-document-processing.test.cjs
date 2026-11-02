@@ -6,6 +6,7 @@ const { createHash } = require('node:crypto')
 const {
   LocalDocumentProcessingError,
   createLocalDocumentProcessor,
+  createCachedLocalDocumentProcessor,
 } = require('../src/local-document-processing.cjs')
 
 function pdfBytes(value = '%PDF-1.7\nsynthetic PDF bytes') {
@@ -151,4 +152,45 @@ test('requires a local engine and bounds public errors', () => {
   const error = new LocalDocumentProcessingError('private/path')
   assert.equal(error.code, 'processing_failed')
   assert.doesNotMatch(error.message, /private/)
+})
+
+test('bounded PDF cache is shared by repeated processing and cleared on account reset', async () => {
+  let calls = 0
+  const source = Object.freeze({
+    processing: 'local', characterCount: 30,
+    pages: Object.freeze([{ pageNumber: 1, text: 'source facts for study locally' }]),
+    pdfSha256: 'a'.repeat(64),
+  })
+  const cache = createCachedLocalDocumentProcessor({
+    async processPdf() { calls++; return source },
+  })
+  const bytes = pdfBytes()
+  const request = { bytes, filename: 'lecture.pdf', selectedPages: [1] }
+  await cache.processPdf(request)
+  await cache.processPdf(request)
+  assert.equal(calls, 1, 'second processing should avoid re-extraction')
+  await assert.rejects(cache.processPdf(request, { signal: AbortSignal.abort() }), { code: 'cancelled' })
+  assert.equal(calls, 1)
+  await cache.processPdf({ ...request, selectedPages: [2] })
+  assert.equal(calls, 2)
+  cache.clearCache()
+  await cache.processPdf({ ...request, selectedPages: [2] })
+  assert.equal(calls, 3)
+  await cache.processPdf({ ...request, filename: 'renamed.pdf' })
+  assert.equal(calls, 4)
+})
+
+test('large extracted text is never stored in the in-memory PDF cache', async () => {
+  let calls = 0
+  const cache = createCachedLocalDocumentProcessor({
+    async processPdf() {
+      calls++
+      return { processing: 'local', characterCount: 100,
+        pages: [{ pageNumber: 1, text: 'x'.repeat(100) }] }
+    },
+  }, { maxCachedCharacters: 30 })
+  const request = { bytes: pdfBytes(), selectedPages: [1] }
+  await cache.processPdf(request)
+  await cache.processPdf(request)
+  assert.equal(calls, 2)
 })

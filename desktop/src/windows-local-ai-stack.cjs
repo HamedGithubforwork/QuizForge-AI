@@ -3,6 +3,7 @@
 const path = require('node:path')
 const { reviewQuizDistinctness } = require('./local-quiz-distinctness.cjs')
 const { createLocalAnswerReview, validateRequest: validateReviewRequest } = require('./local-answer-review.cjs')
+const { createCachedLocalDocumentProcessor } = require('./local-document-processing.cjs')
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { randomUUID } = require('node:crypto')
 const {
@@ -10,7 +11,7 @@ const {
   createLocalQuizService,
   createLocalDocumentQuizService,
 } = require('./local-ai.cjs')
-const { createLocalRuntime, verifyRuntime } = require('./local-runtime.cjs')
+const { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, boundedCpuThreads } = require('./local-runtime.cjs')
 const { createWindowsLocalAiProvider } = require('./windows-local-ai-provider.cjs')
 const { createWindowsLocalAiResources } = require('./windows-local-ai-manager.cjs')
 const { createLocalOffloadPolicy } = require('./local-offload-policy.cjs')
@@ -47,8 +48,12 @@ function createWindowsLocalAiStack({
     ...(runtimeDirectory ? { runtimeDirectory } : {}),
   })
   const manager = resources.manager
+  const cachedDocumentProcessor = documentProcessor
+    ? createCachedLocalDocumentProcessor(documentProcessor) : null
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
   let selectedGpuLayers = null
+  let selectedCpuThreads = null
+  let selectedContextTokens = null
   let runtime = null
   let quizService = null
   let answerReview = null
@@ -104,13 +109,15 @@ function createWindowsLocalAiStack({
   }
 
   if (typeof runtimeDirectory === 'string' && path.isAbsolute(runtimeDirectory)) {
-    runtime = createLocalRuntime({
+    runtime = createWarmLocalRuntime(createLocalRuntime({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
       accelerationMode: () => selectedGpuLayers === 0
         ? 'cpu' : (manager.status()?.capability?.acceleration ?? 'cpu'),
       gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       gpuLayerCount: () => selectedGpuLayers ?? 99,
+      cpuThreadCount: () => selectedCpuThreads ?? boundedCpuThreads(),
+      contextTokens: () => selectedContextTokens ?? 12288,
       gpuFallbackLayers: () => offloadPolicy.fallbackLayers(),
       onGpuStartupFailure: layers => {
         diagnostic('gpu_startup_failed', { layers })
@@ -127,6 +134,11 @@ function createWindowsLocalAiStack({
         diagnostic(pid === null ? 'runtime_stopped' : 'runtime_started')
         onRuntimeProcess(pid)
       },
+    }), {
+      profile: () => [selectedGpuLayers, selectedCpuThreads, selectedContextTokens].join(':'),
+      // The CPU runtime retains its existing bounded thread count until
+      // measured hardware tuning can pick a faster, verified profile.
+      idleMs: 3 * 60 * 1000,
     })
     const provider = createWindowsLocalAiProvider({
       runtime,
@@ -159,6 +171,10 @@ function createWindowsLocalAiStack({
           completedBatches: value.completedBatches,
           totalBatches: value.totalBatches,
           validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+          previewQuestions: Array.isArray(value.previewQuestions)
+            ? Object.freeze(value.previewQuestions.slice(0, 15).filter(q =>
+                typeof q === 'string' && q.length > 0 && q.length <= 180))
+            : (quizProgressState.previewQuestions ?? Object.freeze([])),
         })
       },
       onRejectedQuestion: issue => {
@@ -208,8 +224,9 @@ function createWindowsLocalAiStack({
       reviewContext = { quiz, pages: request.pages.map(page => ({ ...page })) }
       return quiz
     } }
-    if (documentProcessor) {
-      documentQuizService = createLocalDocumentQuizService({ documentProcessor, quizService })
+    if (cachedDocumentProcessor) {
+      documentQuizService = createLocalDocumentQuizService({
+        documentProcessor: cachedDocumentProcessor, quizService })
     }
   }
 
@@ -260,7 +277,7 @@ function createWindowsLocalAiStack({
     })
   }
 
-  async function runQuiz(operation) {
+  async function runQuiz(operation, request = null) {
     const epoch = contextEpoch
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
@@ -276,9 +293,16 @@ function createWindowsLocalAiStack({
     // No PDF text, question content or model output is ever persisted.
     await offloadPolicy.prepare(manager.status()?.capability?.hardware)
     selectedGpuLayers = offloadPolicy.choose()
+    selectedCpuThreads = selectedGpuLayers === 0 ? offloadPolicy.chooseThreads() : boundedCpuThreads()
+    // A compact context is sufficient for short five-question sources;
+    // retain the larger context for hard/multi-batch and document requests.
+    const sourceLength = Array.isArray(request?.pages)
+      ? request.pages.reduce((sum, p) => sum + (p?.text?.length ?? 0), 0) : Infinity
+    selectedContextTokens = request?.questionCount === 5 && sourceLength <= 3000
+      ? 8192 : 12288
     const capability = manager.status()?.capability
     diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
-      logicalCpuCount: capability?.hardware?.logicalCpuCount, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
+      logicalCpuCount: capability?.hardware?.logicalCpuCount, selectedCpuThreads, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
       gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes })
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
@@ -295,29 +319,31 @@ function createWindowsLocalAiStack({
       quizProgressState = null
       reviewProgressState = null
       selectedGpuLayers = null
+      selectedCpuThreads = null
+      selectedContextTokens = null
       await offloadPolicy.flush()
     }
   }
 
   async function generateQuiz(request) {
     lastQuizValidationIssue = null
-    return traceOperation('quiz', request, () => runQuiz(signal => quizService.generate(request, { signal })))
+    return traceOperation('quiz', request, () => runQuiz(signal => quizService.generate(request, { signal }), request))
   }
 
   async function generateDocumentQuiz(request) {
     return traceOperation('document_quiz', request, () => {
       if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
       lastQuizValidationIssue = null
-      return runQuiz(signal => documentQuizService.generate(request, { signal }))
+      return runQuiz(signal => documentQuizService.generate(request, { signal }), request)
     })
   }
 
   async function processDocumentInternal(request, options) {
-    if (disposed || !documentProcessor) throw new LocalAiError('runtime_unavailable')
+    if (disposed || !cachedDocumentProcessor) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
     const controller = new AbortController()
     documentController = controller
-    const currentOperation = Promise.resolve().then(() => documentProcessor.processPdf(request, { ...options, signal: controller.signal }))
+    const currentOperation = Promise.resolve().then(() => cachedDocumentProcessor.processPdf(request, { ...options, signal: controller.signal }))
     documentOperation = currentOperation
     try {
       return await currentOperation
@@ -346,6 +372,8 @@ function createWindowsLocalAiStack({
     debugReport.clear()
     reviewContext = null
     await cancelQuiz().catch(() => {})
+    documentQuizService?.clearCache?.()
+    cachedDocumentProcessor?.clearCache?.()
     await runtime?.shutdown().catch(() => {})
     await manager.dispose().catch(() => {})
   }
@@ -366,7 +394,7 @@ function createWindowsLocalAiStack({
       ? Object.freeze({ total: reviewProgressState.total,
           decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.(); cachedDocumentProcessor?.clearCache?.(); void runtime?.cooldown?.().catch(() => {}) },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
       // Local grading requires the exact quiz and source from this process.
@@ -412,7 +440,7 @@ function createWindowsLocalAiStack({
               reason: 'Local AI stopped before reviewing this answer. Retry the review or check the source.',
             }) }
         }
-      }))
+      }, { questionCount: 5, pages: reviewContext.pages }))
     },
     processDocument,
     generateDocumentQuiz,

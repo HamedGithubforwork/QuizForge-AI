@@ -6,6 +6,7 @@ export type DesktopLocalQuizProgress = {
   totalBatches: number
   validQuestions: number
   requestedQuestions: number
+  previewQuestions?: string[]
 }
 
 export type DesktopLocalAiQuizStatus = {
