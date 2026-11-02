@@ -98,3 +98,27 @@ test('invalid, oversized and mismatched cache data cannot override safe offload 
     assert.equal(tuner.choose(), 99)
   }
 })
+
+test('passive CPU thread calibration compares real token throughput without storing source content', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-cpu-tune-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const spec = hardware(0, false)
+  const tune = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await tune.prepare(spec)
+  assert.equal(tune.choose(), 0)
+  assert.equal(tune.chooseThreads(), 8)
+  tune.recordInference({ layers: 0, threads: 8, elapsedMs: 2400, completionTokens: 120 })
+  assert.equal(tune.chooseThreads(), 6)
+  tune.recordInference({ layers: 0, threads: 6, elapsedMs: 1000, completionTokens: 120 })
+  assert.equal(tune.chooseThreads(), 6, 'measured faster profile should win')
+  await tune.flush()
+  const text = await fs.readFile(path.join(directory, 'local-ai', 'offload-profile.json'), 'utf8')
+  assert.doesNotMatch(text, /private notes|question|answer|pdf/i)
+  const reopened = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await reopened.prepare(spec)
+  assert.equal(reopened.chooseThreads(), 6)
+  // Different CPU topology must not re-use stale calibration results.
+  const changed = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await changed.prepare({ ...spec, logicalCpuCount: 4 })
+  assert.equal(changed.chooseThreads(), 4)
+})
