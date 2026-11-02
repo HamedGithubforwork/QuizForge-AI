@@ -125,10 +125,7 @@ test('ordinary five-question responses without source quotes do not enter repair
   const service = createLocalQuizService({ provider: {
     async generate(value) {
       calls.push(value)
-      return reply(calls.length === 1 ? original : original.map((_, i) => {
-        const { source_fact, ...item } = question(i)
-        return item
-      }))
+      return reply(calls.length === 1 ? original : original.map((_, i) => question(i)))
     },
   } })
   const result = await service.generate({
