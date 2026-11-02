@@ -62,7 +62,7 @@ jobs:
           $modelDir = "$env:RUNNER_TEMP/models"
           $reports = "$env:RUNNER_TEMP/comparison"
           New-Item -ItemType Directory $modelDir, $reports -Force | Out-Null
-          $models = @('qwen3-4b-q4-k-m', 'deepseek-r1-qwen-1.5b-q4-k-m', 'deepseek-r1-qwen-7b-q4-k-m')
+          $models = @('qwen3-4b-q4-k-m', 'deepseek-r1-qwen-1p5b-q4-k-m', 'deepseek-r1-qwen-7b-q4-k-m')
           foreach ($model in $models) {
             Write-Host "Starting verified comparison for $model"
             try {
