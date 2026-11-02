@@ -126,6 +126,12 @@ function createNativeAccount({ session, fetch: fetcher = globalThis.fetch }) {
     async verify() {
       const g = generation()
       const result = await send({ path: '/identity/session', method: 'GET', headers: {} }, g)
+      if (result.status === 401 || result.status === 403) {
+        // Google/Cognito may complete in the browser while the API or
+        // identity service has not enabled this *distinct* desktop app
+        // client ID. Never expose a response body or token to the renderer.
+        throw new Error('Desktop account token was rejected by the server. Check desktop Cognito client authorization.')
+      }
       if (result.status !== 200) throw new Error('Desktop account access is not available yet. Your browser account remains available.')
       let value
       try { value = JSON.parse(result.body) } catch { throw invalid() }
