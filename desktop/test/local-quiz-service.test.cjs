@@ -2515,12 +2515,13 @@ test('weak-area abstention recovery rejects fabricated facts and repeated prior 
       questionType: 'multiple_choice',
       practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
     }), { code: 'quiz_validation_failed' }, variant)
-    // Reject unsupported citations and repeated questions immediately,
-    // without spending another model call trying to alter their meaning.
-    assert.equal(calls, 3)
+    // Fabricated citations fail immediately. A repeated prior wording can
+    // request ONE bounded replacement batch, but the mocked model returns
+    // the same invalid content, so no duplicate is ever admitted.
+    assert.equal(calls, variant === 'fabricated' ? 3 : 4)
     assert.equal(issues.at(-1).attempt, 'recovery')
     assert.equal(issues.at(-1).reason, variant === 'fabricated'
-      ? 'unsupported_source_fact' : 'avoided_question')
+      ? 'unsupported_source_fact' : 'candidate_pool_exhausted')
   }
 })
 
