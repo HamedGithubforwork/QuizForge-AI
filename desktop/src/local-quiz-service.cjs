@@ -1444,6 +1444,25 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
+// A conservative *routing hint*, not evidence that five independent facts
+// exist. The recovery validator remains solely responsible for correctness.
+// This favors richer multi-page notes while retaining the existing path for
+// sparse, ambiguous or single-page source material.
+function hasRichTargetedSource(pages) {
+  if (!Array.isArray(pages) || pages.length < 2) return false
+  const sentences = new Set()
+  for (const page of pages) {
+    if (typeof page.text !== 'string') continue
+    for (const sentence of page.text.split(/(?<=[.!?])\s+|\n+/u)) {
+      const text = sentence.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
+      if (text.length < 18 || !/[.!?]$/.test(text)) continue
+      sentences.add(text)
+      if (sentences.size >= 5) return true
+    }
+  }
+  return false
+}
+
 function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
@@ -1938,6 +1957,31 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       let primaryCandidatePoolText = null
       let primaryRetryEvidence = []
       let primaryRejectedEvidence = []
+
+      // Real-Qwen CI repeatedly spent two inference calls abstaining before
+      // its already-proven five-question recovery succeeded. On rich,
+      // multi-page targeted practice with multiple prior questions, try that
+      // fully source-validated recovery first instead of paying for both
+      // predictably redundant abstentions. If the model cannot make five
+      // independently grounded questions, retain the established path.
+      if (targetedMultipleChoice && avoidQuestions.length >= 2 &&
+          hasRichTargetedSource(request.pages)) {
+        try {
+          return await recoverTargetedInsufficientSource()
+        } catch (error) {
+          if (signal?.aborted || (error instanceof LocalAiError &&
+              !['insufficient_source', 'quiz_validation_failed'].includes(error.code))) throw error
+          if (!(error instanceof QuizValidationIssue || error instanceof LocalAiError ||
+              error instanceof SyntaxError)) throw error
+          try { onValidationIssue(Object.freeze({
+            attempt: 'fast_recovery',
+            reason: error instanceof QuizValidationIssue
+              ? error.reason : error instanceof LocalAiError
+                ? error.code : 'quiz_validation_failed',
+          })) } catch {}
+        }
+      }
+
       let result = await generateAttempt()
       try {
         if (result.finishReason === 'length') invalidQuiz('truncated_output')

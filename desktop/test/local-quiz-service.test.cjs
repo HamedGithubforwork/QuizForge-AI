@@ -1072,7 +1072,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.ok(
           request.messages.at(-1).content.includes(
-            'JSON data: ["Question 1?","Question 2?"]',
+            'JSON data: ["Question 1?"]',
           ),
         )
         return {
@@ -1090,7 +1090,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
     difficulty: 'medium',
     questionType: 'multiple_choice',
     practice: {
-      avoidQuestions: ['Question 1?', 'Question 2?'],
+      avoidQuestions: ['Question 1?'],
       focusPages: [2],
     },
   })
