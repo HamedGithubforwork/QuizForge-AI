@@ -122,3 +122,39 @@ test('passive CPU thread calibration compares real token throughput without stor
   await changed.prepare({ ...spec, logicalCpuCount: 4 })
   assert.equal(changed.chooseThreads(), 4)
 })
+
+test('prefers measured decode speed over prompt-size noise and persists safe numeric scores', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-decode-tune-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const spec = hardware(0, false)
+  const tune = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await tune.prepare(spec)
+  assert.equal(tune.chooseThreads(), 8)
+  // Eight threads have slower total latency because prefill was longer,
+  // but generate the same number of answer tokens twice as fast.
+  tune.recordInference({ layers: 0, threads: 8, elapsedMs: 3000,
+    decodeMs: 600, completionTokens: 120 })
+  assert.equal(tune.chooseThreads(), 6)
+  tune.recordInference({ layers: 0, threads: 6, elapsedMs: 1800,
+    decodeMs: 1200, completionTokens: 120 })
+  assert.equal(tune.chooseThreads(), 8)
+  await tune.flush()
+  const cached = await fs.readFile(path.join(directory, 'local-ai', 'offload-profile.json'), 'utf8')
+  assert.match(cached, /"decodeTokens":120/)
+  assert.doesNotMatch(cached, /private notes|question text|answer content/i)
+  const again = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await again.prepare(spec)
+  assert.equal(again.chooseThreads(), 8)
+})
+
+test('ignores invalid decode timings when calibrating CPU threads', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-decode-invalid-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  const tune = createLocalOffloadPolicy({ userDataDirectory: directory })
+  await tune.prepare(hardware(0, false))
+  tune.recordInference({ layers: 0, threads: 8, elapsedMs: 2400,
+    decodeMs: 90000, completionTokens: 120 })
+  tune.recordInference({ layers: 0, threads: 6, elapsedMs: 1000,
+    decodeMs: -2, completionTokens: 120 })
+  assert.equal(tune.chooseThreads(), 6, 'fall back to measured total elapsed time')
+})
