@@ -401,4 +401,125 @@ function createLocalRuntime({
   return Object.freeze({ complete, withSession, shutdown, status, lastAccelerationMode: accelerationStatus })
 }
 
-module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }
+
+// Retain the private loopback model only between nearby foreground operations.
+// The underlying runtime still owns its process guard, per-request deadlines,
+// private API key and bounded 12-minute maximum session. Nothing is persisted.
+// Any cancellation/failure, changed hardware profile, sign-out or shutdown
+// releases the underlying process rather than retaining a poisoned context.
+function createWarmLocalRuntime(base, {
+  idleMs = 180000, maxSessionMs = 8 * 60 * 1000,
+  profile = () => 'default', freeMemory = () => os.freemem(),
+  minimumFreeBytes = 1024 ** 3,
+  now = Date.now, setTimer = setTimeout, clearTimer = clearTimeout,
+} = {}) {
+  if (!base || typeof base.withSession !== 'function' ||
+      typeof base.shutdown !== 'function' || !Number.isSafeInteger(idleMs) ||
+      idleMs < 0 || idleMs > 600000) throw new TypeError('Invalid warm runtime')
+  let session = null
+  let starting = null
+  let busy = false
+  let closed = false
+  let timer = null
+  let stopOperation = Promise.resolve()
+  function cancelTimer() { if (timer !== null) { clearTimer(timer); timer = null } }
+  async function release() {
+    cancelTimer()
+    const old = session
+    session = null
+    if (!old) return
+    old.finish()
+    await old.worker.catch(() => {})
+  }
+  async function start() {
+    await stopOperation
+    if (closed) throw fail('runtime_closed')
+    if (session) return session
+    if (starting) return starting
+    let resolveReady, rejectReady, finish
+    const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+    const hold = new Promise(resolve => { finish = resolve })
+    const state = { complete: null, finish, worker: null, started: now(), key: profile() }
+    state.worker = base.withSession(async complete => {
+      state.complete = complete
+      resolveReady(state)
+      await hold
+    })
+    // Handle both startup failures and unexpected model exits. The catch is
+    // intentionally attached immediately to avoid an unhandled rejection.
+    void state.worker.catch(error => { rejectReady(error) }).finally(() => {
+      if (session === state) session = null
+    })
+    starting = ready.then(value => {
+      if (closed) { value.finish(); throw fail('runtime_closed') }
+      session = value
+      return value
+    }).finally(() => { starting = null })
+    return starting
+  }
+  function armIdle() {
+    cancelTimer()
+    if (closed || !session) return
+    if (idleMs === 0 || freeMemory() < minimumFreeBytes) {
+      stopOperation = release()
+      return
+    }
+    const old = session
+    timer = setTimer(() => {
+      timer = null
+      if (!busy && session === old) stopOperation = release()
+    }, idleMs)
+    timer?.unref?.()
+  }
+  async function execute(callback, { signal } = {}) {
+    if (closed) throw fail('runtime_closed')
+    if (busy) throw fail('busy')
+    busy = true
+    cancelTimer()
+    try {
+      signal?.throwIfAborted()
+      if (session && (session.key !== profile() ||
+          now() - session.started >= maxSessionMs ||
+          freeMemory() < minimumFreeBytes)) {
+        stopOperation = release()
+        await stopOperation
+      }
+      const current = await start()
+      signal?.throwIfAborted()
+      return await callback((payload, options = {}) =>
+        current.complete(payload, { ...options, signal: options.signal ?? signal }))
+    } catch (error) {
+      stopOperation = release()
+      await stopOperation.catch(() => {})
+      throw error
+    } finally {
+      busy = false
+      armIdle()
+    }
+  }
+  return Object.freeze({
+    complete(payload, options = {}) {
+      return execute(complete => complete(payload), options)
+    },
+    withSession(callback, options = {}) {
+      if (typeof callback !== 'function') return Promise.reject(fail('invalid_request'))
+      return execute(callback, options)
+    },
+    async cooldown() {
+      cancelTimer()
+      stopOperation = release()
+      await stopOperation
+    },
+    async shutdown() {
+      closed = true
+      cancelTimer()
+      await base.shutdown()
+      stopOperation = release()
+      await stopOperation
+    },
+    status() { return Object.freeze({ busy, closed, warm: session !== null && !busy }) },
+    lastAccelerationMode: () => base.lastAccelerationMode(),
+  })
+}
+
+module.exports = { createLocalRuntime, createWarmLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }
