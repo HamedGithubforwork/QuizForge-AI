@@ -40,6 +40,7 @@ import {
   readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
+import { runRecoverableLocalGeneration } from './lib/localGenerationRecovery.ts'
 import {
   automaticGenerationMode,
 } from './lib/generationModePolicy.ts'
@@ -138,6 +139,7 @@ function App() {
   }, [isGenerating, isWeakPracticeGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
+  const generationRunId = useRef(0)
   const generationModeUserSelected =
     useRef(false)
   const [
@@ -409,20 +411,12 @@ function App() {
 
   }
 
-  async function handleCancelLocalQuiz() {
-    localGenerationController
-      .current?.abort()
-
-    if (!localQuizBridge) {
-      return
-    }
-
-    setGenerationStage(
-      'Cancelling local generation...',
-    )
-    await localQuizBridge
-      .cancelLocalAiQuiz()
-      .catch(() => {})
+  function handleCancelLocalQuiz() {
+    // The recovery wrapper asks Electron to stop but does not wait for a
+    // possibly stuck cancellation IPC before releasing the interface.
+    if (!localGenerationController.current) return
+    setGenerationStage('Stopping local generation...')
+    localGenerationController.current.abort()
   }
 
   async function generateLocalPracticeQuiz(
@@ -447,8 +441,8 @@ function App() {
       controller
 
     try {
-      const request =
-        await buildLocalPracticeRequest(
+      const result = await runRecoverableLocalGeneration(async () => {
+        const request = await buildLocalPracticeRequest(
           documentResult!,
           practiceDifficulty,
           localQuizStatus,
@@ -459,16 +453,14 @@ function App() {
           practiceQuestionCount,
           practiceQuestionType,
         )
-
-      controller.signal
-        .throwIfAborted()
-
-      const result =
-        await localQuizBridge
-          .generateLocalAiQuiz(request)
-
-      controller.signal
-        .throwIfAborted()
+        controller.signal.throwIfAborted()
+        const response = await localQuizBridge.generateLocalAiQuiz(request)
+        controller.signal.throwIfAborted()
+        return response
+      }, {
+        signal: controller.signal,
+        cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+      })
 
       if (!result.ok) {
         throw new Error(
@@ -546,6 +538,7 @@ function App() {
       kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
     }
     const startedAt = beginGenerationTiming()
+    const runId = ++generationRunId.current
     setGenerationDurationMs(null)
 
     setIsGenerating(true)
@@ -597,8 +590,8 @@ function App() {
           )
         }
 
-        const request =
-          await buildLocalQuizRequest(
+        const result = await runRecoverableLocalGeneration(async () => {
+          const request = await buildLocalQuizRequest(
             documentResult,
             difficulty,
             localQuizStatus,
@@ -607,20 +600,15 @@ function App() {
             questionCount as 5 | 10 | 15,
             questionType,
           )
-
-        localController?.signal
-          .throwIfAborted()
-
-        setGenerationStage(
-          'Generating and validating on this computer...',
-        )
-
-        const result =
-          await localQuizBridge
-            .generateLocalAiQuiz(request)
-
-        localController?.signal
-          .throwIfAborted()
+          localController?.signal.throwIfAborted()
+          setGenerationStage('Generating and validating on this computer...')
+          const response = await localQuizBridge.generateLocalAiQuiz(request)
+          localController?.signal.throwIfAborted()
+          return response
+        }, {
+          signal: localController?.signal,
+          cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+        })
 
         if (!result.ok) {
           if (result.error === 'cancelled') {
@@ -770,7 +758,8 @@ function App() {
       generationStartedAt.current = null
       setIsGenerating(false)
       window.setTimeout(() => {
-        setGenerationStage('')
+        // An old attempt must not clear the progress text of a new attempt.
+        if (generationRunId.current === runId) setGenerationStage('')
       }, 900)
     }
   }
