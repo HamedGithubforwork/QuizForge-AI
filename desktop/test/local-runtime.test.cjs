@@ -444,7 +444,8 @@ test('runtime performance callback receives only bounded timing and token counts
       requestFn: async (_port, _key, route) => route === '/v1/models'
         ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
         : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
-            usage: { prompt_tokens: 250, completion_tokens: 120 } },
+            usage: { prompt_tokens: 250, completion_tokens: 120 },
+            timings: { prompt_ms: 0, predicted_ms: 0 } },
     },
   })
   await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
@@ -454,8 +455,8 @@ test('runtime performance callback receives only bounded timing and token counts
   assert.equal(observations[0].layers, 0)
   assert.equal(observations[0].completionTokens, 120)
   assert.equal(observations[0].promptTokens, 250)
-  assert.equal(observations[0].prefillMs, null)
-  assert.equal(observations[0].decodeMs, null)
+  assert.equal(observations[0].prefillMs, 0)
+  assert.equal(observations[0].decodeMs, 0)
   assert.ok(observations[0].threads >= 1 && observations[0].threads <= 8,
     'thread selection must stay within the safe CPU bound')
   assert.ok(observations[0].elapsedMs >= 0)
