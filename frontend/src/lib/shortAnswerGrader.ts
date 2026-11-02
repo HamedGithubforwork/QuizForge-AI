@@ -492,7 +492,7 @@ function equivalentInputList(expected: string, submitted: string): boolean {
     .every(item => expectedSet.has(item))
 
   const canonical = (item: string) => {
-    if (/^co\\s*2$/.test(item)) return 'carbon dioxide'
+    if (/^co\s*2$/.test(item)) return 'carbon dioxide'
     if (photosynthesisInputs && item === 'sunlight') return 'light'
     return item
   }
