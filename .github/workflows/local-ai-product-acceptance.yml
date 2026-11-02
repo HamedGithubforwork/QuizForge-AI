@@ -7,6 +7,7 @@ on:
       - desktop/src/local-answer-review.cjs
       - desktop/src/local-quiz-distinctness.cjs
       - desktop/scripts/verify-local-answer-review.cjs
+      - desktop/test/local-answer-review.test.cjs
       - desktop/scripts/verify-local-review-native-stack.cjs
       - desktop/src/local-ai-provider.cjs
       - desktop/src/local-quiz-service.cjs
@@ -209,6 +210,11 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Check evidence-grounded grading and transport-failure regressions
+        shell: pwsh
+        run: |
+          node --test desktop/test/local-answer-review.test.cjs
+          exit $LASTEXITCODE
       - name: Restore pinned model
         uses: actions/cache/restore@v4
         with:
