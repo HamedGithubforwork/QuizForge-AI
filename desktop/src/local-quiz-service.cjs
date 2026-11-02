@@ -1380,11 +1380,12 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
     } else {
       if (choices.length !== 0 || correctIndex !== -1) invalidQuiz('short_answer_format')
       if (!containsEvidencePhrase(source, correctAnswer)) invalidQuiz('short_answer_unsupported_answer')
-      acceptedAnswers = [...new Set(acceptedAnswers)]
-      if (!acceptedAnswers.some(answer => answer.toLocaleLowerCase() === correctAnswer.toLocaleLowerCase())) {
-        acceptedAnswers.unshift(correctAnswer)
-        acceptedAnswers = acceptedAnswers.slice(0, 8)
-      }
+      // Only source-backed aliases may grant immediate fuzzy credit. Qwen
+      // sometimes suggests plausible but unsupported alternative wording;
+      // leave those to the semantic second stage instead of accepting them
+      // deterministically. The correct answer is checked separately above.
+      acceptedAnswers = [...new Set([correctAnswer, ...acceptedAnswers]
+        .filter(answer => containsEvidencePhrase(source, answer)))].slice(0, 8)
     }
 
     return Object.freeze({
