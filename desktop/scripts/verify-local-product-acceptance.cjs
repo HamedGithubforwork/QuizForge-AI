@@ -680,10 +680,16 @@ async function main() {
   }
 }
 
-main().catch(error => {
-  console.error(
-    'Local AI product acceptance failed:',
-    error?.message || error?.code || error?.name || 'unknown',
-  )
-  process.exitCode = 1
-})
+if (require.main === module) {
+  main().catch(error => {
+    console.error(
+      'Local AI product acceptance failed:',
+      error?.message || error?.code || error?.name || 'unknown',
+    )
+    process.exitCode = 1
+  })
+}
+
+// Reuse the same strict synthetic-fact oracle for repeatable benchmarks.
+// Importing this module never starts the model or reads user documents.
+module.exports = Object.freeze({ FIXTURES, validateSemanticQuiz })
