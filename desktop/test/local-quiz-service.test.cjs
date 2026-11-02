@@ -3131,3 +3131,79 @@ test('failed five-question source-backed batch retries with three concise candid
   assert.equal(new Set(quiz.questions.map(q => q.question)).size, 13)
   assert.ok(issues.some(issue => issue.attempt === 'primary' && issue.reason === 'json'))
 })
+
+test('real-Qwen-style weak-area recovery preserves four grounded questions and replaces a prior wording', async () => {
+  const recovered = withRetrySourceFacts(rawQuiz())
+  recovered.questions[0].question = 'Previously asked fact?'
+  const candidate = {
+    ...recovered.questions[0],
+    question: 'Which information does messenger RNA carry?',
+    source_pages: [RETRY_FACTS[5].page],
+    source_fact: RETRY_FACTS[5].text,
+    choices: ['coding information', 'glucose', 'ATP', 'proteins'],
+    correct_index: 0,
+    explanation: RETRY_FACTS[5].text,
+  }
+  let calls = 0
+  const rejected = { ...recovered.questions[0], choices: [...recovered.questions[0].choices] }
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      if (calls <= 2) return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
+      assert.equal(request.generationProfile, 'quiz-mcq-targeted-retry-v1')
+      assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+      assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
+      assert.match(request.messages.at(-1).content, /REJECTED CANDIDATES AND FILTER REASONS/)
+      assert.match(request.messages.at(-1).content, /Previously asked fact\?/)
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Only replacement candidates', questions: [
+          rejected,
+          { ...recovered.questions[1], question: 'Same source as already retained?' },
+          candidate,
+        ],
+      }) }
+    } },
+  })
+  const quiz = await service.generate({
+    pages: pages(), difficulty: 'medium', questionCount: 5,
+    questionType: 'multiple_choice',
+    practice: { avoidQuestions: ['Previously asked fact?'] },
+  })
+  assert.equal(calls, 4)
+  assert.equal(quiz.questions.length, 5)
+  assert.ok(!quiz.questions.some(q => q.question === 'Previously asked fact?'))
+  assert.ok(quiz.questions.some(q => q.question === candidate.question))
+  assert.equal(new Set(quiz.questions.map(q => q.question)).size, 5)
+  assert.ok(quiz.questions.every(q => q.source_pages.every(p => [2, 5].includes(p))))
+})
+
+test('weak-area recovery never admits repeated or fabricated replacements', async () => {
+  const recovered = withRetrySourceFacts(rawQuiz())
+  recovered.questions[0].question = 'Previously asked fact?'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate() {
+      calls++
+      if (calls <= 2) return { finishReason: 'stop',
+        text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
+      if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Invalid candidate replacements',
+        questions: [
+          { ...recovered.questions[0], question: 'Previously asked fact?' },
+          { ...recovered.questions[1], question: 'Same source fact in new words?' },
+          { ...recovered.questions[2], question: 'Invented citation?',
+            source_fact: 'This phrase was not present in the uploaded notes.' },
+        ],
+      }) }
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), difficulty: 'medium', questionCount: 5,
+    questionType: 'multiple_choice',
+    practice: { avoidQuestions: ['Previously asked fact?'] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 4, 'never loop endlessly or accept an unsafe fallback')
+})
