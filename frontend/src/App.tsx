@@ -460,6 +460,7 @@ function App() {
       }, {
         signal: controller.signal,
         cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+        onTimeout: () => controller.abort(),
       })
 
       if (!result.ok) {
@@ -608,6 +609,7 @@ function App() {
         }, {
           signal: localController?.signal,
           cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+          onTimeout: () => localController?.abort(),
         })
 
         if (!result.ok) {
