@@ -662,8 +662,12 @@ test('local generation honors website question counts and every question mode', 
     assert.equal(captured.jsonSchema.oneOf[0].properties.questions.minItems, request.questionCount)
     assert.equal(captured.jsonSchema.oneOf[0].properties.questions.maxItems, request.questionCount)
     if (request.questionType === 'short_answer' || request.questionType === 'mixed') {
-      assert.ok(quiz.questions.filter(question => question.question_type === 'short_answer')
-        .every(question => question.grading.grading_mode === 'exact'))
+      const shorts = quiz.questions.filter(question => question.question_type === 'short_answer')
+      assert.ok(shorts.every(question =>
+        question.grading.grading_mode === 'concepts' &&
+        question.grading.required_group_count === 1 &&
+        question.grading.answer_groups.length === 1 &&
+        question.grading.answer_groups[0].includes(question.correct_answer)))
     }
     if (request.questionType === 'mixed') {
       assert.match(captured.messages[0].content, /exact contiguous correct_answer phrase copied from its cited source page/i)
@@ -2617,7 +2621,7 @@ test('partial fallback works after an incomplete primary draft for 10 questions'
   })
   assert.equal(calls, 2)
   assert.equal(quiz.questions.length, 4)
-  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'exact'))
+  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'concepts'))
 })
 
 test('mixed practice can return two supported questions without inventing a third question type', async () => {

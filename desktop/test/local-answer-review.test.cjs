@@ -6,8 +6,8 @@ const { applyDuplicates, reviewQuizDistinctness } = require('../src/local-quiz-d
 const source = 'The nucleus stores most of the cell DNA and helps control cell activities.'
 const answer = 'stores most dna and protects it and controls cell activities'
 const question = { question_type: 'short_answer', question: 'What are the main functions of the nucleus?', correct_answer: 'stores most of the cell DNA and helps control cell activities', source_pages: [1] }
-const normalizeReview = (raw, index, source, answer, expected = question.correct_answer) =>
-  validateReview(raw, index, source, answer, expected)
+const normalizeReview = (raw, index, source, answer, expected = question.correct_answer, questionText = '') =>
+  validateReview(raw, index, source, answer, expected, questionText)
 const valid = { confidence: 0.95, reason: 'Both required functions are expressed.', uncertain: false, contradiction: false,
   concepts: [
     { concept: 'Stores DNA', expected_quote: 'stores most of the cell DNA', status: 'matched', source_quote: 'stores most of the cell DNA', answer_quote: 'stores most dna' },
@@ -370,4 +370,202 @@ test('additional contradictory claims still invalidate an otherwise complete ans
   assert.equal(normalizeReview(review, 0, extraSource, extraAnswer).verdict, 'incorrect')
   review.concepts[2].source_quote = 'The nucleus cannot release energy'
   assert.equal(normalizeReview(review, 0, extraSource, extraAnswer).verdict, 'uncertain')
+})
+
+
+test('native review grades a one-letter non-answer without running Qwen', async () => {
+  const expected = 'Controls what enters and leaves the cell. It is selectively permeable.'
+  const q = { question_type: 'short_answer',
+    question: 'What is the main function of the cell membrane?',
+    correct_answer: expected, accepted_answers: [expected], source_pages: [1] }
+  const study = { quiz: { questions: [q] },
+    pages: [{ pageNumber: 1, text: 'Cell membrane   ' + expected }] }
+  let calls = 0
+  const grader = createLocalAnswerReview({ provider: { generate: async () => { calls++; return null } } })
+  const result = await grader.review({ cases: [{ question_index: 0,
+    question: q.question, correct_answer: expected, student_answer: 's' }] }, study)
+  assert.equal(result.decisions[0].verdict, 'incorrect')
+  assert.equal(result.decisions[0].credit, 0)
+  assert.equal(calls, 0)
+})
+
+test('replay real pinned-Qwen nucleus rubric: source-grounded helper verb is not a missing function', () => {
+  const sourcePage = 'Nucleus   Stores most of the cell DNA and helps control cell activities.'
+  const expected = 'Stores most of the cell DNA and helps control cell activities.'
+  const student = 'stores most dna and protects it and controls cell activities'
+  // Exact model response captured by Windows product acceptance #41369144634.
+  // Qwen asserts control is present in its reason yet marks the corresponding
+  // rubric entry missing because the student did not repeat "helps".
+  const response = {
+    confidence: 0.95,
+    reason: "Student correctly identified storing DNA and controlling cell activities, but omitted 'helps control cell activities' in the expected answer.",
+    uncertain: false, contradiction: false,
+    concepts: [
+      { concept: 'Stores most of the cell DNA', status: 'matched',
+        expected_quote: 'Stores most of the cell DNA',
+        source_quote: sourcePage, answer_quote: 'stores most dna' },
+      { concept: 'Helps control cell activities', status: 'missing',
+        expected_quote: 'helps control cell activities',
+        source_quote: sourcePage, answer_quote: '' },
+    ],
+  }
+  const corrected = normalizeReview(response, 0, sourcePage, student, expected)
+  assert.equal(corrected.verdict, 'correct')
+  assert.equal(corrected.credit, 1)
+  assert.equal(corrected.concepts[1].status, 'matched')
+  assert.equal(corrected.concepts[1].answer_quote, 'controls cell activities')
+  assert.doesNotMatch(corrected.reason, /omitted/i)
+
+  // A different auxiliary verb must use the same grammatical rule; the
+  // correction must not depend on nucleus biology vocabulary.
+  const genericSource = 'The cooling system helps regulate room temperature.'
+  const genericExpected = 'helps regulate room temperature'
+  const generic = normalizeReview({ ...response, concepts: [
+    { concept: 'Regulate room temperature', status: 'missing',
+      expected_quote: genericExpected,
+      source_quote: genericSource, answer_quote: '' },
+  ] }, 0, genericSource, 'The system regulates room temperature', genericExpected)
+  assert.equal(generic.verdict, 'correct')
+  assert.equal(generic.concepts[0].answer_quote, 'regulates room temperature')
+
+  for (const variant of [
+    'stores most dna but does not control cell activities',
+    'stores most dna but never controls cell activities',
+    'stores most dna and controls some unrelated process',
+  ]) {
+    const declined = normalizeReview(response, 0, sourcePage, variant, expected)
+    assert.notEqual(declined.verdict, 'correct', variant)
+  }
+  assert.notEqual(normalizeReview({ ...response, uncertain: true }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...response, contradiction: true }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...response, confidence: 0.75 }, 0, sourcePage, student, expected).verdict, 'correct')
+  assert.equal(normalizeReview({ ...response, concepts: [
+    response.concepts[0],
+    { ...response.concepts[1], source_quote: 'The cell controls weather.' },
+  ] }, 0, sourcePage, student, expected).verdict, 'uncertain')
+  // A single correct function cannot become two required matches.
+  const oneFunction = normalizeReview({ ...response, concepts: [
+    { ...response.concepts[0], status: 'missing', answer_quote: '' },
+    response.concepts[1],
+  ] }, 0, sourcePage, 'controls cell activities', expected)
+  assert.equal(oneFunction.verdict, 'partial')
+  assert.equal(oneFunction.credit, 0.5)
+})
+
+test('real pinned-Qwen contradiction with uncertain flag scores incorrect only with verified proof', () => {
+  const page = 'Nucleus   Stores most of the cell DNA and helps control cell activities. ' +
+    'Mitochondrion   Releases usable energy from food during cellular respiration.'
+  const expected = 'Stores most of the cell DNA and helps control cell activities.'
+  const submitted = 'It stores DNA, controls cell activities and releases energy from food during cellular respiration.'
+  // Replay the fifth real-model answer from Windows CI; the original outcome
+  // was uncertain despite Qwen explicitly identifying the false extra claim.
+  const response = {
+    confidence: 0.75,
+    reason: 'Student correctly identified DNA storage and cell control but incorrectly included energy release from food, which is a function of mitochondria, not the nucleus.',
+    uncertain: true, contradiction: true,
+    concepts: [
+      { concept: 'Stores most of the cell DNA', status: 'matched',
+        expected_quote: 'Stores most of the cell DNA',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: 'It stores DNA' },
+      { concept: 'Helps control cell activities', status: 'matched',
+        expected_quote: 'helps control cell activities',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: 'controls cell activities' },
+      { concept: 'Releases energy from food during cellular respiration', status: 'contradicted',
+        expected_quote: '',
+        source_quote: 'Releases usable energy from food during cellular respiration.',
+        answer_quote: 'releases energy from food during cellular respiration' },
+    ],
+  }
+  const result = normalizeReview(response, 0, page, submitted, expected)
+  assert.equal(result.verdict, 'incorrect')
+  assert.equal(result.credit, 0)
+  assert.equal(result.confidence, 0.75)
+
+  const unknown = normalizeReview({ ...response,
+    reason: 'The source is ambiguous; cannot verify whether the extra claim is false.',
+  }, 0, page, submitted, expected)
+  assert.equal(unknown.verdict, 'uncertain')
+  const insufficientConfidence = normalizeReview({ ...response, confidence: 0.69 },
+    0, page, submitted, expected)
+  assert.equal(insufficientConfidence.verdict, 'uncertain')
+  const noContradictionEvidence = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+  ] }, 0, page, submitted, expected)
+  assert.equal(noContradictionEvidence.verdict, 'uncertain')
+  const forgedSource = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+    { ...response.concepts[2], source_quote: 'The nucleus cannot release energy.' },
+  ] }, 0, page, submitted, expected)
+  assert.equal(forgedSource.verdict, 'uncertain')
+  const forgedStudentQuote = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+    { ...response.concepts[2], answer_quote: 'never said that' },
+  ] }, 0, page, submitted, expected)
+  assert.equal(forgedStudentQuote.verdict, 'uncertain')
+})
+
+test('real Qwen membrane paraphrase: singular main function cannot demand redundant permeability jargon', () => {
+  const questionText = 'What is the main function of the cell membrane?'
+  const sourceText = 'Cell membrane   Controls what enters and leaves the cell. It is selectively permeable.'
+  const expected = 'Controls what enters and leaves the cell. It is selectively permeable.'
+  const student = 'acts as a barrier that regulates what goes in and out'
+  const raw = {
+    confidence: 0.95, uncertain: false, contradiction: false,
+    reason: 'Student answer correctly identifies the main function of the cell membrane as regulating what enters and leaves the cell, aligning with the source text.',
+    concepts: [
+      { concept: 'Controls what enters and leaves the cell', status: 'matched',
+        expected_quote: expected, source_quote: sourceText, answer_quote: student },
+      { concept: 'Selectively permeable', status: 'missing',
+        expected_quote: expected, source_quote: sourceText, answer_quote: '' },
+    ],
+  }
+  // The real Windows model response from acceptance run 41374049632 is
+  // structurally valid but incorrectly treats one function as two requirements.
+  const full = normalizeReview(raw, 0, sourceText, student, expected, questionText)
+  assert.equal(full.verdict, 'correct')
+  assert.equal(full.credit, 1)
+  assert.equal(full.concepts.length, 1, 'do not invent a second observed concept')
+  assert.match(full.reason, /selective regulation/i)
+
+  // This exception is not a general synonym engine: vague and incomplete
+  // answers, unrelated assertions or additional conflicting claims need Qwen.
+  for (const partial of [
+    'acts as a barrier',
+    'regulates what enters the cell',
+    'regulates what leaves the cell',
+    'protects the cell from harm',
+    'regulates what goes in and out but makes all the proteins',
+    'does not regulate what goes in and out',
+  ]) {
+    const different = { ...raw, concepts: [
+      { ...raw.concepts[0], answer_quote: partial }, raw.concepts[1],
+    ] }
+    const verdict = normalizeReview(different, 0, sourceText, partial, expected, questionText)
+    assert.notEqual(verdict.verdict, 'correct', partial)
+  }
+
+  for (const changedQuestion of [
+    'What are two functions of the cell membrane?',
+    'List the functions and properties of the membrane.',
+    'Which properties does the cell membrane have?',
+  ]) {
+    const result = normalizeReview(raw, 0, sourceText, student, expected, changedQuestion)
+    assert.equal(result.verdict, 'partial', changedQuestion)
+    assert.equal(result.credit, 0.5)
+  }
+  assert.equal(normalizeReview({ ...raw, uncertain: true }, 0,
+    sourceText, student, expected, questionText).verdict, 'uncertain')
+  assert.notEqual(normalizeReview({ ...raw, contradiction: true }, 0,
+    sourceText, student, expected, questionText).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...raw, confidence: 0.75 }, 0,
+    sourceText, student, expected, questionText).verdict, 'correct')
+  assert.equal(normalizeReview({ ...raw, concepts: [
+    { ...raw.concepts[0], source_quote: 'Invented source phrase' },
+    raw.concepts[1],
+  ] }, 0, sourceText, student, expected, questionText).verdict, 'uncertain')
+  assert.equal(normalizeReview(raw, 0,
+    'The cell wall provides rigid structural support.',
+    student, expected, questionText).verdict, 'uncertain')
 })

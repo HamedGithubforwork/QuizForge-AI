@@ -4,6 +4,7 @@ import type {
 } from '../types/api.generated.ts'
 import {
   normalizeShortAnswer,
+  fullAnswerConceptAliasMatches,
   type ShortAnswerGrade,
   type ShortAnswerGradingSpec,
 } from './shortAnswerGrader.ts'
@@ -105,6 +106,54 @@ export function buildAiAnswerReviewKey(
   ].join('\u241f')
 }
 
+/**
+ * Local-only fast decisions. Reuse the website's verified deterministic
+ * grader for exact/numeric answers and compact typo-tolerant concept aliases.
+ * Leave meaningful paraphrases and answers with extra claims to on-device
+ * Qwen. Do not apply this policy to the website/cloud review path.
+ */
+export function localDeterministicAnswerReview(
+  question: AiAnswerReviewQuestion,
+  answer: string,
+  grade: ShortAnswerGrade,
+  questionIndex: number,
+): AiAnswerReviewDecision | null {
+  const normalized = normalizeShortAnswer(answer)
+  if (!normalized) return null
+  const accepted = [question.correct_answer, ...question.accepted_answers]
+    .map(normalizeShortAnswer).filter(Boolean)
+  const exact = accepted.includes(normalized)
+  // 'concepts' uses the same validated answer groups as the website.
+  // A compact fuzzy match is safe only when the whole response has the
+  // same number of tokens as a recognized alias. Longer responses might
+  // append a contradictory claim; send those to the semantic reviewer.
+  const compactConceptMatch = question.grading?.grading_mode === 'concepts' &&
+    grade.correct && !grade.borderline &&
+    fullAnswerConceptAliasMatches(answer, question.grading.answer_groups)
+  const trustedDeterministic = grade.correct && !grade.borderline &&
+    (exact || ['numeric', 'exact'].includes(question.grading?.grading_mode ?? '') ||
+      compactConceptMatch)
+  if (trustedDeterministic) return {
+    question_index: questionIndex, verdict: 'correct', credit: 1, confidence: 1,
+    engine: 'local', concepts: [],
+    reason: 'Local matching: your answer matches a supported answer without needing Qwen.',
+  }
+  // Only a descriptive question with a long expected answer can safely
+  // reject a lone unrelated character without invoking the language model.
+  // Do not reject symbols in concise factual, numeric or unit questions.
+  const symbolicQuestion = /\b(?:symbol|letter|abbreviat\w*|variable|notation|formula|unit|base pair|initial)\b/i
+    .test(question.question)
+  const unsupportedLetter = /^[a-z]$/.test(normalized) && !symbolicQuestion &&
+    normalizeShortAnswer(question.correct_answer).length >= 4 &&
+    !accepted.includes(normalized) && !grade.correct
+  if (unsupportedLetter) return {
+    question_index: questionIndex, verdict: 'incorrect', credit: 0, confidence: 1,
+    engine: 'local', concepts: [],
+    reason: 'Local matching: a single unrelated letter does not answer this descriptive question.',
+  }
+  return null
+}
+
 export function shouldRequestAiAnswerReview(
   question: AiAnswerReviewQuestion,
   answer: string,
@@ -113,14 +162,11 @@ export function shouldRequestAiAnswerReview(
 ) {
   const grading = question.grading
   if (localReview) {
-    const exact = [question.correct_answer, ...question.accepted_answers]
-      .some(value => normalizeShortAnswer(value) === normalizeShortAnswer(answer))
-    // A fully matched exact-mode list with tightly validated terminology
-    // has no need for a second probabilistic review. This also prevents a
-    // lower-confidence model response from overriding demonstrably equivalent
-    // source-backed terms such as CO2 and carbon dioxide.
-    return Boolean(answer.trim()) && !exact &&
-      !(['numeric', 'exact'].includes(grading?.grading_mode ?? '') && deterministicGrade.correct)
+    // Local AI is the second stage, not the default grader. Do not call Qwen
+    // for clear deterministic matches or clearly uninformative one-letter
+    // replies. Meaningful paraphrases and extra claims still reach Qwen.
+    return Boolean(answer.trim()) &&
+      !localDeterministicAnswerReview(question, answer, deterministicGrade, 0)
   }
 
   if (

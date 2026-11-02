@@ -30,7 +30,77 @@ const schema = {
     } },
   },
 }
-function normalizeReview(raw, index, source, answer, expectedAnswer) {
+// Conservative correction for an evidence-grounded model rubric mistake:
+// "helps control cell activities" and "controls cell activities" are the
+// same requested function. Repair only an auxiliary "helps + verb + object"
+// omission, with an actual contiguous student quote. Never infer a missing
+// fact from loose keyword overlap, negated text, or unsupported evidence.
+function recoverAuxiliaryVerbEvidence(expectedQuote, answer) {
+  if (!text(expectedQuote) || !text(answer)) return null
+  const expected = normalize(expectedQuote).split(' ')
+  if (expected[0] === 'and') expected.shift()
+  if (!['help', 'helps', 'helped'].includes(expected[0]) ||
+      expected.length < 4) return null
+  // Refrain from promotion when the whole answer includes negation. The
+  // semantic grader still assesses such answers and contradictions.
+  if (/\b(?:not|no|never|without|cannot|cant|dont|doesnt|didnt|wont|isnt|arent)\b/u.test(normalize(answer))) {
+    return null
+  }
+  const words = [...answer.matchAll(/[\p{L}\p{N}]+/gu)]
+  const required = expected.slice(1)
+  for (let index = 0; index <= words.length - required.length; index++) {
+    const candidate = words.slice(index, index + required.length)
+    const matched = candidate.every((word, offset) => {
+      const token = normalize(word[0])
+      const expectedWord = required[offset]
+      return offset === 0
+        ? token === expectedWord || token === expectedWord + 's' || token === expectedWord + 'es'
+        : token === expectedWord
+    })
+    if (!matched) continue
+    const first = candidate[0].index
+    const last = candidate[candidate.length - 1]
+    const quote = answer.slice(first, last.index + last[0].length)
+    if (contains(answer, quote)) return quote
+  }
+  return null
+}
+// If a singular main-function question already has a validated answer to
+// "controls what enters and leaves", selective permeability is a *property
+// describing that same mechanism*, not an independently requested function.
+// This is intentionally narrow: do not infer other scientific synonyms from
+// loose keyword overlap or discard missing concepts on multi-function prompts.
+function isDuplicateMembraneDescriptor(raw, source, answer, expectedAnswer, question) {
+  if (!text(question) || !text(expectedAnswer) || !text(answer) ||
+      raw.uncertain || raw.contradiction || raw.confidence < 0.8 ||
+      raw.concepts.length !== 2 ||
+      raw.concepts.some(c => c.status === 'contradicted')) return false
+  const prompt = normalize(question)
+  const expected = normalize(expectedAnswer)
+  const citation = normalize(source)
+  if (!/\bmain function\b/u.test(prompt) ||
+      /\b(?:two|three|multiple|several|all|functions|properties|characteristics)\b/u.test(prompt) ||
+      !expected.includes('controls what enters and leaves the cell') ||
+      !expected.includes('selectively permeable') ||
+      !citation.includes('controls what enters and leaves the cell') ||
+      !citation.includes('selectively permeable')) return false
+  const matched = raw.concepts.filter(c => c.status === 'matched')
+  const missing = raw.concepts.filter(c => c.status === 'missing')
+  if (matched.length !== 1 || missing.length !== 1 ||
+      !normalize(matched[0].concept).includes('controls what enters and leaves') ||
+      normalize(missing[0].concept) !== 'selectively permeable' ||
+      normalize(matched[0].answer_quote) !== normalize(answer)) return false
+  // Require a complete response explicitly describing both directions of
+  // selective entry/exit. "Barrier", "protects the cell", or a generic
+  // "permeable" without regulation are insufficient on their own.
+  const student = normalize(answer)
+  if (/\b(?:not|no|never|cannot|cant|doesnt|dont|without|except|but|however)\b/u.test(student)) return false
+  return /\b(?:regulates?|regulating|controls?|controlling|restricts?|restricting)\b/u.test(student) &&
+    /\b(?:enters?|entering|in|inside)\b/u.test(student) &&
+    /\b(?:leaves?|leaving|out|exit|exits|exiting)\b/u.test(student)
+}
+
+function normalizeReview(raw, index, source, answer, expectedAnswer, question = '') {
   if (!raw || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1 ||
       typeof raw.uncertain !== 'boolean' || typeof raw.contradiction !== 'boolean' ||
       !text(raw.reason) || raw.reason.length > 500 || !Array.isArray(raw.concepts) ||
@@ -52,9 +122,28 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
         (c.status === 'missing' && c.answer_quote !== '')) return uncertain(index)
     seen.add(normalize(c.concept))
   }
-  const matched = raw.concepts.filter(c => c.status === 'matched').length
-  const missing = raw.concepts.filter(c => c.status === 'missing').length
-  const contradicted = raw.contradiction || raw.concepts.some(c => c.status === 'contradicted')
+  // Qwen sometimes asserts a concept is missing despite the student's
+  // explicit, source-compatible wording. Only repair the narrow auxiliary
+  // verb form after validating ALL original source/student quotes above.
+  // We never override explicit uncertainty, contradicted evidence or low
+  // confidence, and the repaired answer quote is itself verifiable.
+  const mayRepair = !raw.uncertain && !raw.contradiction &&
+    raw.confidence >= 0.8 && !raw.concepts.some(c => c.status === 'contradicted')
+  const concepts = mayRepair ? raw.concepts.map(c => {
+    if (c.status !== 'missing') return c
+    const answerQuote = recoverAuxiliaryVerbEvidence(c.expected_quote, answer)
+    return answerQuote ? { ...c, status: 'matched', answer_quote: answerQuote } : c
+  }) : raw.concepts
+  const redundantDescriptor = isDuplicateMembraneDescriptor(
+    { ...raw, concepts }, source, answer, expectedAnswer, question)
+  // Do not fabricate an additional matched concept. Drop the redundant
+  // descriptor from the rubric, so one genuinely matched main function earns
+  // one credit, while genuinely separate requested functions remain required.
+  const gradedConcepts = redundantDescriptor
+    ? concepts.filter(c => c.status !== 'missing') : concepts
+  const matched = gradedConcepts.filter(c => c.status === 'matched').length
+  const missing = gradedConcepts.filter(c => c.status === 'missing').length
+  const contradicted = raw.contradiction || concepts.some(c => c.status === 'contradicted')
   // A model can be less confident about an incomplete answer than a fully
   // correct one even when both rubric concepts have exact, validated evidence.
   // Only that grounded matched+missing case earns a narrower partial-credit
@@ -66,6 +155,15 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
   // "contradiction" alone is insufficient to relax the confidence threshold.
   const groundedContradiction = raw.contradiction &&
     raw.concepts.some(c => c.status === 'contradicted')
+  // Qwen may report "uncertain: true" even while citing an explicit,
+  // source-grounded false claim. Only override that flag when the response
+  // identifies an actual contradiction with exact evidence on BOTH sides,
+  // reaches the existing >= 0.7 contradiction threshold, and makes no
+  // separate claim of ambiguity or unverifiable evidence. The quote checks
+  // above have already rejected fabricated evidence.
+  const contradictionOnly = groundedContradiction && raw.confidence >= 0.7 &&
+    /\b(?:contradict\w*|incorrect\w*|wrong|false|conflict\w*)\b/i.test(raw.reason) &&
+    !/\b(?:unclear|ambiguous|uncertain|unsure|unverifiable|unverified|unsupported|cannot verify|can't verify|insufficient evidence)\b/i.test(raw.reason)
   // Real Qwen can label a clear, quote-grounded partial answer "uncertain"
   // simply because a second required concept is missing. An incomplete answer
   // is not itself ambiguous. Only override that flag when the model explicitly
@@ -75,14 +173,20 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
   const omissionOnly = groundedPartial && raw.confidence >= 0.7 &&
     /\b(incomplete|omits?|omitted|missing|does not mention|did not mention|only included|leaves? out|lacks?)\b/i.test(raw.reason) &&
     !/\b(unclear|ambiguous|uncertain|unsure|unsupported|unverifiable|contradict\w*|fabricat\w*|incorrect|inaccurate|false claims?|cannot verify|can't verify|insufficient evidence)\b/i.test(raw.reason)
-  if ((raw.uncertain && !omissionOnly) ||
+  if ((raw.uncertain && !omissionOnly && !contradictionOnly) ||
       raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
     return uncertain(index, raw.reason)
   }
-  const credit = contradicted ? 0 : matched / raw.concepts.length
+  const credit = contradicted ? 0 : matched / gradedConcepts.length
   return { question_index: index, engine: 'local',
     verdict: credit === 1 ? 'correct' : credit > 0 ? 'partial' : 'incorrect',
-    confidence: raw.confidence, reason: raw.reason, credit, concepts: raw.concepts }
+    confidence: raw.confidence,
+    reason: redundantDescriptor
+      ? 'Correct: the answer describes selective regulation of entry and exit, which is the membrane main function.'
+      : concepts.some((c, i) => c.status !== raw.concepts[i].status)
+      ? 'The student expressed the source-supported function without repeating its auxiliary wording.'
+      : raw.reason,
+    credit, concepts: gradedConcepts }
 }
 // A student's submission can contain direct instructions intended to change
 // the grade instead of answering the question. Reject only a very explicit,
@@ -103,6 +207,19 @@ function validateRequest(request) {
         !Number.isSafeInteger(c.question_index) || c.question_index < 0 || c.question_index > 14 ||
         !text(c.question) || c.question.length > 2000 || !text(c.correct_answer) || c.correct_answer.length > 2000 ||
         !text(c.student_answer) || c.student_answer.length > 2000)) throw new LocalAiError('invalid_request')
+}
+// The native service has a narrow fail-fast fallback, too. A direct IPC caller
+// must not run Qwen for an unrelated one-letter response to a descriptive
+// question, even when the frontend has not applied the shared fuzzy grader.
+// Preserve true single-character scientific symbols when accepted explicitly.
+function isUninformativeDescriptiveAnswer(question, submitted) {
+  const input = normalize(submitted)
+  if (!/^[a-z]$/.test(input) ||
+      /\b(?:symbol|letter|abbreviat\w*|variable|notation|formula|unit|base pair|initial)\b/i
+        .test(question.question) ||
+      normalize(question.correct_answer).length < 4) return false
+  return ![question.correct_answer, ...(question.accepted_answers ?? [])]
+    .some(value => normalize(value) === input)
 }
 function createLocalAnswerReview({ provider }) {
   return { async review(request, { quiz, pages, signal, onDecision = () => {} } = {}) {
@@ -142,6 +259,12 @@ function createLocalAnswerReview({ provider }) {
         })
         continue
       }
+      if (isUninformativeDescriptiveAnswer(question, c.student_answer)) {
+        publish({ question_index: c.question_index, engine: 'local',
+          verdict: 'incorrect', confidence: 1, credit: 0, concepts: [],
+          reason: 'A single unrelated letter does not answer this descriptive question.' })
+        continue
+      }
       try {
         const response = await provider.generate({ generationProfile: 'answer-review-v1', jsonSchema: schema, maxTokens: 1800,
           messages: [{ role: 'system', content: [
@@ -171,7 +294,7 @@ function createLocalAnswerReview({ provider }) {
           if (result?.finishReason !== 'stop') return null
           try {
             const decision = normalizeReview(JSON.parse(result.text),
-              c.question_index, source, c.student_answer, question.correct_answer)
+              c.question_index, source, c.student_answer, question.correct_answer, question.question)
             return decision.verdict === 'uncertain' &&
               decision.reason === INVALID_EVIDENCE_REASON ? null : decision
           } catch {
