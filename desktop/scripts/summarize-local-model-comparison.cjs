@@ -70,7 +70,11 @@ async function main() {
   }
   await fs.writeFile(path.join(directory, 'comparison.json'), JSON.stringify(comparison, null, 2) + '\n')
   console.log('MODEL COMPARISON ' + JSON.stringify(comparison))
-  if (summaries.some(x => x.status !== 'measured')) process.exitCode = 1
+  // Infrastructure completion is not a successful quality benchmark.
+  // Fail the workflow after writing the evidence if any candidate fails the
+  // required five distinct source-grounded questions.
+  if (summaries.some(x => x.status !== 'measured' || x.failed > 0 ||
+      x.attempts < 5 || x.passed !== x.attempts)) process.exitCode = 1
 }
 
 if (require.main === module) main().catch(error => {
