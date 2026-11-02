@@ -86,6 +86,11 @@ jobs:
         run: |
           npm ci --prefix ../frontend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # This stacked preview PR does not target main, so the general CI
+          # frontend test workflow will not run on it. Exercise shared fuzzy
+          # grading and local routing tests before packaging the installer.
+          npm test --prefix ../frontend
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build --prefix ../frontend
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-local-ui.cjs ../frontend/dist
