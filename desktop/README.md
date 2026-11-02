@@ -173,13 +173,49 @@ not complete account acceptance, authenticated updates, or offline synchronizati
 
 ## Desktop diagnostics
 
-Open **Help → Desktop diagnostics…** to inspect app/Electron/Chromium versions,
-platform/architecture, packaged status and this session's page-load and renderer-exit
-counts. Choose **Copy** to put the displayed report on your clipboard for support.
-Closing the dialog does not copy anything; nothing uploads automatically. The report
-contains no URLs, error messages, account identifiers, study content, file paths,
-tokens or environment variables. Counts reset when the app closes. This is a minimal
-in-memory support report, not persistent crash dumps or telemetry.
+Open **Help → Desktop diagnostics… → Save report…** to save a JSON report after a
+failed quiz, or choose **Copy**. The report includes app/Electron/Chromium versions,
+session page-load and renderer-exit counts, and the latest 300 diagnostic events.
+History is saved locally under the application's user-data `diagnostics/history.json`
+and survives restarts. Nothing uploads automatically.
+
+Local PDF and quiz attempts have timestamps, random operation IDs, selected quiz
+settings, durations and success/failure codes. Runtime events identify verification,
+startup, inference and cleanup failures, selected CPU/GPU layer counts, startup
+fallbacks, measured inference timing/token counts, and fixed quiz-validation reasons.
+A start with no completion before the next session can identify an interrupted
+attempt; it is not itself proof of a crash. A failed storage write is shown as
+`history.persistence: unavailable`; logging failures never fail quiz generation.
+
+The report excludes raw error messages, URLs, account identifiers, PDF text,
+questions/answers, filenames, file paths, credentials and process output. Saved
+history is re-sanitized on load and bounded to avoid unbounded disk growth. This is
+an event history, not a native crash dump. If the whole app freezes, restart it and
+export the retained history. Diagnostic records cannot recover failures from older
+builds that did not record them.
+
+### Detailed Local AI debug capture
+
+To investigate a rejected question, choose **Help → Record next Local AI quiz for
+debugging…**, confirm, then generate the quiz with the failing settings. Choose
+**Help → Save detailed Local AI debug report…** afterward. This separate report
+contains rejected question text, generated answers and bounded cited-page excerpts.
+It records one attempt in memory only (up to 30 rejections / 200,000 characters),
+and is cleared on sign-out, account replacement or app shutdown. It is never
+included in normal diagnostics or uploaded automatically. Review it before sharing.
+
+For generalized quizzes rejected because of a short-answer format or grounding
+failure, the existing single retry now requests exact source evidence and may
+return fewer questions. Invalid retry items are excluded independently; accepted
+retry items retain all existing checks, including exact source quotes, supported
+answers and distinct evidence. A mixed partial result may lack a type when no
+valid question of that type survived. Zero validated questions remains an error.
+The original draft is still regenerated once; this does not yet perform targeted
+answer repair of the original draft.
+
+The Windows acceptance workflow also runs the fixed three-page biology fixture
+with 15 questions, Hard, Mixed and retains its rejection evidence. These are
+non-private fixture contents; user debug reports are never uploaded by CI.
 
 ## Native browser sign-in acceptance (preview 0.1.1)
 

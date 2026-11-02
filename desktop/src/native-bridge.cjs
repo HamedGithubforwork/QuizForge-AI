@@ -55,6 +55,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       const session = getSession(), account = getAccount()
       if (session?.status().signingIn || !canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
+      getLocalAi()?.clearDetailedDebug?.()
       account.clear()
       const operation = session.signIn(provider)
       const generation = session.generation()
@@ -65,7 +66,7 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
-    signOut: async () => { await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
+    signOut: async () => { getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
       if (!account) throw new Error('Sign in to your desktop account first.')

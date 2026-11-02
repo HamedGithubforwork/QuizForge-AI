@@ -8,7 +8,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve))
 
 for (const windowsStore of [false, true]) test(`native menu drives browser/callback/refresh/revoke; Store=${windowsStore}`, async () => {
   const app = new EventEmitter(), menus = new Map(), reports = [], opened = [], calls = []
-  let window, quits=0
+  let window, quits=0, diagnosticsDirectory
   Object.assign(app,{isPackaged:true,getVersion:()=> '0.1.0',enableSandbox(){},requestSingleInstanceLock:()=>true,
     whenReady:()=>Promise.resolve(),isReady:()=>true,getPath:()=>require('node:os').tmpdir(),isDefaultProtocolClient:()=>true,setAppUserModelId(){},quit:()=>quits++})
   class Window extends EventEmitter {
@@ -34,12 +34,13 @@ for (const windowsStore of [false, true]) test(`native menu drives browser/callb
       assert.equal(windowsStore,false,'Store package must never read an external updater feed');return false
     }},
     './native-auth-client.cjs':{createNativeAuthClient:async()=>client},
-    './guards.cjs':{guardContents(){}},'./diagnostics.cjs':{createDiagnostics:()=>({attach(){}}),showDiagnostics:async()=>{}}}
+    './guards.cjs':{guardContents(){}},'./diagnostics.cjs':{createDiagnostics:()=>({attach(){},startPersistence(directory){diagnosticsDirectory=directory},record(){}}),showDiagnostics:async()=>{}}}
   const context={require:name=>Object.hasOwn(overrides,name)?overrides[name]:name.startsWith('node:')?require(name):require('../src/'+name.slice(2)),
     __dirname:require('node:path').dirname(require.resolve('../src/main.cjs')),
     process:{versions:{electron:'44.5.0',chrome:'1.0.0'},platform:'win32',windowsStore,arch:'x64',argv:['app.exe']},setImmediate,setTimeout,clearTimeout,setInterval,clearInterval}
   vm.runInNewContext(readFileSync(require.resolve('../src/main.cjs'),'utf8'),context)
   await tick()
+  assert.equal(diagnosticsDirectory, require('node:path').join(app.getPath('userData'), 'diagnostics'))
   assert.match(window.options.webPreferences.preload,/preload.cjs$/)
   menus.get('desktop-updates').click()
   await tick()
