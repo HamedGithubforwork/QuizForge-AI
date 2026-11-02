@@ -53,7 +53,7 @@ test('source quote and known synthetic oracle cannot be bypassed by correct-look
     plans[0], selected, 'multiple_choice').reason, 'duplicate_choices')
   assert.equal(inspectCandidate({ ...okay, source_fact: 'Aster is made of unobtainium' },
     plans[0], selected, 'multiple_choice').reason, 'unsupported_quote_or_answer')
-  assert.equal(inspectCandidate({ ...okay, question: 'What color is Boreal?', explanation: 'Boreal is blue.' },
+  assert.equal(inspectCandidate({ ...okay, choices: ['material', 'glass', 'zinc', 'tin'] },
     plans[0], selected, 'multiple_choice').reason, 'semantic_oracle_mismatch')
   assert.equal(inspectCandidate({ ...okay, question: 'What material is Aster made from?',
     explanation: 'Aster is cobalt.' }, plans[0], selected, 'multiple_choice').reason,
