@@ -1396,9 +1396,16 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
       accepted_answers: Object.freeze(acceptedAnswers),
       grading: Object.freeze({
         grading_version: 2,
-        grading_mode: item.question_type === 'short_answer' ? 'exact' : 'none',
-        answer_groups: Object.freeze([]),
-        required_group_count: 0,
+        // Reuse the website's deterministic concept/alias matcher for local
+        // short answers. Accepted aliases were already checked against the
+        // cited source above. Keep ONE group unless a distinct multi-concept
+        // rubric is actually supplied and verified: splitting prose on "and"
+        // would falsely turn explanations into separate requirements.
+        grading_mode: item.question_type === 'short_answer' ? 'concepts' : 'none',
+        answer_groups: Object.freeze(item.question_type === 'short_answer'
+          ? [Object.freeze([...new Set([correctAnswer, ...acceptedAnswers])])]
+          : []),
+        required_group_count: item.question_type === 'short_answer' ? 1 : 0,
         numeric_value: 0,
         numeric_tolerance: 0,
         numeric_unit: '',
