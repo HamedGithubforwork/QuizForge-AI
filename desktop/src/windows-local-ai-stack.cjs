@@ -369,6 +369,14 @@ function createWindowsLocalAiStack({
     clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
+      // Local grading requires the exact quiz and source from this process.
+      // An old/history/cloud quiz or an account reset cannot be reviewed with
+      // a missing source. Report that explicitly, rather than booting Qwen
+      // only to give a generic unavailable/uncertain result.
+      if (!reviewContext?.quiz || !Array.isArray(reviewContext.pages)) {
+        diagnostic('answer_review_failed', { reason: 'review_context_missing' })
+        throw new LocalAiError('review_context_missing')
+      }
       return traceOperation('answer_review', {}, () => runQuiz(async signal => {
         reviewProgressState = { total: request.cases.length, decisions: [] }
         const context = { ...reviewContext, signal, onDecision: decision => {

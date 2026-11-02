@@ -19,7 +19,7 @@ function validLocalDocumentRequest(value) {
   return true
 }
 
-function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, openAccountWebsite }) {
+function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, onLocalReviewFailure = () => {}, openAccountWebsite }) {
   function trusted(event) {
     const contents = getWindow()?.webContents
     const frame = event.senderFrame
@@ -185,18 +185,31 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       }
     },
     reviewLocalAnswers: async value => {
-      try { return { ok: true, ...await localAi().reviewLocalAnswers(value) } }
-      catch (error) {
-        // Expose only fixed operational codes, never prompts, model output,
-        // source text, exception messages, file paths or account information.
+      // Fail with a diagnostic reason BEFORE invoking the model. Previously
+      // both expired desktop identity and an absent model manager were caught
+      // as the unhelpful, generic "review_unavailable" response.
+      let reason = null
+      try {
+        const account = getAccount()?.current()
+        if (!account?.userId || account.enrolled !== true) {
+          reason = 'account_unavailable'
+        } else {
+          const manager = getLocalAi()
+          if (!manager?.reviewLocalAnswers) reason = 'runtime_unavailable'
+          else return { ok: true, ...await manager.reviewLocalAnswers(value) }
+        }
+      } catch (error) {
+        // Do not return exception text, model output, study notes or paths.
         const allowed = new Set([
           'busy', 'cancelled', 'timed_out', 'model_missing', 'invalid_model',
           'runtime_invalid', 'runtime_unavailable', 'invalid_request', 'invalid_response',
+          'review_context_missing',
         ])
-        const reason = allowed.has(error?.code) ? error.code
+        reason = allowed.has(error?.code) ? error.code
           : error?.name === 'TimeoutError' ? 'timed_out' : 'review_unavailable'
-        return { ok: false, error: reason }
       }
+      try { onLocalReviewFailure(reason) } catch {}
+      return { ok: false, error: reason }
     },
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),

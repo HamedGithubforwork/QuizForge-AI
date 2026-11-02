@@ -307,3 +307,37 @@ test('cancelSignIn IPC resets only the pending attempt and preserves Local AI wo
   assert.equal(localCleanup, 0)
   await assert.rejects(handlers['qfn:cancelSignIn'](event, 'extra'))
 })
+
+test('Local AI grading explains expired account, lost review context and unknown failures safely', async () => {
+  const handlers = {}, failures = []
+  const frame = { url: 'https://quizfromnotes.com/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let account = null
+  let reviewFailure = Object.assign(new Error('private source text from C:\\secret.pdf'), { code: 'review_context_missing' })
+  const local = { reviewLocalAnswers: async () => { throw reviewFailure } }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }), getSession: () => ({}),
+    getAccount: () => ({ current: () => account }),
+    getLocalAi: () => local,
+    onLocalReviewFailure: reason => failures.push(reason),
+    openAccountWebsite: () => {},
+  })
+  const event = { sender: contents, senderFrame: frame }
+  const request = { cases: [{ question_index: 0, question: 'What is the main function of the cell membrane?',
+    correct_answer: 'Controls what enters and leaves the cell. It is selectively permeable.',
+    student_answer: 's' }] }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'account_unavailable' })
+  account = { userId: 'user', enrolled: true }
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_context_missing' })
+  reviewFailure = new Error('Sensitive PDF content must remain private')
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: false, error: 'review_unavailable' })
+  local.reviewLocalAnswers = async () => ({ decisions: [{ question_index: 0, verdict: 'incorrect', credit: 0 }] })
+  assert.deepEqual(await handlers['qfn:reviewLocalAnswers'](event, request),
+    { ok: true, decisions: [{ question_index: 0, verdict: 'incorrect', credit: 0 }] })
+  assert.deepEqual(failures, ['account_unavailable', 'review_context_missing', 'review_unavailable'])
+  assert.equal(JSON.stringify(failures).includes('Sensitive PDF'), false)
+})
