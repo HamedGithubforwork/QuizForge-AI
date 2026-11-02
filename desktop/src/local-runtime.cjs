@@ -151,6 +151,7 @@ function createLocalRuntime({
   accelerationMode = () => 'cpu',
   gpuDevice = () => 'Vulkan0',
   cpuThreadCount = boundedCpuThreads,
+  contextTokens = () => 12288,
   gpuLayerCount = () => 99,
   gpuFallbackLayers = () => [0],
   onGpuStartupFailure = () => {},
@@ -186,6 +187,8 @@ function createLocalRuntime({
       const selectedGpuDevice = gpuDevice()
       const gpuLayers = Number.isSafeInteger(requestedLayers) && requestedLayers > 0 && requestedLayers <= 99
         ? requestedLayers : 99
+      const proposedContext = contextTokens()
+      const contextSize = proposedContext === 8192 ? 8192 : 12288
       const gpuArgs = mode === 'gpu'
         ? ['--device', typeof selectedGpuDevice === 'string' && /^Vulkan\d+$/.test(selectedGpuDevice)
           ? selectedGpuDevice : 'Vulkan0', '-ngl', String(gpuLayers)]
@@ -194,7 +197,7 @@ function createLocalRuntime({
       stage = 'startup'
       diagnostic('runtime_launch', { acceleration: mode, layers: mode === 'gpu' ? gpuLayers : 0 })
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
-        '-c', '12288', '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
+        '-c', String(contextSize), '-t', threads, ...gpuArgs, '-np', '1', '--no-ui', '--no-agent',
         '--no-context-shift', '--cors-origins', 'https://local-model.quizfromnotes.invalid', '--alias', alias],
       { cwd: directory, windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment(key) })
       const offloadTracker = trackGpuLayerOffload(child)
