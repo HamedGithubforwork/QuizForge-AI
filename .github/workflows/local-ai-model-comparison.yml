@@ -17,6 +17,9 @@ on:
       - desktop/scripts/benchmark-small-qwen-adaptive.cjs
       - desktop/test/local-small-qwen-adaptive.test.cjs
       - desktop/test/local-small-qwen-batch.test.cjs
+      - desktop/scripts/benchmark-qwen-minimal.cjs
+      - desktop/test/local-qwen-minimal.test.cjs
+      - desktop/test/local-qwen-french-context.test.cjs
       - desktop/scripts/inspect-synthetic-quiz.cjs
       - desktop/test/local-benchmark-inspection.test.cjs
       - desktop/scripts/summarize-local-model-comparison.cjs
@@ -57,7 +60,7 @@ jobs:
       - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore verified baseline model cache
         if: matrix.model == 'qwen3-4b-q4-k-m'
@@ -105,8 +108,10 @@ jobs:
                 Write-Warning "Scaffolded diagnostics incomplete; preserving original baseline result for $env:BENCHMARK_MODEL_ID"
               }
             }
-            # Adaptive path is single-fact for 0.6B; 1.7B tries two facts per
-            # request with independent per-fact validation and one single retry.
+            # Experimental Qwen: 0.6B returns question+answer only, with
+            # code-owned source/options; 1.7B batches English source facts
+            # and uses context-aware single-fact generation for French.
+            # One retry maximum per fact; the production 4B path is unchanged.
             if ($env:BENCHMARK_MODEL_ID -in @('qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m')) {
               node desktop/scripts/benchmark-small-qwen-adaptive.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID-adaptive.json" $env:BENCHMARK_MODEL_ID
               if ($LASTEXITCODE -ne 0) {
