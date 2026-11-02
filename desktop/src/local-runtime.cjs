@@ -180,7 +180,9 @@ function createLocalRuntime({
       const key = randomBytesFn(32).toString('hex')
       const alias = 'qfn-' + randomBytesFn(16).toString('hex')
       const port = await freePortFn()
-      const threads = String(cpuThreadCount())
+      const selectedThreads = cpuThreadCount()
+      const threads = String(Number.isSafeInteger(selectedThreads) &&
+        selectedThreads > 0 && selectedThreads <= 16 ? selectedThreads : boundedCpuThreads())
       const selectedGpuDevice = gpuDevice()
       const gpuLayers = Number.isSafeInteger(requestedLayers) && requestedLayers > 0 && requestedLayers <= 99
         ? requestedLayers : 99
@@ -253,6 +255,7 @@ function createLocalRuntime({
             elapsedMs: performance.now() - generationStarted,
             completionTokens: result?.usage?.completion_tokens ?? null,
             promptTokens: result?.usage?.prompt_tokens ?? null,
+            threads: Number(threads),
           }))
         } catch {}
         return result
