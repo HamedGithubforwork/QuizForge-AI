@@ -6,8 +6,8 @@ const { applyDuplicates, reviewQuizDistinctness } = require('../src/local-quiz-d
 const source = 'The nucleus stores most of the cell DNA and helps control cell activities.'
 const answer = 'stores most dna and protects it and controls cell activities'
 const question = { question_type: 'short_answer', question: 'What are the main functions of the nucleus?', correct_answer: 'stores most of the cell DNA and helps control cell activities', source_pages: [1] }
-const normalizeReview = (raw, index, source, answer, expected = question.correct_answer) =>
-  validateReview(raw, index, source, answer, expected)
+const normalizeReview = (raw, index, source, answer, expected = question.correct_answer, questionText = '') =>
+  validateReview(raw, index, source, answer, expected, questionText)
 const valid = { confidence: 0.95, reason: 'Both required functions are expressed.', uncertain: false, contradiction: false,
   concepts: [
     { concept: 'Stores DNA', expected_quote: 'stores most of the cell DNA', status: 'matched', source_quote: 'stores most of the cell DNA', answer_quote: 'stores most dna' },
