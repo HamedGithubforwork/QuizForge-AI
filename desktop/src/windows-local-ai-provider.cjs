@@ -110,7 +110,7 @@ function deepSeekResponseShape(response) {
   let outputKind = 'missing_content'
   if (typeof raw === 'string') {
     if (!raw.trim()) outputKind = 'empty_content'
-    else if (/^\\s*<think>/.test(raw) && !/<\\/think>/.test(raw)) outputKind = 'unclosed_think'
+    else if (raw.trimStart().startsWith('<think>') && !raw.includes('</think>')) outputKind = 'unclosed_think'
     else if (typeof finalText !== 'string' || !finalText.trim()) outputKind = 'reasoning_only'
     else {
       try { JSON.parse(finalText); outputKind = 'valid_json' }
