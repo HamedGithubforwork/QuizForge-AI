@@ -99,7 +99,51 @@ function runtimeError(error) {
   return mapped ? failure(mapped[0], { retryable: mapped[1] }) : failure('runtime_unavailable', { retryable: true })
 }
 
-function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform = process.platform, arch = process.arch }) {
+// Optional structured diagnostics for fixed, synthetic CI tests. Never return
+// raw messages, reasoning, paths or model output to the diagnostic callback.
+// The production provider does not register this callback.
+function deepSeekResponseShape(response) {
+  const choices = Array.isArray(response?.choices) ? response.choices : null
+  const choice = choices?.[0]
+  const raw = choice?.message?.content
+  const finalText = deepSeekFinalContent(raw)
+  let outputKind = 'missing_content'
+  if (typeof raw === 'string') {
+    if (!raw.trim()) outputKind = 'empty_content'
+    else if (/^\\s*<think>/.test(raw) && !/<\\/think>/.test(raw)) outputKind = 'unclosed_think'
+    else if (typeof finalText !== 'string' || !finalText.trim()) outputKind = 'reasoning_only'
+    else {
+      try { JSON.parse(finalText); outputKind = 'valid_json' }
+      catch { outputKind = 'non_json' }
+    }
+  }
+  const usage = response?.usage
+  const usageKind = usage == null ? 'absent'
+    : typeof usage !== 'object' || Array.isArray(usage) ? 'malformed'
+    : Number.isSafeInteger(usage.prompt_tokens) &&
+      Number.isSafeInteger(usage.completion_tokens) &&
+      Number.isSafeInteger(usage.total_tokens)
+      ? usage.total_tokens === usage.prompt_tokens + usage.completion_tokens
+        ? 'consistent' : 'inconsistent'
+      : 'partial'
+  return Object.freeze({
+    phase: 'runtime_response',
+    choices: choices ? Math.min(choices.length, 10) : null,
+    outputKind,
+    finishReason: ['stop', 'length'].includes(choice?.finish_reason)
+      ? choice.finish_reason : 'other',
+    reasoningFieldPresent: typeof choice?.message?.reasoning_content === 'string' &&
+      choice.message.reasoning_content.length > 0,
+    usageKind,
+    toolCallsPresent: choice?.message?.tool_calls != null ||
+      choice?.message?.function_call != null,
+  })
+}
+
+function createWindowsLocalAiProvider({
+  runtime, modelStore, modelId, platform = process.platform, arch = process.arch,
+  onResponseDiagnostic = null,
+}) {
   if (!runtime || typeof runtime.complete !== 'function' || !modelStore ||
       typeof modelStore.status !== 'function' || !validId(modelId)) throw failure('invalid_provider')
   const supported = () => platform === 'win32' && arch === 'x64'
@@ -128,7 +172,20 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
             ? { ...DEEPSEEK_GENERATION, seed: generation?.seed ?? 42 }
             : (generation ?? {})),
         }, { signal })
-      } catch (error) { throw runtimeError(error) }
+      } catch (error) {
+        if (isDeepSeekDistill(modelId) && typeof onResponseDiagnostic === 'function') {
+          try { onResponseDiagnostic(Object.freeze({
+            phase: 'runtime_exception',
+            errorCode: typeof error?.code === 'string' && /^[a-z_]{1,64}$/.test(error.code)
+              ? error.code : ['TimeoutError', 'AbortError'].includes(error?.name)
+                ? error.name : 'unclassified',
+          })) } catch {}
+        }
+        throw runtimeError(error)
+      }
+      if (isDeepSeekDistill(modelId) && typeof onResponseDiagnostic === 'function') {
+        try { onResponseDiagnostic(deepSeekResponseShape(response)) } catch {}
+      }
       if (!Array.isArray(response?.choices) || response.choices.length !== 1) throw failure('invalid_response')
       const choice = response.choices[0]
       if (choice?.message?.tool_calls != null || choice?.message?.function_call != null) throw failure('invalid_response')
@@ -155,10 +212,11 @@ function createWindowsLocalAiProvider({ runtime, modelStore, modelId, platform =
         return await runtime.withSession(async scopedComplete =>
           callback(createWindowsLocalAiProvider({
             runtime: { complete: scopedComplete }, modelStore, modelId, platform, arch,
+            onResponseDiagnostic,
           })), { signal })
       } catch (error) { throw runtimeError(error) }
     },
   })
 }
 
-module.exports = { createWindowsLocalAiProvider }
+module.exports = { createWindowsLocalAiProvider, deepSeekResponseShape }
