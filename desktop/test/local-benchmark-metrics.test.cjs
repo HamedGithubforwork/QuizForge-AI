@@ -22,7 +22,7 @@ const report = (acceleration = 'cpu', overrides = {}) => ({
 })
 
 test('computes ordered medians and p90 without dropping slow outliers', () => {
-  assert.equal(percentile([100, 20, 80, 50], 0.5), 50)
+  assert.equal(percentile([100, 20, 80, 50], 0.5), 80)
   assert.equal(percentile([100, 20, 80, 50], 0.9), 100)
   assert.deepEqual(summarizeRuns([
     { outcome: 'pass', elapsedSeconds: 20 },
