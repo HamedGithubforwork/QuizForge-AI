@@ -38,6 +38,7 @@ async function main() {
         }
       },
     })
+    report.stage = 'generating_quiz'
     const quiz = await stack.generateQuiz({
       pages: fixture.pages,
       questionCount: 5,
@@ -45,9 +46,11 @@ async function main() {
       questionType: 'short_answer',
     })
     report.generationCount = quiz.questions.length
+    report.stage = 'quiz_generated'
     const index = quiz.questions.findIndex(q => q.question_type === 'short_answer')
     assert.ok(index >= 0, 'Generation must provide a short-answer question')
     const question = quiz.questions[index]
+    report.stage = 'grading_answer'
     const result = await stack.reviewLocalAnswers({ cases: [{
       question_index: index, question: question.question,
       correct_answer: question.correct_answer, student_answer: 's',
@@ -56,14 +59,20 @@ async function main() {
     assert.equal(result.decisions[0].question_index, index)
     assert.equal(result.decisions[0].engine, 'local')
     report.reviewed = true
+    report.stage = 'review_completed'
     report.verdict = result.decisions[0].verdict
+    report.stage = 'asserting_grade'
     assert.equal(result.decisions[0].verdict, 'incorrect',
       'Qwen must grade an irrelevant one-letter answer incorrect after local quiz generation')
     report.outcome = 'pass'
+    report.stage = 'complete'
     console.log('PASS real Windows quiz-to-local-answer-review lifecycle')
   } catch (error) {
     report.outcome = 'fail'
     report.errorCode = typeof error?.code === 'string' ? error.code : 'unclassified'
+    console.error('Local grading test failed at:', report.stage,
+      'quizCount:', report.generationCount, 'verdict:', report.verdict,
+      'errorCode:', report.errorCode)
     throw error
   } finally {
     await fs.writeFile(output, JSON.stringify(report, null, 2) + '\n')
