@@ -157,4 +157,5 @@ test('ignores invalid decode timings when calibrating CPU threads', async t => {
   tune.recordInference({ layers: 0, threads: 6, elapsedMs: 1000,
     decodeMs: -2, completionTokens: 120 })
   assert.equal(tune.chooseThreads(), 6, 'fall back to measured total elapsed time')
+  await tune.flush()
 })
