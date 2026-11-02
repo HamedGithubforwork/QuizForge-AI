@@ -128,6 +128,26 @@ function inspectGroundedQuestion(raw, fixture, plan, usedFacts = new Set(),
       ['quel', 'quelle', 'quels', 'quelles', 'pourquoi', 'comment', 'combien'].includes(first)) {
     return { reason: 'wrong_language' }
   }
+  // An explanatory paragraph cannot rescue an ambiguous French question.
+  // The question itself must identify the entity and tested relationship.
+  if (fixture.id === 'french') {
+    const wording = normalize(raw.question)
+    const anchors = {
+      'La station Boréale a ouvert en 2037.': ['boreale', 'ouvr'],
+      'Sa directrice est Léa Morel.': ['boreale', 'directrice'],
+      'Elle possède sept capteurs.': ['boreale', 'capteur'],
+      'Le capteur vert mesure la pression.': ['capteur', 'vert'],
+      'Le capteur orange mesure l’humidité.': ['capteur', 'orange'],
+    }
+    // Opening questions may ask the year rather than repeat the verb ouvert.
+    const required = anchors[plan.quote] ?? null
+    if (!required || !wording.includes(required[0]) ||
+        (plan.quote === 'La station Boréale a ouvert en 2037.'
+          ? !(wording.includes('ouvr') || wording.includes('annee') || wording.includes('date'))
+          : !wording.includes(required[1]))) {
+      return { reason: 'ambiguous_or_wrong_french_subject' }
+    }
+  }
   const candidate = {
     question: raw.question, explanation: raw.explanation, correct_answer: correctAnswer,
     choices: raw.choices, correct_index: raw.correct_index,
