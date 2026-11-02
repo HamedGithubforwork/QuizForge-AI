@@ -450,10 +450,11 @@ test('runtime performance callback receives only bounded timing and token counts
   await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
   assert.equal(observations.length, 1)
   assert.deepEqual(Object.keys(observations[0]).sort(),
-    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens'])
+    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens', 'threads'])
   assert.equal(observations[0].layers, 0)
   assert.equal(observations[0].completionTokens, 120)
   assert.equal(observations[0].promptTokens, 250)
+  assert.equal(observations[0].threads, 8)
   assert.ok(observations[0].elapsedMs >= 0)
 })
 
