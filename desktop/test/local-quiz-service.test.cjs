@@ -2617,7 +2617,7 @@ test('partial fallback works after an incomplete primary draft for 10 questions'
   })
   assert.equal(calls, 2)
   assert.equal(quiz.questions.length, 4)
-  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'exact'))
+  assert.ok(quiz.questions.every(q => q.grading.grading_mode === 'concepts'))
 })
 
 test('mixed practice can return two supported questions without inventing a third question type', async () => {
