@@ -451,3 +451,57 @@ test('replay real pinned-Qwen nucleus rubric: source-grounded helper verb is not
   assert.equal(oneFunction.verdict, 'partial')
   assert.equal(oneFunction.credit, 0.5)
 })
+
+test('real pinned-Qwen contradiction with uncertain flag scores incorrect only with verified proof', () => {
+  const page = 'Nucleus   Stores most of the cell DNA and helps control cell activities. ' +
+    'Mitochondrion   Releases usable energy from food during cellular respiration.'
+  const expected = 'Stores most of the cell DNA and helps control cell activities.'
+  const submitted = 'It stores DNA, controls cell activities and releases energy from food during cellular respiration.'
+  // Replay the fifth real-model answer from Windows CI; the original outcome
+  // was uncertain despite Qwen explicitly identifying the false extra claim.
+  const response = {
+    confidence: 0.75,
+    reason: 'Student correctly identified DNA storage and cell control but incorrectly included energy release from food, which is a function of mitochondria, not the nucleus.',
+    uncertain: true, contradiction: true,
+    concepts: [
+      { concept: 'Stores most of the cell DNA', status: 'matched',
+        expected_quote: 'Stores most of the cell DNA',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: 'It stores DNA' },
+      { concept: 'Helps control cell activities', status: 'matched',
+        expected_quote: 'helps control cell activities',
+        source_quote: 'Stores most of the cell DNA and helps control cell activities.',
+        answer_quote: 'controls cell activities' },
+      { concept: 'Releases energy from food during cellular respiration', status: 'contradicted',
+        expected_quote: '',
+        source_quote: 'Releases usable energy from food during cellular respiration.',
+        answer_quote: 'releases energy from food during cellular respiration' },
+    ],
+  }
+  const result = normalizeReview(response, 0, page, submitted, expected)
+  assert.equal(result.verdict, 'incorrect')
+  assert.equal(result.credit, 0)
+  assert.equal(result.confidence, 0.75)
+
+  const unknown = normalizeReview({ ...response,
+    reason: 'The source is ambiguous; cannot verify whether the extra claim is false.',
+  }, 0, page, submitted, expected)
+  assert.equal(unknown.verdict, 'uncertain')
+  const insufficientConfidence = normalizeReview({ ...response, confidence: 0.69 },
+    0, page, submitted, expected)
+  assert.equal(insufficientConfidence.verdict, 'uncertain')
+  const noContradictionEvidence = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+  ] }, 0, page, submitted, expected)
+  assert.equal(noContradictionEvidence.verdict, 'uncertain')
+  const forgedSource = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+    { ...response.concepts[2], source_quote: 'The nucleus cannot release energy.' },
+  ] }, 0, page, submitted, expected)
+  assert.equal(forgedSource.verdict, 'uncertain')
+  const forgedStudentQuote = normalizeReview({ ...response, concepts: [
+    response.concepts[0], response.concepts[1],
+    { ...response.concepts[2], answer_quote: 'never said that' },
+  ] }, 0, page, submitted, expected)
+  assert.equal(forgedStudentQuote.verdict, 'uncertain')
+})
