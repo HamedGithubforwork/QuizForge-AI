@@ -2,6 +2,9 @@
 // provider URLs, tokens, or Electron stack/IPC implementation details.
 export function desktopSignInErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  if (/Desktop account token was rejected by the server/i.test(message)) {
+    return 'Google sign-in returned to the app, but the server rejected this desktop session. The API and identity service may need the dedicated desktop Cognito client enabled.'
+  }
   if (/callback is not registered to this installation/i.test(message)) {
     return 'Windows is not sending sign-in links back to this copy of Quiz From Notes. Close the browser and repair or reinstall the latest preview, then try Google sign-in again.'
   }
