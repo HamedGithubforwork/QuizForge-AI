@@ -1052,7 +1052,7 @@ test('targeted practice keeps prior questions bounded, separate from source, and
         )
         assert.match(
           request.messages.at(-1).content,
-          /plan five different source facts and distinct wording for each/i,
+          /first five valid candidates after filtering must test five different source facts/i,
         )
         assert.equal(
           request.generationProfile,
