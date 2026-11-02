@@ -55,7 +55,12 @@ export async function runRecoverableLocalGeneration<T>(
   try {
     // Attach both branches to Promise.race so a late IPC rejection cannot
     // become an unhandled rejection or publish a stale quiz after cancellation.
-    return await Promise.race([Promise.resolve().then(task), interrupted])
+    return await Promise.race([Promise.resolve().then(() => {
+      // If the user aborts during the same event-loop turn, do not start a
+      // new page fetch or native generation after cancellation has won.
+      signal?.throwIfAborted()
+      return task()
+    }), interrupted])
   } finally {
     if (timeout !== undefined) clearTimeout(timeout)
     if (onAbort) signal?.removeEventListener('abort', onAbort)
