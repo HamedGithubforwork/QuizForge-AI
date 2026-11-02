@@ -40,6 +40,7 @@ import {
   readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
+import { runRecoverableLocalGeneration } from './lib/localGenerationRecovery.ts'
 import {
   automaticGenerationMode,
 } from './lib/generationModePolicy.ts'
@@ -138,6 +139,8 @@ function App() {
   }, [isGenerating, isWeakPracticeGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
+  const localPdfProcessingController = useRef<AbortController | null>(null)
+  const generationRunId = useRef(0)
   const generationModeUserSelected =
     useRef(false)
   const [
@@ -256,14 +259,29 @@ function App() {
 
   async function processLocalPdf(file: File, selection: string): Promise<UploadResult> {
     if (!localPdfBridge) throw new Error('Local PDF processing is not available in this desktop build.')
-    const normalized = normalizePageSelection(selection)
-    const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
-    const result = await localPdfBridge.processLocalPdf({
-      bytes: await readLocalPdfBytes(file),
-      filename: file.name,
-      ...(selectedPages ? { selectedPages } : {}),
-    })
-    if (!result.ok) {
+    const controller = new AbortController()
+    localPdfProcessingController.current = controller
+    try {
+      const result = await runRecoverableLocalGeneration(async () => {
+        const normalized = normalizePageSelection(selection)
+        const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
+        const bytes = await readLocalPdfBytes(file)
+        controller.signal.throwIfAborted()
+        const response = await localPdfBridge.processLocalPdf({
+          bytes,
+          filename: file.name,
+          ...(selectedPages ? { selectedPages } : {}),
+        })
+        controller.signal.throwIfAborted()
+        return response
+      }, {
+        signal: controller.signal,
+        // Parsing is usually much shorter than multi-batch model inference.
+        timeoutMs: 5 * 60 * 1000,
+        cancelNative: () => localQuizBridge?.cancelLocalAiQuiz() ?? Promise.resolve(),
+        onTimeout: () => controller.abort(),
+      })
+      if (!result.ok) {
       if (result.error === 'cancelled') throw new DOMException('Local PDF processing was cancelled.', 'AbortError')
       const messages: Record<string, string> = {
         input_too_large: 'This PDF is over the 15 MB limit for local processing.',
@@ -277,21 +295,26 @@ function App() {
       }
       throw new Error(messages[result.error] ?? 'Local PDF processing failed.')
     }
-    const document = result.document
-    setLocalProcessedPages(document.pages)
-    return {
-      filename: document.filename,
-      pdf_sha256: document.pdfSha256,
-      page_count: document.pageCount,
-      character_count: document.characterCount,
-      extractable_page_count: document.extractablePageCount,
-      scanned_likely: document.scannedLikely,
-      warning: document.warning,
-      pages: document.pages.map(page => ({
-        page_number: page.pageNumber,
-        character_count: page.text.length,
-        preview: page.text.slice(0, 240),
-      })),
+      const document = result.document
+      setLocalProcessedPages(document.pages)
+      return {
+        filename: document.filename,
+        pdf_sha256: document.pdfSha256,
+        page_count: document.pageCount,
+        character_count: document.characterCount,
+        extractable_page_count: document.extractablePageCount,
+        scanned_likely: document.scannedLikely,
+        warning: document.warning,
+        pages: document.pages.map(page => ({
+          page_number: page.pageNumber,
+          character_count: page.text.length,
+          preview: page.text.slice(0, 240),
+        })),
+      }
+    } finally {
+      if (localPdfProcessingController.current === controller) {
+        localPdfProcessingController.current = null
+      }
     }
   }
 
@@ -340,7 +363,9 @@ function App() {
 
   async function handleCancelProcessing() {
     if (isLocalPdfProcessing) {
-      await localQuizBridge?.cancelLocalAiQuiz().catch(() => {})
+      // The guarded import cancels native processing without waiting for a
+      // possibly hung Electron IPC to unblock the selected-pages screen.
+      localPdfProcessingController.current?.abort()
       return
     }
     try {
@@ -409,20 +434,12 @@ function App() {
 
   }
 
-  async function handleCancelLocalQuiz() {
-    localGenerationController
-      .current?.abort()
-
-    if (!localQuizBridge) {
-      return
-    }
-
-    setGenerationStage(
-      'Cancelling local generation...',
-    )
-    await localQuizBridge
-      .cancelLocalAiQuiz()
-      .catch(() => {})
+  function handleCancelLocalQuiz() {
+    // The recovery wrapper asks Electron to stop but does not wait for a
+    // possibly stuck cancellation IPC before releasing the interface.
+    if (!localGenerationController.current) return
+    setGenerationStage('Stopping local generation...')
+    localGenerationController.current.abort()
   }
 
   async function generateLocalPracticeQuiz(
@@ -447,8 +464,8 @@ function App() {
       controller
 
     try {
-      const request =
-        await buildLocalPracticeRequest(
+      const result = await runRecoverableLocalGeneration(async () => {
+        const request = await buildLocalPracticeRequest(
           documentResult!,
           practiceDifficulty,
           localQuizStatus,
@@ -459,16 +476,15 @@ function App() {
           practiceQuestionCount,
           practiceQuestionType,
         )
-
-      controller.signal
-        .throwIfAborted()
-
-      const result =
-        await localQuizBridge
-          .generateLocalAiQuiz(request)
-
-      controller.signal
-        .throwIfAborted()
+        controller.signal.throwIfAborted()
+        const response = await localQuizBridge.generateLocalAiQuiz(request)
+        controller.signal.throwIfAborted()
+        return response
+      }, {
+        signal: controller.signal,
+        cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+        onTimeout: () => controller.abort(),
+      })
 
       if (!result.ok) {
         throw new Error(
@@ -546,6 +562,7 @@ function App() {
       kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
     }
     const startedAt = beginGenerationTiming()
+    const runId = ++generationRunId.current
     setGenerationDurationMs(null)
 
     setIsGenerating(true)
@@ -597,8 +614,8 @@ function App() {
           )
         }
 
-        const request =
-          await buildLocalQuizRequest(
+        const result = await runRecoverableLocalGeneration(async () => {
+          const request = await buildLocalQuizRequest(
             documentResult,
             difficulty,
             localQuizStatus,
@@ -607,20 +624,16 @@ function App() {
             questionCount as 5 | 10 | 15,
             questionType,
           )
-
-        localController?.signal
-          .throwIfAborted()
-
-        setGenerationStage(
-          'Generating and validating on this computer...',
-        )
-
-        const result =
-          await localQuizBridge
-            .generateLocalAiQuiz(request)
-
-        localController?.signal
-          .throwIfAborted()
+          localController?.signal.throwIfAborted()
+          setGenerationStage('Generating and validating on this computer...')
+          const response = await localQuizBridge.generateLocalAiQuiz(request)
+          localController?.signal.throwIfAborted()
+          return response
+        }, {
+          signal: localController?.signal,
+          cancelNative: () => localQuizBridge.cancelLocalAiQuiz(),
+          onTimeout: () => localController?.abort(),
+        })
 
         if (!result.ok) {
           if (result.error === 'cancelled') {
@@ -770,7 +783,8 @@ function App() {
       generationStartedAt.current = null
       setIsGenerating(false)
       window.setTimeout(() => {
-        setGenerationStage('')
+        // An old attempt must not clear the progress text of a new attempt.
+        if (generationRunId.current === runId) setGenerationStage('')
       }, 900)
     }
   }
