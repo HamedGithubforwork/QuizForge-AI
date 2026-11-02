@@ -28,6 +28,14 @@ export default function GenerationTimingPanel({
             : `Batch ${Math.min(progress.completedBatches + 1, progress.totalBatches)} of ${progress.totalBatches} · ${progress.validQuestions} validated questions so far`}
         </p>
       )}
+      {progress?.phase === 'generating' && Boolean(progress.previewQuestions?.length) && (
+        <div className="generation-timing-note" aria-label="Provisional validated questions">
+          <p>Questions ready from completed batches (final duplicate check still pending):</p>
+          <ol>{progress.previewQuestions?.map((question, index) => (
+            <li key={index}>{question}</li>
+          ))}</ol>
+        </div>
+      )}
       {estimate ? (
         estimate.overdue ? (
           <p>Taking longer than recent quizzes with these settings. Validation or retries may add time.</p>
