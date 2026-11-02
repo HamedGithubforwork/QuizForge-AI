@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { isDeepSeekDistill, deepSeekMessages, deepSeekFinalContent,
   DEEPSEEK_GENERATION } = require('../src/local-deepseek-adapter.cjs')
-const { createWindowsLocalAiProvider } = require('../src/windows-local-ai-provider.cjs')
+const { createWindowsLocalAiProvider, deepSeekResponseShape } = require('../src/windows-local-ai-provider.cjs')
 
 const DEEPSEEK = 'deepseek-r1-qwen-1p5b-q4-k-m'
 const QWEN = 'qwen3-4b-q4-k-m'
@@ -81,4 +81,38 @@ test('existing Qwen prompt, sampling settings, and output remain unchanged', asy
   assert.equal(x.payload().temperature, 0.7)
   assert.equal(x.payload().presence_penalty, 1.5)
   assert.equal(x.payload().chat_template_kwargs.enable_thinking, false)
+})
+
+test('safe DeepSeek response shapes distinguish reasoning-only and malformed outputs', () => {
+  const shape = content => deepSeekResponseShape({
+    choices: [{ message: { content, reasoning_content: 'never print this secret' },
+      finish_reason: 'stop' }],
+    usage: { prompt_tokens: 10, completion_tokens: 9, total_tokens: 19 },
+  })
+  assert.equal(shape('<think>private deliberation</think>').outputKind, 'reasoning_only')
+  assert.equal(shape('<think>still working').outputKind, 'unclosed_think')
+  assert.equal(shape('<think>done</think>{"questions":[]}').outputKind, 'valid_json')
+  assert.equal(shape('Output: {"questions":[]}').outputKind, 'non_json')
+  assert.equal(shape(null).outputKind, 'missing_content')
+  assert.equal(shape('').outputKind, 'empty_content')
+  const record = shape('<think>private deliberation</think>')
+  assert.equal(record.reasoningFieldPresent, true)
+  assert.equal(record.usageKind, 'consistent')
+  assert.doesNotMatch(JSON.stringify(record), /private|secret|deliberation|questions/)
+  assert.equal(deepSeekResponseShape({ choices: [{ message: { content: '{}' },
+    finish_reason: 'length' }], usage: { total_tokens: 2 } }).usageKind, 'partial')
+})
+
+test('synthetic DeepSeek runtime hooks classify failures without raw exception text', async () => {
+  const events = []
+  const provider = createWindowsLocalAiProvider({
+    runtime: { complete: async () => { throw Object.assign(
+      new Error('private local student notes'),
+      { code: 'request_failed' }) } },
+    modelStore: { status: async () => ({ ready: true }) },
+    modelId: DEEPSEEK, platform: 'win32', arch: 'x64',
+    onResponseDiagnostic: event => events.push(event),
+  })
+  await assert.rejects(provider.generate(request), error => error.code === 'runtime_unavailable')
+  assert.deepEqual(events, [{ phase: 'runtime_exception', errorCode: 'request_failed' }])
 })

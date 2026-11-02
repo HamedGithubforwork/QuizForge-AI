@@ -45,6 +45,7 @@ async function main() {
   let activeFixture = null
   let candidateDiagnostics = []
   let validationIssues = []
+  let responseShapes = []
   const report = {
     schema: 1, syntheticOnly: true, expectedAcceleration,
     platform: process.platform, architecture: process.arch,
@@ -100,6 +101,32 @@ async function main() {
           ...inspectModelResponse(event?.text, activeFixture),
         })
       },
+      onModelResponseDiagnostic(event) {
+        if (!activeFixture || responseShapes.length >= 8 ||
+            !benchmarkModel.id.startsWith('deepseek-r1-')) return
+        // Fixed, bounded fields only: never copy raw native responses, prompts,
+        // tracebacks, model reasoning or student content into CI artifacts.
+        const kind = ['valid_json', 'non_json', 'missing_content', 'empty_content',
+          'unclosed_think', 'reasoning_only'].includes(event?.outputKind)
+          ? event.outputKind : 'unknown'
+        responseShapes.push({
+          phase: event?.phase === 'runtime_response' ? 'runtime_response' : 'runtime_exception',
+          ...(event?.phase === 'runtime_response'
+            ? {
+                outputKind: kind,
+                choices: Number.isSafeInteger(event?.choices) ? event.choices : null,
+                finishReason: ['stop', 'length'].includes(event?.finishReason)
+                  ? event.finishReason : 'other',
+                reasoningFieldPresent: event?.reasoningFieldPresent === true,
+                usageKind: ['absent', 'malformed', 'consistent', 'inconsistent', 'partial']
+                  .includes(event?.usageKind) ? event.usageKind : 'unknown',
+                toolCallsPresent: event?.toolCallsPresent === true,
+              }
+            : { errorCode: typeof event?.errorCode === 'string' &&
+                /^[a-z_]{1,64}$/.test(event.errorCode)
+                  ? event.errorCode : 'unclassified' }),
+        })
+      },
     })
     const managerStatus = await stack.load()
     const ready = await stack.quizStatus()
@@ -132,6 +159,7 @@ async function main() {
         activeFixture = fixture
         candidateDiagnostics = []
         validationIssues = []
+        responseShapes = []
         const started = performance.now()
         let quiz = null
         let failureCode = null
@@ -211,6 +239,7 @@ async function main() {
           // what was rejected, distinguishing abstentions from bad questions.
           candidateDiagnostics,
           validationIssues,
+          responseShapes,
           ...(quiz ? { finalQuestionDiagnostics: inspectQuiz(quiz, fixture) } : {}),
           ...(successful ? {} : { failureCode: failureCode ?? validationReason ?? 'validation_failed' }),
         }

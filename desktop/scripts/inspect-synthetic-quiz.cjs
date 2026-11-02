@@ -85,7 +85,17 @@ function inspectModelResponse(text, fixture) {
   try { parsed = JSON.parse(text) } catch { return { status: 'invalid_json' } }
   if (!parsed || !Array.isArray(parsed.questions)) return { status: 'invalid_shape' }
   if (!parsed.questions.length) return { status: 'abstained', questionCount: 0 }
-  return { status: 'has_questions', ...inspectQuiz(parsed, fixture) }
+  // The raw llama.cpp response uses choices + correct_index. The final app
+  // quiz adds correct_answer after validation. Normalize only for diagnostic
+  // comparison, never to accept or modify the actual quiz.
+  const draft = { questions: parsed.questions.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item
+    const answer = Array.isArray(item.choices) && Number.isSafeInteger(item.correct_index)
+      ? item.choices[item.correct_index] : undefined
+    return { ...item, correct_answer: typeof item.correct_answer === 'string'
+      ? item.correct_answer : answer }
+  }) }
+  return { status: 'has_questions', ...inspectQuiz(draft, fixture) }
 }
 
 module.exports = { inspectQuestion, inspectQuiz, inspectModelResponse, FIXTURES }

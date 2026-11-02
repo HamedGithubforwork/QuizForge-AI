@@ -63,3 +63,22 @@ test('benchmark uses two prompt profiles with different pinned seeds and no clou
   assert.equal(PLANS.selected_pages.length, 5)
   assert.equal(PLANS.french.length, 5)
 })
+
+test('raw DeepSeek drafts use choices and correct_index without normalized correct_answer', () => {
+  const raw = {
+    title: 'Synthetic quiz',
+    questions: [{
+      question: 'What is the Aster casing material?',
+      choices: ['cobalt', 'glass', 'ceramic', 'silver'],
+      correct_index: 0,
+      explanation: 'Aster casing material is cobalt.',
+      source_pages: [2],
+      source_fact: 'Aster casing material is cobalt.',
+    }],
+  }
+  const result = inspectModelResponse(JSON.stringify(raw), fixture)
+  assert.equal(result.status, 'has_questions')
+  assert.equal(result.oracleMatchedQuestions, 1)
+  assert.equal(result.exactQuotedCandidates, 1)
+  assert.equal(result.questions[0].reason, 'matched')
+})
