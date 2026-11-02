@@ -169,3 +169,51 @@ test('unsupported provider names are rejected before a browser is opened', () =>
   assert.throws(() => f.session.signIn('https://evil.invalid'), /Unsupported desktop sign-in method/)
   assert.deepEqual(f.opened, [])
 })
+
+test('cancelled Google attempt can be retried immediately without restarting and stale callback cannot log in', async () => {
+  const f = fixture()
+  const first = f.session.signIn('google').then(() => 'success', () => 'cancelled')
+  await Promise.resolve()
+  const staleCallback = f.callback()
+  assert.equal(f.session.status().signingIn, true)
+  assert.equal(f.session.cancelSignIn(), true)
+  assert.equal(await first, 'cancelled')
+  assert.equal(f.session.status().signingIn, false)
+  assert.equal(f.timers.size, 0)
+  assert.equal(f.session.cancelSignIn(), false)
+  const second = f.session.signIn('google').then(() => true, () => false)
+  await Promise.resolve()
+  assert.equal(f.opened.length, 2)
+  assert.equal(await f.session.handleCallback(staleCallback), false,
+    'previous PKCE transaction must never revive the cancelled sign-in')
+  assert.equal(f.session.status().signingIn, true)
+  assert.equal(await f.session.handleCallback(f.callback()), true)
+  assert.equal(await second, true)
+  assert.ok((await f.session.session()).accessToken)
+})
+
+test('cancel-sign-in does not sign out a previously verified account', async () => {
+  const f = fixture()
+  await f.login()
+  assert.equal(f.session.cancelSignIn(), false)
+  assert.equal(f.session.status().signedIn, true)
+  assert.equal(f.revoked.length, 0)
+})
+
+test('temporary token refresh outage retains session and permits subsequent recovery', async () => {
+  let refreshCount = 0
+  const transient = Object.assign(new Error('private network detail'), { code: 'transient_auth_error' })
+  const f = fixture({ client: { refresh: async () => {
+    refreshCount++
+    if (refreshCount === 1) throw transient
+    return account()
+  } } })
+  await f.login()
+  assert.equal(await f.session.session(true), null)
+  assert.equal(f.session.status().signedIn, true,
+    'temporary outage must not force an account sign-out')
+  assert.deepEqual(f.revoked, [])
+  assert.equal((await f.session.session(true)).accessToken, 'access-one')
+  assert.equal(f.session.status().signedIn, true)
+  assert.equal(refreshCount, 2)
+})

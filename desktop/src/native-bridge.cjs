@@ -53,7 +53,8 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       if (provider !== undefined && !['default', 'google'].includes(provider))
         throw new Error('Unsupported desktop sign-in method.')
       const session = getSession(), account = getAccount()
-      if (session?.status().signingIn || !canSignIn()) throw new Error('Finish the desktop sign-in test first.')
+      if (session?.status().signingIn) throw new Error('Desktop sign-in is already in progress. Cancel it before trying again.')
+      if (!canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
       getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.()
       account.clear()
@@ -66,6 +67,9 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
         throw error
       }
     },
+    // Reset an abandoned OAuth attempt without clearing the account's local
+    // study data or running the broader sign-out/Local AI cleanup path.
+    cancelSignIn: async () => getSession()?.cancelSignIn?.() ?? false,
     signOut: async () => { getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.(); await Promise.allSettled([getLocalAi()?.cancelDownload?.(), getLocalAi()?.cancelQuiz?.()]); getAccount()?.clear(); await getSession()?.signOut() },
     request: value => {
       const account = getAccount()
