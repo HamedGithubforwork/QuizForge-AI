@@ -139,6 +139,7 @@ function App() {
   }, [isGenerating, isWeakPracticeGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
+  const localPdfProcessingController = useRef<AbortController | null>(null)
   const generationRunId = useRef(0)
   const generationModeUserSelected =
     useRef(false)
@@ -258,14 +259,29 @@ function App() {
 
   async function processLocalPdf(file: File, selection: string): Promise<UploadResult> {
     if (!localPdfBridge) throw new Error('Local PDF processing is not available in this desktop build.')
-    const normalized = normalizePageSelection(selection)
-    const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
-    const result = await localPdfBridge.processLocalPdf({
-      bytes: await readLocalPdfBytes(file),
-      filename: file.name,
-      ...(selectedPages ? { selectedPages } : {}),
-    })
-    if (!result.ok) {
+    const controller = new AbortController()
+    localPdfProcessingController.current = controller
+    try {
+      const result = await runRecoverableLocalGeneration(async () => {
+        const normalized = normalizePageSelection(selection)
+        const selectedPages = normalized ? normalized.split(',').map(Number) : undefined
+        const bytes = await readLocalPdfBytes(file)
+        controller.signal.throwIfAborted()
+        const response = await localPdfBridge.processLocalPdf({
+          bytes,
+          filename: file.name,
+          ...(selectedPages ? { selectedPages } : {}),
+        })
+        controller.signal.throwIfAborted()
+        return response
+      }, {
+        signal: controller.signal,
+        // Parsing is usually much shorter than multi-batch model inference.
+        timeoutMs: 5 * 60 * 1000,
+        cancelNative: () => localQuizBridge?.cancelLocalAiQuiz() ?? Promise.resolve(),
+        onTimeout: () => controller.abort(),
+      })
+      if (!result.ok) {
       if (result.error === 'cancelled') throw new DOMException('Local PDF processing was cancelled.', 'AbortError')
       const messages: Record<string, string> = {
         input_too_large: 'This PDF is over the 15 MB limit for local processing.',
@@ -279,21 +295,26 @@ function App() {
       }
       throw new Error(messages[result.error] ?? 'Local PDF processing failed.')
     }
-    const document = result.document
-    setLocalProcessedPages(document.pages)
-    return {
-      filename: document.filename,
-      pdf_sha256: document.pdfSha256,
-      page_count: document.pageCount,
-      character_count: document.characterCount,
-      extractable_page_count: document.extractablePageCount,
-      scanned_likely: document.scannedLikely,
-      warning: document.warning,
-      pages: document.pages.map(page => ({
-        page_number: page.pageNumber,
-        character_count: page.text.length,
-        preview: page.text.slice(0, 240),
-      })),
+      const document = result.document
+      setLocalProcessedPages(document.pages)
+      return {
+        filename: document.filename,
+        pdf_sha256: document.pdfSha256,
+        page_count: document.pageCount,
+        character_count: document.characterCount,
+        extractable_page_count: document.extractablePageCount,
+        scanned_likely: document.scannedLikely,
+        warning: document.warning,
+        pages: document.pages.map(page => ({
+          page_number: page.pageNumber,
+          character_count: page.text.length,
+          preview: page.text.slice(0, 240),
+        })),
+      }
+    } finally {
+      if (localPdfProcessingController.current === controller) {
+        localPdfProcessingController.current = null
+      }
     }
   }
 
@@ -342,7 +363,9 @@ function App() {
 
   async function handleCancelProcessing() {
     if (isLocalPdfProcessing) {
-      await localQuizBridge?.cancelLocalAiQuiz().catch(() => {})
+      // The guarded import cancels native processing without waiting for a
+      // possibly hung Electron IPC to unblock the selected-pages screen.
+      localPdfProcessingController.current?.abort()
       return
     }
     try {
