@@ -111,8 +111,9 @@ function validateRequest(request) {
 function isUninformativeDescriptiveAnswer(question, submitted) {
   const input = normalize(submitted)
   if (!/^[a-z]$/.test(input) ||
-      !/\b(?:function|purpose|role|describe|explain|why|how does|what does)\b/i.test(question.question) ||
-      normalize(question.correct_answer).split(' ').length < 3) return false
+      /\\b(?:symbol|letter|abbreviat\\w*|variable|notation|formula|unit|base pair|initial)\\b/i
+        .test(question.question) ||
+      normalize(question.correct_answer).length < 4) return false
   return ![question.correct_answer, ...(question.accepted_answers ?? [])]
     .some(value => normalize(value) === input)
 }
