@@ -371,3 +371,20 @@ test('additional contradictory claims still invalidate an otherwise complete ans
   review.concepts[2].source_quote = 'The nucleus cannot release energy'
   assert.equal(normalizeReview(review, 0, extraSource, extraAnswer).verdict, 'uncertain')
 })
+
+
+test('native review grades a one-letter non-answer without running Qwen', async () => {
+  const expected = 'Controls what enters and leaves the cell. It is selectively permeable.'
+  const q = { question_type: 'short_answer',
+    question: 'What is the main function of the cell membrane?',
+    correct_answer: expected, accepted_answers: [expected], source_pages: [1] }
+  const study = { quiz: { questions: [q] },
+    pages: [{ pageNumber: 1, text: 'Cell membrane   ' + expected }] }
+  let calls = 0
+  const grader = createLocalAnswerReview({ provider: { generate: async () => { calls++; return null } } })
+  const result = await grader.review({ cases: [{ question_index: 0,
+    question: q.question, correct_answer: expected, student_answer: 's' }] }, study)
+  assert.equal(result.decisions[0].verdict, 'incorrect')
+  assert.equal(result.decisions[0].credit, 0)
+  assert.equal(calls, 0)
+})
