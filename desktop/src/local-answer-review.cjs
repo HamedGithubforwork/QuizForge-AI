@@ -113,6 +113,15 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
   // "contradiction" alone is insufficient to relax the confidence threshold.
   const groundedContradiction = raw.contradiction &&
     raw.concepts.some(c => c.status === 'contradicted')
+  // Qwen may report "uncertain: true" even while citing an explicit,
+  // source-grounded false claim. Only override that flag when the response
+  // identifies an actual contradiction with exact evidence on BOTH sides,
+  // reaches the existing >= 0.7 contradiction threshold, and makes no
+  // separate claim of ambiguity or unverifiable evidence. The quote checks
+  // above have already rejected fabricated evidence.
+  const contradictionOnly = groundedContradiction && raw.confidence >= 0.7 &&
+    /\b(?:contradict\w*|incorrect\w*|wrong|false|conflict\w*)\b/i.test(raw.reason) &&
+    !/\b(?:unclear|ambiguous|uncertain|unsure|unverifiable|unverified|unsupported|cannot verify|can't verify|insufficient evidence)\b/i.test(raw.reason)
   // Real Qwen can label a clear, quote-grounded partial answer "uncertain"
   // simply because a second required concept is missing. An incomplete answer
   // is not itself ambiguous. Only override that flag when the model explicitly
@@ -122,7 +131,7 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
   const omissionOnly = groundedPartial && raw.confidence >= 0.7 &&
     /\b(incomplete|omits?|omitted|missing|does not mention|did not mention|only included|leaves? out|lacks?)\b/i.test(raw.reason) &&
     !/\b(unclear|ambiguous|uncertain|unsure|unsupported|unverifiable|contradict\w*|fabricat\w*|incorrect|inaccurate|false claims?|cannot verify|can't verify|insufficient evidence)\b/i.test(raw.reason)
-  if ((raw.uncertain && !omissionOnly) ||
+  if ((raw.uncertain && !omissionOnly && !contradictionOnly) ||
       raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
     return uncertain(index, raw.reason)
   }
