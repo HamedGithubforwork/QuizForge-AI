@@ -35,6 +35,7 @@ import {
   buildLocalPracticeRequest,
   buildLocalQuizRequest,
   localQuizErrorMessage,
+  NO_VALID_QUESTIONS_MESSAGE,
   readLocalPdfBytes,
   type QuizGenerationMode,
 } from './lib/localQuizGeneration.ts'
@@ -423,6 +424,11 @@ function App() {
         )
       }
 
+      // A malformed successful response must not open an empty practice quiz.
+      if (!result.quiz?.questions?.length) {
+        throw new Error(NO_VALID_QUESTIONS_MESSAGE)
+      }
+
       void reportLocalGenerationUsage(
         apiFetch,
         'targeted_practice',
@@ -557,11 +563,14 @@ function App() {
         }
 
         if (!result.quiz || !Array.isArray(result.quiz.questions) ||
-            result.quiz.questions.length !== questionCount ||
+            result.quiz.questions.length === 0) {
+          throw new Error(NO_VALID_QUESTIONS_MESSAGE)
+        }
+        if (result.quiz.questions.length > questionCount ||
             result.quiz.questions.some(question => !question ||
               typeof question.question !== 'string' || !question.question.trim())) {
           throw new Error(
-            'Local AI returned an empty or incomplete quiz. Nothing was displayed. Please try again or use Cloud AI.',
+            'Local AI returned an invalid quiz. Please try again or use Cloud AI.',
           )
         }
 
@@ -572,7 +581,8 @@ function App() {
           'quiz',
         )
         setGeneratedSettings({
-          questionCount,
+          questionCount: result.quiz.questions.length,
+          requestedQuestionCount: questionCount as 5 | 10 | 15,
           difficulty,
           questionType,
         })
@@ -637,9 +647,11 @@ function App() {
 
       setGenerationStage('Quiz ready!')
       setQuiz(data as QuizResult)
-      setGeneratedSettings(
-        settingsForRequest,
-      )
+      setGeneratedSettings({
+        ...settingsForRequest,
+        questionCount: data.questions.length,
+        requestedQuestionCount: questionCount as 5 | 10 | 15,
+      })
 
       window.setTimeout(() => {
         document
@@ -783,7 +795,7 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
@@ -855,6 +867,7 @@ function App() {
       setGeneratedSettings({
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -924,7 +937,7 @@ function App() {
       generatedSettings?.difficulty ??
       difficulty
     const practiceQuestionCount =
-      (generatedSettings?.questionCount ?? questionCount) as 5 | 10 | 15
+      (generatedSettings?.requestedQuestionCount ?? questionCount) as 5 | 10 | 15
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
@@ -995,6 +1008,7 @@ function App() {
       setGeneratedSettings({
         questionCount:
           data.questions.length,
+        requestedQuestionCount: practiceQuestionCount,
         difficulty:
           practiceDifficulty,
         questionType:
@@ -1202,6 +1216,13 @@ function App() {
                 handleCancelLocalQuiz
               }
             />
+
+            {quiz && generatedSettings?.requestedQuestionCount &&
+              quiz.questions.length < generatedSettings.requestedQuestionCount && (
+              <p className="generation-mode-note" role="status" aria-live="polite">
+                Generated {quiz.questions.length} of {generatedSettings.requestedQuestionCount} requested questions from the supplied study material. Only the source-supported questions were included.
+              </p>
+            )}
 
             {quiz ? (
               <QuizSession

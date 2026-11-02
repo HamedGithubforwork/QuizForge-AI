@@ -75,7 +75,7 @@ function syntheticPdf(): Buffer {
 }
 
 async function openDesktopUi(
-  page: Page, quiz: ModelQuiz, returnEmpty = false, practiceQuiz?: ModelQuiz,
+  page: Page, quiz: ModelQuiz, returnEmpty: boolean | 'insufficient_source' = false, practiceQuiz?: ModelQuiz,
   options: { count: 5 | 10 | 15; difficulty: 'easy' | 'medium' | 'hard'; type: string } =
     { count: 5, difficulty: 'easy', type: 'multiple_choice' },
   pdfMimeType = 'application/pdf',
@@ -144,6 +144,9 @@ async function openDesktopUi(
               ? { ok: true, quiz: practiceResult }
               : { ok: false, error: 'insufficient_source' }
           }
+          if (empty === 'insufficient_source') {
+            return { ok: false, error: 'insufficient_source' }
+          }
           return { ok: true, quiz: empty
             ? { title: 'Empty quiz', questions: [] }
             : generated }
@@ -210,11 +213,51 @@ test('the real model output becomes five visible, answerable questions and a res
   expect(errors).toEqual([])
 })
 
-test('an empty success response shows an error instead of a blank quiz', async ({ page }) => {
+test('a 15-question request displays five safe questions and preserves the requested count for practice', async ({ page }) => {
+  const original = readModelQuiz()
+  const followup: ModelQuiz = {
+    title: 'Partial Weak Area Practice',
+    questions: original.questions.map((q, index) => ({
+      ...q, question: 'New source-backed practice question ' + index + '?',
+    })),
+  }
+  const errors = await openDesktopUi(page, original, false, followup,
+    { count: 15, difficulty: 'easy', type: 'multiple_choice' })
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  await expect(page.getByRole('status').filter({ hasText: 'Generated 5 of 15 requested questions' })).toBeVisible()
+  for (const [index, q] of original.questions.entries()) {
+    await page.locator('.question-card').nth(index)
+      .locator('input[type=radio]')
+      .nth(index === 0 ? (q.correct_index + 1) % 4 : q.correct_index).check()
+  }
+  await page.getByRole('button', { name: 'Check Answers' }).click()
+  await expect(page.locator('#quiz-results')).toContainText('4 / 5 correct')
+  await page.getByRole('button', { name: 'Practice Weak Areas' }).click()
+  await expect(page.locator('.question-card')).toHaveCount(5)
+  const probe = await page.evaluate(() => (window as unknown as {
+    __localOutputProbe: { quizRequests: Array<{ questionCount: number }> }
+  }).__localOutputProbe)
+  expect(probe.quizRequests.map(r => r.questionCount)).toEqual([15, 15])
+  expect(errors).toEqual([])
+})
+
+test('zero-question successful response shows actionable guidance instead of a blank quiz', async ({ page }) => {
   const errors = await openDesktopUi(page, readModelQuiz(), true)
-  await expect(page.getByRole('alert')).toContainText('Local AI returned an empty or incomplete quiz')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('Try selecting more pages')
+  await expect(alert).toContainText('changing the difficulty')
   await expect(page.locator('.question-card')).toHaveCount(0)
   await expect(page.locator('#quiz-results')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('insufficient-source response shows the same actionable zero-question guidance', async ({ page }) => {
+  const errors = await openDesktopUi(page, readModelQuiz(), 'insufficient_source')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('No valid questions could be generated from these notes')
+  await expect(alert).toContainText('uploading a document with more study material')
+  await expect(page.locator('.question-card')).toHaveCount(0)
   expect(errors).toEqual([])
 })
  
@@ -275,7 +318,7 @@ test('failed weak-area practice reports its error beside the completed quiz', as
   await expect(page.locator('#quiz-results').getByRole('alert'))
     .toContainText('Could not build weak-area practice')
   await expect(page.locator('#quiz-results').getByRole('alert'))
-    .toContainText('Choose more pages or use Cloud AI.')
+    .toContainText('Try selecting more pages, uploading a document with more study material, or changing the difficulty.')
   await expect(page.locator('.question-card')).toHaveCount(5)
   expect(errors).toEqual([])
 })

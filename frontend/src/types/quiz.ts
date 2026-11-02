@@ -34,7 +34,9 @@ export type QuizResult =
   }
 
 export type GeneratedSettings = {
+  // Actual question count can be less than the requested maximum.
   questionCount: number
+  requestedQuestionCount?: 5 | 10 | 15
   difficulty: string
   questionType: QuestionMode
 }
