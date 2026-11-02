@@ -30,6 +30,41 @@ const schema = {
     } },
   },
 }
+// Conservative correction for an evidence-grounded model rubric mistake:
+// "helps control cell activities" and "controls cell activities" are the
+// same requested function. Repair only an auxiliary "helps + verb + object"
+// omission, with an actual contiguous student quote. Never infer a missing
+// fact from loose keyword overlap, negated text, or unsupported evidence.
+function recoverAuxiliaryVerbEvidence(expectedQuote, answer) {
+  if (!text(expectedQuote) || !text(answer)) return null
+  const expected = normalize(expectedQuote).split(' ')
+  if (expected[0] === 'and') expected.shift()
+  if (!['help', 'helps', 'helped'].includes(expected[0]) ||
+      expected.length < 4) return null
+  // Refrain from promotion when the whole answer includes negation. The
+  // semantic grader still assesses such answers and contradictions.
+  if (/\b(?:not|no|never|without|cannot|cant|dont|doesnt|didnt|wont|isnt|arent)\b/u.test(normalize(answer))) {
+    return null
+  }
+  const words = [...answer.matchAll(/[\p{L}\p{N}]+/gu)]
+  const required = expected.slice(1)
+  for (let index = 0; index <= words.length - required.length; index++) {
+    const candidate = words.slice(index, index + required.length)
+    const matched = candidate.every((word, offset) => {
+      const token = normalize(word[0])
+      const expectedWord = required[offset]
+      return offset === 0
+        ? token === expectedWord || token === expectedWord + 's' || token === expectedWord + 'es'
+        : token === expectedWord
+    })
+    if (!matched) continue
+    const first = candidate[0].index
+    const last = candidate[candidate.length - 1]
+    const quote = answer.slice(first, last.index + last[0].length)
+    if (contains(answer, quote)) return quote
+  }
+  return null
+}
 function normalizeReview(raw, index, source, answer, expectedAnswer) {
   if (!raw || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1 ||
       typeof raw.uncertain !== 'boolean' || typeof raw.contradiction !== 'boolean' ||
@@ -52,9 +87,21 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
         (c.status === 'missing' && c.answer_quote !== '')) return uncertain(index)
     seen.add(normalize(c.concept))
   }
-  const matched = raw.concepts.filter(c => c.status === 'matched').length
-  const missing = raw.concepts.filter(c => c.status === 'missing').length
-  const contradicted = raw.contradiction || raw.concepts.some(c => c.status === 'contradicted')
+  // Qwen sometimes asserts a concept is missing despite the student's
+  // explicit, source-compatible wording. Only repair the narrow auxiliary
+  // verb form after validating ALL original source/student quotes above.
+  // We never override explicit uncertainty, contradicted evidence or low
+  // confidence, and the repaired answer quote is itself verifiable.
+  const mayRepair = !raw.uncertain && !raw.contradiction &&
+    raw.confidence >= 0.8 && !raw.concepts.some(c => c.status === 'contradicted')
+  const concepts = mayRepair ? raw.concepts.map(c => {
+    if (c.status !== 'missing') return c
+    const answerQuote = recoverAuxiliaryVerbEvidence(c.expected_quote, answer)
+    return answerQuote ? { ...c, status: 'matched', answer_quote: answerQuote } : c
+  }) : raw.concepts
+  const matched = concepts.filter(c => c.status === 'matched').length
+  const missing = concepts.filter(c => c.status === 'missing').length
+  const contradicted = raw.contradiction || concepts.some(c => c.status === 'contradicted')
   // A model can be less confident about an incomplete answer than a fully
   // correct one even when both rubric concepts have exact, validated evidence.
   // Only that grounded matched+missing case earns a narrower partial-credit
@@ -82,7 +129,11 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
   const credit = contradicted ? 0 : matched / raw.concepts.length
   return { question_index: index, engine: 'local',
     verdict: credit === 1 ? 'correct' : credit > 0 ? 'partial' : 'incorrect',
-    confidence: raw.confidence, reason: raw.reason, credit, concepts: raw.concepts }
+    confidence: raw.confidence,
+    reason: concepts.some((c, i) => c.status !== raw.concepts[i].status)
+      ? 'The required functions are both present in the answer.'
+      : raw.reason,
+    credit, concepts }
 }
 // A student's submission can contain direct instructions intended to change
 // the grade instead of answering the question. Reject only a very explicit,
