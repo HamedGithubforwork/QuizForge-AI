@@ -13,6 +13,22 @@ const INVALID_EVIDENCE_REASON = 'Local AI could not verify this answer confident
 const uncertain = (index, reason = INVALID_EVIDENCE_REASON) => ({
   question_index: index, verdict: 'uncertain', confidence: 0, reason, engine: 'local', credit: null, concepts: [],
 })
+// Do not turn model transport failures into misleading semantic judgments.
+// Only bounded, known codes affect the displayed guidance; never include a
+// native exception's message, which could reveal paths or student content.
+const RUNTIME_GRADING_FAILURES = Object.freeze({
+  runtime_unavailable: 'Local AI could not start or connect to the model. Restart Local AI and retry grading.',
+  timed_out: 'Local AI grading timed out. Retry this answer.',
+  invalid_response: 'Local AI returned an unreadable grading response. Retry this answer.',
+  model_missing: 'The Local AI model is missing. Download it again before retrying grading.',
+  invalid_model: 'The Local AI model failed verification. Repair the model before retrying grading.',
+  runtime_invalid: 'The Local AI runtime failed verification. Repair the installation before retrying grading.',
+  generation_failed: 'Local AI could not complete grading. Retry this answer.',
+  busy: 'Local AI is busy. Retry grading when the current task finishes.',
+})
+const runtimeGradingReason = error =>
+  Object.hasOwn(RUNTIME_GRADING_FAILURES, error?.code)
+    ? RUNTIME_GRADING_FAILURES[error.code] : INVALID_EVIDENCE_REASON
 const schema = {
   type: 'object', additionalProperties: false,
   required: ['confidence', 'reason', 'uncertain', 'contradiction', 'concepts'],
@@ -332,9 +348,9 @@ function createLocalAnswerReview({ provider }) {
           decision = decisionFromResponse(repaired)
         }
         publish(decision ?? uncertain(c.question_index))
-      } catch {
+      } catch (error) {
         if (signal?.aborted) throw new LocalAiError('cancelled')
-        publish(uncertain(c.question_index))
+        publish(uncertain(c.question_index, runtimeGradingReason(error)))
       }
     }
     return { decisions }
