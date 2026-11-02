@@ -136,7 +136,7 @@ export function localDeterministicAnswerReview(
   if (trustedDeterministic) return {
     question_index: questionIndex, verdict: 'correct', credit: 1, confidence: 1,
     engine: 'local', concepts: [],
-    reason: 'Your answer matches a supported answer using the local deterministic grading rules.',
+    reason: 'Local matching: your answer matches a supported answer without needing Qwen.',
   }
   // Only a descriptive question with a long expected answer can safely
   // reject a lone unrelated character without invoking the language model.
@@ -149,7 +149,7 @@ export function localDeterministicAnswerReview(
   if (unsupportedLetter) return {
     question_index: questionIndex, verdict: 'incorrect', credit: 0, confidence: 1,
     engine: 'local', concepts: [],
-    reason: 'A single unrelated letter does not answer this descriptive question.',
+    reason: 'Local matching: a single unrelated letter does not answer this descriptive question.',
   }
   return null
 }
