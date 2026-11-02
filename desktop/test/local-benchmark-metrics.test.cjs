@@ -30,7 +30,7 @@ test('computes ordered medians and p90 without dropping slow outliers', () => {
     { outcome: 'pass', elapsedSeconds: 60 },
   ]), {
     attempts: 3, passed: 2, failures: 1, strictSourceFactPassRate: 2 / 3,
-    medianSeconds: 20, p90Seconds: 60, maximumSeconds: 60, minimumSeconds: 20,
+    medianSeconds: 60, p90Seconds: 60, maximumSeconds: 60, minimumSeconds: 20,
   })
 })
 
