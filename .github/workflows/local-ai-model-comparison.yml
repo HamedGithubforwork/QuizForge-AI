@@ -104,6 +104,12 @@ jobs:
                 Write-Warning "Scaffolded diagnostics incomplete; preserving original baseline result for $env:BENCHMARK_MODEL_ID"
               }
             }
+            if ($env:BENCHMARK_MODEL_ID -in @('qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m')) {
+              node desktop/scripts/benchmark-small-qwen-adaptive.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID-adaptive.json" $env:BENCHMARK_MODEL_ID
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Adaptive Qwen diagnostic failed; retain baseline report"
+              }
+            }
           }
           # Per-model jobs intentionally succeed so the aggregate quality gate
           # can report *all five outcomes* rather than cancelling other models.
