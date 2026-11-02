@@ -29,6 +29,7 @@ import {
   desktopLocalQuizBridge,
   desktopLocalPdfBridge,
   type DesktopLocalAiQuizStatus,
+  type DesktopLocalQuizProgress,
   type DesktopLocalPdfDocument,
 } from './lib/desktop.ts'
 import {
@@ -45,6 +46,13 @@ import {
 import {
   reportLocalGenerationUsage,
 } from './lib/generationUsage.ts'
+import {
+  appendGenerationTiming,
+  estimateGenerationTime,
+  readGenerationTimings,
+  storeGenerationTimings,
+  type GenerationTimingProfile,
+} from './lib/generationTiming.ts'
 import {
   loadSourcePageText,
 } from './lib/sourcePageCache.ts'
@@ -88,6 +96,14 @@ function App() {
     useState(false)
   const [generationStage, setGenerationStage] =
     useState('')
+  const [generationElapsedMs, setGenerationElapsedMs] = useState(0)
+  const [generationDurationMs, setGenerationDurationMs] = useState<number | null>(null)
+  const [practiceTimingProfile, setPracticeTimingProfile] = useState<GenerationTimingProfile | null>(null)
+  const [practiceTimingOrigin, setPracticeTimingOrigin] = useState<'results' | 'history' | null>(null)
+  const generationStartedAt = useRef<number | null>(null)
+  const [generationTimings, setGenerationTimings] = useState(() => {
+    try { return readGenerationTimings(window.localStorage) } catch { return [] }
+  })
   const [error, setError] = useState('')
   const [weakPracticeError, setWeakPracticeError] = useState('')
   const [
@@ -108,8 +124,18 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const [localBatchProgress, setLocalBatchProgress] = useState<DesktopLocalQuizProgress | null>(null)
   const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
   const localPdfBridge = localPdfBridgeRef.current
+  useEffect(() => {
+    if (!isGenerating && !isWeakPracticeGenerating) return
+    const ticker = window.setInterval(() => {
+      if (generationStartedAt.current !== null) {
+        setGenerationElapsedMs(Math.max(0, performance.now() - generationStartedAt.current))
+      }
+    }, 1000)
+    return () => window.clearInterval(ticker)
+  }, [isGenerating, isWeakPracticeGenerating])
   const localGenerationController =
     useRef<AbortController | null>(null)
   const generationModeUserSelected =
@@ -157,6 +183,32 @@ function App() {
       active = false
     }
   }, [localQuizBridge])
+
+  useEffect(() => {
+    if (!localQuizBridge || generationMode !== 'local' ||
+        (!isGenerating && !isWeakPracticeGenerating) ||
+        typeof localQuizBridge.localAiQuizProgress !== 'function') {
+      setLocalBatchProgress(null)
+      return
+    }
+    let cancelled = false
+    let inFlight = false
+    const poll = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const progress = await localQuizBridge.localAiQuizProgress?.()
+        if (!cancelled) setLocalBatchProgress(progress ?? null)
+      } catch {
+        // The timer remains available when progress IPC is unsupported.
+      } finally {
+        inFlight = false
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => { void poll() }, 1200)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [localQuizBridge, generationMode, isGenerating, isWeakPracticeGenerating])
 
   const attempt = useQuizAttempt({
     quiz,
@@ -446,6 +498,22 @@ function App() {
     }
   }
 
+  function beginGenerationTiming() {
+    const startedAt = performance.now()
+    generationStartedAt.current = startedAt
+    setGenerationElapsedMs(0)
+    return startedAt
+  }
+
+  function recordGenerationTiming(startedAt: number, profile: GenerationTimingProfile) {
+    const elapsedMs = Math.max(0, performance.now() - startedAt)
+    setGenerationDurationMs(elapsedMs)
+    setGenerationElapsedMs(elapsedMs)
+    const updated = appendGenerationTiming(generationTimings, profile, elapsedMs)
+    setGenerationTimings(updated)
+    try { storeGenerationTimings(window.localStorage, updated) } catch {}
+  }
+
   async function handleGenerateQuiz() {
     if (!selectedFile && !documentResult) {
       setError('Please choose a PDF first.')
@@ -473,6 +541,12 @@ function App() {
         difficulty,
         questionType,
       }
+
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
+    }
+    const startedAt = beginGenerationTiming()
+    setGenerationDurationMs(null)
 
     setIsGenerating(true)
     setGenerationStage(
@@ -575,6 +649,7 @@ function App() {
         }
 
         setGenerationStage('Quiz ready!')
+        recordGenerationTiming(startedAt, timingProfile)
         setQuiz(result.quiz)
         void reportLocalGenerationUsage(
           apiFetch,
@@ -647,6 +722,7 @@ function App() {
       }
 
       setGenerationStage('Quiz ready!')
+      recordGenerationTiming(startedAt, timingProfile)
       setQuiz(data as QuizResult)
       setGeneratedSettings({
         ...settingsForRequest,
@@ -691,6 +767,7 @@ function App() {
         localGenerationController.current =
           null
       }
+      generationStartedAt.current = null
       setIsGenerating(false)
       window.setTimeout(() => {
         setGenerationStage('')
@@ -801,6 +878,13 @@ function App() {
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : weakQuestionType
 
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'practice', engine: generationMode, questionCount: practiceQuestionCount,
+      difficulty: practiceDifficulty, questionType: practiceQuestionType,
+    }
+    const practiceStartedAt = beginGenerationTiming()
+    setPracticeTimingProfile(timingProfile)
+    setPracticeTimingOrigin('results')
     setIsWeakPracticeGenerating(true)
     setWeakPracticeError('')
     setError('')
@@ -865,6 +949,10 @@ function App() {
         }
       }
 
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error('Practice generation returned no questions.')
+      }
+      recordGenerationTiming(practiceStartedAt, timingProfile)
       setQuiz(data)
       setGeneratedSettings({
         engine: generationMode === 'local' ? 'local' : 'cloud',
@@ -914,6 +1002,9 @@ function App() {
         )
       }
     } finally {
+      generationStartedAt.current = null
+      setPracticeTimingProfile(null)
+      setPracticeTimingOrigin(null)
       setIsWeakPracticeGenerating(false)
     }
   }
@@ -944,6 +1035,13 @@ function App() {
     const practiceQuestionType: QuestionMode =
       generatedSettings?.questionType === 'mixed' ? 'mixed' : focus.questionType
 
+    const timingProfile: GenerationTimingProfile = {
+      kind: 'practice', engine: generationMode, questionCount: practiceQuestionCount,
+      difficulty: practiceDifficulty, questionType: practiceQuestionType,
+    }
+    const practiceStartedAt = beginGenerationTiming()
+    setPracticeTimingProfile(timingProfile)
+    setPracticeTimingOrigin('history')
     setIsWeakPracticeGenerating(true)
     setError('')
     attempt.clearSaveMessage()
@@ -1007,6 +1105,10 @@ function App() {
         }
       }
 
+      if (!data || !Array.isArray(data.questions) || data.questions.length === 0) {
+        throw new Error('Practice generation returned no questions.')
+      }
+      recordGenerationTiming(practiceStartedAt, timingProfile)
       setQuiz(data)
       setGeneratedSettings({
         engine: generationMode === 'local' ? 'local' : 'cloud',
@@ -1058,6 +1160,9 @@ function App() {
         )
       }
     } finally {
+      generationStartedAt.current = null
+      setPracticeTimingProfile(null)
+      setPracticeTimingOrigin(null)
       setIsWeakPracticeGenerating(false)
     }
   }
@@ -1076,6 +1181,7 @@ function App() {
     setDocumentResult(null)
     setQuiz(null)
     setGeneratedSettings(null)
+    setGenerationDurationMs(null)
     attempt.resetAttempt()
     setQuestionCount(5)
     setDifficulty('medium')
@@ -1094,6 +1200,14 @@ function App() {
     })
   }
 
+  const generationEstimate = isGenerating
+    ? estimateGenerationTime(generationTimings, {
+      kind: 'quiz', engine: generationMode, questionCount, difficulty, questionType,
+    }, generationElapsedMs)
+    : null
+  const practiceEstimate = isWeakPracticeGenerating && practiceTimingProfile
+    ? estimateGenerationTime(generationTimings, practiceTimingProfile, generationElapsedMs)
+    : null
   const documentBusy = isProcessing || isGenerating || isWeakPracticeGenerating || attempt.isReviewingAnswers || attempt.isSavingHistory
 
   const masteryDelta =
@@ -1201,6 +1315,9 @@ function App() {
               generationStage={
                 generationStage
               }
+              localBatchProgress={localBatchProgress}
+              generationElapsedMs={generationElapsedMs}
+              generationEstimate={generationEstimate}
               onQuestionCountChange={
                 setQuestionCount
               }
@@ -1235,6 +1352,11 @@ function App() {
             {quiz ? (
               <QuizSession
                 quiz={quiz}
+                generationDurationMs={generationDurationMs}
+                showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'results'}
+                practiceTimingElapsedMs={generationElapsedMs}
+                practiceTimingEstimate={practiceEstimate}
+                localBatchProgress={localBatchProgress}
                 documentResult={
                   documentResult
                 }
@@ -1285,6 +1407,11 @@ function App() {
                 isReviewingAnswers={
                   attempt.isReviewingAnswers
                 }
+                shortAnswerReviewMode={attempt.shortAnswerReviewMode}
+                onShortAnswerReviewModeChange={attempt.setShortAnswerReviewMode}
+                answerReviewProgress={attempt.answerReviewProgress}
+                onManualShortAnswerGrade={attempt.setManualShortAnswerGrade}
+                onStopLocalAnswerReview={attempt.stopLocalAnswerReview}
                 isSavingHistory={
                   attempt.isSavingHistory
                 }
@@ -1364,6 +1491,10 @@ function App() {
           isPracticeGenerating={
             isWeakPracticeGenerating
           }
+          showPracticeTiming={isWeakPracticeGenerating && practiceTimingOrigin === 'history'}
+          practiceTimingElapsedMs={generationElapsedMs}
+          practiceTimingEstimate={practiceEstimate}
+          localBatchProgress={localBatchProgress}
           onPracticeWeakAreas={
             handleHistoryPracticeWeakAreas
           }

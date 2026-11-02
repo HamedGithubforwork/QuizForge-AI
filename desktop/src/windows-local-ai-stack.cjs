@@ -61,6 +61,9 @@ function createWindowsLocalAiStack({
   let documentController = null
   let disposed = false
   let lastQuizValidationIssue = null
+  let quizProgressState = null
+  let reviewProgressState = null
+  let previousBatchMark = null
   const debugReport = createLocalAiDebugReport()
   let activeOperationId = null
   function diagnostic(event, fields = {}) {
@@ -130,8 +133,34 @@ function createWindowsLocalAiStack({
       modelStore: resources.modelStore,
       modelId: resources.modelId,
     })
-    const generator = createLocalQuizService({ provider, onValidationIssue: captureQuizValidationIssue,
+    const createGenerator = activeProvider => createLocalQuizService({
+      provider: activeProvider, onValidationIssue: captureQuizValidationIssue,
       onGeneratedResponse: onQuizGeneratedResponse,
+      onBatchProgress: value => {
+        if (!quizProgressState || quizProgressState.phase !== 'generating') return
+        if (!Number.isSafeInteger(value?.completedBatches) ||
+            !Number.isSafeInteger(value?.totalBatches) ||
+            !Number.isSafeInteger(value?.validQuestions) ||
+            value.completedBatches < 0 || value.totalBatches < 1 ||
+            value.completedBatches > value.totalBatches || value.validQuestions < 0) return
+        const now = performance.now()
+        if (value.completedBatches === 0) previousBatchMark = now
+        else if (previousBatchMark !== null) {
+          diagnostic('batch_completed', {
+            batchNumber: value.completedBatches,
+            totalBatches: value.totalBatches,
+            validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+            elapsedMs: now - previousBatchMark,
+          })
+          previousBatchMark = now
+        }
+        quizProgressState = Object.freeze({
+          ...quizProgressState,
+          completedBatches: value.completedBatches,
+          totalBatches: value.totalBatches,
+          validQuestions: Math.min(value.validQuestions, quizProgressState.requestedQuestions),
+        })
+      },
       onRejectedQuestion: issue => {
         diagnostic('question_rejected', { reason: issue.reason, questionNumber: issue.questionNumber,
           questionType: issue.questionType, sourcePages: issue.sourcePages })
@@ -141,8 +170,40 @@ function createWindowsLocalAiStack({
     quizService = { async generate(request, options) {
       reviewContext = null
       const epoch = contextEpoch
-      const generated = await generator.generate(request, options)
-      const quiz = await reviewQuizDistinctness({ provider, quiz: generated, pages: request.pages, signal: options?.signal })
+      previousBatchMark = null
+      quizProgressState = Object.freeze({
+        phase: 'generating', completedBatches: 0,
+        // Start with one request. Only announce multiple batches once the
+        // generator confirms that the source can be partitioned safely.
+        totalBatches: 1,
+        validQuestions: 0,
+        requestedQuestions: request?.questionCount ?? 5,
+      })
+      // Quiz generation, all five-item batches and the distinctness check
+      // share one guarded local model process. The scoped provider cannot
+      // open another session, and the model stops after this one quiz.
+      const produce = async activeProvider => {
+        const generated = await createGenerator(activeProvider).generate(request, options)
+        quizProgressState = Object.freeze({
+          ...quizProgressState, phase: 'checking_duplicates',
+          completedBatches: quizProgressState.totalBatches,
+          validQuestions: generated.questions.length,
+        })
+        const distinctnessStarted = performance.now()
+        const verified = await reviewQuizDistinctness({
+          provider: activeProvider, quiz: generated,
+          pages: request.pages, signal: options?.signal,
+        })
+        diagnostic('distinctness_completed', {
+          elapsedMs: performance.now() - distinctnessStarted,
+          status: verified.generation?.distinctness ?? 'unavailable',
+          duplicateCount: verified.generation?.duplicateCount ?? 0,
+        })
+        return verified
+      }
+      const quiz = typeof provider.withSession === 'function'
+        ? await provider.withSession(produce, { signal: options?.signal })
+        : await produce(provider)
       if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
       reviewContext = { quiz, pages: request.pages.map(page => ({ ...page })) }
       return quiz
@@ -231,6 +292,8 @@ function createWindowsLocalAiStack({
     } finally {
       if (quizOperation === currentOperation) quizOperation = null
       if (quizController === controller) quizController = null
+      quizProgressState = null
+      reviewProgressState = null
       selectedGpuLayers = null
       await offloadPolicy.flush()
     }
@@ -297,12 +360,33 @@ function createWindowsLocalAiStack({
     cancelDownload: manager.cancelDownload,
     removeModel: manager.removeModel,
     quizStatus,
+    quizProgress: () => quizOperation && quizProgressState
+      ? Object.freeze({ ...quizProgressState }) : null,
+    reviewProgress: () => quizOperation && reviewProgressState
+      ? Object.freeze({ total: reviewProgressState.total,
+          decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
-      return traceOperation('answer_review', {}, () => runQuiz(signal =>
-        answerReview.review(request, { ...reviewContext, signal })))
+      return traceOperation('answer_review', {}, () => runQuiz(signal => {
+        reviewProgressState = { total: request.cases.length, decisions: [] }
+        const context = { ...reviewContext, signal, onDecision: decision => {
+          if (!reviewProgressState || signal.aborted) return
+          if (request.cases.some(c => c.question_index === decision.question_index) &&
+              !reviewProgressState.decisions.some(d => d.question_index === decision.question_index)) {
+            reviewProgressState.decisions.push(decision)
+          }
+        } }
+        // One short-answer submission may contain several answers. Avoid
+        // reloading Qwen between each answer, but still release it when the
+        // review finishes or is cancelled.
+        if (request.cases.length > 1 && typeof provider.withSession === 'function') {
+          return provider.withSession(scopedProvider =>
+            createLocalAnswerReview({ provider: scopedProvider }).review(request, context), { signal })
+        }
+        return answerReview.review(request, context)
+      }))
     },
     processDocument,
     generateDocumentQuiz,

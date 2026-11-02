@@ -123,6 +123,28 @@ assert.equal(
   false,
 )
 
+const exactListQuestion = {
+  ...conceptQuestion,
+  correct_answer: 'Carbon dioxide, water, light',
+  accepted_answers: ['Carbon dioxide, water, light'],
+  grading: { ...conceptQuestion.grading, grading_mode: 'exact' as const, answer_groups: [] },
+}
+assert.equal(
+  shouldRequestAiAnswerReview(
+    exactListQuestion, 'water, co 2 , sunlight',
+    grade({ correct: true }), true,
+  ),
+  false,
+  'verified equivalent exact lists should not be overridden by uncertain model feedback',
+)
+assert.equal(
+  shouldRequestAiAnswerReview(
+    exactListQuestion, 'water, co 2 , moonlight',
+    grade(), true,
+  ),
+  true,
+)
+
 const reviewCase =
   buildAiAnswerReviewCase(
     3,

@@ -19,6 +19,8 @@ if (process.isMainFrame && trustedRenderer) {
     cancelLocalAiModelDownload: () => ipcRenderer.invoke('qfn:cancelLocalAiModelDownload'),
     removeLocalAiModel: () => ipcRenderer.invoke('qfn:removeLocalAiModel'),
     localAiQuizStatus: () => ipcRenderer.invoke('qfn:localAiQuizStatus'),
+    localAiQuizProgress: () => ipcRenderer.invoke('qfn:localAiQuizProgress'),
+    localAiAnswerReviewProgress: () => ipcRenderer.invoke('qfn:localAiAnswerReviewProgress'),
     processLocalPdf: value => ipcRenderer.invoke('qfn:processLocalPdf', value),
     generateLocalAiQuiz: value => ipcRenderer.invoke('qfn:generateLocalAiQuiz', value),
     generateLocalDocumentQuiz: value => ipcRenderer.invoke('qfn:generateLocalDocumentQuiz', value),

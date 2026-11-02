@@ -82,6 +82,12 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
     cancelDownload: async () => {},
     removeModel: async () => ({}),
     quizStatus: async () => ({ available: true, reason: null, busy: false }),
+    quizProgress: () => ({ phase: 'generating', completedBatches: 1, totalBatches: 3,
+      validQuestions: 4, requestedQuestions: 15 }),
+    reviewProgress: () => ({ total: 2, decisions: [{
+      question_index: 0, verdict: 'partial', confidence: 0.75, credit: 0.5,
+      reason: 'One concept missing', engine: 'local', concepts: [],
+    }] }),
     generateQuiz: async value => {
       received = value
       return { title: 'Fixture', questions: [] }
@@ -105,6 +111,13 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
   }
   assert.deepEqual(await handlers['qfn:localAiQuizStatus'](event),
     { available: true, reason: null, busy: false })
+  assert.deepEqual(await handlers['qfn:localAiQuizProgress'](event), {
+    phase: 'generating', completedBatches: 1, totalBatches: 3,
+    validQuestions: 4, requestedQuestions: 15,
+  })
+  await assert.rejects(handlers['qfn:localAiQuizProgress'](event, 'extra'), /not permitted/)
+  assert.equal((await handlers['qfn:localAiAnswerReviewProgress'](event)).decisions[0].verdict, 'partial')
+  await assert.rejects(handlers['qfn:localAiAnswerReviewProgress'](event, 'extra'), /not permitted/)
   const generated = await handlers['qfn:generateLocalAiQuiz'](event, request)
   assert.equal(generated.ok, true)
   assert.deepEqual(received, request)
@@ -125,6 +138,8 @@ test('Local AI quiz IPC requires one bounded request and returns sanitized failu
 
   account = null
   await assert.rejects(handlers['qfn:localAiQuizStatus'](event), /Sign in/)
+  await assert.rejects(handlers['qfn:localAiQuizProgress'](event), /Sign in/)
+  await assert.rejects(handlers['qfn:localAiAnswerReviewProgress'](event), /Sign in/)
 })
 
 test('local PDF quiz IPC bounds file bytes, requires the local account path and never calls cloud request', async () => {

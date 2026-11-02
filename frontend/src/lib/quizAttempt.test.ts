@@ -275,6 +275,54 @@ assert.deepEqual(
   'history persistence should de-duplicate accepted semantic answers',
 )
 
+const photosynthesisInputQuestion = {
+  ...shortAnswer,
+  question: 'What are the main inputs of photosynthesis?',
+  correct_answer: 'Carbon dioxide, water, light',
+  accepted_answers: ['Carbon dioxide, water, light'],
+  grading: { ...gradingNone, grading_mode: 'exact' },
+}
+const inputQuiz = { title: 'Photosynthesis', questions: [photosynthesisInputQuestion] }
+const inputAnswer = 'water, co 2 , sunlight'
+assert.equal(
+  isAttemptQuestionCorrect(photosynthesisInputQuestion, inputAnswer, {}),
+  true,
+  'sunlight is light and CO2 is carbon dioxide in the full source-derived input list',
+)
+assert.equal(
+  buildAttemptReviewCases(inputQuiz, { 0: inputAnswer }, [0], true).length,
+  0,
+  'the local AI must not override a verified exact-mode synonym list',
+)
+assert.equal(calculateAttemptScore(inputQuiz, { 0: inputAnswer }, {}), 1)
+
 console.log(
   'quiz attempt helper tests passed',
 )
+
+
+const manualReview = {
+  question_index: 1,
+  engine: 'manual' as const,
+  verdict: 'correct' as const,
+  confidence: 1,
+  credit: 1,
+  reason: 'Self-graded against the expected answer',
+  concepts: [],
+}
+const manualHistory = buildQuizForHistory(quiz, selectedAnswers, {
+  [reviewKey]: manualReview,
+})
+assert.equal(manualHistory.questions[1].answer_review?.decision.engine, 'manual')
+assert.equal(manualHistory.questions[1].ai_accepted_answers?.includes(semanticAnswer) ?? false, false,
+  'manual self-grading never promotes an unchecked answer into trusted synonyms')
+assert.equal(calculateAttemptScore(quiz, selectedAnswers, { [reviewKey]: manualReview }), 2)
+
+const ungradedReview = {
+  ...manualReview,
+  verdict: 'uncertain' as const,
+  confidence: 0,
+  credit: null,
+}
+assert.equal(calculateAttemptScore(quiz, selectedAnswers, { [reviewKey]: ungradedReview }), 1,
+  'non-short-answer scores remain immediately available before manual review')

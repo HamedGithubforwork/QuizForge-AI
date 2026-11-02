@@ -1,5 +1,13 @@
 import type { AiAnswerReviewDecision } from './answerFallback.ts'
 import type { Quiz } from '../types/api.generated.ts'
+export type DesktopLocalQuizProgress = {
+  phase: 'generating' | 'checking_duplicates'
+  completedBatches: number
+  totalBatches: number
+  validQuestions: number
+  requestedQuestions: number
+}
+
 export type DesktopLocalAiQuizStatus = {
   available: boolean
   reason:
@@ -170,6 +178,8 @@ export type DesktopBridge = {
   cancelLocalAiModelDownload?(): Promise<DesktopLocalAiStatus>
   removeLocalAiModel?(): Promise<DesktopLocalAiStatus>
   localAiQuizStatus?(): Promise<DesktopLocalAiQuizStatus>
+  localAiQuizProgress?(): Promise<DesktopLocalQuizProgress | null>
+  localAiAnswerReviewProgress?(): Promise<{ total: number; decisions: AiAnswerReviewDecision[] } | null>
   generateLocalAiQuiz?(request: DesktopLocalQuizRequest): Promise<DesktopLocalQuizResult>
   generateLocalDocumentQuiz?(request: DesktopLocalDocumentQuizRequest): Promise<DesktopLocalDocumentQuizResult>
   processLocalPdf?(request: DesktopLocalPdfRequest): Promise<DesktopLocalPdfResult>

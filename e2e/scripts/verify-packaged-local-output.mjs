@@ -116,6 +116,7 @@ try {
   await page.getByLabel('Difficulty').selectOption('easy')
   await page.getByRole('button', { name: 'Generate Locally' }).click()
   await expect(page.locator('.question-card')).toHaveCount(5, { timeout: 20000 })
+  await expect(page.locator('#quiz-start')).toContainText('Generated in')
   for (const [index, item] of quiz.questions.entries()) {
     const card = page.locator('.question-card').nth(index)
     await expect(card.locator('h3')).toHaveText(item.question)

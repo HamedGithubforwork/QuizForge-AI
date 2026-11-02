@@ -639,7 +639,7 @@ function promptFor(request, { allowPartial = false } = {}) {
         ? 'For each short-answer question use choices [], correct_index -1, and copy correct_answer as an exact contiguous phrase from its cited source page; do not paraphrase or combine separated phrases. accepted_answers may contain only source-supported variants.'
         : 'Follow the output shape for each type: multiple choice has four choices; true/false has ["True", "False"]; short answer has choices [], correct_index -1, and an exact contiguous correct_answer phrase copied from its cited source page. Do not paraphrase short answers. Supply accepted_answers for every item.'
   const lines = [
-    request.practice && request.questionCount === QUESTION_COUNT && requestedMode === 'multiple_choice'
+    request.practice && !allowPartial && request.questionCount === QUESTION_COUNT && requestedMode === 'multiple_choice'
       ? 'Create a multiple-choice practice quiz using ONLY the supplied study material. The final product requires five questions; targeted-practice generation may request extra backup candidates that will be deterministically filtered before the user sees the quiz.'
       : allowPartial
         ? 'Create a practice quiz using ONLY the supplied study material. Generate as many different, source-supported questions as possible, up to ' + countLabel + ', in the requested mode: ' + requestedMode + '. One valid question is enough to return a useful quiz.'
@@ -652,6 +652,7 @@ function promptFor(request, { allowPartial = false } = {}) {
       ? 'Make multiple-choice distractors plausible but incorrect answers to that specific question. A term from elsewhere in the supplied study material may be used as a distractor when it does not answer this question. Never repeat the correct answer, repeat a distractor, or create multiple choices that are simultaneously correct.'
       : 'Do not add distractor choices to question types that do not use them.',
     'Keep questions, choices, and explanations concise. Do not repeat the question in the explanation or add background not needed to justify the answer.',
+    'Make question wording match the scope of the expected answer. If the answer lists multiple required inputs, factors, roles, or components, ask what the main inputs/factors/roles ARE, not what the single main input IS. Avoid questions where a singular prompt has a multi-item correct_answer.',
     'Use source_pages only from the supplied PAGE markers, and cite only pages that directly support the question and selected correct answer.',
     'Write each question, its choices, and its explanation in the natural language of the supplied study material unless the supplied material itself intentionally mixes languages.',
     'Do not mix writing systems that are absent from the supplied study material into a question, choice, or explanation.',
@@ -668,6 +669,8 @@ function promptFor(request, { allowPartial = false } = {}) {
     modeRules,
     difficulty,
     ...(allowPartial ? [
+      'Keep the JSON compact: prefer concise questions, short choices, a one-sentence explanation, and the shortest exact source_fact that identifies the tested relationship and includes the correct answer when needed. Do not omit required fields or remove necessary scientific context.',
+      'For accepted_answers include the correct_answer and only independently supported alternatives; avoid repeating the same answer under slightly different punctuation.',
       'For EVERY question include source_fact as an EXACT contiguous quotation from one cited PAGE; it must identify the tested fact. For multiple choice and short answer, the selected correct answer must occur in source_fact. Use different underlying facts across questions.',
       'A partial quiz with fewer questions is a successful result, not a generation error. Do not return an empty quiz when at least one real question is supported.',
     ] : []),
@@ -903,7 +906,33 @@ function duplicateChoiceRepairPlan(text) {
   }
 }
 
-function applyDuplicateChoiceRepair(plan, text) {
+// For a French "who is the director" question with a SINGLE, exactly cited
+// named person, three distinct fictional names are unambiguously wrong. Only
+// distractors may be replaced; never modify the source-backed right answer.
+// This narrow recovery prevents one duplicated-name question from destroying
+// an otherwise valid quiz when Qwen also repeats its repair suggestions.
+function safeFrenchDirectorDistractors(item, sourceTextByPage) {
+  if (!(sourceTextByPage instanceof Map) ||
+      !plain(item) || !boundedString(item.question, 500) ||
+      !Array.isArray(item.choices) || item.choices.length !== 4 ||
+      !Number.isSafeInteger(item.correct_index) || item.correct_index < 0 ||
+      item.correct_index > 3 || !boundedString(item.source_fact, 300) ||
+      !Array.isArray(item.source_pages) || item.source_pages.length !== 1) return []
+  const question = normalizeEvidenceText(item.question)
+  const fact = normalizeEvidenceText(item.source_fact)
+  const correct = item.choices[item.correct_index]
+  if (!/^qui (est|etait) (la|le|l) directrice?\b/u.test(question) ||
+      !/\bdirectrice? (est|etait)\b/u.test(fact) ||
+      !/^\p{Lu}[\p{L}’'-]+(?:\s+\p{Lu}[\p{L}’'-]+){1,2}$/u.test(correct) ||
+      !containsEvidencePhrase(item.source_fact, correct) ||
+      !containsEvidencePhrase(sourceTextByPage.get(item.source_pages[0]) ?? '', item.source_fact)) return []
+  const wholeSource = [...sourceTextByPage.values()].join(' ')
+  return ['Camille Dumas', 'Nora Pelletier', 'Élodie Martin',
+    'Sophie Lambert', 'Amélie Bertrand', 'Lucie Gagnon'].filter(name =>
+    !containsEvidencePhrase(wholeSource, name))
+}
+
+function applyDuplicateChoiceRepair(plan, text, sourceTextByPage = null) {
   let replacements
   try { replacements = JSON.parse(text) } catch { invalidQuiz('json') }
   if (!plain(replacements) || Object.keys(replacements).length !== plan.slots.length ||
@@ -929,11 +958,15 @@ function applyDuplicateChoiceRepair(plan, text) {
     const taken = new Set(item.choices
       .filter((_, index) => !replacedIndexes.has(index))
       .map(choice => choice.trim().toLocaleLowerCase()))
+    const safeNames = safeFrenchDirectorDistractors(item, sourceTextByPage)
     for (const slot of slots) {
       let candidate = replacements[slot.id].find(option => {
         const normalized = option.trim().toLocaleLowerCase()
         return normalized.length > 0 && !taken.has(normalized)
       })
+      if (!candidate && safeNames.length) {
+        candidate = safeNames.find(name => !taken.has(name.toLocaleLowerCase())) ?? null
+      }
       if (!candidate && !fallbackQuestions.has(questionIndex) &&
           /^(?:what|which|how|why|where|when|who|in|is|are|do|does|did|can|identify|name|according)\b/i.test(item.question.trim()) &&
           !item.choices.some(choice => /\b(?:notes|study material|information|not enough|none of (?:the|these))\b/i.test(choice))) {
@@ -1401,62 +1434,130 @@ function parseRequestedQuiz(text, request, allowedPages, sourceTextByPage, {
   return Object.freeze({ title: parsed.title.trim(), questions: Object.freeze(questions) })
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, allowSourceBackedPartial = false }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
     async generate(value, { signal } = {}) {
       const request = normalizeRequest(value)
-      // A single fifteen-question Hard/Mixed constrained JSON response can
-      // exceed the six-minute runtime inference limit before even one answer
-      // becomes available. With three or more source pages, make three
-      // independent five-question requests on disjoint page groups instead.
-      // The existing five-question source-fact validation runs on each group,
-      // and already validated groups survive a later partial failure.
-      if (request.questionCount === 15 && request.questionType === 'mixed' &&
-          !request.practice && request.pages.length >= 3) {
-        const groups = [[], [], []]
-        request.pages.forEach((page, index) => groups[index % groups.length].push(page))
-        const retained = []
-        let firstFailure = null
-        for (const pages of groups) {
-          if (signal?.aborted) throw failure('cancelled')
-          try {
-            const groupQuiz = await createLocalQuizService({
-              provider, onValidationIssue, onGeneratedResponse, onRejectedQuestion,
-              allowSourceBackedPartial: true,
-            }).generate({
-              pages, questionCount: 5, difficulty: request.difficulty,
-              questionType: 'mixed',
-              // Require an exact, independently cited source_fact for each
-              // question, without ever sending or saving user material elsewhere.
-              practice: { avoidQuestions: [] },
-            }, { signal })
-            retained.push(...groupQuiz.questions)
-          } catch (error) {
-            if (signal?.aborted || error?.code === 'cancelled') throw error
-            if (!firstFailure) firstFailure = error
-            if (!['insufficient_source', 'quiz_validation_failed', 'timed_out'].includes(error?.code)) {
-              throw error
-            }
-            try { onValidationIssue(Object.freeze({
-              attempt: 'recovery', reason: error.code,
-            })) } catch {}
-          }
-        }
-        if (!retained.length) throw firstFailure ?? failure('insufficient_source')
-        // Page groups are disjoint: no question can cite another group's
-        // material. Each group independently excludes duplicate source facts.
-        return Object.freeze({
-          title: 'Source-backed mixed practice quiz',
-          questions: Object.freeze(retained.slice(0, request.questionCount)),
-        })
+      // Keep the model loaded only for this one quiz's bounded batches. The
+      // session-scoped provider has no withSession method, avoiding recursion.
+      // Single five-question quizzes retain the old one-request lifecycle.
+      if (request.questionCount > QUESTION_COUNT && !allowSourceBackedPartial &&
+          typeof provider.withSession === 'function') {
+        return provider.withSession(scopedProvider => createLocalQuizService({
+          provider: scopedProvider, onValidationIssue, onGeneratedResponse,
+          onRejectedQuestion, onBatchProgress, allowSourceBackedPartial,
+        }).generate(request, { signal }), { signal })
       }
-      const useLegacyMultipleChoiceContract = !request.practice &&
+      // All four question modes can exceed the bounded local-model inference
+      // budget when asked for 10 or 15 items in a single constrained response.
+      // Use independently verified five-question batches when the study source
+      // can be split into disjoint, meaningful excerpts. Preserve the original
+      // request on very short notes rather than inventing duplicate facts.
+      if ((request.questionCount === 10 || request.questionCount === 15) &&
+          !allowSourceBackedPartial) {
+        const batchCount = request.questionCount / QUESTION_COUNT
+        const segments = request.pages.map(page => ({ ...page }))
+        while (segments.length < batchCount) {
+          const longest = segments.reduce((index, page, i) =>
+            page.text.length > segments[index].text.length ? i : index, 0)
+          const current = segments[longest]
+          if (current.text.length < 450) break
+          const midpoint = Math.floor(current.text.length / 2)
+          // Split on sentence or line boundaries when possible. Avoid
+          // overlapping source text or tearing an evidence phrase in half.
+          const candidates = [...current.text.matchAll(/\n|[.!?]\s+/g)]
+            .map(match => match.index + match[0].length)
+            .filter(index => index > 150 && current.text.length - index > 150)
+          const boundary = candidates.length
+            ? candidates.reduce((best, index) =>
+                Math.abs(index - midpoint) < Math.abs(best - midpoint) ? index : best)
+            : current.text.lastIndexOf(' ', midpoint)
+          if (boundary <= 150 || current.text.length - boundary <= 150) break
+          const left = current.text.slice(0, boundary).trim()
+          const right = current.text.slice(boundary).trim()
+          if (!left || !right) break
+          segments.splice(longest, 1,
+            { pageNumber: current.pageNumber, text: left },
+            { pageNumber: current.pageNumber, text: right })
+        }
+        if (segments.length >= batchCount) {
+          // Give targeted weak-area pages the first generation opportunities.
+          const focus = new Set(request.practice?.focusPages ?? [])
+          segments.sort((a, b) => Number(focus.has(b.pageNumber)) -
+            Number(focus.has(a.pageNumber)))
+          const groups = Array.from({ length: batchCount }, () => [])
+          segments.forEach((page, index) => groups[index % groups.length].push(page))
+          const retained = []
+          const seenQuestions = new Set()
+          let firstFailure = null
+          try { onBatchProgress(Object.freeze({ completedBatches: 0, totalBatches: groups.length, validQuestions: 0 })) } catch {}
+          for (const [groupIndex, pages] of groups.entries()) {
+            if (signal?.aborted) throw failure('cancelled')
+            try {
+              const groupPages = new Set(pages.map(page => page.pageNumber))
+              const avoidQuestions = [...(request.practice?.avoidQuestions ?? [])]
+              let avoidBytes = avoidQuestions.reduce((sum, item) =>
+                sum + encoder.encode(item).byteLength, 0)
+              for (const prior of retained) {
+                const normalized = prior.question.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+                const bytes = encoder.encode(prior.question).byteLength
+                if (avoidQuestions.length >= MAX_AVOID_QUESTIONS ||
+                    avoidBytes + bytes > MAX_AVOID_BYTES) break
+                if (!avoidQuestions.some(item =>
+                  item.trim().replace(/\s+/g, ' ').toLocaleLowerCase() === normalized)) {
+                  avoidQuestions.push(prior.question)
+                  avoidBytes += bytes
+                }
+              }
+              const focusPages = request.practice?.focusPages?.filter(number => groupPages.has(number))
+              const batchPractice = request.practice
+                ? { avoidQuestions, ...(focusPages?.length ? { focusPages } : {}) }
+                : undefined
+              const groupQuiz = await createLocalQuizService({
+                provider, onValidationIssue, onGeneratedResponse, onRejectedQuestion,
+                allowSourceBackedPartial: true,
+              }).generate({
+                pages, questionCount: QUESTION_COUNT,
+                difficulty: request.difficulty, questionType: request.questionType,
+                ...(batchPractice ? { practice: batchPractice } : {}),
+              }, { signal })
+              for (const question of groupQuiz.questions) {
+                const key = question.question.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+                if (seenQuestions.has(key)) {
+                  try { onValidationIssue(Object.freeze({
+                    attempt: 'batch', reason: 'duplicate_question',
+                  })) } catch {}
+                  continue
+                }
+                seenQuestions.add(key)
+                retained.push(question)
+              }
+            } catch (error) {
+              if (signal?.aborted || error?.code === 'cancelled') throw error
+              if (!firstFailure) firstFailure = error
+              if (!['insufficient_source', 'quiz_validation_failed', 'timed_out'].includes(error?.code)) {
+                throw error
+              }
+              try { onValidationIssue(Object.freeze({
+                attempt: 'recovery', reason: error.code,
+              })) } catch {}
+            }
+            try { onBatchProgress(Object.freeze({ completedBatches: groupIndex + 1, totalBatches: groups.length, validQuestions: retained.length })) } catch {}
+          }
+          if (!retained.length) throw firstFailure ?? failure('insufficient_source')
+          return Object.freeze({
+            title: 'Source-backed ' + request.questionType.replace(/_/g, ' ') + ' quiz',
+            questions: Object.freeze(retained.slice(0, request.questionCount)),
+          })
+        }
+      }
+      const useLegacyMultipleChoiceContract = !request.practice && !allowSourceBackedPartial &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice'
       // Keep the proven five-MCQ targeted candidate/recovery path unchanged.
       // Other practice counts and modes use the full source-backed quiz schema.
-      const targetedMultipleChoice = Boolean(request.practice &&
+      const targetedMultipleChoice = Boolean(request.practice && !allowSourceBackedPartial &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice')
       const hasFlexibleFallback = !targetedMultipleChoice && !useLegacyMultipleChoiceContract
       const partialRetryReasons = new Set([
@@ -1484,6 +1585,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       ) {
         const partialRetry = hasFlexibleFallback &&
           (allowSourceBackedPartial || partialRetryReasons.has(retryReason))
+        // A batch whose first five-item reply was invalid should not ask
+        // Qwen to regenerate another long five-item JSON response. Salvage
+        // up to three independently supported questions in its one retry.
+        // The outer quiz keeps questions from all earlier successful batches.
+        const attemptCount = allowSourceBackedPartial && retryReason !== null
+          ? Math.min(3, request.questionCount) : request.questionCount
+        const attemptRequest = attemptCount === request.questionCount
+          ? request : { ...request, questionCount: attemptCount }
         const additionalNeeded = Math.max(
           1,
           QUESTION_COUNT - retryCandidateEvidence.length,
@@ -1508,11 +1617,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               )
             : targetedMultipleChoice || useLegacyMultipleChoiceContract
               ? 1800
-              : Math.min(5200, 800 + request.questionCount * 300)
+              : Math.min(5200, 800 + attemptCount * 300)
         let result
         try {
           const messages = [
-            Object.freeze({ role: 'system', content: promptFor(request, { allowPartial: partialRetry }) }),
+            Object.freeze({ role: 'system', content: promptFor(attemptRequest, { allowPartial: partialRetry }) }),
             Object.freeze({ role: 'user', content: studyMaterial(request) }),
           ]
           const avoid = priorQuestions(request)
@@ -1547,7 +1656,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             }))
           }
         if (retryReason && !targetedMultipleChoice) {
-            const countLabel = request.questionCount === 5 ? 'five' : String(request.questionCount)
+            const countLabel = attemptCount === 5 ? 'five' : String(attemptCount)
             const retryTypeRules = request.questionType === 'multiple_choice'
               ? retryReason === 'duplicate_choices'
                 ? 'For every multiple-choice question, use four choices that remain different after trimming spaces and ignoring capitalization. Compare all four normalized choices before returning the quiz. Keep the source-supported correct answer exactly once, replace any repeated distractor with a different plausible option, and set correct_index to the correct choice.'
@@ -1666,7 +1775,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                     ? retryReason === 'insufficient_source'
                       ? QUIZ_INSUFFICIENT_RETRY_SCHEMA
                       : retryReason ? QUIZ_RETRY_SCHEMA : QUIZ_EXACT_SCHEMA
-                    : requestedQuizSchema(request.questionCount, {
+                    : requestedQuizSchema(attemptCount, {
                         requireSourceFact: Boolean(request.practice) || partialRetry,
                         allowInsufficient: partialRetry || retryReason !== 'insufficient_source',
                         allowPartial: partialRetry,
@@ -1719,7 +1828,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             sourceTextByPage,
             {
               requireSourceFact:
-                Boolean(request.practice) || retryValidationReason === 'insufficient_source',
+                Boolean(request.practice) || allowSourceBackedPartial || retryValidationReason === 'insufficient_source',
               allowPartial: allowSourceBackedPartial,
               filterRejected: allowSourceBackedPartial,
               onRejectedQuestion,
@@ -2236,7 +2345,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       function parseFinalAttempt(result, repairPlan = null) {
         if (!['stop', 'length'].includes(result.finishReason)) invalidQuiz('question_shape')
         if (result.finishReason === 'length') invalidQuiz('truncated_output')
-        if (repairPlan) result = { ...result, text: applyDuplicateChoiceRepair(repairPlan, result.text) }
+        if (repairPlan) result = { ...result,
+          text: applyDuplicateChoiceRepair(repairPlan, result.text, sourceTextByPage) }
         if (!targetedMultipleChoice && !useLegacyMultipleChoiceContract) {
           return parseRequestedQuiz(
             result.text,
@@ -2244,7 +2354,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             allowedPages,
             sourceTextByPage,
             {
-              requireSourceFact: Boolean(request.practice) || partialRetryReasons.has(retryValidationReason),
+              requireSourceFact: Boolean(request.practice) || allowSourceBackedPartial || partialRetryReasons.has(retryValidationReason),
               allowPartial: allowSourceBackedPartial ||
                 (hasFlexibleFallback && partialRetryReasons.has(retryValidationReason)),
               filterRejected: allowSourceBackedPartial ||

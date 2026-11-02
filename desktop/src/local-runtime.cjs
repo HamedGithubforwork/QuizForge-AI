@@ -168,9 +168,10 @@ function createLocalRuntime({
   let lastAccelerationMode = null
   const ownerAbort = new AbortController()
 
-  async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99) {
+  async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99, sessionCallback = null) {
     let child, childClosed, processGuard
     let stage = 'verification'
+    const startupStarted = performance.now()
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
       const model = await modelStore.status({ signal: bounded })
@@ -218,25 +219,63 @@ function createLocalRuntime({
         await delay(100, undefined, { signal: startup })
       }
       stage = 'inference'
-      diagnostic('runtime_ready', { acceleration: mode })
-      const generationStarted = performance.now()
-      const result = await requestFn(port, key, '/v1/chat/completions',
-        { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 5200) },
-        owned)
-      const inferenceMs = performance.now() - generationStarted
-      const gpuOffloaded = offloadTracker.state()
-      lastAccelerationMode = mode === 'cpu'
-        ? 'cpu'
-        : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
-      try {
-        onInferenceCompleted(Object.freeze({
-          layers: mode === 'gpu' ? gpuLayers : 0,
-          acceleration: lastAccelerationMode,
-          elapsedMs: inferenceMs,
-          completionTokens: result?.usage?.completion_tokens ?? null,
-        }))
-      } catch {}
-      return result
+      diagnostic('runtime_ready', {
+        acceleration: mode, startupMs: performance.now() - startupStarted,
+      })
+      async function infer(requestPayload, requestSignal = null) {
+        // Preserve the existing six-minute per-request ceiling even inside a
+        // longer multi-batch session, so one stuck model call cannot occupy
+        // the full quiz budget.
+        const deadline = sessionCallback ? AbortSignal.timeout(6 * 60 * 1000) : null
+        const boundedRequest = AbortSignal.any([
+          owned, ...(requestSignal ? [requestSignal] : []), ...(deadline ? [deadline] : []),
+        ])
+        boundedRequest.throwIfAborted()
+        const generationStarted = performance.now()
+        let result
+        try {
+          result = await requestFn(port, key, '/v1/chat/completions',
+            { ...requestPayload, model: alias, stream: false,
+              max_tokens: Math.min(requestPayload.max_tokens || 1800, 5200) },
+            boundedRequest)
+        } catch (error) {
+          throw deadline?.aborted && deadline.reason?.name === 'TimeoutError'
+            ? deadline.reason : error
+        }
+        const gpuOffloaded = offloadTracker.state()
+        lastAccelerationMode = mode === 'cpu'
+          ? 'cpu'
+          : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
+        try {
+          onInferenceCompleted(Object.freeze({
+            layers: mode === 'gpu' ? gpuLayers : 0,
+            acceleration: lastAccelerationMode,
+            elapsedMs: performance.now() - generationStarted,
+            completionTokens: result?.usage?.completion_tokens ?? null,
+            promptTokens: result?.usage?.prompt_tokens ?? null,
+          }))
+        } catch {}
+        return result
+      }
+      if (sessionCallback) {
+        let finished = false
+        let inFlight = false
+        // Never expose a reusable server beyond this single controlled quiz,
+        // nor allow concurrent requests competing for model memory.
+        const scopedComplete = async (requestPayload, { signal } = {}) => {
+          if (finished) throw fail('runtime_closed')
+          bounded.throwIfAborted()
+          if (inFlight) throw fail('busy')
+          if (!requestPayload || !Array.isArray(requestPayload.messages) ||
+              requestPayload.tools || requestPayload.stream) throw fail('invalid_request')
+          inFlight = true
+          try { return await infer(requestPayload, signal) }
+          finally { inFlight = false }
+        }
+        try { return await sessionCallback(scopedComplete) }
+        finally { finished = true }
+      }
+      return await infer(payload)
     } catch (error) {
       // Node's HTTP request abort can surface as AbortError even when the
       // bounded runtime timer was the real cause. Preserve the timeout reason
@@ -270,14 +309,16 @@ function createLocalRuntime({
     }
   }
 
-  async function run(payload, signal) {
+  async function run(payload, signal, sessionCallback = null) {
     const bounded = AbortSignal.any([
-      AbortSignal.timeout(6 * 60 * 1000),
+      // One quiz can issue up to three sequential five-question calls. Keep
+      // a finite total session budget without forcing another model startup.
+      AbortSignal.timeout(sessionCallback ? 12 * 60 * 1000 : 6 * 60 * 1000),
       ownerAbort.signal,
       ...(signal ? [signal] : []),
     ])
     const mode = accelerationMode() === 'gpu' ? 'gpu' : 'cpu'
-    if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu')
+    if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu', null, 99, sessionCallback)
     const initial = gpuLayerCount()
     const first = Number.isSafeInteger(initial) && initial > 0 && initial <= 99 ? initial : 99
     let fallbacks
@@ -292,7 +333,7 @@ function createLocalRuntime({
     for (const layers of attempts) {
       const fallbackState = { eligible: false, ready: false }
       try {
-        return await runBackend(payload, bounded, layers > 0 ? 'gpu' : 'cpu', fallbackState, layers)
+        return await runBackend(payload, bounded, layers > 0 ? 'gpu' : 'cpu', fallbackState, layers, sessionCallback)
       } catch (error) {
         const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
         if (layers === 0 || !fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) {
@@ -313,6 +354,19 @@ function createLocalRuntime({
       return Promise.reject(fail('invalid_request'))
     }
     const operation = run(payload, signal)
+    active = operation
+    void operation.finally(() => {
+      if (active === operation) active = null
+    }).catch(() => {})
+    return operation
+  }
+
+  function withSession(callback, { signal } = {}) {
+    if (closed) return Promise.reject(fail('runtime_closed'))
+    if (active) return Promise.reject(fail('busy'))
+    if (platform !== 'win32' || arch !== 'x64') return Promise.reject(fail('unsupported_platform'))
+    if (typeof callback !== 'function') return Promise.reject(fail('invalid_request'))
+    const operation = run(null, signal, callback)
     active = operation
     void operation.finally(() => {
       if (active === operation) active = null
@@ -344,7 +398,7 @@ function createLocalRuntime({
     return lastAccelerationMode
   }
 
-  return Object.freeze({ complete, shutdown, status, lastAccelerationMode: accelerationStatus })
+  return Object.freeze({ complete, withSession, shutdown, status, lastAccelerationMode: accelerationStatus })
 }
 
 module.exports = { createLocalRuntime, verifyRuntime, runtimeEnvironment, request, stop, boundedCpuThreads, MANIFEST }
