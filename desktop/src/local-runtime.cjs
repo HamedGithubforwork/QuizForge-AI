@@ -519,9 +519,13 @@ function createWarmLocalRuntime(base, {
     async shutdown() {
       closed = true
       cancelTimer()
-      await base.shutdown()
-      stopOperation = release()
-      await stopOperation
+      // The base session callback is deliberately blocked on the warm hold
+      // promise. Release that hold BEFORE awaiting base.shutdown(), otherwise
+      // shutdown waits for a callback that cannot finish: Windows tests print
+      // PASS but the llama-server child (and Node process) never exits.
+      const cleanup = release()
+      await base.shutdown().finally(() => cleanup)
+      await cleanup
     },
     status() { return Object.freeze({ busy, closed, warm: session !== null && !busy }) },
     lastAccelerationMode: () => base.lastAccelerationMode(),
