@@ -13,6 +13,9 @@ on:
       - desktop/src/local-offload-policy.cjs
       - desktop/scripts/ensure-verified-model.cjs
       - desktop/scripts/benchmark-local-generation.cjs
+      - desktop/scripts/benchmark-small-qwen-scaffold.cjs
+      - desktop/scripts/inspect-synthetic-quiz.cjs
+      - desktop/test/local-benchmark-inspection.test.cjs
       - desktop/scripts/summarize-local-model-comparison.cjs
       - desktop/test/local-benchmark-models.test.cjs
       - desktop/test/local-model-store.test.cjs
@@ -51,7 +54,7 @@ jobs:
       - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore verified baseline model cache
         if: matrix.model == 'qwen3-4b-q4-k-m'
@@ -89,6 +92,16 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "Source-fact quality gate failed; retaining the report for $env:BENCHMARK_MODEL_ID"
             }
+            # Small-Qwen-only experimental treatment: short prompts, two
+            # independent source-constrained variants (seeds 42 and 137),
+            # and one model question per verified source fact. The original
+            # strict five-question benchmark above remains the baseline.
+            if ($env:BENCHMARK_MODEL_ID -in @('qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m')) {
+              node desktop/scripts/benchmark-small-qwen-scaffold.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID-scaffold.json" $env:BENCHMARK_MODEL_ID
+              if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Scaffolded diagnostics incomplete; preserving original baseline result for $env:BENCHMARK_MODEL_ID"
+              }
+            }
           }
           # Per-model jobs intentionally succeed so the aggregate quality gate
           # can report *all five outcomes* rather than cancelling other models.
@@ -98,7 +111,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: qfn-model-result-${{ matrix.model }}
-          path: ${{ runner.temp }}/comparison/${{ matrix.model }}.json
+          path: ${{ runner.temp }}/comparison/${{ matrix.model }}*.json
           if-no-files-found: warn
           retention-days: 14
 

@@ -11,6 +11,7 @@ const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs
 const { FIXTURES, validateSemanticQuiz } = require('./verify-local-product-acceptance.cjs')
 const { summarizeRuns } = require('../src/local-benchmark-metrics.cjs')
 const { getBenchmarkModel } = require('../src/local-benchmark-models.cjs')
+const { inspectQuiz, inspectModelResponse } = require('./inspect-synthetic-quiz.cjs')
 const { CANDIDATE } = require('../src/local-model-store.cjs')
 
 const round = value => Math.round(value * 1000) / 1000
@@ -41,6 +42,9 @@ async function main() {
   let runtimeStartupMs = null
   let inferenceEvents = []
   let validationReason = null
+  let activeFixture = null
+  let candidateDiagnostics = []
+  let validationIssues = []
   const report = {
     schema: 1, syntheticOnly: true, expectedAcceleration,
     platform: process.platform, architecture: process.arch,
@@ -81,7 +85,20 @@ async function main() {
       onQuizValidationIssue(issue) {
         if (typeof issue?.reason === 'string' && /^[a-z_]{1,64}$/.test(issue.reason)) {
           validationReason = issue.reason
+          if (activeFixture && validationIssues.length < 12) validationIssues.push({
+            reason: issue.reason,
+            attempt: ['primary', 'retry', 'fast_recovery', 'single_question_repair'].includes(issue.attempt)
+              ? issue.attempt : 'other',
+          })
         }
+      },
+      onQuizGeneratedResponse(event) {
+        if (!activeFixture || candidateDiagnostics.length >= 8) return
+        candidateDiagnostics.push({
+          phase: typeof event?.phase === 'string' && /^[a-z_-]{1,40}$/.test(event.phase)
+            ? event.phase : 'generation',
+          ...inspectModelResponse(event?.text, activeFixture),
+        })
       },
     })
     const managerStatus = await stack.load()
@@ -112,6 +129,9 @@ async function main() {
         runtimeStartupMs = null
         inferenceEvents = []
         validationReason = null
+        activeFixture = fixture
+        candidateDiagnostics = []
+        validationIssues = []
         const started = performance.now()
         let quiz = null
         let failureCode = null
@@ -187,6 +207,11 @@ async function main() {
           questionCount: questions.length,
           distinctFacts: successful ? 5 : 0,
           exactDuplicateQuestions,
+          // The original strict gate remains unchanged. These only explain
+          // what was rejected, distinguishing abstentions from bad questions.
+          candidateDiagnostics,
+          validationIssues,
+          ...(quiz ? { finalQuestionDiagnostics: inspectQuiz(quiz, fixture) } : {}),
           ...(successful ? {} : { failureCode: failureCode ?? validationReason ?? 'validation_failed' }),
         }
         report.runs.push(run)
