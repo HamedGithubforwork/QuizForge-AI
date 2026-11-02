@@ -50,6 +50,7 @@ function createWindowsLocalAiStack({
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
   let selectedGpuLayers = null
   let selectedCpuThreads = null
+  let selectedContextTokens = null
   let runtime = null
   let quizService = null
   let answerReview = null
@@ -113,6 +114,7 @@ function createWindowsLocalAiStack({
       gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       gpuLayerCount: () => selectedGpuLayers ?? 99,
       cpuThreadCount: () => selectedCpuThreads ?? boundedCpuThreads(),
+      contextTokens: () => selectedContextTokens ?? 12288,
       gpuFallbackLayers: () => offloadPolicy.fallbackLayers(),
       onGpuStartupFailure: layers => {
         diagnostic('gpu_startup_failed', { layers })
@@ -130,7 +132,7 @@ function createWindowsLocalAiStack({
         onRuntimeProcess(pid)
       },
     }), {
-      profile: () => [selectedGpuLayers, selectedCpuThreads].join(':'),
+      profile: () => [selectedGpuLayers, selectedCpuThreads, selectedContextTokens].join(':'),
       // The CPU runtime retains its existing bounded thread count until
       // measured hardware tuning can pick a faster, verified profile.
       idleMs: 3 * 60 * 1000,
@@ -271,7 +273,7 @@ function createWindowsLocalAiStack({
     })
   }
 
-  async function runQuiz(operation) {
+  async function runQuiz(operation, request = null) {
     const epoch = contextEpoch
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (quizOperation || documentOperation) throw new LocalAiError('busy', { retryable: true })
@@ -288,6 +290,12 @@ function createWindowsLocalAiStack({
     await offloadPolicy.prepare(manager.status()?.capability?.hardware)
     selectedGpuLayers = offloadPolicy.choose()
     selectedCpuThreads = selectedGpuLayers === 0 ? offloadPolicy.chooseThreads() : boundedCpuThreads()
+    // A compact context is sufficient for short five-question sources;
+    // retain the larger context for hard/multi-batch and document requests.
+    const sourceLength = Array.isArray(request?.pages)
+      ? request.pages.reduce((sum, p) => sum + (p?.text?.length ?? 0), 0) : Infinity
+    selectedContextTokens = request?.questionCount === 5 && sourceLength <= 3000
+      ? 8192 : 12288
     const capability = manager.status()?.capability
     diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
       logicalCpuCount: capability?.hardware?.logicalCpuCount, selectedCpuThreads, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
@@ -308,20 +316,21 @@ function createWindowsLocalAiStack({
       reviewProgressState = null
       selectedGpuLayers = null
       selectedCpuThreads = null
+      selectedContextTokens = null
       await offloadPolicy.flush()
     }
   }
 
   async function generateQuiz(request) {
     lastQuizValidationIssue = null
-    return traceOperation('quiz', request, () => runQuiz(signal => quizService.generate(request, { signal })))
+    return traceOperation('quiz', request, () => runQuiz(signal => quizService.generate(request, { signal }), request))
   }
 
   async function generateDocumentQuiz(request) {
     return traceOperation('document_quiz', request, () => {
       if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
       lastQuizValidationIssue = null
-      return runQuiz(signal => documentQuizService.generate(request, { signal }))
+      return runQuiz(signal => documentQuizService.generate(request, { signal }), request)
     })
   }
 
@@ -426,7 +435,7 @@ function createWindowsLocalAiStack({
               reason: 'Local AI stopped before reviewing this answer. Retry the review or check the source.',
             }) }
         }
-      }))
+      }, { questionCount: 5, pages: reviewContext.pages }))
     },
     processDocument,
     generateDocumentQuiz,
