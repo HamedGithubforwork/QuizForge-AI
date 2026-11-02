@@ -150,9 +150,17 @@ export default function DesktopAuthGate() {
     </div></div>
     {signInComplete && <p className="desktop-signin-success" role="status">Signed in—you can close the browser tab and return to Quiz From Notes.</p>}
     {error && <p role="alert">{error}</p>}
+    {/* Keep the quiz screen mounted while visiting other desktop tabs.
+        Unmounting App discards the selected PDF and pending local-generation
+        promise, although llama-server.exe continues in the main process. */}
+    <div hidden={pathname.startsWith('/decks') ||
+      pathname === '/progress' || pathname.startsWith('/settings')}>
+      <App />
+    </div>
     {pathname.startsWith('/decks') ? <DecksPage pathname={pathname} onNavigate={navigate} />
       : pathname === '/progress' ? <ProgressPage onNavigate={navigate} />
       : pathname === '/settings/local-ai' ? <main className="settings-page"><LocalAiSettings /></main>
-      : pathname.startsWith('/settings') ? <main className="settings-page"><StudyNotificationsSettings /></main> : <App />}
+      : pathname.startsWith('/settings') ? <main className="settings-page"><StudyNotificationsSettings /></main>
+      : null}
   </div>
 }
