@@ -1,6 +1,7 @@
 import { desktopBridge } from '../lib/desktop.ts'
 import { reviewAnswersLocally } from '../lib/localAnswerReview.ts'
-import { buildAiAnswerReviewKey } from '../lib/answerFallback.ts'
+import { buildAiAnswerReviewKey, localDeterministicAnswerReview } from '../lib/answerFallback.ts'
+import { gradeShortAnswer } from '../lib/shortAnswerGrader.ts'
 import {
   useState, useRef, useEffect,
 } from 'react'
@@ -266,6 +267,14 @@ export function useQuizAttempt({
     const allReviewCases = manual ? [] : buildAttemptReviewCases(
       quiz, selectedAnswers, indexesToCheck, local,
     )
+    const automaticDecisions = local && !manual ? shortAnswerIndexes.flatMap(index => {
+      const question = quiz.questions[index]
+      const answer = selectedAnswers[index]
+      if (typeof answer !== 'string') return []
+      const grade = gradeShortAnswer(question, answer)
+      const decision = localDeterministicAnswerReview(question, answer, grade, index)
+      return decision ? [decision] : []
+    }) : []
     // A retry from the results screen must not erase already validated
     // correct/partial/incorrect grades. Retry only review-needed answers.
     const reviewCases = local && showResults
@@ -285,6 +294,15 @@ export function useQuizAttempt({
       // awaiting a human or Qwen decision are NOT counted as incorrect.
       setAiGradeReviews(previous => {
         const next = { ...previous }
+        // Preserve completed AI/self-check grades when retrying; replace only
+        // previously uncertain grades with deterministic final decisions.
+        for (const decision of automaticDecisions) {
+          const question = quiz.questions[decision.question_index]
+          const answer = selectedAnswers[decision.question_index]
+          if (typeof answer !== 'string') continue
+          const key = buildAiAnswerReviewKey(question, answer)
+          if (!previous[key] || previous[key].verdict === 'uncertain') next[key] = decision
+        }
         for (const index of awaiting) {
           const question = quiz.questions[index]
           const answer = selectedAnswers[index]
@@ -312,6 +330,9 @@ export function useQuizAttempt({
       if (manual) {
         setSaveMessage('Multiple-choice and true/false questions were graded immediately. Mark each short answer yourself; no Local AI grading was requested.')
         return
+      }
+      if (reviewCases.length === 0 && automaticDecisions.length > 0) {
+        setSaveMessage(`Local matching graded ${automaticDecisions.length} short answer${automaticDecisions.length === 1 ? '' : 's'} without running Qwen. No cloud grading was requested.`)
       }
     }
 
@@ -359,7 +380,7 @@ export function useQuizAttempt({
           decision.verdict === 'correct' || decision.verdict === 'partial' || decision.verdict === 'incorrect',
         ).length
         setSaveMessage(local
-          ? `Local AI graded ${completed} of ${reviewCases.length} short answers. ${reviewCases.length - completed} still need review and can be retried or graded manually.`
+          ? `Local matching graded ${automaticDecisions.length} answer(s) without Qwen. Qwen graded ${completed} of ${reviewCases.length} remaining short answers. ${reviewCases.length - completed} still need review.`
           : `Cloud AI reviewed ${decisions.length} short answers. Any uncertain answers can be checked manually.`)
       } catch {
         if (epoch === reviewEpoch.current) {
