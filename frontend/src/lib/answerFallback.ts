@@ -129,8 +129,7 @@ export function localDeterministicAnswerReview(
   // append a contradictory claim; send those to the semantic reviewer.
   const compactConceptMatch = question.grading?.grading_mode === 'concepts' &&
     grade.correct && !grade.borderline &&
-    question.grading.answer_groups.some(group => group.some(alias =>
-      normalizeShortAnswer(alias).split(' ').length === normalized.split(' ').length))
+    fullAnswerConceptAliasMatches(answer, question.grading.answer_groups)
   const trustedDeterministic = grade.correct && !grade.borderline &&
     (exact || ['numeric', 'exact'].includes(question.grading?.grading_mode ?? '') ||
       compactConceptMatch)
