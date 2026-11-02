@@ -35,6 +35,7 @@ async function main() {
   const tempProfile = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-benchmark-'))
   let stack = null
   let selectedExecution = null
+  let runtimeStartupMs = null
   let inferenceEvents = []
   let validationReason = null
   const report = {
@@ -55,12 +56,20 @@ async function main() {
             acceleration: fields?.acceleration,
             layers: fields?.layers,
             selectedCpuThreads: fields?.selectedCpuThreads,
+            selectedContextTokens: fields?.selectedContextTokens,
           }
+        }
+        if (event === 'runtime_ready') {
+          runtimeStartupMs = Number.isFinite(fields?.startupMs) && fields.startupMs >= 0
+            ? fields.startupMs : null
         }
         if (event === 'inference_completed') {
           inferenceEvents.push({
             acceleration: fields?.acceleration,
             elapsedMs: fields?.elapsedMs,
+            prefillMs: fields?.prefillMs,
+            decodeMs: fields?.decodeMs,
+            promptTokens: fields?.promptTokens,
             completionTokens: fields?.completionTokens,
           })
         }
@@ -95,6 +104,7 @@ async function main() {
     for (let iteration = 1; iteration <= repeats; iteration++) {
       for (const fixture of selectedFixtures) {
         selectedExecution = null
+        runtimeStartupMs = null
         inferenceEvents = []
         validationReason = null
         const started = performance.now()
@@ -126,6 +136,19 @@ async function main() {
         const exactDuplicateQuestions = normalized.length - new Set(normalized).size
         const successful = failureCode === null && quiz && questions.length === 5 &&
           exactDuplicateQuestions === 0
+        // Never invent llama.cpp prefill/decode timings if the runtime omits
+        // them. Keep profiling private, aggregate, and numeric-only.
+        const elapsedInferenceMs = inferenceEvents.reduce((sum, event) =>
+          sum + (Number.isFinite(event.elapsedMs) && event.elapsedMs >= 0 ? event.elapsedMs : 0), 0)
+        const hasPrefill = inferenceEvents.length > 0 &&
+          inferenceEvents.every(event => Number.isFinite(event.prefillMs) && event.prefillMs >= 0)
+        const hasDecode = inferenceEvents.length > 0 &&
+          inferenceEvents.every(event => Number.isFinite(event.decodeMs) && event.decodeMs >= 0)
+        const prefillMs = hasPrefill ? inferenceEvents.reduce((sum, event) => sum + event.prefillMs, 0) : null
+        const decodeMs = hasDecode ? inferenceEvents.reduce((sum, event) => sum + event.decodeMs, 0) : null
+        const outputTokens = inferenceEvents.reduce((sum, event) =>
+          sum + (Number.isSafeInteger(event.completionTokens) &&
+            event.completionTokens >= 0 ? event.completionTokens : 0), 0)
         const run = {
           fixture: fixture.id, iteration,
           // First result includes cold startup; later runs reflect the warm
@@ -138,10 +161,18 @@ async function main() {
             ? selectedExecution.selectedCpuThreads : null,
           selectedGpuLayers: Number.isSafeInteger(selectedExecution?.layers)
             ? selectedExecution.layers : null,
+          selectedContextTokens: [8192, 12288].includes(selectedExecution?.selectedContextTokens)
+            ? selectedExecution.selectedContextTokens : null,
+          runtimeStartupSeconds: runtimeStartupMs === null ? null : round(runtimeStartupMs / 1000),
+          inferenceElapsedSeconds: round(elapsedInferenceMs / 1000),
+          prefillSeconds: prefillMs === null ? null : round(prefillMs / 1000),
+          decodeSeconds: decodeMs === null ? null : round(decodeMs / 1000),
+          decodeTokensPerSecond: decodeMs > 0 ? round(outputTokens * 1000 / decodeMs) : null,
           inferenceCalls: inferenceEvents.length,
-          completionTokens: inferenceEvents.reduce((sum, event) =>
-            sum + (Number.isSafeInteger(event.completionTokens) &&
-              event.completionTokens >= 0 ? event.completionTokens : 0), 0),
+          promptTokens: inferenceEvents.reduce((sum, event) =>
+            sum + (Number.isSafeInteger(event.promptTokens) && event.promptTokens >= 0
+              ? event.promptTokens : 0), 0),
+          completionTokens: outputTokens,
           questionCount: questions.length,
           distinctFacts: successful ? 5 : 0,
           exactDuplicateQuestions,

@@ -303,7 +303,8 @@ function createWindowsLocalAiStack({
     const capability = manager.status()?.capability
     diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
       logicalCpuCount: capability?.hardware?.logicalCpuCount, selectedCpuThreads, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
-      gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes })
+      gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes,
+      selectedContextTokens })
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
     if (quizOperation || documentOperation) throw new LocalAiError('busy')

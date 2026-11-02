@@ -10,7 +10,7 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 const { MANIFEST } = require('./local-runtime.cjs')
 
 const GIB = 1024 ** 3
-const CACHE_VERSION = 3
+const CACHE_VERSION = 4
 const MAX_CACHE_BYTES = 4096
 const MAX_SAMPLES = 8
 
@@ -65,7 +65,14 @@ function safeCache(value, expectedSignature, candidates) {
         !Number.isSafeInteger(score.samples) || score.samples < 1 || score.samples > MAX_SAMPLES) {
       return null
     }
-    timings[key] = { tokens: score.tokens, ms: score.ms, samples: score.samples }
+    if ((score.decodeTokens === undefined) !== (score.decodeMs === undefined) ||
+        (score.decodeTokens !== undefined &&
+          (!Number.isSafeInteger(score.decodeTokens) || score.decodeTokens < 1 ||
+           score.decodeTokens > score.tokens || !Number.isFinite(score.decodeMs) ||
+           score.decodeMs <= 0 || score.decodeMs > score.ms))) return null
+    timings[key] = { tokens: score.tokens, ms: score.ms, samples: score.samples,
+      ...(score.decodeTokens !== undefined
+        ? { decodeTokens: score.decodeTokens, decodeMs: score.decodeMs } : {}) }
   }
   if (value.failed.length > candidates.length ||
       value.failed.some(x => !candidates.includes(x) || x === 0) ||
@@ -86,7 +93,14 @@ function safeCache(value, expectedSignature, candidates) {
           !Number.isSafeInteger(score.tokens) || score.tokens < 1 ||
           !Number.isFinite(score.ms) || score.ms <= 0 ||
           !Number.isSafeInteger(score.samples) || score.samples < 1 || score.samples > MAX_SAMPLES) return null
-      cpuTimings[key] = { tokens: score.tokens, ms: score.ms, samples: score.samples }
+      if ((score.decodeTokens === undefined) !== (score.decodeMs === undefined) ||
+          (score.decodeTokens !== undefined &&
+            (!Number.isSafeInteger(score.decodeTokens) || score.decodeTokens < 1 ||
+             score.decodeTokens > score.tokens || !Number.isFinite(score.decodeMs) ||
+             score.decodeMs <= 0 || score.decodeMs > score.ms))) return null
+      cpuTimings[key] = { tokens: score.tokens, ms: score.ms, samples: score.samples,
+        ...(score.decodeTokens !== undefined
+          ? { decodeTokens: score.decodeTokens, decodeMs: score.decodeMs } : {}) }
     }
   }
   return { timings, cpuTimings, failed: [...value.failed], failureCounts }
@@ -146,6 +160,16 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     ready = true
   }
 
+  // Compare pure decode throughput only when both hardware profiles expose
+  // comparable llama.cpp timings. Otherwise retain the existing end-to-end
+  // observed token throughput. This avoids rewarding a profile solely for
+  // receiving a shorter source/prefill by chance.
+  function msPerToken(score, other) {
+    return score.decodeTokens > 0 && other.decodeTokens > 0
+      ? score.decodeMs / score.decodeTokens
+      : score.ms / score.tokens
+  }
+
   function choose() {
     const available = candidates.filter(value => !failed.includes(value))
     const benchmark = benchmarkCandidates(available)
@@ -158,7 +182,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     selected = measured.length ? measured.reduce((fastest, value) => {
       const score = timings[String(value)]
       const best = timings[String(fastest)]
-      return score.ms / score.tokens < best.ms / best.tokens * 0.9 ? value : fastest
+      return msPerToken(score, best) < msPerToken(best, score) * 0.9 ? value : fastest
     }, measured[0]) : (available[0] ?? 0)
     return selected
   }
@@ -169,7 +193,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     selectedCpuThreads = cpuCandidates.reduce((fastest, value) => {
       const score = cpuTimings[String(value)]
       const best = cpuTimings[String(fastest)]
-      return score.ms / score.tokens < best.ms / best.tokens * 0.95 ? value : fastest
+      return msPerToken(score, best) < msPerToken(best, score) * 0.95 ? value : fastest
     }, cpuCandidates[0])
     return selectedCpuThreads
   }
@@ -208,15 +232,28 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     save()
   }
 
-  function recordInference({ layers, elapsedMs, completionTokens, threads }) {
+  function recordInference({ layers, elapsedMs, decodeMs, completionTokens, threads }) {
+    const measuredDecode = Number.isFinite(decodeMs) &&
+      decodeMs > 0 && decodeMs <= elapsedMs ? decodeMs : null
+    function addSample(prior) {
+      const next = { tokens: prior.tokens + completionTokens,
+        ms: prior.ms + elapsedMs, samples: prior.samples + 1 }
+      if (measuredDecode !== null) {
+        next.decodeTokens = (prior.decodeTokens ?? 0) + completionTokens
+        next.decodeMs = (prior.decodeMs ?? 0) + measuredDecode
+      } else if (prior.decodeTokens > 0) {
+        next.decodeTokens = prior.decodeTokens
+        next.decodeMs = prior.decodeMs
+      }
+      return next
+    }
     if (ready && layers === 0 && cpuCandidates.includes(threads) &&
         Number.isFinite(elapsedMs) && elapsedMs > 0 &&
         Number.isSafeInteger(completionTokens) && completionTokens >= 16) {
       const key = String(threads)
       const old = cpuTimings[key] ?? { tokens: 0, ms: 0, samples: 0 }
       if (old.samples < MAX_SAMPLES) {
-        cpuTimings[key] = { tokens: old.tokens + completionTokens,
-          ms: old.ms + elapsedMs, samples: old.samples + 1 }
+        cpuTimings[key] = addSample(old)
         save()
       }
     }
@@ -226,11 +263,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     const key = String(layers)
     const prior = timings[key] ?? { tokens: 0, ms: 0, samples: 0 }
     if (prior.samples >= MAX_SAMPLES) return
-    timings[key] = {
-      tokens: prior.tokens + completionTokens,
-      ms: prior.ms + elapsedMs,
-      samples: prior.samples + 1,
-    }
+    timings[key] = addSample(prior)
     save()
   }
 

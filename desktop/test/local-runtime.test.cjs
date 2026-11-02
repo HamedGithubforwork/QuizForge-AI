@@ -444,16 +444,19 @@ test('runtime performance callback receives only bounded timing and token counts
       requestFn: async (_port, _key, route) => route === '/v1/models'
         ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
         : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
-            usage: { prompt_tokens: 250, completion_tokens: 120 } },
+            usage: { prompt_tokens: 250, completion_tokens: 120 },
+            timings: { prompt_ms: 0, predicted_ms: 0 } },
     },
   })
   await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
   assert.equal(observations.length, 1)
   assert.deepEqual(Object.keys(observations[0]).sort(),
-    ['acceleration', 'completionTokens', 'elapsedMs', 'layers', 'promptTokens', 'threads'])
+    ['acceleration', 'completionTokens', 'decodeMs', 'elapsedMs', 'layers', 'prefillMs', 'promptTokens', 'threads'])
   assert.equal(observations[0].layers, 0)
   assert.equal(observations[0].completionTokens, 120)
   assert.equal(observations[0].promptTokens, 250)
+  assert.equal(observations[0].prefillMs, 0)
+  assert.equal(observations[0].decodeMs, 0)
   assert.ok(observations[0].threads >= 1 && observations[0].threads <= 8,
     'thread selection must stay within the safe CPU bound')
   assert.ok(observations[0].elapsedMs >= 0)
@@ -601,4 +604,25 @@ test('warm shutdown interrupts active scoped request and releases its native hol
   assert.equal(outcome, 'closed')
   await pending.catch(() => {})
   assert.equal(warm.status().warm, false)
+})
+
+test('runtime never exposes untrusted or impossible internal timing values', async () => {
+  const observations = []
+  const { runtime } = runtimeFixture({
+    options: {
+      onInferenceCompleted: value => observations.push(value),
+      requestFn: async (_port, _key, route) => route === '/v1/models'
+        ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { prompt_tokens: 50, completion_tokens: 20 },
+            timings: { prompt_ms: -100, predicted_ms: 60000000,
+              message: 'never log this content' } },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'private source' }] })
+  assert.equal(observations.length, 1)
+  assert.equal(observations[0].prefillMs, null)
+  assert.equal(observations[0].decodeMs, null)
+  assert.ok(!JSON.stringify(observations).includes('never log this content'))
+  assert.ok(!JSON.stringify(observations).includes('private source'))
 })

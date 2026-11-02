@@ -70,3 +70,24 @@ test('different model or hardware prevents controlled comparisons', () => {
   assert.equal(summary.matchedEnvironment, false)
   assert.equal(summary.byAcceleration.cpu.attempts, 6)
 })
+
+test('accepts bounded private inference profiling and rejects malformed durations', () => {
+  const example = report('cpu')
+  example.runs[0] = { ...example.runs[0],
+    runtimeStartupSeconds: 1.23, inferenceElapsedSeconds: 7.6,
+    prefillSeconds: null, decodeSeconds: null,
+    selectedContextTokens: 8192, promptTokens: 1230,
+    completionTokens: 210 }
+  assert.equal(validateBenchmarkReport(example), example)
+  for (const bad of [
+    { prefillSeconds: -1 },
+    { decodeSeconds: '12.0' },
+    { runtimeStartupSeconds: Infinity },
+    { selectedContextTokens: 99999 },
+    { completionTokens: 2.5 },
+  ]) {
+    const invalid = report('cpu')
+    invalid.runs[0] = { ...invalid.runs[0], ...bad }
+    assert.throws(() => validateBenchmarkReport(invalid))
+  }
+})
