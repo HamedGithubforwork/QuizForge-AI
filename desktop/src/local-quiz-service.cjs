@@ -2112,6 +2112,41 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             { sourceTextByPage, requireSourceFact: true },
           )
         } catch (error) {
+          // If the recovery returned a prior question verbatim, preserve
+          // every independently source-validated survivor instead of discarding
+          // the entire draft. Ask Qwen for a small replacement candidate pool;
+          // all replacements must pass the same exact source-quote, answer,
+          // duplicate-wording and duplicate-fact filters as normal targeted
+          // practice. Never silently rewrite a previous question ourselves.
+          if (error instanceof QuizValidationIssue &&
+              error.reason === 'avoided_question') {
+            let poolIssue
+            try {
+              return parseGeneratedQuizDetailed(
+                recoveryText, allowedPages, avoidQuestions,
+                { filterAvoided: true, sourceTextByPage },
+              )
+            } catch (filteredError) {
+              if (!(filteredError instanceof QuizValidationIssue) ||
+                  filteredError.reason !== 'candidate_pool_exhausted') throw filteredError
+              poolIssue = filteredError
+            }
+            const needed = Math.max(1, QUESTION_COUNT - poolIssue.retryEvidence.length)
+            const candidateCount = Math.min(TARGETED_RETRY_BATCH_CANDIDATES, needed + 2)
+            const replacements = await generateAttempt(
+              'candidate_pool_exhausted',
+              poolIssue.retryEvidence,
+              candidateQuestionTexts(recoveryText),
+              candidateCount,
+              poolIssue.rejectedEvidence,
+            )
+            if (replacements.finishReason !== 'stop') invalidQuiz('truncated_output')
+            const merged = mergeTargetedCandidatePoolTexts(recoveryText, replacements.text)
+            return parseGeneratedQuizDetailed(
+              merged, allowedPages, avoidQuestions,
+              { filterAvoided: true, sourceTextByPage },
+            )
+          }
           // A promising draft can quote the source correctly but paraphrase
           // its answer. Ask for *only* exact source-backed answers and quotes,
           // preserving all five question wordings and other choices. Never
