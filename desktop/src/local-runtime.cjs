@@ -251,11 +251,22 @@ function createLocalRuntime({
         lastAccelerationMode = mode === 'cpu'
           ? 'cpu'
           : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
+        // llama.cpp may expose token-evaluation timings. Use numeric,
+        // bounded durations only: never surface prompts, responses or paths.
+        // Keep null when unavailable; do not invent a prefill/decode split.
+        const elapsedMs = performance.now() - generationStarted
+        const timings = result?.timings
+        const boundedMs = value => Number.isFinite(value) && value >= 0 &&
+          value <= elapsedMs ? value : null
+        const prefillMs = boundedMs(timings?.prompt_ms)
+        const decodeMs = boundedMs(timings?.predicted_ms)
         try {
           onInferenceCompleted(Object.freeze({
             layers: mode === 'gpu' ? gpuLayers : 0,
             acceleration: lastAccelerationMode,
-            elapsedMs: performance.now() - generationStarted,
+            elapsedMs,
+            prefillMs,
+            decodeMs,
             completionTokens: result?.usage?.completion_tokens ?? null,
             promptTokens: result?.usage?.prompt_tokens ?? null,
             threads: Number(threads),
