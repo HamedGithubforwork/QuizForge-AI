@@ -1,5 +1,6 @@
 'use strict'
 
+const { createHash } = require('node:crypto')
 const { MAX_SOURCE_BYTES } = require('./local-quiz-service.cjs')
 const { LocalAiError } = require('./local-ai-provider.cjs')
 const { LocalDocumentProcessingError } = require('./local-document-processing.cjs')
@@ -79,12 +80,24 @@ function createLocalDocumentQuizService({ documentProcessor, quizService } = {})
     throw new TypeError('Local document processing and quiz services are required.')
   }
 
+  // One validated source selection only, kept in memory. Never persist PDF
+  // text, model output or quiz answers; a different selection misses the cache.
+  // Call clearCache on account changes and sign-out.
+  let lastSource = null
+  function clearCache() { lastSource = null }
   return Object.freeze({
+    clearCache,
     async generate(value, { signal, onProgress } = {}) {
       abortIfNeeded(signal)
       const request = normalizeRequest(value)
+      const selection = [...(request.selectedPages ?? [])].sort((a, b) => a - b)
+      const digest = createHash('sha256').update(request.bytes).digest('hex') + ':' + selection.join(',')
       let document
-      try {
+      let pages
+      if (lastSource?.key === digest) {
+        document = lastSource.document
+        pages = lastSource.pages
+      } else try {
         document = await documentProcessor.processPdf({
           bytes: request.bytes,
           filename: request.filename ?? null,
@@ -103,7 +116,13 @@ function createLocalDocumentQuizService({ documentProcessor, quizService } = {})
       }
       abortIfNeeded(signal)
 
-      const pages = validateProcessedDocument(document)
+      if (!pages) {
+        pages = validateProcessedDocument(document)
+        // Only bounded source excerpts stay resident, never a PDF byte buffer.
+        lastSource = { key: digest, document: {
+          pdfSha256: document.pdfSha256, pageCount: document.pageCount,
+        }, pages }
+      }
       let quiz
       try {
         quiz = await quizService.generate({
