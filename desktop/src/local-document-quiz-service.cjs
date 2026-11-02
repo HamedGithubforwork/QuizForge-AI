@@ -13,7 +13,7 @@ const REQUEST_KEYS = new Set([
 const ERROR_MESSAGES = Object.freeze({
   cancelled: 'Local document quiz generation was cancelled.',
   invalid_request: 'The local PDF quiz request is invalid.',
-  insufficient_source: 'The selected pages do not contain enough readable text for a local quiz.',
+  insufficient_source: 'Not enough selectable text was found on these PDF pages. Scanned images and diagrams are not yet readable by Local AI. Try a text-based PDF or run OCR first.',
   source_too_large: 'Select fewer PDF pages for local quiz generation.',
   too_many_pages: 'This PDF has too many pages for local processing.',
   document_too_large: 'This PDF is too large for local processing.',
