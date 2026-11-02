@@ -3072,7 +3072,7 @@ test('batch progress reports counts only after validation, including failed grou
     pages: BATCH_SOURCE_PAGES, questionCount: 15,
     questionType: 'multiple_choice', difficulty: 'medium',
   })
-  assert.deepEqual(progress, [
+  assert.deepEqual(progress.map(({ previewQuestions, ...counts }) => counts), [
     { completedBatches: 0, totalBatches: 3, validQuestions: 0 },
     { completedBatches: 1, totalBatches: 3, validQuestions: 5 },
     { completedBatches: 2, totalBatches: 3, validQuestions: 5 },
@@ -3080,8 +3080,13 @@ test('batch progress reports counts only after validation, including failed grou
   ])
   assert.equal(quiz.questions.length, 10)
   assert.deepEqual(Object.keys(progress[3]).sort(), [
-    'completedBatches', 'totalBatches', 'validQuestions',
+    'completedBatches', 'previewQuestions', 'totalBatches', 'validQuestions',
   ])
+  assert.equal(progress[0].previewQuestions, undefined)
+  assert.equal(progress[1].previewQuestions.length, 5)
+  assert.equal(progress[2].previewQuestions.length, 5)
+  assert.equal(progress[3].previewQuestions.length, 10)
+  assert.deepEqual(progress[3].previewQuestions, quiz.questions.map(q => q.question))
 })
 
 test('failed five-question source-backed batch retries with three concise candidates', async () => {
