@@ -259,7 +259,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: local-review-native-stack-windows
-          path: ${{ runner.temp }}/local-answer-review.json
+          path: ${{ runner.temp }}/local-review-native-stack.json
           if-no-files-found: warn
           retention-days: 7
 
