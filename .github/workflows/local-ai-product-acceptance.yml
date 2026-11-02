@@ -89,7 +89,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
+      # Cache saving can race with another workflow run. Always verify the SHA-256;
+      # on a cache miss the pinned-model verifier downloads and hashes the model.
       - name: Verify restored model SHA-256
         shell: pwsh
         run: |
@@ -182,7 +184,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
+      # Cache saving can race with another workflow run. Always verify the SHA-256;
+      # on a cache miss the pinned-model verifier downloads and hashes the model.
       - name: Verify restored model SHA-256
         shell: pwsh
         run: |
@@ -232,7 +236,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
+      # Cache saving can race with another workflow run. Always verify the SHA-256;
+      # on a cache miss the pinned-model verifier downloads and hashes the model.
       - name: Verify restored model SHA-256
         shell: pwsh
         run: |
@@ -282,7 +288,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
+      # Cache saving can race with another workflow run. Always verify the SHA-256;
+      # on a cache miss the pinned-model verifier downloads and hashes the model.
       - name: Verify restored model SHA-256
         shell: pwsh
         run: |
@@ -332,7 +340,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: true
+          fail-on-cache-miss: false
+      # Cache saving can race with another workflow run. Always verify the SHA-256;
+      # on a cache miss the pinned-model verifier downloads and hashes the model.
       - name: Verify restored model SHA-256
         shell: pwsh
         run: |
