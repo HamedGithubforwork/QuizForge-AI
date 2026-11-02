@@ -182,7 +182,17 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
     },
     reviewLocalAnswers: async value => {
       try { return { ok: true, ...await localAi().reviewLocalAnswers(value) } }
-      catch { return { ok: false, error: 'review_unavailable' } }
+      catch (error) {
+        // Expose only fixed operational codes, never prompts, model output,
+        // source text, exception messages, file paths or account information.
+        const allowed = new Set([
+          'busy', 'cancelled', 'timed_out', 'model_missing', 'invalid_model',
+          'runtime_invalid', 'runtime_unavailable', 'invalid_request', 'invalid_response',
+        ])
+        const reason = allowed.has(error?.code) ? error.code
+          : error?.name === 'TimeoutError' ? 'timed_out' : 'review_unavailable'
+        return { ok: false, error: reason }
+      }
     },
     cancelLocalAiQuiz: () => localAi().cancelQuiz(),
     openAccountWebsite: () => openAccountWebsite(),

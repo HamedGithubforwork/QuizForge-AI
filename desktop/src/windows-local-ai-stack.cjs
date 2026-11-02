@@ -369,7 +369,7 @@ function createWindowsLocalAiStack({
     clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
-      return traceOperation('answer_review', {}, () => runQuiz(signal => {
+      return traceOperation('answer_review', {}, () => runQuiz(async signal => {
         reviewProgressState = { total: request.cases.length, decisions: [] }
         const context = { ...reviewContext, signal, onDecision: decision => {
           if (!reviewProgressState || signal.aborted) return
@@ -381,11 +381,29 @@ function createWindowsLocalAiStack({
         // One short-answer submission may contain several answers. Avoid
         // reloading Qwen between each answer, but still release it when the
         // review finishes or is cancelled.
-        if (request.cases.length > 1 && typeof provider.withSession === 'function') {
-          return provider.withSession(scopedProvider =>
-            createLocalAnswerReview({ provider: scopedProvider }).review(request, context), { signal })
+        try {
+          if (request.cases.length > 1 && typeof provider.withSession === 'function') {
+            return await provider.withSession(scopedProvider =>
+              createLocalAnswerReview({ provider: scopedProvider }).review(request, context), { signal })
+          }
+          return await answerReview.review(request, context)
+        } catch (error) {
+          // If the model crashes between answers, preserve only decisions
+          // already validated and published by the grader. Unreviewed answers
+          // are explicitly uncertain; nothing is sent to a cloud provider.
+          const completed = reviewProgressState?.decisions ?? []
+          if (signal.aborted || completed.length === 0) throw error
+          diagnostic('answer_review_partial_recovered', {
+            completedCount: completed.length, requestedCount: request.cases.length,
+            reason: typeof error?.code === 'string' ? error.code : 'review_unavailable',
+          })
+          return { decisions: request.cases.map(c =>
+            completed.find(d => d.question_index === c.question_index) ?? {
+              question_index: c.question_index, verdict: 'uncertain',
+              confidence: 0, engine: 'local', credit: null, concepts: [],
+              reason: 'Local AI stopped before reviewing this answer. Retry the review or check the source.',
+            }) }
         }
-        return answerReview.review(request, context)
       }))
     },
     processDocument,

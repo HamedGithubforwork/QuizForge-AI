@@ -43,6 +43,26 @@ async function main() {
       assert.equal(result.decisions[0].verdict, expected, `Wrong grade: ${answer}`)
       console.log('PASS local grading:', expected)
     }
+    // Regression from the Windows app: semantic paraphrase of cell membrane
+    // function must be graded against the actual first-page source, on-device.
+    const membraneQuestion = {
+      question_type: 'short_answer',
+      question: 'What is the main function of the cell membrane?',
+      correct_answer: 'Controls what enters and leaves the cell. It is selectively permeable.',
+      source_pages: [1],
+    }
+    const membraneAnswer = 'acts as a barrier that regulates what goes in and out'
+    const membraneResult = await grader.review({ cases: [{
+      question_index: 0, question: membraneQuestion.question,
+      correct_answer: membraneQuestion.correct_answer,
+      student_answer: membraneAnswer,
+    }] }, { quiz: { questions: [membraneQuestion] }, pages: fixture.pages })
+    report.grading.push({ answer: membraneAnswer, expected: 'correct',
+      decision: membraneResult.decisions[0] })
+    assert.equal(membraneResult.decisions[0].verdict, 'correct',
+      'Cell membrane paraphrase must be graded correct by Qwen')
+    console.log('PASS local cell membrane paraphrase: correct')
+
     const quiz = { title: 'Distinct facts', questions: [
       { ...question, question: 'What does the nucleus store?', correct_answer: 'DNA' },
       { ...question, question: 'Which structure stores most of the cell DNA?', correct_answer: 'Nucleus' },
