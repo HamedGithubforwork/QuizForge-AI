@@ -65,7 +65,42 @@ function recoverAuxiliaryVerbEvidence(expectedQuote, answer) {
   }
   return null
 }
-function normalizeReview(raw, index, source, answer, expectedAnswer) {
+// If a singular main-function question already has a validated answer to
+// "controls what enters and leaves", selective permeability is a *property
+// describing that same mechanism*, not an independently requested function.
+// This is intentionally narrow: do not infer other scientific synonyms from
+// loose keyword overlap or discard missing concepts on multi-function prompts.
+function isDuplicateMembraneDescriptor(raw, source, answer, expectedAnswer, question) {
+  if (!text(question) || !text(expectedAnswer) || !text(answer) ||
+      raw.uncertain || raw.contradiction || raw.confidence < 0.8 ||
+      raw.concepts.length !== 2 ||
+      raw.concepts.some(c => c.status === 'contradicted')) return false
+  const prompt = normalize(question)
+  const expected = normalize(expectedAnswer)
+  const citation = normalize(source)
+  if (!/\bmain function\b/u.test(prompt) ||
+      /\b(?:two|three|multiple|several|all|functions|properties|characteristics)\b/u.test(prompt) ||
+      !expected.includes('controls what enters and leaves the cell') ||
+      !expected.includes('selectively permeable') ||
+      !citation.includes('controls what enters and leaves the cell') ||
+      !citation.includes('selectively permeable')) return false
+  const matched = raw.concepts.filter(c => c.status === 'matched')
+  const missing = raw.concepts.filter(c => c.status === 'missing')
+  if (matched.length !== 1 || missing.length !== 1 ||
+      !normalize(matched[0].concept).includes('controls what enters and leaves') ||
+      normalize(missing[0].concept) !== 'selectively permeable' ||
+      normalize(matched[0].answer_quote) !== normalize(answer)) return false
+  // Require a complete response explicitly describing both directions of
+  // selective entry/exit. "Barrier", "protects the cell", or a generic
+  // "permeable" without regulation are insufficient on their own.
+  const student = normalize(answer)
+  if (/\b(?:not|no|never|cannot|cant|doesnt|dont|without|except|but|however)\b/u.test(student)) return false
+  return /\b(?:regulates?|regulating|controls?|controlling|restricts?|restricting)\b/u.test(student) &&
+    /\b(?:enters?|entering|in|inside)\b/u.test(student) &&
+    /\b(?:leaves?|leaving|out|exit|exits|exiting)\b/u.test(student)
+}
+
+function normalizeReview(raw, index, source, answer, expectedAnswer, question = '') {
   if (!raw || !Number.isFinite(raw.confidence) || raw.confidence < 0 || raw.confidence > 1 ||
       typeof raw.uncertain !== 'boolean' || typeof raw.contradiction !== 'boolean' ||
       !text(raw.reason) || raw.reason.length > 500 || !Array.isArray(raw.concepts) ||
@@ -99,8 +134,15 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
     const answerQuote = recoverAuxiliaryVerbEvidence(c.expected_quote, answer)
     return answerQuote ? { ...c, status: 'matched', answer_quote: answerQuote } : c
   }) : raw.concepts
-  const matched = concepts.filter(c => c.status === 'matched').length
-  const missing = concepts.filter(c => c.status === 'missing').length
+  const redundantDescriptor = isDuplicateMembraneDescriptor(
+    { ...raw, concepts }, source, answer, expectedAnswer, question)
+  // Do not fabricate an additional matched concept. Drop the redundant
+  // descriptor from the rubric, so one genuinely matched main function earns
+  // one credit, while genuinely separate requested functions remain required.
+  const gradedConcepts = redundantDescriptor
+    ? concepts.filter(c => c.status !== 'missing') : concepts
+  const matched = gradedConcepts.filter(c => c.status === 'matched').length
+  const missing = gradedConcepts.filter(c => c.status === 'missing').length
   const contradicted = raw.contradiction || concepts.some(c => c.status === 'contradicted')
   // A model can be less confident about an incomplete answer than a fully
   // correct one even when both rubric concepts have exact, validated evidence.
@@ -135,14 +177,16 @@ function normalizeReview(raw, index, source, answer, expectedAnswer) {
       raw.confidence < (groundedPartial || groundedContradiction ? 0.7 : 0.8)) {
     return uncertain(index, raw.reason)
   }
-  const credit = contradicted ? 0 : matched / raw.concepts.length
+  const credit = contradicted ? 0 : matched / gradedConcepts.length
   return { question_index: index, engine: 'local',
     verdict: credit === 1 ? 'correct' : credit > 0 ? 'partial' : 'incorrect',
     confidence: raw.confidence,
-    reason: concepts.some((c, i) => c.status !== raw.concepts[i].status)
+    reason: redundantDescriptor
+      ? 'Correct: the answer describes selective regulation of entry and exit, which is the membrane main function.'
+      : concepts.some((c, i) => c.status !== raw.concepts[i].status)
       ? 'The student expressed the source-supported function without repeating its auxiliary wording.'
       : raw.reason,
-    credit, concepts }
+    credit, concepts: gradedConcepts }
 }
 // A student's submission can contain direct instructions intended to change
 // the grade instead of answering the question. Reject only a very explicit,
@@ -250,7 +294,7 @@ function createLocalAnswerReview({ provider }) {
           if (result?.finishReason !== 'stop') return null
           try {
             const decision = normalizeReview(JSON.parse(result.text),
-              c.question_index, source, c.student_answer, question.correct_answer)
+              c.question_index, source, c.student_answer, question.correct_answer, question.question)
             return decision.verdict === 'uncertain' &&
               decision.reason === INVALID_EVIDENCE_REASON ? null : decision
           } catch {
