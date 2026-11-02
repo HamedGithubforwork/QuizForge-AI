@@ -1453,8 +1453,8 @@ function hasRichTargetedSource(pages) {
   const sentences = new Set()
   for (const page of pages) {
     if (typeof page.text !== 'string') continue
-    for (const sentence of page.text.split(/(?<=[.!?])\\s+|\\n+/u)) {
-      const text = sentence.trim().toLocaleLowerCase().replace(/\\s+/g, ' ')
+    for (const sentence of page.text.split(/(?<=[.!?])\s+|\n+/u)) {
+      const text = sentence.trim().toLocaleLowerCase().replace(/\s+/g, ' ')
       if (text.length < 18 || !/[.!?]$/.test(text)) continue
       sentences.add(text)
       if (sentences.size >= 5) return true
