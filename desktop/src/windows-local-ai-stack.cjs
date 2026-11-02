@@ -366,7 +366,7 @@ function createWindowsLocalAiStack({
       ? Object.freeze({ total: reviewProgressState.total,
           decisions: [...reviewProgressState.decisions] }) : null,
     generateQuiz,
-    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null },
+    clearQuizReview: () => { contextEpoch++; reviewContext = null; reviewProgressState = null; documentQuizService?.clearCache?.() },
     reviewLocalAnswers: request => {
       validateReviewRequest(request)
       // Local grading requires the exact quiz and source from this process.
