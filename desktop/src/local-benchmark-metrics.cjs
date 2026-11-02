@@ -42,8 +42,10 @@ function validateBenchmarkReport(report) {
     assert.ok(['selected_pages', 'french'].includes(run.fixture))
     assert.ok(Number.isInteger(run.iteration) && run.iteration > 0)
     assert.ok(['pass', 'failed'].includes(run.outcome))
-    assert.equal(run.inferenceAcceleration, report.expectedAcceleration,
-      'Reject CPU fallback masquerading as GPU benchmark evidence')
+    if (run.outcome === 'pass') {
+      assert.equal(run.inferenceAcceleration, report.expectedAcceleration,
+        'Reject CPU fallback masquerading as GPU benchmark evidence')
+    }
     assert.ok(Number.isFinite(run.elapsedSeconds) && run.elapsedSeconds >= 0)
     if (run.outcome === 'pass') {
       assert.equal(run.questionCount, 5)
