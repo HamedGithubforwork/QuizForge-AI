@@ -1,6 +1,6 @@
 'use strict'
 
-// Repeated pinned-Qwen, synthetic-only measurement on a trusted Windows machine.
+// Repeated allowlisted, SHA-verified GGUF measurement on a trusted Windows machine.
 // No user notes, questions, raw responses, paths or account data enter reports.
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
@@ -10,6 +10,8 @@ const { performance } = require('node:perf_hooks')
 const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs')
 const { FIXTURES, validateSemanticQuiz } = require('./verify-local-product-acceptance.cjs')
 const { summarizeRuns } = require('../src/local-benchmark-metrics.cjs')
+const { getBenchmarkModel } = require('../src/local-benchmark-models.cjs')
+const { CANDIDATE } = require('../src/local-model-store.cjs')
 
 const round = value => Math.round(value * 1000) / 1000
 const cleanQuestion = value => String(value).trim().replace(/\s+/g, ' ').toLocaleLowerCase()
@@ -22,12 +24,13 @@ const selectedFixtures = ['selected_pages', 'french'].map(id => {
 async function main() {
   assert.equal(process.platform, 'win32', 'Benchmark requires Windows')
   assert.ok(process.argv[2] && process.argv[3] && process.argv[4],
-    'Usage: node benchmark-local-generation.cjs <runtime-dir> <model-dir> <report.json> [cpu|gpu] [repeats 1-5]')
+    'Usage: node benchmark-local-generation.cjs <runtime-dir> <model-dir> <report.json> [cpu|gpu] [repeats 1-5] [allowlisted-model-id]')
   const runtimeDirectory = path.resolve(process.argv[2])
   const modelDirectory = path.resolve(process.argv[3])
   const output = path.resolve(process.argv[4])
   const expectedAcceleration = process.argv[5] ?? 'cpu'
   const repeats = Number(process.argv[6] ?? 3)
+  const benchmarkModel = getBenchmarkModel(process.argv[7] ?? CANDIDATE.id)
   assert.ok(['cpu', 'gpu'].includes(expectedAcceleration))
   assert.ok(Number.isSafeInteger(repeats) && repeats >= 1 && repeats <= 5)
 
@@ -41,7 +44,7 @@ async function main() {
   const report = {
     schema: 1, syntheticOnly: true, expectedAcceleration,
     platform: process.platform, architecture: process.arch,
-    runtimeRevision: 'b11317', modelId: null, fixtureIds: selectedFixtures.map(x => x.id),
+    runtimeRevision: 'b11317', modelId: benchmarkModel.id, fixtureIds: selectedFixtures.map(x => x.id),
     repeatsPerFixture: repeats, hardware: null, runs: [],
   }
   async function save() {
@@ -50,6 +53,7 @@ async function main() {
   try {
     stack = createWindowsLocalAiStack({
       userDataDirectory: tempProfile, modelDirectory, runtimeDirectory,
+      ...(benchmarkModel.id === CANDIDATE.id ? {} : { benchmarkModelId: benchmarkModel.id }),
       onDiagnostic(event, fields) {
         if (event === 'execution_selected') {
           selectedExecution = {
@@ -84,6 +88,7 @@ async function main() {
     const ready = await stack.quizStatus()
     assert.equal(ready.available, true, 'Verified model and runtime must be ready')
     const hardware = managerStatus.capability?.hardware ?? {}
+    assert.equal(ready.modelId, benchmarkModel.id, 'Requested benchmark model differs from loaded model')
     report.modelId = ready.modelId
     report.hardware = {
       logicalCpuCount: hardware.logicalCpuCount,
@@ -122,7 +127,13 @@ async function main() {
         } catch (error) {
           const known = typeof error?.code === 'string' &&
             /^[a-z_]{1,64}$/.test(error.code) ? error.code : null
-          failureCode = known ?? 'source_fact_validation_failed'
+          // An assertion in the external semantic oracle is NOT proof that
+          // a quoted source fact was invented. Keep diagnostic classes honest.
+          failureCode = error?.name === 'AssertionError'
+            ? 'semantic_oracle_failed'
+            : known === 'quiz_validation_failed' && validationReason
+              ? validationReason
+              : known ?? 'unexpected_generation_failure'
         }
         const observedModes = [...new Set(inferenceEvents.map(x => x.acceleration))]
         const inferenceAcceleration =

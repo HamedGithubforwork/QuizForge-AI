@@ -36,6 +36,7 @@ function createWindowsLocalAiStack({
   userDataDirectory,
   modelDirectory,
   runtimeDirectory,
+  benchmarkModelId = null,
   documentProcessor = null,
   onRuntimeProcess = () => {},
   onDiagnostic = () => {},
@@ -46,11 +47,12 @@ function createWindowsLocalAiStack({
     userDataDirectory,
     ...(modelDirectory ? { modelDirectory } : {}),
     ...(runtimeDirectory ? { runtimeDirectory } : {}),
+    ...(benchmarkModelId ? { benchmarkModelId } : {}),
   })
   const manager = resources.manager
   const cachedDocumentProcessor = documentProcessor
     ? createCachedLocalDocumentProcessor(documentProcessor) : null
-  const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
+  const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory, modelSha256: resources.modelSha256 })
   let selectedGpuLayers = null
   let selectedCpuThreads = null
   let selectedContextTokens = null

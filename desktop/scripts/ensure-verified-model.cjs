@@ -3,10 +3,12 @@
 const assert = require('node:assert/strict')
 const path = require('node:path')
 const { CANDIDATE, createLocalModelStore } = require('../src/local-model-store.cjs')
+const { getBenchmarkModel } = require('../src/local-benchmark-models.cjs')
 
 async function main() {
   if (!process.argv[2]) throw new Error('Pass the verified model directory')
-  const store = createLocalModelStore({ directory: path.resolve(process.argv[2]) })
+  const candidate = getBenchmarkModel(process.argv[3] ?? CANDIDATE.id)
+  const store = createLocalModelStore({ directory: path.resolve(process.argv[2]), model: candidate })
   // Cache data is untrusted. status() checks the complete pinned model SHA-256,
   // file type, and exact bytes before it can be used by the runtime.
   let result = await store.status()
@@ -16,9 +18,9 @@ async function main() {
     result = await store.status()
   }
   assert.equal(result.ready, true)
-  assert.equal(result.bytes, CANDIDATE.bytes)
-  assert.equal(path.basename(result.path), CANDIDATE.sha256 + '.gguf')
-  console.log('PASS: pinned model is present and SHA-256 verified')
+  assert.equal(result.bytes, candidate.bytes)
+  assert.equal(path.basename(result.path), candidate.sha256 + '.gguf')
+  console.log('PASS: pinned model is present and SHA-256 verified: ' + candidate.id)
 }
 
 main().catch(error => {

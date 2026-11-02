@@ -39,10 +39,10 @@ function benchmarkCandidates(candidates) {
     : candidates
 }
 
-function signature(hardware) {
+function signature(hardware, modelSha256 = CANDIDATE.sha256) {
   return createHash('sha256').update(JSON.stringify([
     CACHE_VERSION,
-    CANDIDATE.sha256,
+    modelSha256,
     MANIFEST.files,
     hardware.gpuDevice ?? null,
     hardware.gpuMemoryBytes ?? null,
@@ -106,7 +106,9 @@ function safeCache(value, expectedSignature, candidates) {
   return { timings, cpuTimings, failed: [...value.failed], failureCounts }
 }
 
-function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
+function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs,
+  modelSha256 = CANDIDATE.sha256 } = {}) {
+  if (!/^[a-f0-9]{64}$/.test(modelSha256)) throw new TypeError('Invalid model identity')
   if (typeof userDataDirectory !== 'string' || !path.isAbsolute(userDataDirectory)) {
     throw new TypeError('An absolute Local AI profile directory is required')
   }
@@ -132,7 +134,7 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs } = {}) {
     const first = Math.min(8, Math.max(1, logical))
     cpuCandidates = [...new Set([first, Math.max(1, first - 2)])]
     selectedCpuThreads = first
-    fingerprint = signature(hardware)
+    fingerprint = signature(hardware, modelSha256)
     try {
       await fileSystem.mkdir(directory, { recursive: true, mode: 0o700 })
       const dir = await fileSystem.lstat(directory)
