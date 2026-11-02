@@ -34,6 +34,10 @@ on:
       - desktop/scripts/verify-local-biology-practice.cjs
       - desktop/scripts/verify-local-pdf-native-stack.cjs
       - desktop/test/local-weak-area-acceptance.test.cjs
+      - desktop/test/pdfjs-local-engine.test.cjs
+      - desktop/src/pdfjs-local-engine.cjs
+      - desktop/package.json
+      - desktop/package-lock.json
       - desktop/test/fixtures/biology-study-notes.json
       - e2e/tests/local-desktop-output.spec.ts
       - .github/workflows/local-ai-product-acceptance.yml
@@ -76,7 +80,7 @@ jobs:
     name: Critical Local AI biology and visible output
     needs: model-preparation
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -86,6 +90,17 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      # The native PDF acceptance runner loads pdfjs-dist from desktop/src.
+      # Install locked dependencies before testing PDF.js or loading Qwen.
+      - name: Install locked desktop PDF dependencies and smoke-test PDF.js
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test desktop/test/pdfjs-local-engine.test.cjs
+          exit $LASTEXITCODE
       - name: Restore pinned model
         uses: actions/cache/restore@v4
         with:
