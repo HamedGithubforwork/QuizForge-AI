@@ -171,6 +171,45 @@ test('local answer review publishes each decision as the model finishes it', asy
   assert.ok(observed.every(d => d.verdict === 'correct'))
 })
 
+test('a failed local model transport never becomes a wrong semantic grade', async () => {
+  const { LocalAiError } = require('../src/local-ai-provider.cjs')
+  let calls = 0
+  const grader = createLocalAnswerReview({ provider: {
+    async generate() {
+      calls++
+      throw new LocalAiError('runtime_unavailable')
+    },
+  } })
+  const request = { cases: [{ question_index: 0,
+    question: question.question, correct_answer: question.correct_answer, student_answer: answer }] }
+  const context = { quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }] }
+  const [decision] = (await grader.review(request, context)).decisions
+  assert.equal(calls, 1)
+  assert.equal(decision.verdict, 'uncertain')
+  assert.equal(decision.credit, null)
+  assert.match(decision.reason, /could not start|retry grading/)
+  assert.equal(decision.reason.includes('private'), false)
+})
+
+test('native exception messages containing private data are never sent to the UI', async () => {
+  const grader = createLocalAnswerReview({ provider: {
+    async generate() {
+      throw Object.assign(new Error('C:/Users/secret/study.pdf student notes'), {
+        code: 'invalid_response',
+      })
+    },
+  } })
+  const [decision] = (await grader.review({ cases: [{
+    question_index: 0, question: question.question,
+    correct_answer: question.correct_answer, student_answer: answer,
+  }] }, {
+    quiz: { questions: [question] }, pages: [{ pageNumber: 1, text: source }],
+  })).decisions
+  assert.equal(decision.verdict, 'uncertain')
+  assert.match(decision.reason, /unreadable grading response/)
+  assert.doesNotMatch(decision.reason, /secret|study.pdf|student notes/)
+})
+
 test('explicit grade-override injection is incorrect without trusting malformed Qwen evidence', async () => {
   let calls = 0
   const grader = createLocalAnswerReview({ provider: { async generate() {
