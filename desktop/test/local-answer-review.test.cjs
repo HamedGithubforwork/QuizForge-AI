@@ -505,3 +505,67 @@ test('real pinned-Qwen contradiction with uncertain flag scores incorrect only w
   ] }, 0, page, submitted, expected)
   assert.equal(forgedStudentQuote.verdict, 'uncertain')
 })
+
+test('real Qwen membrane paraphrase: singular main function cannot demand redundant permeability jargon', () => {
+  const questionText = 'What is the main function of the cell membrane?'
+  const sourceText = 'Cell membrane   Controls what enters and leaves the cell. It is selectively permeable.'
+  const expected = 'Controls what enters and leaves the cell. It is selectively permeable.'
+  const student = 'acts as a barrier that regulates what goes in and out'
+  const raw = {
+    confidence: 0.95, uncertain: false, contradiction: false,
+    reason: 'Student answer correctly identifies the main function of the cell membrane as regulating what enters and leaves the cell, aligning with the source text.',
+    concepts: [
+      { concept: 'Controls what enters and leaves the cell', status: 'matched',
+        expected_quote: expected, source_quote: sourceText, answer_quote: student },
+      { concept: 'Selectively permeable', status: 'missing',
+        expected_quote: expected, source_quote: sourceText, answer_quote: '' },
+    ],
+  }
+  // The real Windows model response from acceptance run 41374049632 is
+  // structurally valid but incorrectly treats one function as two requirements.
+  const full = normalizeReview(raw, 0, sourceText, student, expected, questionText)
+  assert.equal(full.verdict, 'correct')
+  assert.equal(full.credit, 1)
+  assert.equal(full.concepts.length, 1, 'do not invent a second observed concept')
+  assert.match(full.reason, /selective regulation/i)
+
+  // This exception is not a general synonym engine: vague and incomplete
+  // answers, unrelated assertions or additional conflicting claims need Qwen.
+  for (const partial of [
+    'acts as a barrier',
+    'regulates what enters the cell',
+    'regulates what leaves the cell',
+    'protects the cell from harm',
+    'regulates what goes in and out but makes all the proteins',
+    'does not regulate what goes in and out',
+  ]) {
+    const different = { ...raw, concepts: [
+      { ...raw.concepts[0], answer_quote: partial }, raw.concepts[1],
+    ] }
+    const verdict = normalizeReview(different, 0, sourceText, partial, expected, questionText)
+    assert.notEqual(verdict.verdict, 'correct', partial)
+  }
+
+  for (const changedQuestion of [
+    'What are two functions of the cell membrane?',
+    'List the functions and properties of the membrane.',
+    'Which properties does the cell membrane have?',
+  ]) {
+    const result = normalizeReview(raw, 0, sourceText, student, expected, changedQuestion)
+    assert.equal(result.verdict, 'partial', changedQuestion)
+    assert.equal(result.credit, 0.5)
+  }
+  assert.equal(normalizeReview({ ...raw, uncertain: true }, 0,
+    sourceText, student, expected, questionText).verdict, 'uncertain')
+  assert.notEqual(normalizeReview({ ...raw, contradiction: true }, 0,
+    sourceText, student, expected, questionText).verdict, 'correct')
+  assert.notEqual(normalizeReview({ ...raw, confidence: 0.75 }, 0,
+    sourceText, student, expected, questionText).verdict, 'correct')
+  assert.equal(normalizeReview({ ...raw, concepts: [
+    { ...raw.concepts[0], source_quote: 'Invented source phrase' },
+    raw.concepts[1],
+  ] }, 0, sourceText, student, expected, questionText).verdict, 'uncertain')
+  assert.equal(normalizeReview(raw, 0,
+    'The cell wall provides rigid structural support.',
+    student, expected, questionText).verdict, 'uncertain')
+})
