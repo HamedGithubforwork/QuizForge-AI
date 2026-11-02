@@ -1,4 +1,4 @@
-name: Local AI Qwen vs DeepSeek comparison
+name: Local AI Qwen sizes vs DeepSeek comparison
 
 on:
   pull_request:
@@ -15,6 +15,7 @@ on:
       - desktop/scripts/benchmark-local-generation.cjs
       - desktop/scripts/summarize-local-model-comparison.cjs
       - desktop/test/local-benchmark-models.test.cjs
+      - desktop/test/local-model-store.test.cjs
       - .github/workflows/local-ai-model-comparison.yml
   workflow_dispatch:
 
@@ -22,14 +23,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: qfn-model-comparison-${{ github.ref }}
+  group: qfn-five-model-comparison-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  compare-windows-cpu:
-    name: Three verified models, same synthetic quizzes and Windows runner
+  model:
+    name: Verify and benchmark ${{ matrix.model }}
     runs-on: windows-2025
-    timeout-minutes: 120
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        model:
+          - qwen3-4b-q4-k-m
+          - qwen3-1p7b-q4-k-m
+          - qwen3-0p6b-q4-k-m
+          - deepseek-r1-qwen-1p5b-q4-k-m
+          - deepseek-r1-qwen-7b-q4-k-m
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,12 +48,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Regression tests and allowlist validation
+      - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
-      - name: Restore Qwen baseline cache if available
+      - name: Restore verified baseline model cache
+        if: matrix.model == 'qwen3-4b-q4-k-m'
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/models
@@ -58,39 +70,64 @@ jobs:
           New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
           exit $LASTEXITCODE
-      - name: Compare Qwen3 4B, DeepSeek R1 1.5B and DeepSeek R1 7B
+      - name: Generate six offline source-verified quizzes with ${{ matrix.model }}
         shell: pwsh
+        env:
+          BENCHMARK_MODEL_ID: ${{ matrix.model }}
         run: |
+          # A slow DeepSeek 7B download must not prevent smaller models running.
+          # The benchmark writes sanitized evidence on a failed validation too.
           $ErrorActionPreference = 'Stop'
           $modelDir = "$env:RUNNER_TEMP/models"
           $reports = "$env:RUNNER_TEMP/comparison"
           New-Item -ItemType Directory $modelDir, $reports -Force | Out-Null
-          $models = @('qwen3-4b-q4-k-m', 'deepseek-r1-qwen-1p5b-q4-k-m', 'deepseek-r1-qwen-7b-q4-k-m')
-          foreach ($model in $models) {
-            Write-Host "Starting verified comparison for $model"
-            try {
-              node desktop/scripts/ensure-verified-model.cjs $modelDir $model
-              if ($LASTEXITCODE -ne 0) { throw "SHA-verified model preparation failed for $model" }
-              # Exactly the same two passages, difficulty, 5-question JSON schema,
-              # offline pipeline, and acceptance oracle for every model.
-              node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$model.json" cpu 3 $model
-              if ($LASTEXITCODE -ne 0) { Write-Warning "Quality benchmark failed for $model; preserving the report" }
-            } catch {
-              Write-Warning "Model could not complete: $model"
-            } finally {
-              # Avoid exhausting hosted Windows disk space with all three GGUFs.
-              Get-ChildItem $modelDir -Filter '*.gguf' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+          node desktop/scripts/ensure-verified-model.cjs $modelDir $env:BENCHMARK_MODEL_ID
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Verified benchmark model was not available: $env:BENCHMARK_MODEL_ID"
+          } else {
+            node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID.json" cpu 3 $env:BENCHMARK_MODEL_ID
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "Source-fact quality gate failed; retaining the report for $env:BENCHMARK_MODEL_ID"
             }
           }
-          # 3 repeats x 2 fixtures = 6 independent full quizzes per model.
-          # Report is written before failing if any candidate has invalid output.
-          node desktop/scripts/summarize-local-model-comparison.cjs $reports
-          exit $LASTEXITCODE
-      - name: Upload comparison evidence even if a model fails
+          # Per-model jobs intentionally succeed so the aggregate quality gate
+          # can report *all five outcomes* rather than cancelling other models.
+          exit 0
+      - name: Upload per-model report even when quality fails
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: qwen3-vs-deepseek-1p5b-vs-7b-windows
-          path: ${{ runner.temp }}/comparison/*.json
+          name: qfn-model-result-${{ matrix.model }}
+          path: ${{ runner.temp }}/comparison/${{ matrix.model }}.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  aggregate:
+    name: Aggregate five model quality results
+    needs: model
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Collect benchmark reports from the five model jobs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: qfn-model-result-*
+          path: comparison
+          merge-multiple: true
+      - name: Summarize all model results without declaring absent or bad models winners
+        run: node desktop/scripts/summarize-local-model-comparison.cjs comparison
+      - name: Upload combined comparison including failures
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen3-4b-1p7b-0p6b-vs-deepseek-comparison
+          path: comparison/*.json
           if-no-files-found: warn
           retention-days: 14

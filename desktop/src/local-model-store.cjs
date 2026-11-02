@@ -34,7 +34,16 @@ function reviewedUrl(value) {
 }
 
 // Main-process-only storage. Test injection is not a renderer-selectable model URL.
-function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, model = CANDIDATE }) {
+function createLocalModelStore({
+  directory, fetch: fetcher = globalThis.fetch, model = CANDIDATE,
+  // Only the explicit, trusted CI benchmark opts into a longer download.
+  // Normal desktop installs retain the original 20-minute limit.
+  downloadTimeoutMs = MODEL_DOWNLOAD_TIMEOUT_MS,
+}) {
+  if (!Number.isSafeInteger(downloadTimeoutMs) ||
+      downloadTimeoutMs < MODEL_DOWNLOAD_TIMEOUT_MS || downloadTimeoutMs > 35 * 60 * 1000) {
+    throw failure('invalid_configuration')
+  }
   if (!path.isAbsolute(directory) || !/^[a-f0-9]{64}$/.test(model.sha256) ||
       !Number.isSafeInteger(model.bytes) || model.bytes < 4 || model.bytes > 8 * 1024 ** 3) throw failure('invalid_configuration')
   const spec = Object.freeze({ ...model, url: reviewedUrl(model.url) })
@@ -104,7 +113,7 @@ function createLocalModelStore({ directory, fetch: fetcher = globalThis.fetch, m
     },
     download({ signal, progress = () => {} } = {}) {
       return serial(async () => {
-        const bounded = AbortSignal.any([AbortSignal.timeout(MODEL_DOWNLOAD_TIMEOUT_MS), ...(signal ? [signal] : [])])
+        const bounded = AbortSignal.any([AbortSignal.timeout(downloadTimeoutMs), ...(signal ? [signal] : [])])
         bounded.throwIfAborted(); await ready()
         const existing = await inspect(bounded)
         if (existing.ready) return existing

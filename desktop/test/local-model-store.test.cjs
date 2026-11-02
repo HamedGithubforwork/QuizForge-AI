@@ -101,6 +101,20 @@ test('invalid registry entries fail before work', () => {
 })
 
 
+test('CI large-model download window is bounded and opt-in only', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-benchmark-timeout-'))
+  t.after(() => fs.rm(directory, { recursive: true, force: true }))
+  for (const bad of [0, -1, 19 * 60 * 1000, 36 * 60 * 1000, Infinity, '2100000']) {
+    assert.throws(() => createLocalModelStore({
+      directory, model: spec, downloadTimeoutMs: bad,
+    }), /invalid_configuration/)
+  }
+  assert.equal(typeof createLocalModelStore({ directory, model: spec }).download, 'function')
+  assert.equal(typeof createLocalModelStore({
+    directory, model: spec, downloadTimeoutMs: 35 * 60 * 1000,
+  }).download, 'function')
+})
+
 test('reviewed Hugging Face storage hosts allow current CDN/Xet families but reject lookalikes', () => {
   for (const host of [
     'huggingface.co',

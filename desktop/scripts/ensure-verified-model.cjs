@@ -2,13 +2,19 @@
 
 const assert = require('node:assert/strict')
 const path = require('node:path')
-const { CANDIDATE, createLocalModelStore } = require('../src/local-model-store.cjs')
+const { CANDIDATE, MODEL_DOWNLOAD_TIMEOUT_MS, createLocalModelStore } = require('../src/local-model-store.cjs')
 const { getBenchmarkModel } = require('../src/local-benchmark-models.cjs')
 
 async function main() {
   if (!process.argv[2]) throw new Error('Pass the verified model directory')
   const candidate = getBenchmarkModel(process.argv[3] ?? CANDIDATE.id)
-  const store = createLocalModelStore({ directory: path.resolve(process.argv[2]), model: candidate })
+  // The verified 7B GGUF can take longer than 20 minutes from Hugging Face.
+  // CI comparison only: desktop user downloads still use the default cap.
+  const downloadTimeoutMs = candidate.id === 'deepseek-r1-qwen-7b-q4-k-m'
+    ? 35 * 60 * 1000 : MODEL_DOWNLOAD_TIMEOUT_MS
+  const store = createLocalModelStore({
+    directory: path.resolve(process.argv[2]), model: candidate, downloadTimeoutMs,
+  })
   // Cache data is untrusted. status() checks the complete pinned model SHA-256,
   // file type, and exact bytes before it can be used by the runtime.
   let result = await store.status()

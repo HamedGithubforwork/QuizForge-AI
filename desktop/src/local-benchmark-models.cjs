@@ -6,6 +6,24 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 
 const BENCHMARK_MODELS = Object.freeze({
   [CANDIDATE.id]: CANDIDATE,
+  'qwen3-1p7b-q4-k-m': Object.freeze({
+    id: 'qwen3-1p7b-q4-k-m',
+    displayName: 'Qwen3 1.7B Q4_K_M',
+    repository: 'ggml-org/Qwen3-1.7B-GGUF',
+    license: 'Apache-2.0',
+    bytes: 1282439264,
+    sha256: 'd2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5',
+    url: 'https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf',
+  }),
+  'qwen3-0p6b-q4-k-m': Object.freeze({
+    id: 'qwen3-0p6b-q4-k-m',
+    displayName: 'Qwen3 0.6B Q4_K_M',
+    repository: 'bartowski/Qwen_Qwen3-0.6B-GGUF',
+    license: 'Apache-2.0',
+    bytes: 484220320,
+    sha256: '9acfc1e001311f34b4252001b626f2e466d592a42065f66571bff3790d4e1b14',
+    url: 'https://huggingface.co/bartowski/Qwen_Qwen3-0.6B-GGUF/resolve/main/Qwen_Qwen3-0.6B-Q4_K_M.gguf',
+  }),
   'deepseek-r1-qwen-1p5b-q4-k-m': Object.freeze({
     id: 'deepseek-r1-qwen-1p5b-q4-k-m',
     displayName: 'DeepSeek R1 Distill Qwen 1.5B Q4_K_M',
