@@ -19,7 +19,7 @@ function validLocalDocumentRequest(value) {
   return true
 }
 
-function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, onLocalReviewFailure = () => {}, openAccountWebsite }) {
+function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getReminders, getLocalAi = () => null, getSourceTextCache = () => null, confirmLocalAiDownload = async () => false, confirmLocalAiRemoval = async () => false, canSignIn = () => true, isCallbackRegistered = () => true, onLocalReviewFailure = () => {}, openAccountWebsite }) {
   function trusted(event) {
     const contents = getWindow()?.webContents
     const frame = event.senderFrame
@@ -56,6 +56,14 @@ function installNativeBridge({ ipcMain, getWindow, getSession, getAccount, getRe
       if (session?.status().signingIn) throw new Error('Desktop sign-in is already in progress. Cancel it before trying again.')
       if (!canSignIn()) throw new Error('Finish the desktop sign-in test first.')
       if (!session || !account) throw new Error('Desktop sign-in is not available.')
+      // The web browser may authenticate successfully, but no callback can
+      // arrive if a previous Windows preview owns the private URI scheme.
+      // Check BEFORE creating a PKCE attempt or launching the system browser.
+      let callbackReady = false
+      try { callbackReady = isCallbackRegistered() === true } catch {}
+      if (!callbackReady) {
+        throw new Error('Desktop sign-in callback is not registered to this installation. Repair or reinstall Quiz From Notes Preview.')
+      }
       getLocalAi()?.clearQuizReview?.(); getLocalAi()?.clearDetailedDebug?.()
       account.clear()
       const operation = session.signIn(provider)
