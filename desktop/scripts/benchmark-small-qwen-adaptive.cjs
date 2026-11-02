@@ -47,7 +47,7 @@ const BIOLOGY = Object.freeze({
       ['proteins', ['ribosomes']]),
     fact('nucleus', 1, 'nucleus', ['DNA', 'most of a eukaryotic cell s DNA'],
       ['DNA', ['nucleus']]),
-    fact('chloroplasts', 2, 'chloroplasts', ['chemical energy', 'energy'],
+    fact('chloroplasts', 2, 'chloroplasts', ['chemical energy'],
       ['photosynthesis', ['chloroplasts']]),
     fact('membrane', 2, 'membrane', ['movement of substances', 'substances', 'substance'],
       ['substances', ['cell membrane', 'membrane']]),
