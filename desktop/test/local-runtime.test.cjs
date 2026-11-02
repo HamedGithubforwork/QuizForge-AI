@@ -323,3 +323,68 @@ test('unexpected watchdog loss aborts the active runtime and cleans its child', 
   assert.notEqual(child.signalCode, null)
   assert.deepEqual(runtime.status(), { busy: false, closed: false })
 })
+
+test('partial Vulkan offload retries a smaller allocation before CPU', async () => {
+  const launches = []
+  const failures = []
+  const children = [fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuLayerCount: () => 24,
+      gpuFallbackLayers: () => [8, 0],
+      onGpuStartupFailure: layers => failures.push(layers),
+      spawnProcess: (_exe, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.equal(launches.length, 2)
+  assert.equal(launches[0][launches[0].indexOf('-ngl') + 1], '24')
+  assert.equal(launches[1][launches[1].indexOf('-ngl') + 1], '8')
+  assert.deepEqual(failures, [24])
+})
+
+test('GPU OOM-like early startup exits fall back to CPU after bounded partial attempts', async () => {
+  const launches = []
+  const failures = []
+  const children = [fakeChild({ exited: true }), fakeChild({ exited: true }), fakeChild()]
+  const { runtime } = runtimeFixture({
+    options: {
+      accelerationMode: () => 'gpu',
+      gpuLayerCount: () => 24,
+      gpuFallbackLayers: () => [8, 0],
+      onGpuStartupFailure: layers => failures.push(layers),
+      spawnProcess: (_exe, args) => {
+        launches.push(args)
+        return children[launches.length - 1]
+      },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'test' }] })
+  assert.deepEqual(launches.map(args => args[args.indexOf('-ngl') + 1]), ['24', '8', '0'])
+  assert.deepEqual(failures, [24, 8])
+  assert.equal(runtime.lastAccelerationMode(), 'cpu')
+})
+
+test('runtime performance callback receives only bounded timing and token counts', async () => {
+  const observations = []
+  const { runtime } = runtimeFixture({
+    options: {
+      onInferenceCompleted: value => observations.push(value),
+      requestFn: async (_port, _key, route) => route === '/v1/models'
+        ? { data: [{ id: 'qfn-' + 'ab'.repeat(16) }] }
+        : { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+            usage: { completion_tokens: 120 } },
+    },
+  })
+  await runtime.complete({ messages: [{ role: 'user', content: 'private notes' }] })
+  assert.equal(observations.length, 1)
+  assert.deepEqual(Object.keys(observations[0]).sort(),
+    ['acceleration', 'completionTokens', 'elapsedMs', 'layers'])
+  assert.equal(observations[0].layers, 0)
+  assert.equal(observations[0].completionTokens, 120)
+  assert.ok(observations[0].elapsedMs >= 0)
+})

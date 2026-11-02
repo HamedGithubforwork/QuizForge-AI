@@ -323,3 +323,32 @@ acceptance remain prerequisites for enabling this feature. The integration CI
 checks the actual Windows engine for authenticated output, denied unauthenticated
 access, a fresh key per session, concurrent-request rejection and child cleanup
 on both success and cancellation.
+
+### Adaptive CPU/GPU offloading (experimental preview)
+
+For Local AI desktop builds, `windows-hardware-probe.cjs` reads the verified
+`llama-server --list-devices` output. If Vulkan reports usable VRAM, the
+main-process-only offload policy chooses conservative GPU layer counts; machines
+without compatible GPU support run CPU-only. An unknown VRAM reading remains
+distinct from a confirmed small VRAM value.
+
+At generation time the runtime requests the planned GPU allocation and, only
+on a failure **before the inference server is ready**, steps down through at
+most one smaller GPU allocation and then CPU. A failed generation *after*
+the server is ready is never silently retried against another backend.
+
+The offload policy learns measured inference throughput during normal,
+user-requested quiz generations. It tries a bounded set of hardware-appropriate
+settings over successive quizzes and retains the fastest observed successful
+setting in `userData/local-ai/offload-profile.json`. A fingerprint of the pinned
+model/runtime and hardware invalidates outdated results. The cache contains
+only layer counts, token counts and timings—never PDF bytes, model output,
+prompts, paths or account information. Invalid/unreadable cache data is ignored.
+There is **no hidden first-launch inference benchmark** or user-facing promise
+that all devices will run quickly.
+
+These heuristics are not yet validated across a representative range of
+consumer GPUs. The existing Qwen3 4B model still requires the preview's RAM
+floor. A smaller downloaded model tier, a user-visible calibration/progress
+screen, finer-grained KV-cache fitting, and real-device hardware benchmarks
+remain separate acceptance work before general release.

@@ -2023,6 +2023,121 @@ test('targeted practice recovers from two false insufficient-source abstentions 
   ])
 })
 
+test('weak-area recovery corrects a mistaken page only when its exact quote has one source', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions.forEach((item, index) => {
+    item.question = 'Supported follow-up question ' + (index + 1) + '?'
+    item.source_pages = [item.source_pages[0] === 2 ? 5 : 2]
+  })
+  const issues = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue),
+    provider: {
+      async generate() {
+        calls++
+        return {
+          text: JSON.stringify(calls <= 2
+            ? { title: 'Insufficient source material', questions: [] } : draft),
+          finishReason: 'stop',
+        }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: ['Old missed question?'] },
+  })
+  assert.equal(calls, 3, 'Only the citation needs correction; no extra model generation')
+  assert.deepEqual(quiz.questions.map(q => q.source_pages), [[2], [5], [2], [5], [2]])
+  assert.deepEqual(issues.map(issue => issue.reason), ['insufficient_source', 'insufficient_source'])
+})
+
+test('weak-area recovery uses one closely anchored original sentence, not a paraphrased quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate ATP through cellular energy.'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  const quiz = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 3)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions[0].correct_answer, 'ATP')
+  assert.deepEqual(quiz.questions[0].source_pages, [2])
+})
+
+test('weak-area recovery never accepts a loosely matching invented fact', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].source_fact = 'Mitochondria generate fictional water from microbes.'
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue: issue => issues.push(issue.reason),
+    provider: {
+      async generate() {
+        calls++
+        return { finishReason: 'stop', text: JSON.stringify(calls <= 2
+          ? { title: 'Insufficient source material', questions: [] } : draft) }
+      },
+    },
+  })
+  await assert.rejects(service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice', practice: { focusPages: [2], avoidQuestions: [] },
+  }), { code: 'quiz_validation_failed' })
+  assert.equal(calls, 3)
+  assert.equal(issues.at(-1), 'unsupported_source_fact')
+})
+
+test('weak-area recovery refuses nonexistent and ambiguous source quotes', async () => {
+  for (const kind of ['fabricated', 'ambiguous']) {
+    const draft = withRetrySourceFacts(rawQuiz())
+    draft.questions[0].source_pages = [5]
+    draft.questions[0].source_fact = kind === 'fabricated'
+      ? 'The nucleus is powered by fictional fuel.'
+      : 'Common repeated source quote.'
+    const sourcePages = pages()
+    if (kind === 'ambiguous') {
+      for (const page of sourcePages) page.text += ' Common repeated source quote.'
+      sourcePages.push({ pageNumber: 8, text: 'Another unrelated study fact.' })
+      draft.questions[0].source_pages = [8]
+    }
+    let calls = 0
+    const reasons = []
+    const service = createLocalQuizService({
+      onValidationIssue: issue => reasons.push(issue.reason),
+      provider: {
+        async generate() {
+          calls++
+          return {
+            text: JSON.stringify(calls <= 2
+              ? { title: 'Insufficient source material', questions: [] } : draft),
+            finishReason: 'stop',
+          }
+        },
+      },
+    })
+    await assert.rejects(service.generate({
+      pages: sourcePages, questionCount: 5, difficulty: 'easy',
+      questionType: 'multiple_choice',
+      practice: { focusPages: [2], avoidQuestions: [] },
+    }), { code: 'quiz_validation_failed' }, kind)
+    assert.equal(calls, 3, kind)
+    assert.equal(reasons.at(-1), 'unsupported_source_fact', kind)
+  }
+})
+
 test('weak-area recovery repairs paraphrased answers only with exact source excerpts', async () => {
   const weakDraft = withRetrySourceFacts(rawQuiz())
   weakDraft.questions[0].choices[weakDraft.questions[0].correct_index] = 'Energy from the food'
@@ -2136,6 +2251,48 @@ test('weak-area recovery rejects a citation swap to another real but unrelated f
   assert.equal(issues.at(-1).reason, 'unsupported_answer')
 })
 
+test('weak-area fallback selects answer phrases only from each question own verified quote', async () => {
+  const draft = withRetrySourceFacts(rawQuiz())
+  draft.questions[0].choices[draft.questions[0].correct_index] = 'Fictional biofuel'
+  draft.questions[2].choices[draft.questions[2].correct_index] = 'Unverified interior material'
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls <= 2) return {
+          text: JSON.stringify({ title: 'Insufficient source material', questions: [] }),
+          finishReason: 'stop',
+        }
+        if (calls === 3) return { text: JSON.stringify(draft), finishReason: 'stop' }
+        if (calls === 4) {
+          const repairs = RETRY_FACTS.slice(0, 5).map(fact => ({
+            answer: fact.answer, source_fact: fact.text, source_page: fact.page,
+          }))
+          repairs[0].answer = 'Fictional biofuel'
+          repairs[2].answer = 'Unverified interior material'
+          return { text: JSON.stringify({ repairs }), finishReason: 'stop' }
+        }
+        assert.equal(calls, 5)
+        assert.ok(request.jsonSchema.properties.q1.enum.includes('ATP'))
+        assert.ok(request.jsonSchema.properties.q3.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q1.enum.includes('inner membrane'))
+        assert.ok(!request.jsonSchema.properties.q3.enum.includes('ATP'))
+        return { text: JSON.stringify({ q1: 'ATP', q3: 'inner membrane' }), finishReason: 'stop' }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(), questionCount: 5, difficulty: 'easy',
+    questionType: 'multiple_choice',
+    practice: { focusPages: [2], avoidQuestions: [] },
+  })
+  assert.equal(calls, 5)
+  assert.equal(result.questions.length, 5)
+  assert.equal(result.questions[0].correct_answer, 'ATP')
+  assert.equal(result.questions[2].correct_answer, 'inner membrane')
+})
+
 test('weak-area answer repair rejects model-proposed answers absent from its cited excerpt', async () => {
   const weakDraft = withRetrySourceFacts(rawQuiz())
   weakDraft.questions[0].choices[weakDraft.questions[0].correct_index] = 'Invented fuel'
@@ -2164,7 +2321,7 @@ test('weak-area answer repair rejects model-proposed answers absent from its cit
     questionType: 'multiple_choice',
     practice: { focusPages: [2], avoidQuestions: ['Prior question to avoid?'] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4)
+  assert.equal(calls, 5)
   assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
     ['primary', 'insufficient_source'], ['retry', 'insufficient_source'],
     ['recovery', 'unsupported_answer'],

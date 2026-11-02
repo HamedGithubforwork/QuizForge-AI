@@ -9,6 +9,7 @@ const {
 const { createLocalRuntime, verifyRuntime } = require('./local-runtime.cjs')
 const { createWindowsLocalAiProvider } = require('./windows-local-ai-provider.cjs')
 const { createWindowsLocalAiResources } = require('./windows-local-ai-manager.cjs')
+const { createLocalOffloadPolicy } = require('./local-offload-policy.cjs')
 
 const QUIZ_REASONS = new Set([
   'unsupported_platform',
@@ -41,6 +42,8 @@ function createWindowsLocalAiStack({
     ...(runtimeDirectory ? { runtimeDirectory } : {}),
   })
   const manager = resources.manager
+  const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
+  let selectedGpuLayers = null
   let runtime = null
   let quizService = null
   let documentQuizService = null
@@ -64,8 +67,17 @@ function createWindowsLocalAiStack({
     runtime = createLocalRuntime({
       directory: runtimeDirectory,
       modelStore: resources.rawModelStore,
-      accelerationMode: () => manager.status()?.capability?.acceleration ?? 'cpu',
+      accelerationMode: () => selectedGpuLayers === 0
+        ? 'cpu' : (manager.status()?.capability?.acceleration ?? 'cpu'),
       gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
+      gpuLayerCount: () => selectedGpuLayers ?? 99,
+      gpuFallbackLayers: () => offloadPolicy.fallbackLayers(),
+      onGpuStartupFailure: layers => offloadPolicy.recordFailure(layers),
+      onInferenceCompleted: metric => {
+        if (metric.layers === 0 || metric.acceleration === 'gpu') {
+          offloadPolicy.recordInference(metric)
+        }
+      },
       onProcessChange: onRuntimeProcess,
     })
     const provider = createWindowsLocalAiProvider({
@@ -137,6 +149,10 @@ function createWindowsLocalAiStack({
       if (ready.reason === 'runtime_invalid') throw new LocalAiError('runtime_invalid')
       throw new LocalAiError('runtime_unavailable', { retryable: true })
     }
+    // Cache only token counts, elapsed inference time and hardware signature.
+    // No PDF text, question content or model output is ever persisted.
+    await offloadPolicy.prepare(manager.status()?.capability?.hardware)
+    selectedGpuLayers = offloadPolicy.choose()
     quizController = new AbortController()
     const controller = quizController
     const currentOperation = Promise.resolve().then(() => operation(controller.signal))
@@ -146,6 +162,8 @@ function createWindowsLocalAiStack({
     } finally {
       if (quizOperation === currentOperation) quizOperation = null
       if (quizController === controller) quizController = null
+      selectedGpuLayers = null
+      await offloadPolicy.flush()
     }
   }
 

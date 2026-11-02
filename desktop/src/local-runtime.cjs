@@ -9,6 +9,7 @@ const net = require('node:net')
 const { createHash, randomBytes } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { setTimeout: delay } = require('node:timers/promises')
+const { performance } = require('node:perf_hooks')
 const MANIFEST = require('./local-runtime-manifest.json')
 const { createWindowsProcessGuard } = require('./windows-process-guard.cjs')
 const fail = code => Object.assign(new Error('Local runtime: ' + code), { code })
@@ -150,6 +151,10 @@ function createLocalRuntime({
   accelerationMode = () => 'cpu',
   gpuDevice = () => 'Vulkan0',
   cpuThreadCount = boundedCpuThreads,
+  gpuLayerCount = () => 99,
+  gpuFallbackLayers = () => [0],
+  onGpuStartupFailure = () => {},
+  onInferenceCompleted = () => {},
   platform = process.platform,
   arch = process.arch,
   guardProcess = createWindowsProcessGuard,
@@ -159,7 +164,7 @@ function createLocalRuntime({
   let lastAccelerationMode = null
   const ownerAbort = new AbortController()
 
-  async function runBackend(payload, bounded, mode, fallbackState = null) {
+  async function runBackend(payload, bounded, mode, fallbackState = null, requestedLayers = 99) {
     let child, childClosed, processGuard
     try {
       const executable = await verifyRuntimeFn(directory, MANIFEST, bounded)
@@ -171,9 +176,11 @@ function createLocalRuntime({
       const port = await freePortFn()
       const threads = String(cpuThreadCount())
       const selectedGpuDevice = gpuDevice()
+      const gpuLayers = Number.isSafeInteger(requestedLayers) && requestedLayers > 0 && requestedLayers <= 99
+        ? requestedLayers : 99
       const gpuArgs = mode === 'gpu'
         ? ['--device', typeof selectedGpuDevice === 'string' && /^Vulkan\d+$/.test(selectedGpuDevice)
-          ? selectedGpuDevice : 'Vulkan0', '-ngl', '99']
+          ? selectedGpuDevice : 'Vulkan0', '-ngl', String(gpuLayers)]
         : ['--device', 'none', '-ngl', '0']
       if (fallbackState && mode === 'gpu') fallbackState.eligible = true
       child = spawnProcess(executable, ['-m', model.path, '--host', '127.0.0.1', '--port', String(port),
@@ -203,13 +210,23 @@ function createLocalRuntime({
         } catch { startup.throwIfAborted() }
         await delay(100, undefined, { signal: startup })
       }
+      const generationStarted = performance.now()
       const result = await requestFn(port, key, '/v1/chat/completions',
         { ...payload, model: alias, stream: false, max_tokens: Math.min(payload.max_tokens || 1800, 5200) },
         owned)
+      const inferenceMs = performance.now() - generationStarted
       const gpuOffloaded = offloadTracker.state()
       lastAccelerationMode = mode === 'cpu'
         ? 'cpu'
         : gpuOffloaded === true ? 'gpu' : gpuOffloaded === false ? 'cpu' : 'unknown'
+      try {
+        onInferenceCompleted(Object.freeze({
+          layers: mode === 'gpu' ? gpuLayers : 0,
+          acceleration: lastAccelerationMode,
+          elapsedMs: inferenceMs,
+          completionTokens: result?.usage?.completion_tokens ?? null,
+        }))
+      } catch {}
       return result
     } finally {
       let cleanupError = null
@@ -241,14 +258,30 @@ function createLocalRuntime({
     ])
     const mode = accelerationMode() === 'gpu' ? 'gpu' : 'cpu'
     if (mode !== 'gpu') return runBackend(payload, bounded, 'cpu')
-    const fallbackState = { eligible: false, ready: false }
-    try {
-      return await runBackend(payload, bounded, 'gpu', fallbackState)
-    } catch (error) {
-      const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
-      if (!fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) throw error
-      return runBackend(payload, bounded, 'cpu')
+    const initial = gpuLayerCount()
+    const first = Number.isSafeInteger(initial) && initial > 0 && initial <= 99 ? initial : 99
+    let fallbacks
+    try { fallbacks = gpuFallbackLayers() } catch { fallbacks = [0] }
+    // Only step DOWN the layer count on startup failure. A failed higher
+    // allocation must never lead to another, larger Vulkan allocation.
+    const smaller = Array.isArray(fallbacks)
+      ? [...new Set(fallbacks.filter(value => Number.isSafeInteger(value) && value >= 0 && value < first))]
+          .sort((a, b) => b - a).slice(0, 2)
+      : []
+    const attempts = [first, ...smaller.filter(value => value !== 0), 0]
+    for (const layers of attempts) {
+      const fallbackState = { eligible: false, ready: false }
+      try {
+        return await runBackend(payload, bounded, layers > 0 ? 'gpu' : 'cpu', fallbackState, layers)
+      } catch (error) {
+        const startupFailure = error?.code === 'startup_failed' || error?.name === 'TimeoutError'
+        if (layers === 0 || !fallbackState.eligible || fallbackState.ready || bounded.aborted || !startupFailure) {
+          throw error
+        }
+        try { onGpuStartupFailure(layers) } catch {}
+      }
     }
+    throw fail('startup_failed')
   }
 
   function complete(payload, { signal } = {}) {
