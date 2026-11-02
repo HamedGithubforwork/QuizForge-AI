@@ -6,8 +6,8 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 
 const BENCHMARK_MODELS = Object.freeze({
   [CANDIDATE.id]: CANDIDATE,
-  'deepseek-r1-qwen-1.5b-q4-k-m': Object.freeze({
-    id: 'deepseek-r1-qwen-1.5b-q4-k-m',
+  'deepseek-r1-qwen-1p5b-q4-k-m': Object.freeze({
+    id: 'deepseek-r1-qwen-1p5b-q4-k-m',
     displayName: 'DeepSeek R1 Distill Qwen 1.5B Q4_K_M',
     repository: 'bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF',
     license: 'MIT',
