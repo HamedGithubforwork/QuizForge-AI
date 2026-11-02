@@ -15,6 +15,7 @@ test('successful local generation finishes without cancelling Electron', async (
   }), {
     timeoutMs: 30,
     cancelNative: async () => { cancellations++ },
+    onTimeout: () => {},
   })
   assert.equal(result.ok, true)
   await tick()
@@ -28,6 +29,7 @@ test('a hung Electron generation IPC times out and requests native cancellation'
     runRecoverableLocalGeneration(() => stalled, {
       timeoutMs: 10,
       cancelNative: async () => { cancellations++ },
+      onTimeout: () => {},
     }),
     error => error instanceof LocalGenerationUnresponsiveError &&
       /restart the desktop app/i.test(error.message),
@@ -52,6 +54,7 @@ test('manual cancellation releases the UI even when native cancellation IPC neve
       cancelCount++
       return new Promise<void>(() => {})
     },
+    onTimeout: () => {},
   })
   await tick()
   assert.equal(started, true)
@@ -62,6 +65,7 @@ test('manual cancellation releases the UI even when native cancellation IPC neve
   assert.equal(cancelCount, 1)
   assert.equal(await runRecoverableLocalGeneration(async () => 'new quiz', {
     cancelNative: async () => {},
+    onTimeout: () => {},
     timeoutMs: 200,
   }), 'new quiz')
 })
@@ -76,6 +80,7 @@ test('aborting before generation never starts page loading or inference', async 
   }, {
     signal: controller.signal,
     cancelNative: async () => {},
+    onTimeout: () => {},
   }), { name: 'AbortError' })
   assert.equal(started, false)
 })
@@ -91,6 +96,7 @@ test('cancelling in the same event-loop turn prevents starting native inference'
     signal: controller.signal,
     timeoutMs: 200,
     cancelNative: async () => { cancelled++ },
+    onTimeout: () => {},
   })
   controller.abort()
   await assert.rejects(result, { name: 'AbortError' })
@@ -106,22 +112,31 @@ test('ordinary model errors propagate without a spurious cancellation', async ()
   }, {
     timeoutMs: 100,
     cancelNative: async () => { cancellations++ },
+    onTimeout: () => {},
   }), /generation_failed/)
   await tick()
   assert.equal(cancellations, 0)
 })
 
-test('a timeout also covers stalled source-page loading before inference', async () => {
+test('watchdog aborts late PDF reads so they cannot start inference afterward', async () => {
+  const controller = new AbortController()
   let modelCalled = false
   let cancellations = 0
+  let releasePage!: () => void
+  const pageText = new Promise<void>(resolve => { releasePage = resolve })
   await assert.rejects(runRecoverableLocalGeneration(async () => {
-    await new Promise<never>(() => {}) // simulate lost source-text IPC
+    await pageText
+    controller.signal.throwIfAborted()
     modelCalled = true
     return null
   }, {
+    signal: controller.signal,
     timeoutMs: 10,
     cancelNative: async () => { cancellations++ },
+    onTimeout: () => controller.abort(),
   }), LocalGenerationUnresponsiveError)
+  assert.equal(controller.signal.aborted, true)
+  releasePage()
   await tick()
   assert.equal(modelCalled, false)
   assert.equal(cancellations, 1)
@@ -135,6 +150,7 @@ test('invalid timeout is rejected before starting generation', async () => {
   }, {
     timeoutMs: -1,
     cancelNative: async () => {},
+    onTimeout: () => {},
   }), TypeError)
   assert.equal(started, false)
 })
