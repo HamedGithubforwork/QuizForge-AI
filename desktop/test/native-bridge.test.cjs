@@ -244,6 +244,34 @@ test('source-page cache IPC is fixed, single-argument and does not expose a writ
 })
 
 
+test('Google sign-in refuses a missing or mismatched Windows callback handler before opening browser', async () => {
+  const handlers = {}, frame = { url: 'qfn://app/' }
+  const contents = { isDestroyed: () => false, mainFrame: frame }
+  let starts = 0, cleared = 0, registered = false
+  const session = { status: () => ({ signingIn: false }), generation: () => 1,
+    signIn: async () => { starts++ } }
+  const account = { clear: () => { cleared++ },
+    verify: async () => ({ userId: 'test', email: 'test@example.invalid', enrolled: true }) }
+  installNativeBridge({
+    ipcMain: { handle: (name, fn) => { handlers[name] = fn } },
+    getWindow: () => ({ webContents: contents }),
+    getSession: () => session, getAccount: () => account,
+    isCallbackRegistered: () => registered,
+    openAccountWebsite: () => { throw Error('No browser may be opened by a failed preflight') },
+  })
+  const event = { sender: contents, senderFrame: frame }
+  for (const method of ['google', 'default']) {
+    await assert.rejects(handlers['qfn:signIn'](event, method),
+      /callback is not registered to this installation/)
+  }
+  assert.equal(starts, 0)
+  assert.equal(cleared, 0, 'failed callback check must not clear an existing account')
+  registered = true
+  assert.equal((await handlers['qfn:signIn'](event, 'google')).userId, 'test')
+  assert.equal(starts, 1)
+  assert.equal(cleared, 1)
+})
+
 test('desktop sign-in accepts only the fixed Google and default methods', async () => {
   const handlers = {}, frame = { url: 'https://quizfromnotes.com/' }
   const contents = { isDestroyed: () => false, mainFrame: frame }
