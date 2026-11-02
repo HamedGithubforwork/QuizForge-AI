@@ -49,6 +49,7 @@ function createWindowsLocalAiStack({
   const manager = resources.manager
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory })
   let selectedGpuLayers = null
+  let selectedCpuThreads = null
   let runtime = null
   let quizService = null
   let answerReview = null
@@ -111,6 +112,7 @@ function createWindowsLocalAiStack({
         ? 'cpu' : (manager.status()?.capability?.acceleration ?? 'cpu'),
       gpuDevice: () => manager.status()?.capability?.hardware?.gpuDevice ?? 'Vulkan0',
       gpuLayerCount: () => selectedGpuLayers ?? 99,
+      cpuThreadCount: () => selectedCpuThreads ?? boundedCpuThreads(),
       gpuFallbackLayers: () => offloadPolicy.fallbackLayers(),
       onGpuStartupFailure: layers => {
         diagnostic('gpu_startup_failed', { layers })
@@ -128,7 +130,7 @@ function createWindowsLocalAiStack({
         onRuntimeProcess(pid)
       },
     }), {
-      profile: () => selectedGpuLayers === null ? 'cpu-default' : String(selectedGpuLayers),
+      profile: () => [selectedGpuLayers, selectedCpuThreads].join(':'),
       // The CPU runtime retains its existing bounded thread count until
       // measured hardware tuning can pick a faster, verified profile.
       idleMs: 3 * 60 * 1000,
@@ -285,9 +287,10 @@ function createWindowsLocalAiStack({
     // No PDF text, question content or model output is ever persisted.
     await offloadPolicy.prepare(manager.status()?.capability?.hardware)
     selectedGpuLayers = offloadPolicy.choose()
+    selectedCpuThreads = selectedGpuLayers === 0 ? offloadPolicy.chooseThreads() : boundedCpuThreads()
     const capability = manager.status()?.capability
     diagnostic('execution_selected', { layers: selectedGpuLayers, acceleration: selectedGpuLayers === 0 ? 'cpu' : capability?.acceleration,
-      logicalCpuCount: capability?.hardware?.logicalCpuCount, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
+      logicalCpuCount: capability?.hardware?.logicalCpuCount, selectedCpuThreads, gpuMemoryBytes: capability?.hardware?.gpuMemoryBytes,
       gpuDetected: capability?.hardware?.gpuDetected, totalMemoryBytes: capability?.hardware?.totalMemoryBytes })
     if (disposed) throw new LocalAiError('runtime_unavailable')
     if (epoch !== contextEpoch) throw new LocalAiError('cancelled')
@@ -304,6 +307,7 @@ function createWindowsLocalAiStack({
       quizProgressState = null
       reviewProgressState = null
       selectedGpuLayers = null
+      selectedCpuThreads = null
       await offloadPolicy.flush()
     }
   }
