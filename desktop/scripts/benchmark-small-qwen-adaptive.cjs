@@ -518,6 +518,39 @@ async function runBatchedFixture(provider, fixture, plans, type) {
   }
 }
 
+// Release-accuracy gate, distinct from passing deterministic regressions.
+// A smoke run only passes when every selected five-question fixture fully
+// satisfies the original independent source-fact validator.
+function assessSmokeResults(runs, expectedModes) {
+  if (!Array.isArray(runs) || !Array.isArray(expectedModes) ||
+      expectedModes.length < 1) {
+    return { status: 'incomplete_benchmark', passed: 0, required: 0 }
+  }
+  let passed = 0
+  for (const mode of expectedModes) {
+    const matches = runs.filter(run => run &&
+      run.fixture === mode.fixture && run.questionType === mode.type)
+    if (matches.length !== 1 ||
+        !Number.isSafeInteger(matches[0].inferenceCalls) ||
+        matches[0].inferenceCalls < 1 ||
+        !Number.isSafeInteger(matches[0].sourceSupportedQuestions) ||
+        !Number.isSafeInteger(matches[0].independentOracleMatches)) {
+      return { status: 'incomplete_benchmark', passed, required: expectedModes.length }
+    }
+    if (matches[0].fullFiveQuestionPass === true &&
+        matches[0].sourceSupportedQuestions === 5 &&
+        matches[0].independentOracleMatches === 5 &&
+        matches[0].uniqueSourceFacts === 5) passed++
+  }
+  if (runs.length !== expectedModes.length) {
+    return { status: 'incomplete_benchmark', passed, required: expectedModes.length }
+  }
+  return {
+    status: passed === expectedModes.length ? 'passed' : 'quality_failed',
+    passed, required: expectedModes.length,
+  }
+}
+
 async function main() {
   assert.equal(process.platform, 'win32', 'Windows benchmark only')
   const [runtimeDir, modelsDir, reportPath, modelId] = process.argv.slice(2)
@@ -583,10 +616,32 @@ async function main() {
           .filter(x => x.status !== 'accepted')
           .map(x => x.stage + ':' + x.status))].join(','))
     }
+    if (smokeOnly) {
+      const gate = assessSmokeResults(report.answerFirstRuns, answerFirstModes)
+      report.smokeQualityGate = gate
+      await save()
+      console.log('QWEN SMOKE QUALITY ' + modelId + ' status=' + gate.status +
+        ' fullyVerified=' + gate.passed + '/' + gate.required)
+      if (gate.status !== 'passed') {
+        const error = new Error('A required source-grounded smoke benchmark failed')
+        error.code = gate.status === 'incomplete_benchmark'
+          ? 'generation_failed' : 'quiz_validation_failed'
+        throw error
+      }
+    }
   } finally {
     await save()
     await runtime.shutdown()
   }
+}
+// Export before invoking main: the CLI loads answer-first, which imports
+// these fixture helpers. Exporting afterward exposed partial circular exports
+// and turned the resulting TypeError into a misleading runtime_unavailable.
+module.exports = {
+  EXPERIMENT_FIXTURES, EXPERIMENT_PLANS, MODES, buildPrompt,
+  inspectCandidate, runAdaptiveFixture, runBatchedFixture, buildPairPrompt,
+  MCQ_SCHEMA, SHORT_SCHEMA, languageMatches, frenchContext,
+  assessSmokeResults,
 }
 if (require.main === module) main().catch(error => {
   console.error('Adaptive small Qwen benchmark failed: ' +
@@ -594,8 +649,3 @@ if (require.main === module) main().catch(error => {
       ? error.code : 'unclassified'))
   process.exitCode = 1
 })
-module.exports = {
-  EXPERIMENT_FIXTURES, EXPERIMENT_PLANS, MODES, buildPrompt,
-  inspectCandidate, runAdaptiveFixture, runBatchedFixture, buildPairPrompt,
-  MCQ_SCHEMA, SHORT_SCHEMA, languageMatches, frenchContext,
-}

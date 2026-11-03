@@ -116,3 +116,56 @@ test('two bad attempts do not inflate accepted count or loop indefinitely', asyn
   assert.equal(report.fullFiveQuestionPass, false)
   assert.equal(report.perFactOutcomes.every(x => x.status === 'invalid_json'), true)
 })
+
+test('CLI initializes shared fixture exports before starting nested answer-first import', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const script = fs.readFileSync(path.join(__dirname,
+    '../scripts/benchmark-small-qwen-adaptive.cjs'), 'utf8')
+  const published = script.indexOf('module.exports = {')
+  const started = script.indexOf('if (require.main === module) main()')
+  assert.ok(published >= 0 && started > published,
+    'entrypoint must export fixtures before main recursively imports them')
+})
+test('smoke quality gate rejects missing, incomplete and partially correct quizzes', () => {
+  const { assessSmokeResults } = require('../scripts/benchmark-small-qwen-adaptive.cjs')
+  const expectedModes = [
+    { fixture: 'materials', type: 'multiple_choice' },
+    { fixture: 'biology', type: 'short_answer' },
+  ]
+  const valid = (fixture, questionType) => ({
+    fixture, questionType, inferenceCalls: 5,
+    sourceSupportedQuestions: 5, independentOracleMatches: 5,
+    uniqueSourceFacts: 5, fullFiveQuestionPass: true,
+  })
+  const complete = [
+    valid('materials', 'multiple_choice'),
+    valid('biology', 'short_answer'),
+  ]
+  assert.deepEqual(assessSmokeResults(complete, expectedModes),
+    { status: 'passed', passed: 2, required: 2 })
+  assert.deepEqual(assessSmokeResults([], expectedModes),
+    { status: 'incomplete_benchmark', passed: 0, required: 2 })
+  assert.deepEqual(assessSmokeResults([complete[0]], expectedModes),
+    { status: 'incomplete_benchmark', passed: 1, required: 2 })
+  assert.deepEqual(assessSmokeResults([
+    complete[0], { ...complete[1], sourceSupportedQuestions: 2,
+      independentOracleMatches: 2, uniqueSourceFacts: 2,
+      fullFiveQuestionPass: false },
+  ], expectedModes), { status: 'quality_failed', passed: 1, required: 2 })
+  assert.equal(assessSmokeResults([
+    complete[0], { ...complete[1], inferenceCalls: 0 },
+  ], expectedModes).status, 'incomplete_benchmark')
+  assert.equal(assessSmokeResults([
+    complete[0], complete[0],
+  ], expectedModes).status, 'incomplete_benchmark')
+})
+test('focused GitHub Actions job cannot mask a failed model benchmark as green', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const workflow = fs.readFileSync(path.join(__dirname,
+    '../../.github/workflows/local-ai-model-comparison.yml'), 'utf8')
+  assert.match(workflow, /throw 'Qwen smoke benchmark failed'/)
+  assert.match(workflow, /throw 'Pinned benchmark model unavailable'/)
+  assert.doesNotMatch(workflow, /^\s*exit 0\s*$/m)
+})

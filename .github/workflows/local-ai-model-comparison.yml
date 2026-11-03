@@ -94,7 +94,7 @@ jobs:
           New-Item -ItemType Directory $modelDir, $reports -Force | Out-Null
           node desktop/scripts/ensure-verified-model.cjs $modelDir $env:BENCHMARK_MODEL_ID
           if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Verified benchmark model was not available: $env:BENCHMARK_MODEL_ID"
+            throw 'Pinned benchmark model unavailable'
           } else {
             # Full baseline/scaffold remains for manually dispatched milestone runs.
             if ($env:QFN_QWEN_SMOKE_ONLY -ne '1') {
@@ -120,13 +120,17 @@ jobs:
             if ($env:BENCHMARK_MODEL_ID -in @('qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m')) {
               node desktop/scripts/benchmark-small-qwen-adaptive.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID-adaptive.json" $env:BENCHMARK_MODEL_ID
               if ($LASTEXITCODE -ne 0) {
+                if ($env:QFN_QWEN_SMOKE_ONLY -eq '1') {
+                  throw 'Qwen smoke benchmark failed'
+                }
                 Write-Warning "Adaptive Qwen diagnostic failed; retain baseline report"
               }
             }
           }
-          # Per-model jobs intentionally succeed so the aggregate quality gate
-          # can report *all five outcomes* rather than cancelling other models.
-          exit 0
+          # Focused Qwen PRs must fail if verified model inference or the
+          # strict five-question smoke gate fails. The full comparison retains
+          # its separate five-model aggregator and report-preservation path.
+          # Never force success after a required benchmark failure.
       - name: Upload per-model report even when quality fails
         if: always()
         uses: actions/upload-artifact@v7
