@@ -1476,6 +1476,17 @@ function targetedFactHints(pages) {
     .map(fact => ({ page: fact.page, source_fact: fact.quote }))
 }
 
+// The speculative *first* weak-area recovery can be expensive on CPU.
+// Five good facts do not leave enough room to recover five distinct questions
+// while avoiding earlier wording. Keep the proven post-abstention recovery for
+// sparse notes instead of burning an extra full five-question inference call.
+// This is only a routing hint: every generated question still goes through
+// the same independent source/answer/duplicate validation.
+function hasAmpleTargetedSource(pages) {
+  return hasRichTargetedSource(pages) &&
+    targetedFactHints(pages).length >= 9
+}
+
 function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
@@ -1976,7 +1987,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       // predictably redundant abstentions. If the model cannot make five
       // independently grounded questions, retain the established path.
       if (targetedMultipleChoice && avoidQuestions.length >= 2 &&
-          hasRichTargetedSource(request.pages)) {
+          hasAmpleTargetedSource(request.pages)) {
         try {
           return await recoverTargetedInsufficientSource()
         } catch (error) {
