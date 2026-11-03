@@ -16,6 +16,18 @@ const pages = [2, 4].map(pageNumber => ({
   pageNumber,
   text: facts.filter(fact => fact.page === pageNumber).map(fact => fact.source).join(' '),
 }))
+// The speculative early recovery now requires real fact headroom.
+// Preserve its original behavior tests with ten independently quoted facts;
+// the six-fact routing regression lives in local-quiz-service.test.cjs.
+const amplePages = [2, 4].map(pageNumber => ({
+  pageNumber,
+  text: [
+    ...facts.filter(fact => fact.page === pageNumber).map(fact => fact.source),
+    ...(pageNumber === 2
+      ? ['Aster battery type is lithium.', 'Aster lens shape is circular.']
+      : ['Boreal battery type is nickel.', 'Boreal lens shape is square.']),
+  ].join(' '),
+}))
 const candidates = facts.map(fact => ({
   question: fact.question,
   choices: [fact.answer, 'unrelated one', 'unrelated two', 'unrelated three'],
@@ -46,7 +58,7 @@ test('rich targeted practice tries the already-strict recovery without two waste
       }) }
     } },
   })
-  const quiz = await service.generate(request)
+  const quiz = await service.generate({ ...request, pages: amplePages })
   assert.equal(calls, 1)
   assert.equal(quiz.questions.length, 5)
   assert.equal(new Set(quiz.questions.map(q => q.question)).size, 5)
@@ -72,7 +84,7 @@ test('invalid early recovery preserves established targeted generation fallback'
       }) }
     } },
   })
-  const quiz = await service.generate(request)
+  const quiz = await service.generate({ ...request, pages: amplePages })
   assert.equal(calls, 2)
   assert.equal(quiz.questions.length, 5)
   assert.ok(issues.some(issue => issue.attempt === 'fast_recovery' &&
