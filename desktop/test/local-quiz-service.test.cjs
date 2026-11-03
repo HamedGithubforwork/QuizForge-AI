@@ -3210,9 +3210,11 @@ test('weak-area recovery never admits repeated or fabricated replacements', asyn
 })
 
 test('rich targeted practice preserves verified survivors through two bounded replacement batches', async () => {
+  // Give speculative fast recovery actual fact headroom. The six-fact
+  // regression below must instead take the ordinary two-attempt route.
   const notes = [
-    { pageNumber: 2, text: 'Aster casing material is cobalt. Aster capacity is 17 samples. Aster sampling interval is five hours.' },
-    { pageNumber: 4, text: 'Boreal casing material is glass. Boreal capacity is 23 samples. Boreal sampling interval is seven hours.' },
+    { pageNumber: 2, text: 'Aster casing material is cobalt. Aster capacity is 17 samples. Aster sampling interval is five hours. Aster battery type is lithium. Aster lens shape is circular.' },
+    { pageNumber: 4, text: 'Boreal casing material is glass. Boreal capacity is 23 samples. Boreal sampling interval is seven hours. Boreal battery type is nickel. Boreal lens shape is square.' },
   ]
   const facts = [
     { page: 2, quote: 'Aster casing material is cobalt.', answer: 'cobalt', question: 'What is the Aster casing material?' },
@@ -3240,7 +3242,7 @@ test('rich targeted practice preserves verified survivors through two bounded re
         const hintMessage = request.messages.at(-1).content
         assert.match(hintMessage, /SOURCE-VERIFIED FACT CANDIDATES/)
         const parsedHints = JSON.parse(hintMessage.split('\n')[1])
-        assert.equal(parsedHints.length, 6)
+        assert.equal(parsedHints.length, 10)
         assert.ok(parsedHints.every(hint =>
           notes.some(page => page.pageNumber === hint.page &&
             page.text.includes(hint.source_fact))))
@@ -3273,4 +3275,29 @@ test('rich targeted practice preserves verified survivors through two bounded re
       page.text.includes(question.explanation))))
   assert.equal(new Set(result.questions.map(q => q.question)).size, 5)
   assert.equal(new Set(result.questions.map(q => q.explanation)).size, 5)
+})
+
+test('six-fact two-page weak-area notes skip speculative CPU-heavy first recovery', async () => {
+  // This is the exact source shape from the Windows performance outlier.
+  // Five source-supported questions are possible, but the headroom is too
+  // small to justify an expensive speculative recovery before any abstention.
+  const notes = [
+    { pageNumber: 2, text: 'Aster casing material is cobalt. Aster capacity is 17 samples. Aster sampling interval is five hours.' },
+    { pageNumber: 4, text: 'Boreal casing material is glass. Boreal capacity is 23 samples. Boreal sampling interval is seven hours.' },
+  ]
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      assert.equal(request.generationProfile, 'quiz-mcq-targeted-primary-v1',
+        'do not spend a five-question recovery inference before normal generation')
+      throw new Error('route probe')
+    } },
+  })
+  await assert.rejects(service.generate({
+    pages: notes, questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice',
+    practice: { avoidQuestions: ['What is the Aster casing material?', 'What is the Aster capacity?'] },
+  }), { code: 'generation_failed' })
+  assert.equal(calls, 1, 'no unbounded fallback calls')
 })
