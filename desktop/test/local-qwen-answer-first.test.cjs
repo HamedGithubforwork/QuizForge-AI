@@ -181,7 +181,7 @@ test('rejected model response falls back to plain question and preserves verifie
   const p = EXPERIMENT_PLANS.selected_pages
   const local = { async withSession(fn) { return fn({
     async generate(prompt) {
-      if (prompt.messages[1].content.includes(p[0].quote)) {
+      if (prompt.messages[1].content.includes('Aster casing material is [BLANK].')) {
         return provider.withSession(async a => a.generate(prompt))
       }
       return { text: '{bad', finishReason: 'stop' }
