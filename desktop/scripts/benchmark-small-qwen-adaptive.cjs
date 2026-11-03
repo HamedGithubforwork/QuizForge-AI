@@ -637,7 +637,8 @@ async function main() {
     experiment: 'adaptive-small-qwen-source-grounded-retry',
     publicPdfSources: PUBLIC_PDF_EXCERPTS.map(
       ({slot,domain,pdfUrl,pdfPage}) => ({slot,domain,pdfUrl,pdfPage})),
-    smokeTrialCount: process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1,
+    smokeTrialCount: process.env.QFN_QWEN_RETIRED_CHECK === '1' ? 1 :
+      (process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1),
     modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [] }
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
   const smokeOnly = process.env.QFN_QWEN_SMOKE_ONLY === '1'
@@ -665,7 +666,11 @@ async function main() {
     // conceal regressions in the original generator. English 1.7B batching
     // remains the current successful small-model path.
     const { runAnswerFirstFixture } = require('./benchmark-qwen-answer-first.cjs')
-    const answerFirstModes = smokeOnly
+    const retiredCheck = process.env.QFN_QWEN_RETIRED_CHECK === '1' &&
+      modelId === 'qwen3-0p6b-q4-k-m' && smokeOnly
+    const answerFirstModes = retiredCheck
+      ? [{ fixture: 'biology', type: 'short_answer' }]
+      : smokeOnly
       ? [
           { fixture: 'materials', type: 'multiple_choice' },
           { fixture: 'biology', type: 'short_answer' },
@@ -684,7 +689,7 @@ async function main() {
         { fixture: 'materials', type: 'multiple_choice' }]
     // Repeat the same real-model smoke twice. These are repeat measurements,
     // not independently seeded runs. Preserve each trial's exact pass count.
-    const trials = smokeOnly ? [1, 2] : [1]
+    const trials = retiredCheck ? [1] : smokeOnly ? [1, 2] : [1]
     for (const trial of trials) {
       for (const mode of answerFirstModes) {
         const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
