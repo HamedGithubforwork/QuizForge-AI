@@ -255,6 +255,23 @@ test('source frames preserve output direction and qualifiers for other subjects'
   assert.match(prompt.messages[1].content, /SUJET SOURCE : Les chloroplastes/)
   assert.doesNotMatch(prompt.messages[1].content, /énergie chimique/)
 })
+test('transfer test selection belongs in main; copula and pronouns retain exact subject', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const script = fs.readFileSync(path.join(__dirname,
+    '../scripts/benchmark-small-qwen-adaptive.cjs'), 'utf8')
+  const modes = script.split('const MODES = Object.freeze([')[1]
+    .split('const MCQ_SCHEMA = Object.freeze(')[0]
+  assert.doesNotMatch(modes, /modelId/)
+  assert.match(script, /modelId === 'qwen3-1p7b-q4-k-m'/)
+  const b = fixture('biology')
+  const nucleus = extractVerifiedFact(EXPERIMENT_PLANS.biology[2], b)
+  assert.equal(sourceRelationshipCue(b, nucleus).subject, 'The nucleus')
+  const director = extractVerifiedFact(EXPERIMENT_PLANS.french[1], fr)
+  const cue = sourceRelationshipCue(fr, director)
+  assert.equal(cue.relation, 'est')
+  assert.match(cue.subject, /La directrice de la station Boréale/)
+})
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
     'no_schema'), { question: 'What is Aster capacity?' })

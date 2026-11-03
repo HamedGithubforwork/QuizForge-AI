@@ -161,8 +161,6 @@ const MODES = Object.freeze([
   { fixture: 'biology', type: 'short_answer' },
   { fixture: 'biology_french', type: 'multiple_choice' },
   { fixture: 'biology_french', type: 'short_answer' },
-           ...(modelId === 'qwen3-1p7b-q4-k-m'
-             ? [{ fixture: 'cross_domain', type: 'short_answer' }] : []),
 ])
 const MCQ_SCHEMA = Object.freeze({
   type: 'object', additionalProperties: false,
@@ -628,6 +626,8 @@ async function main() {
           { fixture: 'biology', type: 'short_answer' },
           { fixture: 'french', type: 'short_answer' },
           { fixture: 'biology_french', type: 'short_answer' },
+          ...(modelId === 'qwen3-1p7b-q4-k-m'
+            ? [{ fixture: 'cross_domain', type: 'short_answer' }] : []),
         ]
       : [...(modelId === 'qwen3-0p6b-q4-k-m'
         ? MODES : MODES.filter(mode => mode.fixture === 'french' ||

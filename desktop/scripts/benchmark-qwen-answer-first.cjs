@@ -85,7 +85,7 @@ function retryPromptVariant(initial, reason, strategy = 'hybrid') {
 }
 // The grammar describes sentence relationships, not academic subjects. Build
 // cues from the literal source quote without reading fixture.facts or aliases.
-const SOURCE_VERB = /\b(?:produces?|assembles?|stores?|converts?|controls?|preserves|publishes|archives|reviews|records|produisent|assemblent|contient|transforment|contrôle|mesure|possède|surveille)\b/iu
+const SOURCE_VERB = /\b(?:produces?|assembles?|stores?|converts?|controls?|preserves|publishes|archives|reviews|records|is|est|produisent|assemblent|contient|transforment|contrôle|mesure|possède|surveille)\b/iu
 function sourceRelationshipCue(fixture, fact) {
   const at = fact.quote.indexOf(fact.answer)
   const beforeAnswer = fact.quote.slice(0, at).trim()
@@ -104,7 +104,8 @@ function sourceRelationshipCue(fixture, fact) {
     ).find(Boolean)
     if (referent && !normalized(referent).includes(normalized(fact.answer))) {
       subject = /^(?:Elle)\b/u.test(fact.quote) ? referent
-        : subject.replace(/^Sa\b/u, 'La') + ' de ' + referent.toLowerCase()
+        : subject.replace(/^Sa\b/u, 'La') + ' de ' +
+          referent.charAt(0).toLowerCase() + referent.slice(1)
     }
   }
   return { subject, relation, qualifier, context }
