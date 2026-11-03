@@ -1469,7 +1469,8 @@ function hasRichTargetedSource(pages) {
 function targetedFactHints(pages) {
   if (!hasRichTargetedSource(pages)) return []
   return extractSourceFacts(pages, 24)
-    .filter(fact => fact.quote.length <= 160 && pages.some(page =>
+    .filter(fact => fact.quote.length <= 160 &&
+      !/[.!?]\s+\S/u.test(fact.quote) && pages.some(page =>
       page.pageNumber === fact.page && page.text.includes(fact.quote)))
     .slice(0, 12)
     .map(fact => ({ page: fact.page, source_fact: fact.quote }))
