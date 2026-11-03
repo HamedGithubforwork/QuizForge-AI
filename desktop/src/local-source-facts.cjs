@@ -285,5 +285,27 @@ function wordingMatchesRelationship(question,f){
   const action=q.lastIndexOf(norm(verb))
   return pos>=0&&action>pos
 }
-module.exports={ACTIONS,MODEL_SCHEMA:1,norm,hasPhrase,extractSourceFacts,
+function sourceFactKey(f) {
+  if(!f||!f.subject||!f.relation||!f.answer)return null
+  return [f.subject,f.relation,f.answer].map(norm).join('|')
+}
+// A deterministic minimum distinctness safeguard even if the optional
+// model semantic review times out. Never pass a question without its source
+// fact identity, and do not claim this catches all paraphrase duplicates.
+function filterSourceFactDuplicates(questions,sourceFactByQuestion) {
+  if(!Array.isArray(questions)||!(sourceFactByQuestion instanceof Map))
+    throw new TypeError('Verified source facts are required')
+  const seen=new Set(),accepted=[]
+  let duplicateCount=0
+  for(const q of questions){
+    const key=sourceFactKey(sourceFactByQuestion.get(q))
+    if(!key)throw new TypeError('Question missing verified fact provenance')
+    if(seen.has(key)){duplicateCount++;continue}
+    seen.add(key)
+    accepted.push(q)
+  }
+  return Object.freeze({questions:accepted,duplicateCount,checked:true})
+}
+module.exports={ACTIONS,MODEL_SCHEMA:1,norm,hasPhrase,
+  sourceFactKey,filterSourceFactDuplicates,extractSourceFacts,
   parseSentence,parseLabel,parseTable,questionFromFact,wordingMatchesRelationship}

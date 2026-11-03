@@ -7,6 +7,7 @@ const { createCachedLocalDocumentProcessor } = require('./local-document-process
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { MODEL_ID: EXPERIMENTAL_MODEL_ID, createExperimentalSourceGroundedQuizService } =
   require('./experimental-source-grounded-quiz.cjs')
+const { filterSourceFactDuplicates } = require('./local-source-facts.cjs')
 const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
@@ -211,10 +212,21 @@ function createWindowsLocalAiStack({
         // Origins are ephemeral, keyed by validated object identity. They are
         // not included in output quizzes, telemetry or persisted history.
         const questionOrigins = new Map()
+        const factsByQuestion = new Map()
+        let sourceFactDuplicatesRemoved = 0
+        const sourceScreen = quiz => {
+          const checked = filterSourceFactDuplicates(
+            quiz.questions,factsByQuestion)
+          sourceFactDuplicatesRemoved += checked.duplicateCount
+          return { ...quiz,questions:checked.questions }
+        }
         const generator = experimental
           ? createExperimentalSourceGroundedQuizService({
               provider:activeProvider,onValidationIssue:captureQuizValidationIssue,
-              onAccepted({question,origin}){questionOrigins.set(question,origin)},
+              onAccepted({question,origin,fact}){
+                questionOrigins.set(question,origin)
+                factsByQuestion.set(question,fact)
+              },
             })
           : createGenerator(activeProvider)
         const generated = await generator.generate(request, options)
@@ -225,7 +237,8 @@ function createWindowsLocalAiStack({
         })
         const distinctnessStarted = performance.now()
         let verified = await reviewQuizDistinctness({
-          provider: activeProvider, quiz: generated,
+          provider: activeProvider, quiz: experimental
+            ? sourceScreen(generated) : generated,
           pages: request.pages, signal: options?.signal,
         })
         let replenishmentAttempted = false
@@ -244,7 +257,9 @@ function createWindowsLocalAiStack({
             })
             verified = await reviewQuizDistinctness({
               provider:activeProvider,
-              quiz:{...generated,questions:[...verified.questions,...extra.questions]},
+              quiz:sourceScreen({
+                ...generated,questions:[...verified.questions,...extra.questions],
+              }),
               pages:request.pages,signal:options?.signal,
             })
           }catch(error){
@@ -267,6 +282,10 @@ function createWindowsLocalAiStack({
               repairedCount:verified.questions.filter(q=>
                 questionOrigins.get(q)==='source_repair').length,
               replenishmentAttempted,
+              sourceFactUniquenessChecked:true,
+              sourceFactDuplicatesRemoved,
+              semanticDuplicateReview:verified.generation?.distinctness==='checked'
+                ? 'checked':'unavailable',
               partial:verified.questions.length < request.questionCount,
             } } : verified
       }

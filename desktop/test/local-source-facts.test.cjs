@@ -2,7 +2,8 @@
 const test=require('node:test')
 const assert=require('node:assert/strict')
 const {extractSourceFacts,parseSentence,parseLabel,parseTable,questionFromFact,
-  wordingMatchesRelationship,hasPhrase}=require('../src/local-source-facts.cjs')
+  wordingMatchesRelationship,hasPhrase,sourceFactKey,
+  filterSourceFactDuplicates}=require('../src/local-source-facts.cjs')
 test('five unrelated prose facts retain subject, relationship, answer and exact page',()=>{
   const text=[
     'The museum preserves historical letters.',
@@ -79,6 +80,23 @@ test('candidate selection balances pages and removes repeated facts',()=>{
   ],4)
   assert.deepEqual(got.map(f=>f.page),[1,2,1,2])
   assert.equal(extractSourceFacts([{pageNumber:1,text:one+' '+one}]).length,3)
+})
+test('verified fact identities remove repetition independently of model review',()=>{
+  const a=parseSentence('The museum preserves historical letters.',1)
+  const b=parseSentence('The museum preserves historical letters.',2)
+  const c=parseSentence('The museum stores historical letters.',1)
+  const one={question:'What does the museum preserve?'}
+  const two={question:'Which letters does the museum preserve?'}
+  const three={question:'What does the museum store?'}
+  assert.equal(sourceFactKey(a),sourceFactKey(b))
+  assert.notEqual(sourceFactKey(a),sourceFactKey(c))
+  const pair=new Map([[one,a],[two,b],[three,c]])
+  const output=filterSourceFactDuplicates([one,two,three],pair)
+  assert.equal(output.questions.length,2)
+  assert.equal(output.duplicateCount,1)
+  assert.equal(output.checked,true)
+  assert.throws(()=>filterSourceFactDuplicates([one,{}],pair),
+    /missing verified fact/)
 })
 test('answers cannot be absent from citation, and wording must keep relation direction',()=>{
   assert.equal(parseSentence('The library records dates.',1)?.answer,'dates')

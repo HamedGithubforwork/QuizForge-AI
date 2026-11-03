@@ -97,6 +97,9 @@ async function checkOne(stack,tc,dir) {
       repairedCount:generation.repairedCount??null,
       candidateCount:generation.candidateCount??null,
       replenishmentAttempted:generation.replenishmentAttempted===true,
+      sourceFactUniquenessChecked:generation.sourceFactUniquenessChecked===true,
+      sourceFactDuplicatesRemoved:generation.sourceFactDuplicatesRemoved??null,
+      semanticDuplicateReview:generation.semanticDuplicateReview??'unavailable',
       distinctness:generation.distinctness??'unavailable',
     }
     assert.equal(out.generation.sourceGroundedExperimental,true,
@@ -107,6 +110,9 @@ async function checkOne(stack,tc,dir) {
     assert.equal(out.generation.modelAcceptedCount+
       out.generation.repairedCount,out.questions,
       'The final counters must exclude discarded duplicates')
+    assert.equal(out.generation.sourceFactUniquenessChecked,true,
+      'Every accepted question needs independent source-fact uniqueness')
+    assert.ok(out.generation.sourceFactDuplicatesRemoved>=0)
     assertQuiz(result.quiz,tc.selectedPages,{allowPartial:tc.allowPartial===true})
     out.quiz='passed'
     out.stage='completed'

@@ -137,7 +137,7 @@ function createExperimentalSourceGroundedQuizService({
       used.add(key)
       if(result.repaired)repairedCount++
       else modelAcceptedCount++
-      try{onAccepted({question:result.question,origin:
+      try{onAccepted({question:result.question,fact,origin:
         result.repaired?'source_repair':'model'})}catch{}
     }
     if(!questions.length)throw failure('insufficient_source')
