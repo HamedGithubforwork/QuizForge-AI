@@ -7,7 +7,7 @@ const {
   PROMPT_SCHEMA, extractVerifiedFact, questionPrompt, classifyException,
   decodeQuestion, sourceTypedDistractors, validateQuestionOnly,
   runAnswerFirstFixture, initialPromptVariant, retryPromptVariant,
-  sourceRelationshipCue,
+  sourceRelationshipCue, sourceRelationKind, repairQuestionFromSource,
 } = require('../scripts/benchmark-qwen-answer-first.cjs')
 const fixture = id => EXPERIMENT_FIXTURES.find(x => x.id === id)
 const english = fixture('selected_pages'), fr = fixture('french')
@@ -271,6 +271,81 @@ test('transfer test selection belongs in main; copula and pronouns retain exact 
   const cue = sourceRelationshipCue(fr, director)
   assert.equal(cue.relation, 'est')
   assert.match(cue.subject, /La directrice de la station Boréale/)
+})
+test('full French membrane answer validates against unchanged independent oracle', () => {
+  const french = fixture('biology_french')
+  const plan = EXPERIMENT_PLANS.biology_french[4]
+  const fact = extractVerifiedFact(plan, french)
+  assert.equal(fact.answer, 'les échanges de substances avec le milieu extérieur')
+  const valid = validateQuestionOnly('Que contrôle la membrane cellulaire ?',
+    french, fact, 'short_answer')
+  assert.equal(valid.reason, undefined)
+  assert.equal(valid.question.correct_answer, fact.answer)
+  assert.equal(valid.question.source_fact, plan.quote)
+  assert.deepEqual(valid.question.source_pages, [2])
+  assert.equal(validateQuestionOnly('Que contrôle le noyau ?', french,
+    fact, 'short_answer').reason, 'semantic_or_subject_mismatch')
+})
+test('source repair is optional, strictly revalidated, and not credited to model', async () => {
+  const french = fixture('biology_french')
+  const plans = EXPERIMENT_PLANS.biology_french
+  const fact = extractVerifiedFact(plans[4], french)
+  assert.equal(repairQuestionFromSource(french, fact),
+    'Que contrôle la membrane cellulaire ?')
+  assert.equal(repairQuestionFromSource(french,
+    extractVerifiedFact(plans[3], french)), null)
+  let calls = 0
+  const model = { async withSession(fn) { return fn({
+    async generate() {
+      calls++
+      return { text: JSON.stringify({ question: 'Que veut dire le texte ?' }),
+        finishReason: 'stop' }
+    },
+  }) } }
+  const run = await runAnswerFirstFixture(model, french, plans,
+    'short_answer', { enableSourceRepair: true })
+  assert.equal(run.inferenceCalls, calls)
+  assert.ok(run.repairedCount >= 1)
+  assert.equal(run.modelOnlyFiveQuestionPass, false)
+  assert.equal(run.perFactOutcomes.filter(x => x.stage === 'source_derived_repair'
+    && x.status === 'accepted').length, run.repairedCount)
+})
+test('source relationship categories do not rely on any course-specific dictionary', () => {
+  const cases = [
+    ['A treaty was established in 1919.', 'date'],
+    ['The storm causes damage.', 'cause_effect'],
+    ['The reactor converts heat into energy.', 'process'],
+    ['One plan is greater than another.', 'comparison'],
+    ['The tank contains 30 liters.', 'quantity'],
+    ['A vector is a magnitude with direction.', 'definition_or_attribute'],
+    ['The court preserves evidence.', 'function'],
+    ['Scholars discuss literature.', 'action'],
+  ]
+  for (const [sentence, expected] of cases)
+    assert.equal(sourceRelationKind(sentence), expected, sentence)
+  assert.equal(sourceRelationKind(null), 'unsupported')
+})
+test('public-PDF excerpts have three verifiable source URLs and original page labels', () => {
+  const data = require('../scripts/benchmark-small-qwen-adaptive.cjs')
+  const fixturePdf = fixture('public_pdf_excerpts')
+  assert.equal(data.PUBLIC_PDF_EXCERPTS.length, 5)
+  assert.equal(new Set(data.PUBLIC_PDF_EXCERPTS.map(p => p.pdfUrl)).size, 3)
+  for (const [i,p] of data.PUBLIC_PDF_EXCERPTS.entries()) {
+    assert.match(p.pdfUrl, /^https:\/\/(?:pubs\.usgs\.gov|www\.nps\.gov)\//)
+    assert.ok(p.pdfPage > 0 && Number.isSafeInteger(p.pdfPage))
+    assert.equal(p.slot, i+1)
+    assert.ok(p.quote.includes(p.answer) && p.quote.endsWith('.'))
+    const plan = EXPERIMENT_PLANS.public_pdf_excerpts[i]
+    assert.equal(plan.quote, p.quote)
+    assert.equal(plan.originalPdfPage, p.pdfPage)
+    const fact = extractVerifiedFact(plan, fixturePdf)
+    assert.equal(fact?.answer, p.answer)
+    assert.equal(validateQuestionOnly('What is the unknown fact?',
+      fixturePdf, fact, 'short_answer').reason, 'semantic_or_subject_mismatch')
+  }
+  assert.equal(repairQuestionFromSource(fixturePdf,
+    extractVerifiedFact(EXPERIMENT_PLANS.public_pdf_excerpts[0], fixturePdf)),
+    'What does the water cycle describe?')
 })
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },

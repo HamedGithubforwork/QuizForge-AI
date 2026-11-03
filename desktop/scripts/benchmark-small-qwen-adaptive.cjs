@@ -75,7 +75,9 @@ const BIOLOGY_FRENCH = Object.freeze({
       ['ADN', ['noyau']]),
     fact('chloroplastes', 2, 'chloroplastes', ['energie chimique', 'en energie chimique'],
       ['photosynthese', ['chloroplastes']]),
-    fact('membrane_fr', 2, 'membrane', ['echanges de substances', 'substances'],
+    fact('membrane_fr', 2, 'membrane', [
+      "les échanges de substances avec le milieu extérieur",
+      'echanges de substances', 'substances'],
       ['substances', ['membrane', 'membrane cellulaire']]),
   ],
 })
@@ -125,9 +127,46 @@ const CROSS_DOMAIN = Object.freeze({
     routes: [{ tokens: [item.subject, item.lemma], answers: aliases(item.answer) }],
   })),
 })
+// Short verbatim excerpts from real, public US federal PDFs. CI uses the
+// offline extracted sentences, not a remote download or the PDF import UI.
+// A slot is a benchmark page ID; pdfPage is the *actual printed* PDF page.
+const PUBLIC_PDF_EXCERPTS = Object.freeze([
+  { slot: 1, pdfPage: 1, domain: 'hydrology',
+    pdfUrl: 'https://pubs.usgs.gov/gip/221/gip221_english.pdf',
+    quote: 'The water cycle describes where water is found on Earth and how it moves.',
+    answer: 'where water is found on Earth and how it moves',
+    tokens: ['water cycle', 'describe'] },
+  { slot: 2, pdfPage: 1, domain: 'hydrology',
+    pdfUrl: 'https://pubs.usgs.gov/gip/221/gip221_english.pdf',
+    quote: 'Pools are places where water is stored, like the ocean.',
+    answer: 'places where water is stored, like the ocean',
+    tokens: ['pools'] },
+  { slot: 3, pdfPage: 1, domain: 'environment',
+    pdfUrl: 'https://pubs.usgs.gov/gip/221/gip221_english.pdf',
+    quote: 'Human activities affect water quality.',
+    answer: 'water quality', tokens: ['human activities', 'affect'] },
+  { slot: 4, pdfPage: 52, domain: 'history',
+    pdfUrl: 'https://www.nps.gov/parkhistory/online_books/acad/guides_guide.pdf',
+    quote: 'The Islesford Historical Museum is not accessible.',
+    answer: 'not accessible', tokens: ['islesford historical museum', 'accessible'] },
+  { slot: 5, pdfPage: 36, domain: 'archives',
+    pdfUrl: 'https://www.nps.gov/parkhistory/online_books/moja/mmp.pdf',
+    quote: 'Original order preserves the context of the records.',
+    answer: 'the context of the records', tokens: ['original order', 'preserve'] },
+])
+const PDF_EXCERPTS = Object.freeze({
+  id: 'public_pdf_excerpts', difficulty: 'medium',
+  selectedPages: PUBLIC_PDF_EXCERPTS.map(({slot,quote,pdfUrl,pdfPage}) => ({
+    pageNumber: slot, text: quote, pdfUrl, originalPdfPage: pdfPage,
+  })),
+  facts: PUBLIC_PDF_EXCERPTS.map(({slot,answer,tokens}) => ({
+    id: 'public_pdf_' + slot, page: slot,
+    routes: [{ tokens, answers: aliases(answer) }],
+  })),
+})
 const EXPERIMENT_FIXTURES = Object.freeze([
   ...FIXTURES.filter(x => x.id === 'selected_pages' || x.id === 'french'),
-  BIOLOGY, BIOLOGY_FRENCH, MATERIALS, CROSS_DOMAIN,
+  BIOLOGY, BIOLOGY_FRENCH, MATERIALS, CROSS_DOMAIN, PDF_EXCERPTS,
 ])
 const BIOLOGY_PLANS = Object.freeze({
   biology: [
@@ -153,6 +192,10 @@ const EXPERIMENT_PLANS = Object.freeze({ ...PLANS, ...BIOLOGY_PLANS,
   })),
   cross_domain: Object.freeze(CROSS_DOMAIN_ITEMS.map(({ page, quote }) =>
     ({ page, quote }))),
+  public_pdf_excerpts: Object.freeze(PUBLIC_PDF_EXCERPTS.map(
+    ({ slot, quote, pdfUrl, pdfPage }) => ({
+      page: slot, quote, pdfUrl, originalPdfPage: pdfPage,
+    }))),
 })
 const MODES = Object.freeze([
   { fixture: 'selected_pages', type: 'multiple_choice' },
@@ -592,6 +635,8 @@ async function main() {
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const report = { schema: 1, syntheticOnly: true,
     experiment: 'adaptive-small-qwen-source-grounded-retry',
+    publicPdfSources: PUBLIC_PDF_EXCERPTS.map(
+      ({slot,domain,pdfUrl,pdfPage}) => ({slot,domain,pdfUrl,pdfPage})),
     smokeTrialCount: process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1,
     modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [] }
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
@@ -627,7 +672,10 @@ async function main() {
           { fixture: 'french', type: 'short_answer' },
           { fixture: 'biology_french', type: 'short_answer' },
           ...(modelId === 'qwen3-1p7b-q4-k-m'
-            ? [{ fixture: 'cross_domain', type: 'short_answer' }] : []),
+            ? [
+                { fixture: 'cross_domain', type: 'short_answer' },
+                { fixture: 'public_pdf_excerpts', type: 'short_answer' },
+              ] : []),
         ]
       : [...(modelId === 'qwen3-0p6b-q4-k-m'
         ? MODES : MODES.filter(mode => mode.fixture === 'french' ||
@@ -641,7 +689,10 @@ async function main() {
       for (const mode of answerFirstModes) {
         const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
         const result = await runAnswerFirstFixture(provider, fixture,
-          EXPERIMENT_PLANS[mode.fixture], mode.type, { strategy: 'hybrid', trial })
+          EXPERIMENT_PLANS[mode.fixture], mode.type, {
+            strategy: 'hybrid', trial,
+            enableSourceRepair: modelId === 'qwen3-1p7b-q4-k-m',
+          })
         report.answerFirstRuns.push(result)
         await save()
         console.log('ANSWER-FIRST QWEN ' + modelId + ' trial=' + trial +
@@ -650,6 +701,8 @@ async function main() {
           ' oracle=' + result.independentOracleMatches +
           ' fullPass=' + result.fullFiveQuestionPass +
           ' calls=' + result.inferenceCalls +
+          ' repaired=' + result.repairedCount +
+          ' modelAccepted=' + result.modelAcceptedCount +
           ' visibleAccepted=' + result.perFactOutcomes
             .filter(x => x.status === 'accepted' && x.variant === 'visible').length +
           ' maskedAccepted=' + result.perFactOutcomes
@@ -683,7 +736,7 @@ async function main() {
 // these fixture helpers. Exporting afterward exposed partial circular exports
 // and turned the resulting TypeError into a misleading runtime_unavailable.
 module.exports = {
-  EXPERIMENT_FIXTURES, EXPERIMENT_PLANS, MODES, buildPrompt,
+  EXPERIMENT_FIXTURES, EXPERIMENT_PLANS, MODES, PUBLIC_PDF_EXCERPTS, buildPrompt,
   inspectCandidate, runAdaptiveFixture, runBatchedFixture, buildPairPrompt,
   MCQ_SCHEMA, SHORT_SCHEMA, languageMatches, frenchContext,
   assessSmokeResults,
