@@ -96,6 +96,7 @@ async function checkOne(stack,tc,dir) {
       modelAcceptedCount:generation.modelAcceptedCount??null,
       repairedCount:generation.repairedCount??null,
       candidateCount:generation.candidateCount??null,
+      topicCount:generation.topicCount??null,
       replenishmentAttempted:generation.replenishmentAttempted===true,
       sourceFactUniquenessChecked:generation.sourceFactUniquenessChecked===true,
       sourceFactDuplicatesRemoved:generation.sourceFactDuplicatesRemoved??null,
@@ -106,6 +107,7 @@ async function checkOne(stack,tc,dir) {
       'test must exercise the experimental desktop generator')
     assert.equal(out.generation.verifiedCount,out.questions)
     assert.equal(out.generation.requestedCount,5)
+    assert.ok(Number.isSafeInteger(out.generation.topicCount)&&out.generation.topicCount>=1)
     assert.equal(out.generation.partial,out.questions<5)
     assert.equal(out.generation.modelAcceptedCount+
       out.generation.repairedCount,out.questions,

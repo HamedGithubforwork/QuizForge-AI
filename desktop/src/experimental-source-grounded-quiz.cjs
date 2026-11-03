@@ -7,14 +7,16 @@ const { failure } = require('./local-ai-provider.cjs')
 const { normalizeRequest, validateSourceGroundedDraft } =
   require('./local-quiz-service.cjs')
 const { norm, hasPhrase, extractSourceFacts, questionFromFact,
-  wordingMatchesRelationship } = require('./local-source-facts.cjs')
+  wordingMatchesRelationship, balanceSourceFacts, sourceTopicKey } =
+  require('./local-source-facts.cjs')
 const MODEL_ID = 'qwen3-1p7b-q4-k-m'
 const SCHEMA = Object.freeze({
   type:'object', additionalProperties:false, required:['question'],
   properties:{question:{type:'string',minLength:8,maxLength:180}},
 })
 // Share a domain-independent fact schema with other local-model experiments.
-const extractCandidates = extractSourceFacts
+const extractCandidates = pages =>
+  balanceSourceFacts(extractSourceFacts(pages))
 const grammarQuestion = questionFromFact
 function prompt(fact,{visible=false,retry=false}={}) {
   const quote=visible?fact.quote:fact.quote.replace(fact.answer,'[BLANK]')
@@ -101,7 +103,7 @@ async function createOne({provider,fact,request,used,signal}){
   }catch{return null}
 }
 function createExperimentalSourceGroundedQuizService({
-  provider,onValidationIssue=()=>{},onAccepted=()=>{}
+  provider,onValidationIssue=()=>{},onAccepted=()=>{},onProgress=()=>{}
 }={}){
   if(!provider||typeof provider.generate!=='function')throw failure('invalid_provider')
   return Object.freeze({async generate(value,{signal,startAt=0,targetCount=5,
@@ -116,6 +118,13 @@ function createExperimentalSourceGroundedQuizService({
     const allCandidates=extractCandidates(request.pages)
     const candidates=allCandidates.slice(startAt)
     const questions=[],used=new Set(excludeQuestions.map(norm))
+    const topicCount=new Set(allCandidates.map(sourceTopicKey)).size
+    const progress=value=>{
+      try{onProgress(Object.freeze(value))}catch{}
+    }
+    progress({phase:'extracting_facts',candidateCount:allCandidates.length,
+      topicCount,requestedCount:request.questionCount,
+      acceptedQuestions:0,repairedCount:0,modelAcceptedCount:0})
     let evaluatedCount=0
     let repairedCount=0,modelAcceptedCount=0,rejectedCount=0
     const factKinds=Object.create(null)
@@ -127,6 +136,9 @@ function createExperimentalSourceGroundedQuizService({
       const result=await createOne({provider,fact,request,used,signal})
       if(!result){
         rejectedCount++
+        progress({phase:'generating',candidateCount:allCandidates.length,
+          evaluatedCandidates:startAt+evaluatedCount,
+          acceptedQuestions:questions.length,repairedCount,modelAcceptedCount})
         try{onValidationIssue({attempt:'experimental_source',
           reason:'unverified_question'})}catch{}
         continue
@@ -139,6 +151,9 @@ function createExperimentalSourceGroundedQuizService({
       else modelAcceptedCount++
       try{onAccepted({question:result.question,fact,origin:
         result.repaired?'source_repair':'model'})}catch{}
+      progress({phase:'generating',candidateCount:allCandidates.length,
+        evaluatedCandidates:startAt+evaluatedCount,
+        acceptedQuestions:questions.length,repairedCount,modelAcceptedCount})
     }
     if(!questions.length)throw failure('insufficient_source')
     return Object.freeze({
@@ -148,7 +163,7 @@ function createExperimentalSourceGroundedQuizService({
         sourceGroundedExperimental:true,
         requestedCount:request.questionCount,verifiedCount:questions.length,
         modelAcceptedCount,repairedCount,rejectedCount,
-        candidateCount:allCandidates.length,
+        candidateCount:allCandidates.length,topicCount,
         candidatesEvaluated:startAt+evaluatedCount,
         factKindCounts:Object.freeze({...factKinds}),
         partial:questions.length<request.questionCount,

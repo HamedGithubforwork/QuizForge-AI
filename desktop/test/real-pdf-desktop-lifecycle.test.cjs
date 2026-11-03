@@ -42,3 +42,14 @@ test('private errors never enter public report reason fields',()=>{
   assert.equal(reason({code:'secret',message:'private source'}),'unclassified')
   assert.equal(reason({code:'ERR_ASSERTION',message:'private PDF content'}),'source_validation_failed')
 })
+
+test('experimental document stack has live progress without altering regular 4B defaults',()=>{
+  const fs=require('node:fs'),path=require('node:path')
+  const src=fs.readFileSync(path.resolve(__dirname,'../src/windows-local-ai-stack.cjs'),'utf8')
+  assert.match(src,/sourceSelector: useExperimentalGrounding \? selectEvidencePages : null/)
+  assert.match(src,/phase:'extracting_pdf'/)
+  assert.match(src,/phase:'selecting_source'/)
+  assert.match(src,/phase:'finalizing_quiz'/)
+  assert.match(src,/generation_progress/)
+  assert.match(src,/source_selected/)
+})

@@ -125,3 +125,23 @@ test('experiment never accepts unsupported count/type and does not affect 4B def
   await assert.rejects(svc.generate({...request,questionCount:10}),
     {code:'invalid_request'})
 })
+
+test('progress reports only counts, not source facts or model completions',async()=>{
+  const events=[]
+  const svc=createExperimentalSourceGroundedQuizService({
+    provider:{async generate(){return {
+      text:'{"question":"What is the wrong thing?"}',finishReason:'stop',
+    }}},
+    onProgress:ev=>events.push(ev),
+  })
+  const quiz=await svc.generate(request)
+  assert.equal(quiz.questions.length,5)
+  assert.ok(events.some(e=>e.phase==='extracting_facts'))
+  assert.ok(events.some(e=>e.phase==='generating'))
+  assert.ok(quiz.generation.topicCount>=1)
+  for(const ev of events){
+    assert.ok(ev.candidateCount<=32)
+    assert.doesNotMatch(JSON.stringify(ev),/historical letters|museum/i)
+    assert.equal(Object.hasOwn(ev,'fact'),false)
+  }
+})

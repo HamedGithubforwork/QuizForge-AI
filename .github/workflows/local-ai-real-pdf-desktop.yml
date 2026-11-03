@@ -4,6 +4,15 @@ on:
   pull_request:
     paths:
       - desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs
+      - desktop/src/local-source-selection.cjs
+      - desktop/src/local-source-facts.cjs
+      - desktop/src/experimental-source-grounded-quiz.cjs
+      - desktop/src/local-document-quiz-service.cjs
+      - desktop/src/windows-local-ai-stack.cjs
+      - desktop/test/local-source-selection.test.cjs
+      - desktop/test/local-source-facts.test.cjs
+      - desktop/test/local-document-quiz-service.test.cjs
+      - desktop/test/experimental-source-grounded-quiz.test.cjs
       - desktop/test/real-pdf-desktop-lifecycle.test.cjs
       - .github/workflows/local-ai-real-pdf-desktop.yml
   workflow_dispatch:
