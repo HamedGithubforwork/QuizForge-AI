@@ -3,13 +3,15 @@ const { test }=require('node:test')
 const assert=require('node:assert/strict')
 const {CASES,MODEL_ID,assertExtracted,assertQuiz,reason,extractionMetrics}=
  require('../scripts/verify-real-pdf-desktop-lifecycle.cjs')
-test('two real PDF origins and pinned experimental model',()=>{
+test('three public PDF cases include a genuine oversized source and pinned model',()=>{
   assert.equal(MODEL_ID,'qwen3-1p7b-q4-k-m')
-  assert.equal(CASES.length,2)
-  assert.equal(new Set(CASES.map(c=>new URL(c.url).hostname)).size,2)
+  assert.equal(CASES.length,3)
+  assert.equal(new Set(CASES.map(c=>new URL(c.url).hostname)).size,3)
   assert.ok(CASES.every(c=>c.url.startsWith('https://')&&c.filename.endsWith('.pdf')))
   assert.equal(CASES[0].allowPartial,undefined)
   assert.equal(CASES[1].allowPartial,true)
+  assert.equal(CASES[2].expectOversized,true)
+  assert.equal(CASES[2].allowPartial,true)
 })
 test('PDF.js extraction requires text and selected-page fidelity',()=>{
   const tc=CASES[0]
@@ -23,6 +25,13 @@ test('PDF.js extraction requires text and selected-page fidelity',()=>{
   assert.ok(m.sourceUtf8Bytes<8000)
   assert.throws(()=>assertExtracted({...doc,pages:[{
     ...page,text:page.text+'X'.repeat(10000)}]},tc))
+  const large=CASES[2]
+  const longText='Cybersecurity risk management helps organizations understand cybersecurity risk. '.repeat(50)
+  const largePages=large.selectedPages.map(pageNumber=>({pageNumber,text:longText}))
+  const largeDoc={processing:'local',scannedLikely:false,
+    characterCount:largePages.reduce((n,p)=>n+p.text.length,0),pages:largePages}
+  assert.doesNotThrow(()=>assertExtracted(largeDoc,large))
+  assert.throws(()=>assertExtracted({...largeDoc,pages:largePages.slice(1)},large))
 })
 test('quiz acceptance rejects duplicates, wrong count and unsupported citations',()=>{
   const data={questions:Array.from({length:5},(_,i)=>({
