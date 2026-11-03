@@ -77,6 +77,27 @@ test('distractors must be type-compatible and sourced; abstain when fewer than 3
   assert.equal(validateQuestionOnly('What is Aster casing material?', english,
     fact, 'multiple_choice').reason, 'insufficient_comparable_distractors')
 })
+test('five same-type source facts allow four answer choices with no model-created distractors', () => {
+  const materials = fixture('materials')
+  const plans = EXPERIMENT_PLANS.materials
+  assert.equal(plans.length, 5)
+  const seen = new Set()
+  for (const [i, p] of plans.entries()) {
+    const f = extractVerifiedFact(p, materials)
+    assert.ok(f && f.type === 'material')
+    const values = sourceTypedDistractors(materials, f)
+    assert.equal(values.length, 3)
+    assert.equal(values.some(x => x === f.answer), false)
+    const name = p.quote.split(' ')[0]
+    const result = validateQuestionOnly('What is the ' + name + ' casing material?',
+      materials, f, 'multiple_choice', seen)
+    assert.equal(result.reason, undefined)
+    assert.equal(new Set(result.question.choices).size, 4)
+    assert.equal(result.question.choices[result.question.correct_index], f.answer)
+    seen.add('fact:' + result.factId)
+    seen.add('question:' + result.wording)
+  }
+})
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
     'no_schema'), { question: 'What is Aster capacity?' })
