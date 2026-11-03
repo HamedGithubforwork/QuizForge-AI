@@ -178,6 +178,18 @@ test('runtime benchmark records safe Windows startup stage without source leakag
     prompt:'private',
   }),null)
 })
+test('1.7B comparison reuses desktop-aligned guarded warm runtime; 0.6B stays manual cold', () => {
+  const fs=require('node:fs'),path=require('node:path')
+  const source=fs.readFileSync(path.resolve(__dirname,
+    '../scripts/benchmark-small-qwen-adaptive.cjs'),'utf8')
+  assert.match(source,/const baseRuntime = createLocalRuntime\(/)
+  assert.match(source,/const runtime = modelId === 'qwen3-1p7b-q4-k-m'/)
+  assert.match(source,/createWarmLocalRuntime\(baseRuntime/)
+  assert.match(source,/maxSessionMs: 8 \* 60 \* 1000/)
+  assert.match(source,/idleMs: 3 \* 60 \* 1000/)
+  assert.match(source,/: baseRuntime/)
+  assert.match(source,/await runtime.shutdown\(\)/)
+})
 test('focused GitHub Actions job cannot mask a failed model benchmark as green', () => {
   const fs = require('node:fs')
   const path = require('node:path')

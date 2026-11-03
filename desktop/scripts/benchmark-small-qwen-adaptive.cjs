@@ -9,7 +9,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { performance } = require('node:perf_hooks')
 const { createLocalModelStore } = require('../src/local-model-store.cjs')
-const { createLocalRuntime } = require('../src/local-runtime.cjs')
+const { createLocalRuntime, createWarmLocalRuntime } = require('../src/local-runtime.cjs')
 const { createWindowsLocalAiProvider } = require('../src/windows-local-ai-provider.cjs')
 const { getBenchmarkModel } = require('../src/local-benchmark-models.cjs')
 const { FIXTURES, inspectQuestion, inspectQuiz } = require('./inspect-synthetic-quiz.cjs')
@@ -666,9 +666,13 @@ async function main() {
     smokeTrialCount: process.env.QFN_QWEN_RETIRED_CHECK === '1' ? 1 :
       (process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1),
     modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [],
+    // Desktop-aligned warm session for the main 1.7B experimental candidate;
+    // retired manual 0.6B checks retain their historical cold-start path.
+    sessionStrategy: modelId === 'qwen3-1p7b-q4-k-m'
+      ? 'desktop_warm_reuse' : 'cold_per_fixture',
     runtimeDiagnostics: [] }
   const store = createLocalModelStore({ directory: path.resolve(modelsDir), model })
-  const runtime = createLocalRuntime({
+  const baseRuntime = createLocalRuntime({
     directory: path.resolve(runtimeDir), modelStore: store,
     onDiagnostic(event, fields) {
       const record = sanitizedRuntimeEvent(event, fields)
@@ -681,6 +685,18 @@ async function main() {
       }
     },
   })
+  // Align benchmark session lifetime with the Windows desktop Local AI stack.
+  // The existing 12-minute guarded backend session, process watchdog, local
+  // loopback authentication, SHA checks, and strict oracle gate remain active.
+  // Reuse is bounded by idle time, free memory and a hard eight-minute age,
+  // and runtime.shutdown() always terminates the process after all trials.
+  const runtime = modelId === 'qwen3-1p7b-q4-k-m'
+    ? createWarmLocalRuntime(baseRuntime, {
+        profile: () => modelId,
+        idleMs: 3 * 60 * 1000,
+        maxSessionMs: 8 * 60 * 1000,
+      })
+    : baseRuntime
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
   const smokeOnly = process.env.QFN_QWEN_SMOKE_ONLY === '1'
