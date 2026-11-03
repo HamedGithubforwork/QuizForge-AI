@@ -49,7 +49,7 @@ function normalizeRequest(value) {
   return value
 }
 
-function validateProcessedDocument(document) {
+function validateProcessedDocument(document, sourceSelector = null) {
   if (!document || document.processing !== 'local' ||
       !/^[a-f0-9]{64}$/.test(document.pdfSha256) ||
       !Number.isSafeInteger(document.pageCount) || document.pageCount < 1 ||
@@ -69,12 +69,45 @@ function validateProcessedDocument(document) {
     }
     pageNumbers.add(page.pageNumber)
     sourceBytes += encoder.encode(page.text).byteLength
-    if (sourceBytes > MAX_SOURCE_BYTES) throw new LocalDocumentQuizError('source_too_large')
+    if (sourceBytes > MAX_SOURCE_BYTES && !sourceSelector)
+      throw new LocalDocumentQuizError('source_too_large')
   }
-  return document.pages.map(page => Object.freeze({ pageNumber: page.pageNumber, text: page.text }))
+  const originals = document.pages.map(page => Object.freeze({
+    pageNumber: page.pageNumber, text: page.text,
+  }))
+  if (sourceBytes <= MAX_SOURCE_BYTES) return originals
+  let reduced
+  try { reduced = sourceSelector(originals, { maxBytes: MAX_SOURCE_BYTES }) }
+  catch { throw new LocalDocumentQuizError('source_too_large') }
+  if (!reduced || !Array.isArray(reduced.pages) || !reduced.pages.length ||
+    reduced.pages.length > MAX_SELECTED_PAGES)
+    throw new LocalDocumentQuizError('insufficient_source')
+  const originalByPage = new Map(originals.map(page => [page.pageNumber,page.text]))
+  let bounded = 0
+  for (const page of reduced.pages) {
+    if (!page || !page.pageNumber || typeof page.text !== 'string' ||
+      !originalByPage.has(page.pageNumber) ||
+      !page.text.trim()) throw new LocalDocumentQuizError('source_too_large')
+    // Every extracted source line must originate from its cited PDF page.
+    const source = originalByPage.get(page.pageNumber)
+    if (!page.text.split('\n').every(quote => quote && source.includes(quote)))
+      throw new LocalDocumentQuizError('source_too_large')
+    bounded += encoder.encode(page.text).byteLength
+  }
+  if (bounded > MAX_SOURCE_BYTES ||
+    new Set(reduced.pages.map(page=>page.pageNumber)).size!==reduced.pages.length)
+    throw new LocalDocumentQuizError('source_too_large')
+  return reduced.pages.map(page => Object.freeze({
+    pageNumber: page.pageNumber, text: page.text,
+  }))
 }
 
-function createLocalDocumentQuizService({ documentProcessor, quizService } = {}) {
+function createLocalDocumentQuizService({
+  documentProcessor, quizService, sourceSelector = null,
+  onSourceSelected = () => {},
+} = {}) {
+  if (sourceSelector !== null && typeof sourceSelector !== 'function')
+    throw new TypeError('Source selector must be a function')
   if (!documentProcessor || typeof documentProcessor.processPdf !== 'function' ||
       !quizService || typeof quizService.generate !== 'function') {
     throw new TypeError('Local document processing and quiz services are required.')
@@ -117,7 +150,19 @@ function createLocalDocumentQuizService({ documentProcessor, quizService } = {})
       abortIfNeeded(signal)
 
       if (!pages) {
-        pages = validateProcessedDocument(document)
+        pages = validateProcessedDocument(document, sourceSelector)
+        // Report counts only; never the document's text or headings.
+        if (sourceSelector) try {
+          const originalBytes = document.pages.reduce((n, p) =>
+            n + encoder.encode(p.text).byteLength, 0)
+          const selectedBytes = pages.reduce((n,p) =>
+            n + encoder.encode(p.text).byteLength,0)
+          onSourceSelected(Object.freeze({
+            originalBytes, selectedBytes,
+            originalPages:document.pages.length,selectedPages:pages.length,
+            trimmed:selectedBytes<originalBytes,
+          }))
+        } catch {}
         // Only bounded source excerpts stay resident, never a PDF byte buffer.
         lastSource = { key: digest, document: {
           pdfSha256: document.pdfSha256, pageCount: document.pageCount,

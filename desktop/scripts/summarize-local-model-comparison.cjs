@@ -6,6 +6,12 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { BENCHMARK_MODELS } = require('../src/local-benchmark-models.cjs')
 
+const RETIRED_MODEL_ID = 'qwen3-0p6b-q4-k-m'
+function selectComparedModels({ includeRetired = false } = {}) {
+  return Object.values(BENCHMARK_MODELS).filter(model =>
+    includeRetired || model.id !== RETIRED_MODEL_ID)
+}
+
 function median(values) {
   if (!values.length) return null
   const a = [...values].sort((x, y) => x - y)
@@ -47,8 +53,10 @@ function summarizeModel(model, report) {
 async function main() {
   const directory = process.argv[2]
   if (!directory) throw new Error('Usage: node summarize-local-model-comparison.cjs <report-directory>')
+  const includeRetired = process.env.QFN_INCLUDE_RETIRED === '1'
   const summaries = []
-  for (const model of Object.values(BENCHMARK_MODELS)) {
+  const selected = selectComparedModels({ includeRetired })
+  for (const model of selected) {
     let report = null
     try { report = JSON.parse(await fs.readFile(path.join(directory, model.id + '.json'), 'utf8')) }
     catch (e) { if (!['ENOENT', 'EISDIR'].includes(e.code)) throw e }
@@ -64,6 +72,8 @@ async function main() {
     schema: 1, syntheticOnly: true, runtimeRevision: 'b11317',
     caveat: 'Single Windows hosted runner, synthetic fixed passages. These are provisional results, not user-hardware or PDF-import proof.',
     comparable, models: summaries,
+    includedModelIds: selected.map(model => model.id),
+    excludedModelIds: includeRetired ? [] : [RETIRED_MODEL_ID],
     fastestValidModel: comparable
       ? [...summaries].sort((a, b) => a.medianPassSeconds - b.medianPassSeconds)[0].modelId
       : null,
@@ -81,4 +91,4 @@ if (require.main === module) main().catch(error => {
   console.error('Comparison aggregation failed: ' + (error?.code ?? error?.message ?? 'unknown'))
   process.exitCode = 1
 })
-module.exports = { median, summarizeModel }
+module.exports = { median, summarizeModel, selectComparedModels, RETIRED_MODEL_ID }

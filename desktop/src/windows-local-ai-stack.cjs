@@ -5,6 +5,10 @@ const { reviewQuizDistinctness } = require('./local-quiz-distinctness.cjs')
 const { createLocalAnswerReview, validateRequest: validateReviewRequest } = require('./local-answer-review.cjs')
 const { createCachedLocalDocumentProcessor } = require('./local-document-processing.cjs')
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
+const { MODEL_ID: EXPERIMENTAL_MODEL_ID, createExperimentalSourceGroundedQuizService } =
+  require('./experimental-source-grounded-quiz.cjs')
+const { filterSourceFactDuplicates } = require('./local-source-facts.cjs')
+const { selectEvidencePages } = require('./local-source-selection.cjs')
 const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
@@ -37,6 +41,7 @@ function createWindowsLocalAiStack({
   modelDirectory,
   runtimeDirectory,
   benchmarkModelId = null,
+  experimentalSourceGroundedPdf = false,
   documentProcessor = null,
   onRuntimeProcess = () => {},
   onDiagnostic = () => {},
@@ -50,6 +55,8 @@ function createWindowsLocalAiStack({
     ...(benchmarkModelId ? { benchmarkModelId } : {}),
   })
   const manager = resources.manager
+  const useExperimentalGrounding = experimentalSourceGroundedPdf === true &&
+    benchmarkModelId === EXPERIMENTAL_MODEL_ID
   const cachedDocumentProcessor = documentProcessor
     ? createCachedLocalDocumentProcessor(documentProcessor) : null
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory, modelSha256: resources.modelSha256 })
@@ -201,23 +208,114 @@ function createWindowsLocalAiStack({
       // share one guarded local model process. The scoped provider cannot
       // open another session, and the model stops after this one quiz.
       const produce = async activeProvider => {
-        const generated = await createGenerator(activeProvider).generate(request, options)
+        const experimental = useExperimentalGrounding &&
+          request?.questionType === 'short_answer' && request?.questionCount === 5
+        // Origins are ephemeral, keyed by validated object identity. They are
+        // not included in output quizzes, telemetry or persisted history.
+        const questionOrigins = new Map()
+        const factsByQuestion = new Map()
+        let sourceFactDuplicatesRemoved = 0
+        const sourceScreen = quiz => {
+          const checked = filterSourceFactDuplicates(
+            quiz.questions,factsByQuestion)
+          sourceFactDuplicatesRemoved += checked.duplicateCount
+          return { ...quiz,questions:checked.questions }
+        }
+        const generator = experimental
+          ? createExperimentalSourceGroundedQuizService({
+              provider:activeProvider,onValidationIssue:captureQuizValidationIssue,
+              onProgress(progress){
+                if(!quizProgressState||!['extracting_facts','generating'].includes(progress?.phase))return
+                const accepted=Number.isSafeInteger(progress.acceptedQuestions)
+                  ?Math.min(request.questionCount,progress.acceptedQuestions):0
+                quizProgressState=Object.freeze({
+                  ...quizProgressState,phase:progress.phase,
+                  candidateCount:progress.candidateCount,
+                  topicCount:progress.topicCount??quizProgressState.topicCount??0,
+                  evaluatedCandidates:progress.evaluatedCandidates??0,
+                  validQuestions:accepted,
+                  modelAcceptedCount:progress.modelAcceptedCount??0,
+                  repairedCount:progress.repairedCount??0,
+                })
+                diagnostic('generation_progress',{
+                  phase:progress.phase,candidateCount:progress.candidateCount,
+                  evaluatedCandidates:progress.evaluatedCandidates??0,
+                  verifiedCount:accepted,repairedCount:progress.repairedCount??0,
+                })
+              },
+              onAccepted({question,origin,fact}){
+                questionOrigins.set(question,origin)
+                factsByQuestion.set(question,fact)
+              },
+            })
+          : createGenerator(activeProvider)
+        const generated = await generator.generate(request, options)
         quizProgressState = Object.freeze({
           ...quizProgressState, phase: 'checking_duplicates',
           completedBatches: quizProgressState.totalBatches,
           validQuestions: generated.questions.length,
         })
+        if(experimental)diagnostic('checking_duplicates',{
+          proposedQuestions:generated.questions.length,
+          sourceFacts:generated.generation?.candidateCount??0,
+        })
         const distinctnessStarted = performance.now()
-        const verified = await reviewQuizDistinctness({
-          provider: activeProvider, quiz: generated,
+        let verified = await reviewQuizDistinctness({
+          provider: activeProvider, quiz: experimental
+            ? sourceScreen(generated) : generated,
           pages: request.pages, signal: options?.signal,
+        })
+        let replenishmentAttempted = false
+        if(experimental && verified.questions.length < request.questionCount &&
+            generated.generation?.candidatesEvaluated <
+              generated.generation?.candidateCount &&
+            !options?.signal?.aborted){
+          // One bounded source-grounded refill from *unused candidate indices*
+          // after semantic duplicate review. No new model session is created.
+          replenishmentAttempted = true
+          try{
+            const extra = await generator.generate(request,{
+              ...options,startAt:generated.generation.candidatesEvaluated,
+              targetCount:request.questionCount-verified.questions.length,
+              excludeQuestions:verified.questions.map(q=>q.question),
+            })
+            verified = await reviewQuizDistinctness({
+              provider:activeProvider,
+              quiz:sourceScreen({
+                ...generated,questions:[...verified.questions,...extra.questions],
+              }),
+              pages:request.pages,signal:options?.signal,
+            })
+          }catch(error){
+            if(options?.signal?.aborted||error?.code==='cancelled')throw error
+            if(!['insufficient_source','quiz_validation_failed'].includes(error?.code))
+              throw error
+          }
+        }
+        if(experimental && quizProgressState)quizProgressState=Object.freeze({
+          ...quizProgressState,phase:'finalizing_quiz',
+          validQuestions:verified.questions.length,
         })
         diagnostic('distinctness_completed', {
           elapsedMs: performance.now() - distinctnessStarted,
           status: verified.generation?.distinctness ?? 'unavailable',
           duplicateCount: verified.generation?.duplicateCount ?? 0,
         })
-        return verified
+        return experimental
+          ? { ...verified, generation:{
+              ...generated.generation,...verified.generation,
+              verifiedCount:verified.questions.length,
+              modelAcceptedCount:verified.questions.filter(q=>
+                questionOrigins.get(q)==='model').length,
+              repairedCount:verified.questions.filter(q=>
+                questionOrigins.get(q)==='source_repair').length,
+              replenishmentAttempted,
+              sourceFactUniquenessChecked:true,
+              sourceFactDuplicatesRemoved,
+              semanticDuplicateReview:verified.generation?.distinctness==='checked'
+                ? 'checked':'unavailable',
+              partial:verified.questions.length < request.questionCount,
+            } } : verified
       }
       const quiz = typeof provider.withSession === 'function'
         ? await provider.withSession(produce, { signal: options?.signal })
@@ -228,7 +326,23 @@ function createWindowsLocalAiStack({
     } }
     if (cachedDocumentProcessor) {
       documentQuizService = createLocalDocumentQuizService({
-        documentProcessor: cachedDocumentProcessor, quizService })
+        documentProcessor: cachedDocumentProcessor, quizService,
+        sourceSelector: useExperimentalGrounding ? selectEvidencePages : null,
+        onSourceSelected(meta){
+          if(!useExperimentalGrounding)return
+          diagnostic('source_selected',{
+            trimmed:meta.trimmed,originalBytes:meta.originalBytes,
+            selectedBytes:meta.selectedBytes,
+            originalPages:meta.originalPages,selectedPages:meta.selectedPages,
+          })
+          if(quizProgressState)quizProgressState=Object.freeze({
+            ...quizProgressState,phase:'selecting_source',
+            originalSourceBytes:meta.originalBytes,
+            selectedSourceBytes:meta.selectedBytes,
+            selectedPages:meta.selectedPages,
+          })
+        },
+      })
     }
   }
 
@@ -269,6 +383,7 @@ function createWindowsLocalAiStack({
       available: true,
       reason: null,
       busy: quizOperation !== null || documentOperation !== null,
+      experimentalSourceGroundedPdf: useExperimentalGrounding,
       modelId: resources.modelId,
       execution: 'local',
       constraints: Object.freeze({
@@ -337,7 +452,26 @@ function createWindowsLocalAiStack({
     return traceOperation('document_quiz', request, () => {
       if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
       lastQuizValidationIssue = null
-      return runQuiz(signal => documentQuizService.generate(request, { signal }), request)
+      return runQuiz(signal => {
+        if(useExperimentalGrounding)quizProgressState=Object.freeze({
+          phase:'extracting_pdf',completedPages:0,totalPages:0,
+          validQuestions:0,requestedQuestions:request.questionCount,
+        })
+        return documentQuizService.generate(request,{
+          signal,onProgress:progress=>{
+            if(!useExperimentalGrounding||!quizProgressState)return
+            quizProgressState=Object.freeze({
+              ...quizProgressState,phase:'extracting_pdf',
+              pdfPhase:progress.phase,completedPages:progress.completedPages,
+              totalPages:progress.totalPages,
+            })
+            diagnostic('pdf_extraction_progress',{
+              phase:progress.phase,completedPages:progress.completedPages,
+              totalPages:progress.totalPages,
+            })
+          },
+        })
+      },request)
     })
   }
 

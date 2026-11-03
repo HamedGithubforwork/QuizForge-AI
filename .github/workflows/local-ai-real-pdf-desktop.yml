@@ -1,0 +1,117 @@
+name: Qwen 1.7B Windows real PDF document lifecycle
+
+on:
+  pull_request:
+    paths:
+      - desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs
+      - desktop/src/local-source-selection.cjs
+      - desktop/src/local-source-facts.cjs
+      - desktop/src/experimental-source-grounded-quiz.cjs
+      - desktop/src/local-document-quiz-service.cjs
+      - desktop/src/windows-local-ai-stack.cjs
+      - frontend/src/lib/desktop.ts
+      - frontend/src/components/quiz/GenerationTimingPanel.tsx
+      - frontend/src/App.tsx
+      - desktop/test/local-source-selection.test.cjs
+      - desktop/test/local-source-facts.test.cjs
+      - desktop/test/local-document-quiz-service.test.cjs
+      - desktop/test/experimental-source-grounded-quiz.test.cjs
+      - desktop/test/real-pdf-desktop-lifecycle.test.cjs
+      - .github/workflows/local-ai-real-pdf-desktop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qfn-1p7b-real-pdf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-pdf-desktop:
+    name: Real PDF.js to Windows Local AI Qwen 1.7B
+    runs-on: windows-2025
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Test PDF and document quiz integration contracts
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency installation failed' }
+          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs desktop/test/local-source-selection.test.cjs desktop/test/local-source-facts.test.cjs desktop/test/experimental-source-grounded-quiz.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop PDF contracts failed' }
+      - name: Retrieve official public PDFs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/real-pdfs" -Force | Out-Null
+          $pdfs = @(
+            @{ name='usgs-earthquake-shaking.pdf'; url='https://pubs.usgs.gov/fs/2001/fs001-01/fs001-01.pdf' },
+            @{ name='loc-primary-sources.pdf'; url='https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf' },
+            @{ name='nist-csf-2.pdf'; url='https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf' }
+          )
+          foreach($p in $pdfs){
+            $dest=Join-Path "$env:RUNNER_TEMP/real-pdfs" $p.name
+            curl.exe -fL --max-time 180 -o $dest $p.url
+            if($LASTEXITCODE -ne 0 -or !(Test-Path $dest)){throw 'Official PDF unavailable'}
+            $size=(Get-Item $dest).Length
+            if($size -lt 8 -or $size -gt 15728640){throw 'Official PDF exceeds local input limits'}
+          }
+      - name: Check real PDF extraction before model/runtime downloads
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs --preflight "$env:RUNNER_TEMP/real-pdfs" "$env:RUNNER_TEMP/real-pdf-preflight.json"
+          if($LASTEXITCODE -ne 0){throw 'Official PDF extraction preflight failed; read metadata artifact'}
+      - name: Stage pinned local runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if($LASTEXITCODE -ne 0){throw 'Runtime download failed'}
+          if((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338'){throw 'Runtime hash mismatch'}
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          if($LASTEXITCODE -ne 0){throw 'Runtime staging failed'}
+      # Both real-PDF and comparison jobs share a verified model cache. Cache
+      # data is untrusted and must pass the complete pinned SHA/byte verification.
+      - name: Restore verified 1.7B comparison model cache
+        id: qwen17pdfcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
+      - name: Verify pinned Qwen 1.7B only
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models" qwen3-1p7b-q4-k-m
+          if($LASTEXITCODE -ne 0){throw 'Pinned model download failed'}
+      - name: Save verified 1.7B model cache for comparison
+        if: steps.qwen17pdfcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
+      - name: Run production Windows document-to-quiz lifecycle with real PDFs
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/real-pdfs" "$env:RUNNER_TEMP/real-pdf-report.json"
+          if($LASTEXITCODE -ne 0){throw 'Real desktop PDF pipeline failed; inspect report'}
+      - name: Upload sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen-1p7b-real-pdf-desktop
+          path: |
+            ${{ runner.temp }}/real-pdf-preflight.json
+            ${{ runner.temp }}/real-pdf-report.json
+          if-no-files-found: warn
+          retention-days: 14

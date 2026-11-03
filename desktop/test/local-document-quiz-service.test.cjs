@@ -194,3 +194,28 @@ test('PDF cache cannot bypass cancellation or an invalid request', async () => {
   assert.equal(calls.generate.length, 1)
   assert.equal(calls.process.length, 1)
 })
+
+test('experimental opt-in trims oversized source while default still rejects it',async()=>{
+  const {selectEvidencePages}=require('../src/local-source-selection.cjs')
+  const text=Array.from({length:220},(_,i)=>
+    'The archive preserves documents for topic '+i+'.').join('\n')
+  const document=localDocument({pages:[{pageNumber:2,text}]})
+  const normal=setup({document})
+  const request={bytes,selectedPages:[2],difficulty:'easy',
+    questionCount:5,questionType:'short_answer'}
+  await assert.rejects(normal.service.generate(request),{code:'source_too_large'})
+  const progress=[],input=[]
+  const experimental=createLocalDocumentQuizService({
+    documentProcessor:{async processPdf(){return document}},
+    quizService:{async generate(value){input.push(value);return quiz}},
+    sourceSelector:selectEvidencePages,
+    onSourceSelected:meta=>progress.push(meta),
+  })
+  const output=await experimental.generate(request)
+  assert.equal(input.length,1)
+  assert.ok(input[0].pages[0].text.length<text.length)
+  assert.deepEqual(output.selectedPages,[2])
+  assert.equal(progress[0].trimmed,true)
+  assert.ok(progress[0].originalBytes>progress[0].selectedBytes)
+  for(const line of input[0].pages[0].text.split('\n'))assert.ok(text.includes(line))
+})

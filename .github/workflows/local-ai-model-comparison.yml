@@ -1,4 +1,4 @@
-name: Local AI Qwen sizes vs DeepSeek comparison
+name: Local AI active-model comparison
 
 on:
   pull_request:
@@ -12,24 +12,42 @@ on:
       - desktop/src/windows-local-ai-stack.cjs
       - desktop/src/local-offload-policy.cjs
       - desktop/scripts/ensure-verified-model.cjs
+      - desktop/scripts/inspect-model-download-status.cjs
+      - desktop/test/model-download-status.test.cjs
       - desktop/scripts/benchmark-local-generation.cjs
       - desktop/scripts/benchmark-small-qwen-scaffold.cjs
       - desktop/scripts/benchmark-small-qwen-adaptive.cjs
       - desktop/test/local-small-qwen-adaptive.test.cjs
       - desktop/test/local-small-qwen-batch.test.cjs
+      - desktop/scripts/benchmark-qwen-minimal.cjs
+      - desktop/scripts/benchmark-qwen-answer-first.cjs
+      - desktop/test/local-qwen-minimal.test.cjs
+      - desktop/test/local-qwen-answer-first.test.cjs
+      - desktop/test/local-qwen-french-context.test.cjs
       - desktop/scripts/inspect-synthetic-quiz.cjs
       - desktop/test/local-benchmark-inspection.test.cjs
       - desktop/scripts/summarize-local-model-comparison.cjs
       - desktop/test/local-benchmark-models.test.cjs
+      - desktop/test/local-model-comparison-scope.test.cjs
       - desktop/test/local-model-store.test.cjs
       - .github/workflows/local-ai-model-comparison.yml
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'standard (active models), retired-0p6b-only (manual smoke), or full-five (historical milestone)'
+        type: choice
+        required: true
+        default: standard
+        options:
+          - standard
+          - retired-0p6b-only
+          - full-five
 
 permissions:
   contents: read
 
 concurrency:
-  group: qfn-five-model-comparison-${{ github.ref }}
+  group: qfn-active-model-comparison-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -41,12 +59,17 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        model:
-          - qwen3-4b-q4-k-m
-          - qwen3-1p7b-q4-k-m
-          - qwen3-0p6b-q4-k-m
-          - deepseek-r1-qwen-1p5b-q4-k-m
-          - deepseek-r1-qwen-7b-q4-k-m
+        # Routine small-Qwen PRs run 1.7B only. Other routine PRs compare
+        # four active models; the retired 0.6B is opt-in via workflow_dispatch.
+        # A manual single-model smoke is available without downloading 4 others.
+        model: ${{ fromJSON(
+          github.event_name == 'workflow_dispatch' && inputs.scope == 'retired-0p6b-only'
+            && '["qwen3-0p6b-q4-k-m"]'
+          || github.event_name == 'workflow_dispatch' && inputs.scope == 'full-five'
+            && '["qwen3-4b-q4-k-m","qwen3-1p7b-q4-k-m","qwen3-0p6b-q4-k-m","deepseek-r1-qwen-1p5b-q4-k-m","deepseek-r1-qwen-7b-q4-k-m"]'
+          || startsWith(github.head_ref, 'experiment/small-qwen')
+            && '["qwen3-1p7b-q4-k-m"]'
+          || '["qwen3-4b-q4-k-m","qwen3-1p7b-q4-k-m","deepseek-r1-qwen-1p5b-q4-k-m","deepseek-r1-qwen-7b-q4-k-m"]') }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -57,7 +80,7 @@ jobs:
       - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-comparison-scope.test.cjs desktop/test/model-download-status.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-answer-first.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore verified baseline model cache
         if: matrix.model == 'qwen3-4b-q4-k-m'
@@ -65,6 +88,48 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      # On a cache hit the CLI still hashes the full model and rejects altered
+      # content. A cache miss or upstream transient download failure cannot be
+      # mistaken for a model quality regression.
+      - name: Restore pinned 1.7B model cache
+        if: matrix.model == 'qwen3-1p7b-q4-k-m'
+        id: qwen17cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
+      - name: Prepare pinned model with bounded download retries
+        shell: pwsh
+        env:
+          BENCHMARK_MODEL_ID: ${{ matrix.model }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modelDir = "$env:RUNNER_TEMP/models"
+          New-Item -ItemType Directory $modelDir -Force | Out-Null
+          $verified = $false
+          for ($attempt = 1; $attempt -le 4; $attempt++) {
+            node desktop/scripts/ensure-verified-model.cjs $modelDir $env:BENCHMARK_MODEL_ID
+            if ($LASTEXITCODE -eq 0) {
+              $verified = $true
+              break
+            }
+            if ($attempt -lt 4) {
+              Write-Warning "Verified model unavailable; retrying download (attempt $attempt/4)."
+              Start-Sleep -Seconds (10 * $attempt)
+            }
+          }
+          if (-not $verified) {
+            node desktop/scripts/inspect-model-download-status.cjs $env:BENCHMARK_MODEL_ID
+            throw 'Pinned benchmark model unavailable after verified retries'
+          }
+      # Save immediately after SHA-256 validation, even if a later strict
+      # source-quality benchmark fails. Never cache an unverified download.
+      - name: Save pinned 1.7B model cache
+        if: matrix.model == 'qwen3-1p7b-q4-k-m' && steps.qwen17cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
       - name: Download and verify pinned llama.cpp runtime
         shell: pwsh
         run: |
@@ -76,10 +141,12 @@ jobs:
           New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
           exit $LASTEXITCODE
-      - name: Generate six offline source-verified quizzes with ${{ matrix.model }}
+      - name: Run source-verified model benchmark with ${{ matrix.model }}
         shell: pwsh
         env:
           BENCHMARK_MODEL_ID: ${{ matrix.model }}
+          QFN_QWEN_SMOKE_ONLY: ${{ (startsWith(github.head_ref, 'experiment/small-qwen') || inputs.scope == 'retired-0p6b-only') && '1' || '0' }}
+          QFN_QWEN_RETIRED_CHECK: ${{ inputs.scope == 'retired-0p6b-only' && '1' || '0' }}
         run: |
           # A slow DeepSeek 7B download must not prevent smaller models running.
           # The benchmark writes sanitized evidence on a failed validation too.
@@ -89,8 +156,10 @@ jobs:
           New-Item -ItemType Directory $modelDir, $reports -Force | Out-Null
           node desktop/scripts/ensure-verified-model.cjs $modelDir $env:BENCHMARK_MODEL_ID
           if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Verified benchmark model was not available: $env:BENCHMARK_MODEL_ID"
+            throw 'Pinned benchmark model unavailable'
           } else {
+            # Full baseline/scaffold remains for manually dispatched milestone runs.
+            if ($env:QFN_QWEN_SMOKE_ONLY -ne '1') {
             node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID.json" cpu 3 $env:BENCHMARK_MODEL_ID
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "Source-fact quality gate failed; retaining the report for $env:BENCHMARK_MODEL_ID"
@@ -105,18 +174,26 @@ jobs:
                 Write-Warning "Scaffolded diagnostics incomplete; preserving original baseline result for $env:BENCHMARK_MODEL_ID"
               }
             }
-            # Adaptive path is single-fact for 0.6B; 1.7B tries two facts per
-            # request with independent per-fact validation and one single retry.
+            }
+            # Experimental candidate 1.7B batches English source facts.
+            # The retired 0.6B path runs only on explicit manual request, with
+            # code-owned source/options; 1.7B batches English source facts
+            # and uses context-aware single-fact generation for French.
+            # One retry maximum per fact; the production 4B path is unchanged.
             if ($env:BENCHMARK_MODEL_ID -in @('qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m')) {
               node desktop/scripts/benchmark-small-qwen-adaptive.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID-adaptive.json" $env:BENCHMARK_MODEL_ID
               if ($LASTEXITCODE -ne 0) {
+                if ($env:QFN_QWEN_SMOKE_ONLY -eq '1') {
+                  throw 'Qwen smoke benchmark failed'
+                }
                 Write-Warning "Adaptive Qwen diagnostic failed; retain baseline report"
               }
             }
           }
-          # Per-model jobs intentionally succeed so the aggregate quality gate
-          # can report *all five outcomes* rather than cancelling other models.
-          exit 0
+          # Focused Qwen PRs must fail if verified model inference or the
+          # strict five-question smoke gate fails. The full comparison retains
+          # its separate five-model aggregator and report-preservation path.
+          # Never force success after a required benchmark failure.
       - name: Upload per-model report even when quality fails
         if: always()
         uses: actions/upload-artifact@v7
@@ -127,9 +204,12 @@ jobs:
           retention-days: 14
 
   aggregate:
-    name: Aggregate five model quality results
+    name: Aggregate active model quality results
     needs: model
-    if: always()
+    # No aggregate for the isolated 1.7B PR gate or opt-in 0.6B smoke.
+    # Routine comparison validates four active models; explicit historical
+    # milestone comparisons include all five, never fabricating missing data.
+    if: ${{ always() && !startsWith(github.head_ref, 'experiment/small-qwen') && inputs.scope != 'retired-0p6b-only' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -139,19 +219,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Collect benchmark reports from the five model jobs
+      - name: Collect benchmark reports from selected model jobs
         uses: actions/download-artifact@v4
         with:
           pattern: qfn-model-result-*
           path: comparison
           merge-multiple: true
-      - name: Summarize all model results without declaring absent or bad models winners
+      - name: Summarize selected models without declaring absent or bad models winners
+        env:
+          QFN_INCLUDE_RETIRED: ${{ inputs.scope == 'full-five' && '1' || '0' }}
         run: node desktop/scripts/summarize-local-model-comparison.cjs comparison
       - name: Upload combined comparison including failures
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: qwen3-4b-1p7b-0p6b-vs-deepseek-comparison
+          name: qfn-active-model-comparison
           path: comparison/*.json
           if-no-files-found: warn
           retention-days: 14
