@@ -199,6 +199,62 @@ test('hybrid runtime preserves source-owned citations and records prompt variant
   assert.equal(result.independentOracleMatches, 1)
   assert.equal(result.fullFiveQuestionPass, false)
 })
+test('mixed-subject extraction uses source grammar without oracle aliases', () => {
+  const mixed = fixture('cross_domain')
+  const plans = EXPERIMENT_PLANS.cross_domain
+  const verbs = ['preserves', 'publishes', 'archives', 'reviews', 'records']
+  const lemmas = ['preserve', 'publish', 'archive', 'review', 'record']
+  const subjects = ['museum', 'council', 'library', 'agency', 'court']
+  const answers = ['historical letters', 'annual reports', 'donated manuscripts',
+    'permit applications', 'hearing dates']
+  assert.equal(plans.length, 5)
+  for (const [i, plan] of plans.entries()) {
+    const extracted = extractVerifiedFact(plan, mixed)
+    assert.equal(extracted?.type, 'source_action')
+    assert.equal(extracted.answer, answers[i])
+    const cue = sourceRelationshipCue(mixed, extracted)
+    assert.match(cue.subject, new RegExp(subjects[i]))
+    assert.equal(cue.relation, verbs[i])
+    const prompt = questionPrompt(mixed, extracted, { variant: 'masked' })
+    assert.match(prompt.messages[1].content, /SOURCE SUBJECT:/)
+    assert.match(prompt.messages[1].content, /SOURCE RELATION:/)
+    assert.ok(!prompt.messages[1].content.includes(answers[i]))
+    const question = 'What does the ' + subjects[i] + ' ' + lemmas[i] + '?'
+    assert.equal(validateQuestionOnly(question, mixed, extracted,
+      'short_answer').reason, undefined)
+    assert.equal(validateQuestionOnly('What is the unknown answer?',
+      mixed, extracted, 'short_answer').reason, 'semantic_or_subject_mismatch')
+  }
+  assert.equal(extractVerifiedFact({
+    page: 1, quote: 'The archivist contemplated possibilities.',
+  }, mixed), null)
+})
+test('source frames preserve output direction and qualifiers for other subjects', () => {
+  const biology = fixture('biology')
+  const expected = [
+    ['Mitochondria', 'produce', 'during cellular respiration'],
+    ['Ribosomes', 'assemble', 'from amino acids'],
+    ['The nucleus', 'stores', ''],
+    ['Chloroplasts', 'convert light energy into', 'during photosynthesis'],
+    ['The cell membrane', 'controls', ''],
+  ]
+  for (const [i, plan] of EXPERIMENT_PLANS.biology.entries()) {
+    const f = extractVerifiedFact(plan, biology)
+    const cue = sourceRelationshipCue(biology, f)
+    assert.equal(cue.subject, expected[i][0])
+    assert.equal(cue.relation, expected[i][1])
+    assert.equal(cue.qualifier, expected[i][2])
+  }
+  const french = fixture('biology_french')
+  const f = extractVerifiedFact(EXPERIMENT_PLANS.biology_french[3], french)
+  const cue = sourceRelationshipCue(french, f)
+  assert.equal(cue.subject, 'Les chloroplastes')
+  assert.match(cue.relation, /transforment l'énergie lumineuse en/)
+  assert.equal(cue.qualifier, 'par photosynthèse')
+  const prompt = questionPrompt(french, f, { variant: 'masked' })
+  assert.match(prompt.messages[1].content, /SUJET SOURCE : Les chloroplastes/)
+  assert.doesNotMatch(prompt.messages[1].content, /énergie chimique/)
+})
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
     'no_schema'), { question: 'What is Aster capacity?' })

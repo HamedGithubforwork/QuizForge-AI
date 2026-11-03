@@ -98,9 +98,36 @@ const MATERIALS = Object.freeze({
         answers: aliases(material) }] }
   }),
 })
+// Independent mixed-topic transfer set: museum/history, local government,
+// archives, administration, and courts. The oracle is inspector-only; the
+// generator consumes only the exact source sentences and selected page IDs.
+const CROSS_DOMAIN_ITEMS = Object.freeze([
+  { quote: 'The museum preserves historical letters.', page: 1,
+    subject: 'museum', verb: 'preserves', lemma: 'preserve', answer: 'historical letters' },
+  { quote: 'The council publishes annual reports.', page: 1,
+    subject: 'council', verb: 'publishes', lemma: 'publish', answer: 'annual reports' },
+  { quote: 'The library archives donated manuscripts.', page: 1,
+    subject: 'library', verb: 'archives', lemma: 'archive', answer: 'donated manuscripts' },
+  { quote: 'The agency reviews permit applications.', page: 2,
+    subject: 'agency', verb: 'reviews', lemma: 'review', answer: 'permit applications' },
+  { quote: 'The court records hearing dates.', page: 2,
+    subject: 'court', verb: 'records', lemma: 'record', answer: 'hearing dates' },
+])
+const CROSS_DOMAIN = Object.freeze({
+  id: 'cross_domain', difficulty: 'medium',
+  selectedPages: [1, 2].map(pageNumber => ({
+    pageNumber,
+    text: CROSS_DOMAIN_ITEMS.filter(item => item.page === pageNumber)
+      .map(item => item.quote).join(' '),
+  })),
+  facts: CROSS_DOMAIN_ITEMS.map((item, i) => ({
+    id: 'cross_topic_' + (i + 1), page: item.page,
+    routes: [{ tokens: [item.subject, item.lemma], answers: aliases(item.answer) }],
+  })),
+})
 const EXPERIMENT_FIXTURES = Object.freeze([
   ...FIXTURES.filter(x => x.id === 'selected_pages' || x.id === 'french'),
-  BIOLOGY, BIOLOGY_FRENCH, MATERIALS,
+  BIOLOGY, BIOLOGY_FRENCH, MATERIALS, CROSS_DOMAIN,
 ])
 const BIOLOGY_PLANS = Object.freeze({
   biology: [
@@ -124,6 +151,8 @@ const EXPERIMENT_PLANS = Object.freeze({ ...PLANS, ...BIOLOGY_PLANS,
     const [device, material] = entry.split(':')
     return { page: 1, quote: device + ' casing material is ' + material + '.' }
   })),
+  cross_domain: Object.freeze(CROSS_DOMAIN_ITEMS.map(({ page, quote }) =>
+    ({ page, quote }))),
 })
 const MODES = Object.freeze([
   { fixture: 'selected_pages', type: 'multiple_choice' },
@@ -132,6 +161,8 @@ const MODES = Object.freeze([
   { fixture: 'biology', type: 'short_answer' },
   { fixture: 'biology_french', type: 'multiple_choice' },
   { fixture: 'biology_french', type: 'short_answer' },
+           ...(modelId === 'qwen3-1p7b-q4-k-m'
+             ? [{ fixture: 'cross_domain', type: 'short_answer' }] : []),
 ])
 const MCQ_SCHEMA = Object.freeze({
   type: 'object', additionalProperties: false,
