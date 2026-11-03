@@ -132,7 +132,7 @@ async function createOne({provider,fact,request,used,signal}){
       if(!result||Object.keys(result).length!==1||!validWording(result.question,fact,used))continue
       const validated=validateSourceGroundedDraft({
         title:'Source-backed local quiz',questions:[draft(result.question,fact)]
-      },{...request,questionCount:1})
+      },request)
       if(validated.questions.length===1)return {question:validated.questions[0],repaired:false}
     }catch(error){if(error?.code==='cancelled'||signal?.aborted)throw failure('cancelled')}
   }
@@ -142,7 +142,7 @@ async function createOne({provider,fact,request,used,signal}){
   try{
     const validated=validateSourceGroundedDraft({
       title:'Source-backed local quiz',questions:[draft(fixed,fact)]
-    },{...request,questionCount:1})
+    },request)
     return validated.questions.length===1?{question:validated.questions[0],repaired:true}:null
   }catch{return null}
 }
