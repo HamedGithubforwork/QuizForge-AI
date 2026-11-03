@@ -413,6 +413,7 @@ async function main() {
   assert.ok(['all', 'quality'].includes(mode), 'Unknown acceptance mode')
   const runtimePidState = { value: null }
   let activeSyntheticFixture = null
+  let targetedPracticeStarted = null
   let metricMonitor = createRuntimeMetricMonitor()
   let stack = null
 
@@ -428,6 +429,9 @@ async function main() {
     acceleration: null,
     runs: [],
     validationIssues: [],
+    // Synthetic-only phase markers. Never store study text, raw model output,
+    // prompts, document paths, answer content, or native error messages here.
+    targetedPracticeTimeline: [],
     // Only the fixed, non-user-provided synthetic French fixture is captured.
     syntheticFrenchResponses: [],
   }
@@ -464,6 +468,19 @@ async function main() {
         }
       },
       onQuizGeneratedResponse(response) {
+        if (activeSyntheticFixture === 'selected_pages_targeted_practice' &&
+            targetedPracticeStarted !== null) {
+          const phase = ['weak-area-recovery', 'weak-area-grounding-repair']
+            .includes(response?.phase) ? response.phase : 'generation'
+          const generationProfile = [
+            'quiz-mcq-v1', 'quiz-mcq-retry-v1',
+            'quiz-mcq-targeted-primary-v1', 'quiz-mcq-targeted-retry-v1',
+          ].includes(response?.generationProfile) ? response.generationProfile : 'other'
+          report.targetedPracticeTimeline.push({
+            stage: 'model_response', phase, generationProfile,
+            elapsedSeconds: Number(((performance.now() - targetedPracticeStarted) / 1000).toFixed(3)),
+          })
+        }
         if (activeSyntheticFixture !== 'french') return
         report.syntheticFrenchResponses.push({
           generationProfile: response.generationProfile,
@@ -471,6 +488,20 @@ async function main() {
         })
       },
       onQuizValidationIssue(issue) {
+        if (activeSyntheticFixture === 'selected_pages_targeted_practice' &&
+            targetedPracticeStarted !== null) {
+          const attempt = ['primary', 'retry', 'recovery', 'fast_recovery',
+            'single_question_repair'].includes(issue?.attempt) ? issue.attempt : 'other'
+          const reason = ['insufficient_source', 'quiz_validation_failed',
+            'unsupported_answer', 'unsupported_source_fact',
+            'candidate_pool_exhausted', 'duplicate_source_fact',
+            'avoided_question', 'repaired'].includes(issue?.reason)
+            ? issue.reason : 'other'
+          report.targetedPracticeTimeline.push({
+            stage: 'validation_issue', attempt, reason,
+            elapsedSeconds: Number(((performance.now() - targetedPracticeStarted) / 1000).toFixed(3)),
+          })
+        }
         report.validationIssues.push({ ...issue })
         console.log('VALIDATION ISSUE:', issue.attempt, issue.reason)
         const counts = issue.details && typeof issue.details === 'object'
@@ -554,6 +585,8 @@ async function main() {
       'selected_pages_targeted_practice',
       'primary',
     )
+    activeSyntheticFixture = 'selected_pages_targeted_practice'
+    targetedPracticeStarted = performance.now()
     const targeted = await measured(
       () => stack.generateQuiz({
         pages: targetedFixture.selectedPages,
@@ -607,6 +640,8 @@ async function main() {
     )
     targetedEvidence.outcome = 'quiz'
     await persistReport()
+    targetedPracticeStarted = null
+    activeSyntheticFixture = null
     reportCaseProgress(
       'PASS',
       'selected_pages_targeted_practice',
