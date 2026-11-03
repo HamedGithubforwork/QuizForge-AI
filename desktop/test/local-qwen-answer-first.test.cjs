@@ -17,7 +17,9 @@ test('answer-first generation is only question text; answer, page and quote are 
   assert.deepEqual(PROMPT_SCHEMA.required, ['question'])
   assert.equal(PROMPT_SCHEMA.properties.answer, undefined)
   const p = questionPrompt(english, fact)
-  assert.match(p.messages[1].content, /VERIFIED ANSWER: cobalt/)
+  assert.match(p.messages[1].content, /Aster casing material is \[BLANK\]/)
+  assert.doesNotMatch(p.messages[1].content, /cobalt/)
+  assert.doesNotMatch(p.messages[0].content, /cobalt/)
   assert.deepEqual(p.jsonSchema.required, ['question'])
   assert.equal(p.maxTokens, 170)
   const raw = questionPrompt(english, fact, { retry: true, output: 'no_schema' })
@@ -64,7 +66,8 @@ test('French antecedent belongs to prompt context, never source quotation or ans
   const prompt = questionPrompt(fr, director)
   assert.match(prompt.messages[1].content, /CONTEXTE PRÉCÉDENT NON CITABLE/)
   assert.match(prompt.messages[1].content, /La station Boréale a ouvert en 2037/)
-  assert.match(prompt.messages[1].content, /RÉPONSE VÉRIFIÉE : Léa Morel/)
+  assert.match(prompt.messages[1].content, /Sa directrice est \[BLANK\]/)
+  assert.doesNotMatch(prompt.messages[1].content, /Léa Morel/)
   assert.match(prompt.messages[0].content, /sujet/)
   const v = validateQuestionOnly('Qui est la directrice de la station Boréale ?',
     fr, director, 'short_answer')
@@ -97,6 +100,52 @@ test('five same-type source facts allow four answer choices with no model-create
     seen.add('fact:' + result.factId)
     seen.add('question:' + result.wording)
   }
+})
+test('masked answer never appears in model-facing prompts across all fixtures', () => {
+  for (const [id, plans] of Object.entries(EXPERIMENT_PLANS)) {
+    const data = fixture(id)
+    if (!data) continue
+    for (const plan of plans) {
+      const verified = extractVerifiedFact(plan, data)
+      assert.ok(verified)
+      for (const output of ['schema', 'no_schema']) {
+        for (const retry of [false, true]) {
+          const prompt = questionPrompt(data, verified, { retry, output })
+          const body = prompt.messages.map(x => x.content).join('\n')
+          assert.ok(body.includes('[BLANK]'), id)
+          assert.ok(!body.includes(verified.answer), id + ' leaked answer')
+          assert.ok(!body.includes(plan.quote), id + ' leaked full quote')
+        }
+      }
+    }
+  }
+})
+test('wording rejections retain JSON schema with a targeted retry instruction', async () => {
+  const materials = fixture('materials')
+  let calls = 0
+  const provider = { async withSession(fn) {
+    return fn({ async generate(prompt) {
+      calls++
+      if (calls === 1) {
+        assert.ok(Object.hasOwn(prompt, 'jsonSchema'))
+        return { text: JSON.stringify({ question: 'What is Mira cobalt?' }),
+          finishReason: 'stop' }
+      }
+      if (calls === 2) {
+        assert.ok(Object.hasOwn(prompt, 'jsonSchema'))
+        assert.match(prompt.messages[0].content, /revealed the answer/)
+        return { text: JSON.stringify({ question: 'What is the Mira casing material?' }),
+          finishReason: 'stop' }
+      }
+      return { text: JSON.stringify({ question: 'What is the unknown thing?' }),
+        finishReason: 'stop' }
+    } })
+  } }
+  const report = await runAnswerFirstFixture(provider, materials,
+    EXPERIMENT_PLANS.materials, 'multiple_choice')
+  assert.equal(report.perFactOutcomes[0].status, 'answer_leaked_in_question')
+  assert.equal(report.perFactOutcomes[1].status, 'accepted')
+  assert.equal(report.sourceSupportedQuestions, 1)
 })
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
