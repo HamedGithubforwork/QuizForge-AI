@@ -44,7 +44,7 @@ jobs:
         run: |
           npm ci --prefix desktop
           if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency installation failed' }
-          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs desktop/test/local-source-selection.test.cjs desktop/test/local-source-facts.test.cjs desktop/test/experimental-source-grounded-quiz.test.cjs desktop/test/local-source-facts.test.cjs
+          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs desktop/test/local-source-selection.test.cjs desktop/test/local-source-facts.test.cjs desktop/test/experimental-source-grounded-quiz.test.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Desktop PDF contracts failed' }
       - name: Retrieve official public PDFs
         shell: pwsh
@@ -53,7 +53,8 @@ jobs:
           New-Item -ItemType Directory "$env:RUNNER_TEMP/real-pdfs" -Force | Out-Null
           $pdfs = @(
             @{ name='usgs-earthquake-shaking.pdf'; url='https://pubs.usgs.gov/fs/2001/fs001-01/fs001-01.pdf' },
-            @{ name='loc-primary-sources.pdf'; url='https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf' }
+            @{ name='loc-primary-sources.pdf'; url='https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf' },
+            @{ name='nist-csf-2.pdf'; url='https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf' }
           )
           foreach($p in $pdfs){
             $dest=Join-Path "$env:RUNNER_TEMP/real-pdfs" $p.name
