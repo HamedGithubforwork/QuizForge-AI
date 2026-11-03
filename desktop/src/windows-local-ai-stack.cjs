@@ -8,6 +8,7 @@ const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
 const { MODEL_ID: EXPERIMENTAL_MODEL_ID, createExperimentalSourceGroundedQuizService } =
   require('./experimental-source-grounded-quiz.cjs')
 const { filterSourceFactDuplicates } = require('./local-source-facts.cjs')
+const { selectEvidencePages } = require('./local-source-selection.cjs')
 const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
@@ -223,6 +224,25 @@ function createWindowsLocalAiStack({
         const generator = experimental
           ? createExperimentalSourceGroundedQuizService({
               provider:activeProvider,onValidationIssue:captureQuizValidationIssue,
+              onProgress(progress){
+                if(!quizProgressState||!['extracting_facts','generating'].includes(progress?.phase))return
+                const accepted=Number.isSafeInteger(progress.acceptedQuestions)
+                  ?Math.min(request.questionCount,progress.acceptedQuestions):0
+                quizProgressState=Object.freeze({
+                  ...quizProgressState,phase:progress.phase,
+                  candidateCount:progress.candidateCount,
+                  topicCount:progress.topicCount??quizProgressState.topicCount??0,
+                  evaluatedCandidates:progress.evaluatedCandidates??0,
+                  validQuestions:accepted,
+                  modelAcceptedCount:progress.modelAcceptedCount??0,
+                  repairedCount:progress.repairedCount??0,
+                })
+                diagnostic('generation_progress',{
+                  phase:progress.phase,candidateCount:progress.candidateCount,
+                  evaluatedCandidates:progress.evaluatedCandidates??0,
+                  verifiedCount:accepted,repairedCount:progress.repairedCount??0,
+                })
+              },
               onAccepted({question,origin,fact}){
                 questionOrigins.set(question,origin)
                 factsByQuestion.set(question,fact)
@@ -234,6 +254,10 @@ function createWindowsLocalAiStack({
           ...quizProgressState, phase: 'checking_duplicates',
           completedBatches: quizProgressState.totalBatches,
           validQuestions: generated.questions.length,
+        })
+        if(experimental)diagnostic('checking_duplicates',{
+          proposedQuestions:generated.questions.length,
+          sourceFacts:generated.generation?.candidateCount??0,
         })
         const distinctnessStarted = performance.now()
         let verified = await reviewQuizDistinctness({
@@ -268,6 +292,10 @@ function createWindowsLocalAiStack({
               throw error
           }
         }
+        if(experimental && quizProgressState)quizProgressState=Object.freeze({
+          ...quizProgressState,phase:'finalizing_quiz',
+          validQuestions:verified.questions.length,
+        })
         diagnostic('distinctness_completed', {
           elapsedMs: performance.now() - distinctnessStarted,
           status: verified.generation?.distinctness ?? 'unavailable',
@@ -298,7 +326,23 @@ function createWindowsLocalAiStack({
     } }
     if (cachedDocumentProcessor) {
       documentQuizService = createLocalDocumentQuizService({
-        documentProcessor: cachedDocumentProcessor, quizService })
+        documentProcessor: cachedDocumentProcessor, quizService,
+        sourceSelector: useExperimentalGrounding ? selectEvidencePages : null,
+        onSourceSelected(meta){
+          if(!useExperimentalGrounding)return
+          diagnostic('source_selected',{
+            trimmed:meta.trimmed,originalBytes:meta.originalBytes,
+            selectedBytes:meta.selectedBytes,
+            originalPages:meta.originalPages,selectedPages:meta.selectedPages,
+          })
+          if(quizProgressState)quizProgressState=Object.freeze({
+            ...quizProgressState,phase:'selecting_source',
+            originalSourceBytes:meta.originalBytes,
+            selectedSourceBytes:meta.selectedBytes,
+            selectedPages:meta.selectedPages,
+          })
+        },
+      })
     }
   }
 
@@ -407,7 +451,26 @@ function createWindowsLocalAiStack({
     return traceOperation('document_quiz', request, () => {
       if (!documentQuizService) throw new LocalAiError('runtime_unavailable')
       lastQuizValidationIssue = null
-      return runQuiz(signal => documentQuizService.generate(request, { signal }), request)
+      return runQuiz(signal => {
+        if(useExperimentalGrounding)quizProgressState=Object.freeze({
+          phase:'extracting_pdf',completedPages:0,totalPages:0,
+          validQuestions:0,requestedQuestions:request.questionCount,
+        })
+        return documentQuizService.generate(request,{
+          signal,onProgress:progress=>{
+            if(!useExperimentalGrounding||!quizProgressState)return
+            quizProgressState=Object.freeze({
+              ...quizProgressState,phase:'extracting_pdf',
+              pdfPhase:progress.phase,completedPages:progress.completedPages,
+              totalPages:progress.totalPages,
+            })
+            diagnostic('pdf_extraction_progress',{
+              phase:progress.phase,completedPages:progress.completedPages,
+              totalPages:progress.totalPages,
+            })
+          },
+        })
+      },request)
     })
   }
 
