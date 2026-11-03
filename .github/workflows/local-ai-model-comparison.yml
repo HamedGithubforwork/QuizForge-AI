@@ -12,6 +12,8 @@ on:
       - desktop/src/windows-local-ai-stack.cjs
       - desktop/src/local-offload-policy.cjs
       - desktop/scripts/ensure-verified-model.cjs
+      - desktop/scripts/inspect-model-download-status.cjs
+      - desktop/test/model-download-status.test.cjs
       - desktop/scripts/benchmark-local-generation.cjs
       - desktop/scripts/benchmark-small-qwen-scaffold.cjs
       - desktop/scripts/benchmark-small-qwen-adaptive.cjs
@@ -78,7 +80,7 @@ jobs:
       - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-comparison-scope.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-answer-first.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-comparison-scope.test.cjs desktop/test/model-download-status.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-answer-first.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore verified baseline model cache
         if: matrix.model == 'qwen3-4b-q4-k-m'
@@ -116,7 +118,10 @@ jobs:
               Start-Sleep -Seconds (10 * $attempt)
             }
           }
-          if (-not $verified) { throw 'Pinned benchmark model unavailable after verified retries' }
+          if (-not $verified) {
+            node desktop/scripts/inspect-model-download-status.cjs $env:BENCHMARK_MODEL_ID
+            throw 'Pinned benchmark model unavailable after verified retries'
+          }
       # Save immediately after SHA-256 validation, even if a later strict
       # source-quality benchmark fails. Never cache an unverified download.
       - name: Save pinned 1.7B model cache

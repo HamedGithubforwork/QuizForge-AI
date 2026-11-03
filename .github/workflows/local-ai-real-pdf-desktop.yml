@@ -66,12 +66,27 @@ jobs:
           New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
           node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
           if($LASTEXITCODE -ne 0){throw 'Runtime staging failed'}
+      # Both real-PDF and comparison jobs share a verified model cache. Cache
+      # data is untrusted and must pass the complete pinned SHA/byte verification.
+      - name: Restore verified 1.7B comparison model cache
+        id: qwen17pdfcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
       - name: Verify pinned Qwen 1.7B only
         shell: pwsh
         run: |
           New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
           node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models" qwen3-1p7b-q4-k-m
           if($LASTEXITCODE -ne 0){throw 'Pinned model download failed'}
+      - name: Save verified 1.7B model cache for comparison
+        if: steps.qwen17pdfcache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
       - name: Run production Windows document-to-quiz lifecycle with real PDFs
         shell: pwsh
         run: |
