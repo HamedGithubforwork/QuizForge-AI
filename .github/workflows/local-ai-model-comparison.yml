@@ -26,6 +26,7 @@ on:
       - desktop/test/local-benchmark-inspection.test.cjs
       - desktop/scripts/summarize-local-model-comparison.cjs
       - desktop/test/local-benchmark-models.test.cjs
+      - desktop/test/local-model-comparison-scope.test.cjs
       - desktop/test/local-model-store.test.cjs
       - .github/workflows/local-ai-model-comparison.yml
   workflow_dispatch:
@@ -77,7 +78,7 @@ jobs:
       - name: Regression tests and exact model allowlist
         shell: pwsh
         run: |
-          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-answer-first.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
+          node --test desktop/test/local-benchmark-models.test.cjs desktop/test/local-model-comparison-scope.test.cjs desktop/test/local-benchmark-inspection.test.cjs desktop/test/local-small-qwen-adaptive.test.cjs desktop/test/local-small-qwen-batch.test.cjs desktop/test/local-qwen-minimal.test.cjs desktop/test/local-qwen-answer-first.test.cjs desktop/test/local-qwen-french-context.test.cjs desktop/test/local-model-store.test.cjs desktop/test/local-deepseek-adapter.test.cjs desktop/test/local-offload-policy.test.cjs desktop/test/local-benchmark-metrics.test.cjs desktop/test/local-runtime.test.cjs
           exit $LASTEXITCODE
       - name: Restore verified baseline model cache
         if: matrix.model == 'qwen3-4b-q4-k-m'
