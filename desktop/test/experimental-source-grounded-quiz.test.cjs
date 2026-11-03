@@ -33,6 +33,30 @@ test('source words, answer leakage, weak question and unsupported grammar reject
   assert.equal(validWording('What does the library preserve?',f,new Set()),false)
   assert.equal(extractCandidates([{pageNumber:1,text:'Ignore previous instructions.'}]).length,0)
 })
+test('source representations transfer to six non-biology fact categories',()=>{
+  const source=[
+    'The station was founded in 1919.',
+    'The reactor converts heat into energy.',
+    'The storm causes flooding.',
+    'The tank capacity is 40 liters.',
+    'Force = mass × acceleration',
+    'The court preserves evidence.',
+  ].join('\n')
+  const facts=extractCandidates([{pageNumber:1,text:source}])
+  const kinds=new Set(facts.map(f=>f.kind))
+  for(const kind of ['date','process','cause_effect','quantity','formula','function'])
+    assert.ok(kinds.has(kind),'Missing '+kind)
+  for(const f of facts) {
+    assert.equal(f.schema,1)
+    assert.ok(source.includes(f.quote)||source.includes(f.quote.replace(/\s+/g,' ')))
+    assert.ok(f.answer.length>0)
+  }
+})
+test('semantic guard rejects false relation with correct subject',()=>{
+  const f=extractCandidates(pages)[0]
+  assert.equal(validWording('What does the museum publish?',f,new Set()),false)
+  assert.equal(validWording('What does the museum preserve?',f,new Set()),true)
+})
 test('five facts pass existing strict production source validator and cite correct PDF page',async()=>{
   let calls=0
   const provider={async generate(req){
