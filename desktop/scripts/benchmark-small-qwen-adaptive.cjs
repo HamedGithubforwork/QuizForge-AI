@@ -79,9 +79,28 @@ const BIOLOGY_FRENCH = Object.freeze({
       ['substances', ['membrane', 'membrane cellulaire']]),
   ],
 })
+// This fixture has five independently cited facts of the SAME answer type.
+// It allows realistic four-choice assembly without inventing distractors.
+const MATERIALS = Object.freeze({
+  id: 'materials', difficulty: 'easy',
+  selectedPages: [{ pageNumber: 1, text: [
+    'Mira casing material is cobalt.',
+    'Tavi casing material is titanium.',
+    'Oria casing material is glass.',
+    'Daro casing material is ceramic.',
+    'Nela casing material is brass.',
+  ].join(' ') }],
+  facts: ['Mira:cobalt', 'Tavi:titanium', 'Oria:glass',
+    'Daro:ceramic', 'Nela:brass'].map(entry => {
+    const [device, material] = entry.split(':')
+    return { id: device.toLowerCase() + '_material', page: 1,
+      routes: [{ tokens: [device.toLowerCase(), 'casing'],
+        answers: aliases(material) }] }
+  }),
+})
 const EXPERIMENT_FIXTURES = Object.freeze([
   ...FIXTURES.filter(x => x.id === 'selected_pages' || x.id === 'french'),
-  BIOLOGY, BIOLOGY_FRENCH,
+  BIOLOGY, BIOLOGY_FRENCH, MATERIALS,
 ])
 const BIOLOGY_PLANS = Object.freeze({
   biology: [
@@ -99,7 +118,13 @@ const BIOLOGY_PLANS = Object.freeze({
     { page: 2, quote: 'La membrane cellulaire contrôle les échanges de substances avec le milieu extérieur.' },
   ],
 })
-const EXPERIMENT_PLANS = Object.freeze({ ...PLANS, ...BIOLOGY_PLANS })
+const EXPERIMENT_PLANS = Object.freeze({ ...PLANS, ...BIOLOGY_PLANS,
+  materials: Object.freeze(['Mira:cobalt', 'Tavi:titanium', 'Oria:glass',
+    'Daro:ceramic', 'Nela:brass'].map(entry => {
+    const [device, material] = entry.split(':')
+    return { page: 1, quote: device + ' casing material is ' + material + '.' }
+  })),
+})
 const MODES = Object.freeze([
   { fixture: 'selected_pages', type: 'multiple_choice' },
   { fixture: 'french', type: 'multiple_choice' },
@@ -530,10 +555,11 @@ async function main() {
     // conceal regressions in the original generator. English 1.7B batching
     // remains the current successful small-model path.
     const { runAnswerFirstFixture } = require('./benchmark-qwen-answer-first.cjs')
-    const answerFirstModes = modelId === 'qwen3-0p6b-q4-k-m'
+    const answerFirstModes = [...(modelId === 'qwen3-0p6b-q4-k-m'
       ? MODES : MODES.filter(mode => mode.fixture === 'french' ||
           mode.fixture === 'biology_french' ||
-          (mode.fixture === 'biology' && mode.type === 'short_answer'))
+          (mode.fixture === 'biology' && mode.type === 'short_answer'))),
+      { fixture: 'materials', type: 'multiple_choice' }]
     for (const mode of answerFirstModes) {
       const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
       const result = await runAnswerFirstFixture(provider, fixture,
