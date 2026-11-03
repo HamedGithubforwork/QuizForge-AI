@@ -2078,6 +2078,38 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
         }
       }
 
+      // A short but verifiably fact-rich weak-area source can produce a
+      // false "insufficient source" from the strict six-candidate contract.
+      // On a *first* explicit abstention, do not pay for a second attempt
+      // using nearly the same contract before the already-established
+      // five-question source-backed recovery. The independent evidence,
+      // answer, citation and duplicate filters are unchanged.
+      //
+      // Limit this optimization to multi-page notes with 5-8 exact source
+      // fact hints and at least two prior questions: sparse/ambiguous sources,
+      // single-page practice, and genuinely ample sources keep their tested
+      // routes. Recovery remains bounded and can abstain if facts are unsafe.
+      if (targetedMultipleChoice && retryValidationReason === 'insufficient_source' &&
+          avoidQuestions.length >= 2 && hasRichTargetedSource(request.pages)) {
+        const hintCount = targetedFactHints(request.pages).length
+        if (hintCount >= QUESTION_COUNT && hintCount < 9) {
+          try {
+            return await recoverTargetedInsufficientSource()
+          } catch (error) {
+            if (signal?.aborted || (error instanceof LocalAiError &&
+                !['insufficient_source', 'quiz_validation_failed'].includes(error.code))) throw error
+            const reason = error instanceof QuizValidationIssue
+              ? error.reason : error instanceof LocalAiError
+                ? error.code : 'quiz_validation_failed'
+            try { onValidationIssue(Object.freeze({
+              attempt: 'recovery', reason,
+            })) } catch {}
+            if (error instanceof LocalAiError) throw error
+            throw failure('quiz_validation_failed')
+          }
+        }
+      }
+
       // Only one invalid source-verified practice question can be replaced.
       // Other failures keep their existing bounded retry/recovery behavior.
       if (result.finishReason === 'stop') {
