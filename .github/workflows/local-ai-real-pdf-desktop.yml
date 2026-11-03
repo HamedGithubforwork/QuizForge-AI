@@ -1,0 +1,82 @@
+name: Qwen 1.7B Windows real PDF document lifecycle
+
+on:
+  pull_request:
+    paths:
+      - desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs
+      - desktop/test/real-pdf-desktop-lifecycle.test.cjs
+      - .github/workflows/local-ai-real-pdf-desktop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qfn-1p7b-real-pdf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-pdf-desktop:
+    name: Real PDF.js to Windows Local AI Qwen 1.7B
+    runs-on: windows-2025
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Test PDF and document quiz integration contracts
+        shell: pwsh
+        run: |
+          npm ci --prefix desktop
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency installation failed' }
+          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop PDF contracts failed' }
+      - name: Retrieve official public PDFs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/real-pdfs" -Force | Out-Null
+          $pdfs = @(
+            @{ name='usgs-water-cycle.pdf'; url='https://pubs.usgs.gov/gip/221/gip221_english.pdf' },
+            @{ name='loc-primary-sources.pdf'; url='https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf' }
+          )
+          foreach($p in $pdfs){
+            $dest=Join-Path "$env:RUNNER_TEMP/real-pdfs" $p.name
+            curl.exe -fL --max-time 180 -o $dest $p.url
+            if($LASTEXITCODE -ne 0 -or !(Test-Path $dest)){throw 'Official PDF unavailable'}
+            $size=(Get-Item $dest).Length
+            if($size -lt 8 -or $size -gt 15728640){throw 'Official PDF exceeds local input limits'}
+          }
+      - name: Stage pinned local runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if($LASTEXITCODE -ne 0){throw 'Runtime download failed'}
+          if((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338'){throw 'Runtime hash mismatch'}
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          if($LASTEXITCODE -ne 0){throw 'Runtime staging failed'}
+      - name: Verify pinned Qwen 1.7B only
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models" qwen3-1p7b-q4-k-m
+          if($LASTEXITCODE -ne 0){throw 'Pinned model download failed'}
+      - name: Run production Windows document-to-quiz lifecycle with real PDFs
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/real-pdfs" "$env:RUNNER_TEMP/real-pdf-report.json"
+          if($LASTEXITCODE -ne 0){throw 'Real desktop PDF pipeline failed; inspect report'}
+      - name: Upload sanitized acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: qwen-1p7b-real-pdf-desktop
+          path: ${{ runner.temp }}/real-pdf-report.json
+          if-no-files-found: warn
+          retention-days: 14
