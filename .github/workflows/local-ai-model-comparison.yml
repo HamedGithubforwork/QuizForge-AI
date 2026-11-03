@@ -86,6 +86,45 @@ jobs:
         with:
           path: ${{ runner.temp }}/models
           key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+      # On a cache hit the CLI still hashes the full model and rejects altered
+      # content. A cache miss or upstream transient download failure cannot be
+      # mistaken for a model quality regression.
+      - name: Restore pinned 1.7B model cache
+        if: matrix.model == 'qwen3-1p7b-q4-k-m'
+        id: qwen17cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
+      - name: Prepare pinned model with bounded download retries
+        shell: pwsh
+        env:
+          BENCHMARK_MODEL_ID: ${{ matrix.model }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modelDir = "$env:RUNNER_TEMP/models"
+          New-Item -ItemType Directory $modelDir -Force | Out-Null
+          $verified = $false
+          for ($attempt = 1; $attempt -le 4; $attempt++) {
+            node desktop/scripts/ensure-verified-model.cjs $modelDir $env:BENCHMARK_MODEL_ID
+            if ($LASTEXITCODE -eq 0) {
+              $verified = $true
+              break
+            }
+            if ($attempt -lt 4) {
+              Write-Warning "Verified model unavailable; retrying download (attempt $attempt/4)."
+              Start-Sleep -Seconds (10 * $attempt)
+            }
+          }
+          if (-not $verified) { throw 'Pinned benchmark model unavailable after verified retries' }
+      # Save immediately after SHA-256 validation, even if a later strict
+      # source-quality benchmark fails. Never cache an unverified download.
+      - name: Save pinned 1.7B model cache
+        if: matrix.model == 'qwen3-1p7b-q4-k-m' && steps.qwen17cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-win-qwen3-1p7b-q4km-d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5
       - name: Download and verify pinned llama.cpp runtime
         shell: pwsh
         run: |
