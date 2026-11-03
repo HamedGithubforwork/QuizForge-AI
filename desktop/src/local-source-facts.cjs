@@ -37,6 +37,15 @@ function hasPhrase(source,phrase){
   return !!b&&(' '+a+' ').includes(' '+b+' ')
 }
 const WORD=/[\p{L}\p{N}]/u
+function exactEvidence(pageText, quote){
+  // Recover the original contiguous substring, including its actual PDF
+  // whitespace/newlines; never present a flattened reconstruction as a quote.
+  const pieces=quote.trim().split(/\s+/u)
+  if(!pieces.length)return null
+  const escaped=pieces.map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))
+  const match=String(pageText).match(new RegExp(escaped.join('\\s+'),'u'))
+  return match?.[0]??null
+}
 const languageOf=quote=>/\b(?:la|le|les|des|une|un|du|et|est|sont|en|contrôle|contient|décrit|mesure|provoque)\b/iu
   .test(quote)&&/[àâçéèêîôùûœ]|(?:^|\s)(?:le|la|les|des|une|du)\s/iu.test(quote)?'fr':'en'
 function validFact(fact){
@@ -60,7 +69,8 @@ function fact(fields){
 function parseSentence(quote,page,section=''){
   if(typeof quote!=='string')return null
   const value=quote.trim().replace(/^[•*-]\s+/u,'')
-  if(value.length<18||value.length>MAX_QUOTE)return null
+  if(value.length<18||value.length>MAX_QUOTE||/[?？]$/.test(value)||
+      /^(?:what|which|when|why|where|who|how|does|do|is there|quels?|quelle|comment|pourquoi)\b/iu.test(value))return null
   // Explicit dates, causation, process output and comparison have precedence
   // over the general subject-verb-object parser.
   let m=value.match(/^(.{4,90}?)\s+(?:was\s+)?(founded|established|opened|signed|built|created)\s+in\s+(\d{4})\.$/iu)
@@ -149,8 +159,12 @@ function units(text){
     for(const m of line.matchAll(/[^.!?]+[.!?](?=\s|$)/gu))add(m[0].trim())
   }
   // Whole-page pass recovers sentences spanning PDF line breaks.
-  const flat=String(text).replace(/\s+/g,' ')
-  for(const m of flat.matchAll(/[^.!?]+[.!?](?=\s|$)/gu))add(m[0].trim())
+  const structured=lines.some(line=>
+    /^\s*(?:[-•*]\s+|\|)/u.test(line)||/[:—–]/u.test(line))
+  if(!structured){
+    const flat=String(text).replace(/\s+/g,' ')
+    for(const m of flat.matchAll(/[^.!?]+[.!?](?=\s|$)/gu))add(m[0].trim())
+  }
   return collected
 }
 function extractSourceFacts(pages,limit=MAX_CANDIDATES){
@@ -172,8 +186,16 @@ function extractSourceFacts(pages,limit=MAX_CANDIDATES){
       for(const parser of [parseLabel,parseSentence]){
         const f=parser(entry.quote,page.pageNumber,entry.section)
         if(!f||!hasPhrase(page.text,f.quote))continue
-        const key=norm(f.subject)+'|'+norm(f.relation)+'|'+norm(f.answer)
-        if(!seen.has(key)){seen.add(key);found.push(f)}
+        const exact=exactEvidence(page.text,f.quote)
+        if(!exact||!hasPhrase(exact,f.answer)||
+            exact.length>MAX_QUOTE)continue
+        // Answer is also code-owned. If line wrapping alters its bytes,
+        // abstain instead of emitting a normalized but nonverbatim answer.
+        const answer=exact.includes(f.answer)?f.answer:exactEvidence(exact,f.answer)
+        if(!answer||answer.length>MAX_ANSWER)continue
+        const verified=Object.freeze({...f,quote:exact,answer})
+        const key=norm(verified.subject)+'|'+norm(verified.relation)+'|'+norm(verified.answer)
+        if(!seen.has(key)){seen.add(key);found.push(verified)}
         break
       }
     }
@@ -215,7 +237,10 @@ function questionFromFact(f){
     return 'What is the '+(f.relation==='value'?'value':f.relation)+' of '+subject+'?'
   if(f.kind==='definition_or_attribute')
     return 'What '+(['are','were'].includes(f.relation)?'are':'is')+' '+subject+'?'
-  if(f.kind==='comparison')return 'What '+f.relation+' '+subject+'?'
+  if(f.kind==='comparison'){
+    const a=f.relation.match(/^(is|are|was|were) (greater than|less than|equal to)$/u)
+    return a?'What '+a[1]+' '+subject+' '+a[2]+'?':null
+  }
   let verb=ACTIONS[f.relation]
   let tail=''
   if(f.kind==='process'){
@@ -226,7 +251,7 @@ function questionFromFact(f){
   }
   if(!verb)return null
   const aux=/\b(?:activities|studies|records|people|students|they|we)\b/iu.test(subject)||
-    /\bs$/iu.test(subject)&&!/\bss$/iu.test(subject)?'do':'does'
+    /s$/iu.test(subject)&&!/(?:ss|us|is)$/iu.test(subject)?'do':'does'
   return 'What '+aux+' '+subject+' '+verb+tail+'?'
 }
 function wordingMatchesRelationship(question,f){
@@ -241,7 +266,11 @@ function wordingMatchesRelationship(question,f){
     return hasPhrase(q,f.relation)||hasPhrase(q,'value')
   if(f.kind==='definition_or_attribute')
     return /\b(?:is|are|was|were)\b/iu.test(q)||f.language==='fr'&&/qu est ce/u.test(q)
-  if(f.kind==='comparison')return hasPhrase(q,f.relation)
+  if(f.kind==='comparison'){
+    const m=f.relation.match(/^(?:is|are|was|were) (greater than|less than|equal to)$/u)
+    return !!m&&hasPhrase(q,f.subject+' '+m[1])&&
+      /^(?:what|which)\s+(?:is|are|was|were)\b/u.test(q)
+  }
   if(f.kind==='process'){
     const a=f.relation.match(/^(converts?|transforms?) (.+) into$/iu)
     return !!a && hasPhrase(q,a[1].replace(/s$/,'')) &&

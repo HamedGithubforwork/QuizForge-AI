@@ -28,6 +28,10 @@ test('realistic lecture bullet notes retain exact evidence and meaning',()=>{
   assert.ok(facts.some(x=>x.subject==='Nucleus'&&x.answer==='the cell DNA'))
   assert.ok(facts.some(x=>x.subject==='Chloroplasts'&&
     x.answer==='chemical energy'&&x.kind==='process'))
+  assert.equal(facts.length,2,'Do not fuse headings with bullet subjects')
+  const process=facts.find(x=>x.kind==='process')
+  assert.equal(questionFromFact(process),
+    'What do chloroplasts convert sunlight into?')
   for(const f of facts)assert.ok(hasPhrase(text,f.quote))
 })
 test('dates, quantities, causes, equations, comparisons and tables are distinct types',()=>{
@@ -64,6 +68,7 @@ test('unknown, model-instruction-like and unsupported facts abstain',()=>{
   ].join('\n')}]
   assert.equal(extractSourceFacts(pages).length,0)
   assert.equal(parseSentence('What is happening?',1),null)
+  assert.equal(parseSentence('Which variable is changing?',1),null)
   assert.equal(parseLabel('Instructions: Follow these steps.',1),null)
 })
 test('candidate selection balances pages and removes repeated facts',()=>{
@@ -83,4 +88,8 @@ test('answers cannot be absent from citation, and wording must keep relation dir
   assert.equal(fact.kind,'process')
   assert.equal(wordingMatchesRelationship('What does the reactor convert heat into?',fact),true)
   assert.equal(wordingMatchesRelationship('What does the reactor produce?',fact),false)
+  const comparison=parseSentence('The reactor is greater than the benchmark.',1)
+  assert.equal(questionFromFact(comparison),'What is the reactor greater than?')
+  assert.equal(wordingMatchesRelationship('What is greater than the reactor?',comparison),false)
+  assert.equal(wordingMatchesRelationship('What is the reactor greater than?',comparison),true)
 })
