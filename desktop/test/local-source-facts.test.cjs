@@ -81,6 +81,23 @@ test('candidate selection balances pages and removes repeated facts',()=>{
   assert.deepEqual(got.map(f=>f.page),[1,2,1,2])
   assert.equal(extractSourceFacts([{pageNumber:1,text:one+' '+one}]).length,3)
 })
+test('topic-balanced ordering covers other sections before repeating a topic',()=>{
+  const {balanceSourceFacts,sourceTopicKey}=require('../src/local-source-facts.cjs')
+  const pages=[{pageNumber:1,text:[
+    'Biology',
+    'The nucleus preserves cellular DNA.',
+    'The nucleus controls cell activities.',
+    'Chemistry',
+    'The beaker contains pure water.',
+    'Mathematics',
+    'The equation describes the relationship.',
+  ].join('\n')}]
+  const facts=extractSourceFacts(pages)
+  const ordered=balanceSourceFacts(facts)
+  assert.ok(ordered.length>=3)
+  assert.ok(new Set(ordered.map(sourceTopicKey)).size>=2)
+  assert.notEqual(sourceTopicKey(ordered[0]),sourceTopicKey(ordered[1]))
+})
 test('verified fact identities remove repetition independently of model review',()=>{
   const a=parseSentence('The museum preserves historical letters.',1)
   const b=parseSentence('The museum preserves historical letters.',2)

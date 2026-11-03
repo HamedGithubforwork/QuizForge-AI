@@ -306,6 +306,31 @@ function filterSourceFactDuplicates(questions,sourceFactByQuestion) {
   }
   return Object.freeze({questions:accepted,duplicateCount,checked:true})
 }
+// Stable topic identity and deterministic fair ordering. A source heading
+// identifies a topic when present; otherwise the normalized subject does.
+// No topic label is sent to diagnostics or telemetry.
+function sourceTopicKey(f){
+  if(!f||!Number.isSafeInteger(f.page))return ''
+  const section=norm(f.section).slice(0,72)
+  const subject=norm(f.subject).slice(0,72)
+  return section?String(f.page)+'|'+section:
+    String(f.page)+'|'+subject
+}
+function balanceSourceFacts(input){
+  if(!Array.isArray(input))return []
+  const groups=new Map()
+  for(const fact of input){
+    const key=sourceTopicKey(fact)
+    if(!key)continue
+    if(!groups.has(key))groups.set(key,[])
+    groups.get(key).push(fact)
+  }
+  const ordered=[],buckets=[...groups.values()]
+  for(let i=0;buckets.some(group=>i<group.length);i++)
+    for(const group of buckets)if(group[i])ordered.push(group[i])
+  return ordered
+}
 module.exports={ACTIONS,MODEL_SCHEMA:1,norm,hasPhrase,
+  sourceTopicKey,balanceSourceFacts,
   sourceFactKey,filterSourceFactDuplicates,extractSourceFacts,
   parseSentence,parseLabel,parseTable,questionFromFact,wordingMatchesRelationship}
