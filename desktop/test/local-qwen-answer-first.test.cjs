@@ -1,0 +1,147 @@
+'use strict'
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const { EXPERIMENT_FIXTURES, EXPERIMENT_PLANS } =
+  require('../scripts/benchmark-small-qwen-adaptive.cjs')
+const {
+  PROMPT_SCHEMA, extractVerifiedFact, questionPrompt, classifyException,
+  decodeQuestion, sourceTypedDistractors, validateQuestionOnly,
+  runAnswerFirstFixture,
+} = require('../scripts/benchmark-qwen-answer-first.cjs')
+const fixture = id => EXPERIMENT_FIXTURES.find(x => x.id === id)
+const english = fixture('selected_pages'), fr = fixture('french')
+const plan = EXPERIMENT_PLANS.selected_pages[0]
+const fact = extractVerifiedFact(plan, english)
+
+test('answer-first generation is only question text; answer, page and quote are code-owned', () => {
+  assert.deepEqual(PROMPT_SCHEMA.required, ['question'])
+  assert.equal(PROMPT_SCHEMA.properties.answer, undefined)
+  const p = questionPrompt(english, fact)
+  assert.match(p.messages[1].content, /VERIFIED ANSWER: cobalt/)
+  assert.deepEqual(p.jsonSchema.required, ['question'])
+  assert.equal(p.maxTokens, 170)
+  const raw = questionPrompt(english, fact, { retry: true, output: 'no_schema' })
+  assert.equal(raw.jsonSchema, undefined)
+  assert.match(raw.messages[0].content, /question text ONLY/)
+})
+test('conservative source grammar extracts answer without consulting oracle answer aliases', () => {
+  const expected = {
+    selected_pages: ['cobalt', '17 samples', 'five hours', 'glass', '23 samples'],
+    french: ['2037', 'Léa Morel', 'sept capteurs', 'la pression', 'l’humidité'],
+    biology: ['ATP', 'proteins', "most of a eukaryotic cell's DNA",
+      'chemical energy', 'movement of substances into and out of the cell'],
+    biology_french: ["de l'ATP", 'des protéines', "la majeure partie de l'ADN",
+      'énergie chimique', 'les échanges de substances avec le milieu extérieur'],
+  }
+  for (const [id, answers] of Object.entries(expected)) {
+    const data = fixture(id)
+    for (const [i, plan] of EXPERIMENT_PLANS[id].entries()) {
+      const extracted = extractVerifiedFact(plan, data)
+      assert.ok(extracted, id + ':' + i)
+      assert.equal(extracted.answer, answers[i], id + ':' + i)
+      assert.ok(extracted.quote.includes(extracted.answer))
+    }
+  }
+  assert.equal(extractVerifiedFact({ page: 2, quote: 'Fake material is lead.' },
+    english), null)
+})
+test('strict oracle checks user-visible question WITHOUT explanation text', () => {
+  const yes = validateQuestionOnly('What is Aster casing material?', english,
+    fact, 'short_answer')
+  assert.equal(yes.reason, undefined)
+  assert.equal(yes.question.correct_answer, 'cobalt')
+  assert.equal(yes.question.source_fact, plan.quote)
+  assert.deepEqual(yes.question.source_pages, [2])
+  assert.equal(validateQuestionOnly('What is its answer?', english,
+    fact, 'short_answer').reason, 'semantic_or_subject_mismatch')
+  assert.equal(validateQuestionOnly('What is Aster cobalt?', english,
+    fact, 'short_answer').reason, 'answer_leaked_in_question')
+  assert.equal(validateQuestionOnly('Quelle est la matière Aster ?', english,
+    fact, 'short_answer').reason, 'wrong_language')
+})
+test('French antecedent belongs to prompt context, never source quotation or answer key', () => {
+  const director = extractVerifiedFact(EXPERIMENT_PLANS.french[1], fr)
+  const prompt = questionPrompt(fr, director)
+  assert.match(prompt.messages[1].content, /CONTEXTE PRÉCÉDENT NON CITABLE/)
+  assert.match(prompt.messages[1].content, /La station Boréale a ouvert en 2037/)
+  assert.match(prompt.messages[1].content, /RÉPONSE VÉRIFIÉE : Léa Morel/)
+  assert.match(prompt.messages[0].content, /sujet/)
+  const v = validateQuestionOnly('Qui est la directrice de la station Boréale ?',
+    fr, director, 'short_answer')
+  assert.equal(v.reason, undefined)
+  assert.equal(validateQuestionOnly('Qui est sa directrice ?', fr, director,
+    'short_answer').reason, 'semantic_or_subject_mismatch')
+})
+test('distractors must be type-compatible and sourced; abstain when fewer than 3', () => {
+  assert.deepEqual(sourceTypedDistractors(english, fact), [])
+  assert.equal(validateQuestionOnly('What is Aster casing material?', english,
+    fact, 'multiple_choice').reason, 'insufficient_comparable_distractors')
+})
+test('no-schema fallback never blindly parses prose as trusted quiz', () => {
+  assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
+    'no_schema'), { question: 'What is Aster capacity?' })
+  assert.equal(decodeQuestion({ text: 'An explanation about capacity.',
+    finishReason: 'stop' }, 'no_schema').reason, 'non_question_response')
+  assert.equal(decodeQuestion({ text: '{broken', finishReason: 'stop' },
+    'schema').reason, 'invalid_json')
+  assert.equal(decodeQuestion({ text: '{"question":"Why?"}', finishReason: 'length' },
+    'schema').reason, 'truncated_or_missing')
+})
+test('safe failures report types without raw model text, error messages or paths', () => {
+  assert.equal(classifyException(Object.assign(new Error('private stack'), {
+    name: 'TypeError' })), 'type_exception')
+  assert.equal(classifyException({ code: 'invalid_request', message: 'secret' }),
+    'invalid_request')
+  assert.equal(classifyException({ code: 'ERR_ASSERTION', name: 'AssertionError',
+    message: 'secret' }), 'assertion_exception')
+})
+test('rejected model response falls back to plain question and preserves verified answer', async () => {
+  let calls = 0
+  const provider = {
+    async withSession(fn) { return fn({ async generate(prompt) {
+      calls++
+      return {
+        text: Object.hasOwn(prompt, 'jsonSchema') ? '{bad' :
+          'What is Aster casing material?',
+        finishReason: 'stop', usage: { outputTokens: 8 },
+      }
+    } }) },
+  }
+  // Other facts are deliberately failed; only the first fact can be accepted.
+  const p = EXPERIMENT_PLANS.selected_pages
+  const local = { async withSession(fn) { return fn({
+    async generate(prompt) {
+      if (prompt.messages[1].content.includes(p[0].quote)) {
+        return provider.withSession(async a => a.generate(prompt))
+      }
+      return { text: '{bad', finishReason: 'stop' }
+    },
+  }) } }
+  const report = await runAnswerFirstFixture(local, english, p, 'short_answer')
+  assert.equal(calls, 2)
+  assert.equal(report.inferenceCalls, 10)
+  assert.equal(report.sourceSupportedQuestions, 1)
+  assert.equal(report.incompleteCount, 4)
+  assert.equal(report.suggestFourB, true)
+  assert.equal(report.perFactOutcomes[0].status, 'invalid_json')
+  assert.equal(report.perFactOutcomes[1].protocol, 'no_schema')
+  assert.equal(report.perFactOutcomes[1].status, 'accepted')
+})
+test('no valid output cannot loop endlessly and never fabricates missing questions', async () => {
+  let calls = 0
+  const provider = {
+    async withSession(fn) { return fn({ async generate() {
+      calls++
+      throw Object.assign(new Error('sensitive details'), { code: 'runtime_unavailable' })
+    } }) },
+  }
+  const result = await runAnswerFirstFixture(provider, fr, EXPERIMENT_PLANS.french,
+    'short_answer')
+  assert.equal(calls, 10)
+  assert.equal(result.retries, 5)
+  assert.equal(result.sourceSupportedQuestions, 0)
+  assert.equal(result.fullFiveQuestionPass, false)
+  assert.equal(result.suggestFourB, true)
+  assert.ok(result.perFactOutcomes.every(x => x.stage === 'provider_generate' &&
+    x.status === 'runtime_unavailable'))
+})
