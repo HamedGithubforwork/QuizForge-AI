@@ -11,7 +11,7 @@ test('two real PDF origins and pinned experimental model',()=>{
 })
 test('PDF.js extraction requires text and selected-page fidelity',()=>{
   const tc=CASES[0]
-  const page={pageNumber:1,text:'the water cycle pools human activities '.repeat(5)}
+  const page={pageNumber:1,text:'earthquake shaking '.repeat(10)}
   const doc={processing:'local',scannedLikely:false,characterCount:175,pages:[page]}
   assert.doesNotThrow(()=>assertExtracted(doc,tc))
   assert.throws(()=>assertExtracted({...doc,scannedLikely:true},tc))

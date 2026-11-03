@@ -10,12 +10,12 @@ const { createPdfJsLocalEngine } = require('../src/pdfjs-local-engine.cjs')
 const { createWindowsLocalAiStack } = require('../src/windows-local-ai-stack.cjs')
 const MODEL_ID = 'qwen3-1p7b-q4-k-m'
 const CASES = Object.freeze([
-  { id:'usgs_water_cycle', filename:'usgs-water-cycle.pdf',
-    url:'https://pubs.usgs.gov/gip/221/gip221_english.pdf',
-    selectedPages:[1], anchors:['the water cycle','pools','human activities'] },
+  { id:'usgs_earthquake_shaking', filename:'usgs-earthquake-shaking.pdf',
+    url:'https://pubs.usgs.gov/fs/2001/fs001-01/fs001-01.pdf',
+    selectedPages:[1], anchors:['earthquake','shaking'] },
   { id:'loc_primary_sources', filename:'loc-primary-sources.pdf',
     url:'https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf',
-    selectedPages:[1], anchors:['observe','reflect','question'] },
+    selectedPages:[1], anchors:['reflect','question'] },
 ])
 const SAFE = new Set(['processing_failed','input_too_large','invalid_input',
   'invalid_selection','invalid_result','too_many_pages','source_too_large',

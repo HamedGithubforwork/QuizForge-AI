@@ -40,7 +40,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory "$env:RUNNER_TEMP/real-pdfs" -Force | Out-Null
           $pdfs = @(
-            @{ name='usgs-water-cycle.pdf'; url='https://pubs.usgs.gov/gip/221/gip221_english.pdf' },
+            @{ name='usgs-earthquake-shaking.pdf'; url='https://pubs.usgs.gov/fs/2001/fs001-01/fs001-01.pdf' },
             @{ name='loc-primary-sources.pdf'; url='https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf' }
           )
           foreach($p in $pdfs){
