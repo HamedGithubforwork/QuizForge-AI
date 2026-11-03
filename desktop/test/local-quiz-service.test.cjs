@@ -3245,7 +3245,7 @@ test('rich targeted practice preserves verified survivors through two bounded re
           notes.some(page => page.pageNumber === hint.page &&
             page.text.includes(hint.source_fact))))
         return { finishReason: 'stop', text: JSON.stringify({
-          title: 'Bounded recovery', questions: [0, 1, 2, 3, 4].map(makeQuestion),
+          title: 'Bounded recovery', questions: [0, 1, 2, 3, 4].map(index => makeQuestion(index)),
         }) }
       }
       assert.match(request.generationProfile, /^quiz-mcq-targeted-retry-v[12]$/)
