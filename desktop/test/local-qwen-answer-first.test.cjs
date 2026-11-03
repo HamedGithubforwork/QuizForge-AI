@@ -30,7 +30,7 @@ test('conservative source grammar extracts answer without consulting oracle answ
     french: ['2037', 'Léa Morel', 'sept capteurs', 'la pression', 'l’humidité'],
     biology: ['ATP', 'proteins', "most of a eukaryotic cell's DNA",
       'chemical energy', 'movement of substances into and out of the cell'],
-    biology_french: ["de l'ATP", 'des protéines', "la majeure partie de l'ADN",
+    biology_french: ["de l'ATP", 'des protéines', "la majeure partie de l'ADN de la cellule",
       'énergie chimique', 'les échanges de substances avec le milieu extérieur'],
   }
   for (const [id, answers] of Object.entries(expected)) {
