@@ -50,6 +50,11 @@ jobs:
             $size=(Get-Item $dest).Length
             if($size -lt 8 -or $size -gt 15728640){throw 'Official PDF exceeds local input limits'}
           }
+      - name: Check real PDF extraction before model/runtime downloads
+        shell: pwsh
+        run: |
+          node desktop/scripts/verify-real-pdf-desktop-lifecycle.cjs --preflight "$env:RUNNER_TEMP/real-pdfs" "$env:RUNNER_TEMP/real-pdf-preflight.json"
+          if($LASTEXITCODE -ne 0){throw 'Official PDF extraction preflight failed; read metadata artifact'}
       - name: Stage pinned local runtime
         shell: pwsh
         run: |
@@ -77,6 +82,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: qwen-1p7b-real-pdf-desktop
-          path: ${{ runner.temp }}/real-pdf-report.json
+          path: |
+            ${{ runner.temp }}/real-pdf-preflight.json
+            ${{ runner.temp }}/real-pdf-report.json
           if-no-files-found: warn
           retention-days: 14

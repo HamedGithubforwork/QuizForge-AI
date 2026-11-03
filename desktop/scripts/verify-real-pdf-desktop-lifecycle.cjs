@@ -22,14 +22,30 @@ const SAFE = new Set(['processing_failed','input_too_large','invalid_input',
   'insufficient_source','document_too_large','runtime_unavailable',
   'runtime_invalid','model_missing','invalid_model','quiz_validation_failed',
   'generation_failed','insufficient_memory','busy','cancelled','not_ready'])
-const reason = error => SAFE.has(error?.code) ? error.code : 'unclassified'
+const reason = error => error?.code === 'ERR_ASSERTION' ? 'source_validation_failed' :
+  (SAFE.has(error?.code) ? error.code : 'unclassified')
+const normalizedText = value => String(value).normalize('NFKC').toLowerCase()
+  .replace(/\s+/g,' ').trim()
+function extractionMetrics(doc,tc) {
+  const selectedText=Array.isArray(doc?.pages)?doc.pages.map(p=>p.text).join(' '):''
+  const content=normalizedText(selectedText)
+  return {
+    pageCount:doc?.pageCount??null,selectedPageCount:doc?.pages?.length??null,
+    scannedLikely:doc?.scannedLikely===true,
+    characterCount:doc?.characterCount??null,
+    sourceUtf8Bytes:Buffer.byteLength(selectedText,'utf8'),
+    selectedPages:Array.isArray(doc?.pages)?doc.pages.map(p=>p.pageNumber):[],
+    anchorChecks:tc.anchors.map(a=>content.includes(normalizedText(a))),
+  }
+}
 function assertExtracted(doc, testcase) {
   assert.equal(doc.processing,'local')
   assert.equal(doc.scannedLikely,false)
   assert.deepEqual(doc.pages.map(p=>p.pageNumber),testcase.selectedPages)
-  assert.ok(doc.characterCount >=100 && doc.characterCount<=8000)
-  const text=doc.pages.map(x=>x.text).join(' ').toLowerCase()
-  for (const anchor of testcase.anchors) assert.ok(text.includes(anchor),'PDF source anchor missing')
+  assert.ok(doc.characterCount >= 100)
+  const metrics=extractionMetrics(doc,testcase)
+  assert.ok(metrics.sourceUtf8Bytes<=8000,'Local AI selected source size exceeded')
+  assert.ok(metrics.anchorChecks.every(Boolean),'PDF source anchor missing')
 }
 function assertQuiz(quiz, selectedPages) {
   assert.ok(Array.isArray(quiz?.questions))
@@ -55,10 +71,11 @@ async function checkOne(stack,tc,dir) {
     const docRequest={bytes,filename:tc.filename,selectedPages:tc.selectedPages}
     out.stage='extracting'
     const extracted=await stack.processDocument(docRequest)
+    out.pdfSha256=extracted.pdfSha256
+    out.extraction=extractionMetrics(extracted,tc)
+    out.stage='checking_extraction'
     assertExtracted(extracted,tc)
     out.import='passed'
-    out.pdfSha256=extracted.pdfSha256
-    out.characters=extracted.characterCount
     out.stage='generating'
     const result=await stack.generateDocumentQuiz({
       ...docRequest,questionCount:5,difficulty:'easy',questionType:'short_answer'})
@@ -77,6 +94,36 @@ async function checkOne(stack,tc,dir) {
     console.error('REAL PDF '+tc.id+' stage='+out.stage+' reason='+out.reason)
   }
   return out
+}
+// Run BEFORE runtime/model downloads. PDF text itself never enters the report.
+async function preflight(pdfDir,output) {
+  const processor=createLocalDocumentProcessor({engine:createPdfJsLocalEngine()})
+  const report={schema:1,phase:'pdfjs_preflight',outcome:'incomplete',cases:[]}
+  for(const tc of CASES){
+    const row={id:tc.id,source:tc.url,result:'pending',reason:null}
+    try {
+      const bytes=new Uint8Array(await fs.readFile(path.join(pdfDir,tc.filename)))
+      const doc=await processor.processPdf({
+        bytes,filename:tc.filename,selectedPages:tc.selectedPages})
+      row.extraction=extractionMetrics(doc,tc)
+      row.pdfSha256=doc.pdfSha256
+      assertExtracted(doc,tc)
+      row.result='passed'
+    }catch(error){
+      row.result='failed'
+      row.reason=reason(error)
+    }
+    report.cases.push(row)
+    console.log('PDF PREFLIGHT '+row.id+' result='+row.result+
+      ' reason='+(row.reason??'none')+
+      ' characters='+(row.extraction?.characterCount??'unknown')+
+      ' utf8Bytes='+(row.extraction?.sourceUtf8Bytes??'unknown')+
+      ' anchors='+(row.extraction?.anchorChecks?.filter(Boolean).length??0)+
+      '/'+tc.anchors.length)
+  }
+  report.outcome=report.cases.every(c=>c.result==='passed')?'passed':'failed'
+  await fs.writeFile(path.resolve(output),JSON.stringify(report,null,2)+'\n')
+  if(report.outcome!=='passed')process.exitCode=1
 }
 async function main(){
   assert.equal(process.platform,'win32')
@@ -120,8 +167,13 @@ async function main(){
     report.cases.filter(c=>c.quiz==='passed').length+'/'+CASES.length)
   if(report.outcome!=='passed')process.exitCode=1
 }
-module.exports={CASES,MODEL_ID,assertExtracted,assertQuiz,reason,main}
-if(require.main===module)main().catch(()=>{
-  console.error('Real PDF acceptance failure: unclassified')
-  process.exitCode=1
-})
+module.exports={CASES,MODEL_ID,assertExtracted,assertQuiz,reason,extractionMetrics,preflight,main}
+if(require.main===module){
+  const run=process.argv[2]==='--preflight'
+    ? preflight(path.resolve(process.argv[3]),path.resolve(process.argv[4]))
+    : main()
+  run.catch(()=>{
+    console.error('Real PDF acceptance failure: unclassified')
+    process.exitCode=1
+  })
+}

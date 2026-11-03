@@ -1,7 +1,7 @@
 'use strict'
 const { test }=require('node:test')
 const assert=require('node:assert/strict')
-const {CASES,MODEL_ID,assertExtracted,assertQuiz,reason}=
+const {CASES,MODEL_ID,assertExtracted,assertQuiz,reason,extractionMetrics}=
  require('../scripts/verify-real-pdf-desktop-lifecycle.cjs')
 test('two real PDF origins and pinned experimental model',()=>{
   assert.equal(MODEL_ID,'qwen3-1p7b-q4-k-m')
@@ -16,7 +16,11 @@ test('PDF.js extraction requires text and selected-page fidelity',()=>{
   assert.doesNotThrow(()=>assertExtracted(doc,tc))
   assert.throws(()=>assertExtracted({...doc,scannedLikely:true},tc))
   assert.throws(()=>assertExtracted({...doc,pages:[{...page,pageNumber:2}]},tc))
-  assert.throws(()=>assertExtracted({...doc,characterCount:8001},tc))
+  const m=extractionMetrics(doc,tc)
+  assert.equal(m.anchorChecks.every(Boolean),true)
+  assert.ok(m.sourceUtf8Bytes<8000)
+  assert.throws(()=>assertExtracted({...doc,pages:[{
+    ...page,text:page.text+'X'.repeat(10000)}]},tc))
 })
 test('quiz acceptance rejects duplicates, wrong count and unsupported citations',()=>{
   const data={questions:Array.from({length:5},(_,i)=>({
@@ -31,4 +35,5 @@ test('quiz acceptance rejects duplicates, wrong count and unsupported citations'
 test('private errors never enter public report reason fields',()=>{
   assert.equal(reason({code:'quiz_validation_failed',message:'secret text'}),'quiz_validation_failed')
   assert.equal(reason({code:'secret',message:'private source'}),'unclassified')
+  assert.equal(reason({code:'ERR_ASSERTION',message:'private PDF content'}),'source_validation_failed')
 })
