@@ -6,7 +6,8 @@ const { EXPERIMENT_FIXTURES, EXPERIMENT_PLANS } =
 const {
   PROMPT_SCHEMA, extractVerifiedFact, questionPrompt, classifyException,
   decodeQuestion, sourceTypedDistractors, validateQuestionOnly,
-  runAnswerFirstFixture,
+  runAnswerFirstFixture, initialPromptVariant, retryPromptVariant,
+  sourceRelationshipCue,
 } = require('../scripts/benchmark-qwen-answer-first.cjs')
 const fixture = id => EXPERIMENT_FIXTURES.find(x => x.id === id)
 const english = fixture('selected_pages'), fr = fixture('french')
@@ -147,6 +148,57 @@ test('wording rejections retain JSON schema with a targeted retry instruction', 
   assert.equal(report.perFactOutcomes[1].status, 'accepted')
   assert.equal(report.sourceSupportedQuestions, 1)
 })
+test('hybrid strategy selects by source grammar and switches only on semantic failure', () => {
+  const materials = fixture('materials'), biology = fixture('biology')
+  const station = extractVerifiedFact(EXPERIMENT_PLANS.french[1], fr)
+  const membrane = extractVerifiedFact(EXPERIMENT_PLANS.biology[4], biology)
+  assert.equal(initialPromptVariant(fact), 'visible')
+  assert.equal(initialPromptVariant(station), 'visible')
+  assert.equal(initialPromptVariant(membrane), 'masked')
+  assert.equal(retryPromptVariant('visible', 'answer_leaked_in_question'), 'masked')
+  assert.equal(retryPromptVariant('masked', 'semantic_or_subject_mismatch'), 'visible')
+  assert.equal(retryPromptVariant('visible', 'invalid_json'), 'visible')
+  assert.equal(retryPromptVariant('visible', 'semantic_or_subject_mismatch', 'visible'),
+    'visible')
+  const cue = sourceRelationshipCue(fr, station)
+  assert.match(cue.subject, /station Boréale/)
+  assert.match(cue.relation, /directrice est/)
+  assert.doesNotMatch(cue.relation, /Léa Morel/)
+  const visible = questionPrompt(materials,
+    extractVerifiedFact(EXPERIMENT_PLANS.materials[0], materials),
+    { variant: 'visible' })
+  const masked = questionPrompt(materials,
+    extractVerifiedFact(EXPERIMENT_PLANS.materials[0], materials),
+    { variant: 'masked' })
+  assert.match(visible.messages[1].content, /VERIFIED ANSWER: cobalt/)
+  assert.match(masked.messages[1].content, /\[BLANK\]/)
+  assert.doesNotMatch(masked.messages[1].content, /cobalt/)
+})
+test('hybrid runtime preserves source-owned citations and records prompt variant', async () => {
+  const materials = fixture('materials')
+  const responses = ['What is Mira cobalt?', 'What is the Mira casing material?']
+  let calls = 0
+  const provider = { async withSession(fn) {
+    return fn({ async generate(prompt) {
+      const n = calls++
+      if (n === 0) assert.match(prompt.messages[1].content, /VERIFIED ANSWER: cobalt/)
+      if (n === 1) assert.doesNotMatch(prompt.messages[1].content, /VERIFIED ANSWER: cobalt/)
+      return { text: JSON.stringify({ question: responses[n] ??
+        'What is the unknown thing?' }), finishReason: 'stop' }
+    } })
+  } }
+  const result = await runAnswerFirstFixture(provider, materials,
+    EXPERIMENT_PLANS.materials, 'multiple_choice', { trial: 2 })
+  assert.equal(result.promptStrategy, 'hybrid')
+  assert.equal(result.trial, 2)
+  assert.equal(result.perFactOutcomes[0].variant, 'visible')
+  assert.equal(result.perFactOutcomes[0].status, 'answer_leaked_in_question')
+  assert.equal(result.perFactOutcomes[1].variant, 'masked')
+  assert.equal(result.perFactOutcomes[1].status, 'accepted')
+  assert.equal(result.sourceSupportedQuestions, 1)
+  assert.equal(result.independentOracleMatches, 1)
+  assert.equal(result.fullFiveQuestionPass, false)
+})
 test('no-schema fallback never blindly parses prose as trusted quiz', () => {
   assert.deepEqual(decodeQuestion({ text: 'What is Aster capacity?', finishReason: 'stop' },
     'no_schema'), { question: 'What is Aster capacity?' })
@@ -187,7 +239,8 @@ test('rejected model response falls back to plain question and preserves verifie
       return { text: '{bad', finishReason: 'stop' }
     },
   }) } }
-  const report = await runAnswerFirstFixture(local, english, p, 'short_answer')
+  const report = await runAnswerFirstFixture(local, english, p, 'short_answer',
+    { strategy: 'masked' })
   assert.equal(calls, 2)
   assert.equal(report.inferenceCalls, 10)
   assert.equal(report.sourceSupportedQuestions, 1)

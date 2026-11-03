@@ -169,3 +169,23 @@ test('focused GitHub Actions job cannot mask a failed model benchmark as green',
   assert.match(workflow, /throw 'Pinned benchmark model unavailable'/)
   assert.doesNotMatch(workflow, /^\s*exit 0\s*$/m)
 })
+test('two-pass Qwen quality gate requires each trial independently, without merging partials', () => {
+  const { assessSmokeResults } = require('../scripts/benchmark-small-qwen-adaptive.cjs')
+  const modes = [1, 2].map(trial => ({
+    fixture: 'materials', type: 'multiple_choice', trial,
+  }))
+  const good = trial => ({
+    fixture: 'materials', questionType: 'multiple_choice',
+    promptStrategy: 'hybrid', trial, inferenceCalls: 5,
+    sourceSupportedQuestions: 5, independentOracleMatches: 5,
+    uniqueSourceFacts: 5, fullFiveQuestionPass: true,
+  })
+  assert.deepEqual(assessSmokeResults([good(1), good(2)], modes),
+    { status: 'passed', passed: 2, required: 2 })
+  assert.deepEqual(assessSmokeResults([good(1)], modes),
+    { status: 'incomplete_benchmark', passed: 1, required: 2 })
+  assert.deepEqual(assessSmokeResults([good(1), {...good(2),
+    fullFiveQuestionPass: false, sourceSupportedQuestions: 4,
+    independentOracleMatches: 4}], modes),
+    { status: 'quality_failed', passed: 1, required: 2 })
+})

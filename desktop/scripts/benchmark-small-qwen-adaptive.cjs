@@ -529,7 +529,8 @@ function assessSmokeResults(runs, expectedModes) {
   let passed = 0
   for (const mode of expectedModes) {
     const matches = runs.filter(run => run &&
-      run.fixture === mode.fixture && run.questionType === mode.type)
+      run.fixture === mode.fixture && run.questionType === mode.type &&
+      (!mode.trial || run.trial === mode.trial))
     if (matches.length !== 1 ||
         !Number.isSafeInteger(matches[0].inferenceCalls) ||
         matches[0].inferenceCalls < 1 ||
@@ -562,6 +563,7 @@ async function main() {
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const report = { schema: 1, syntheticOnly: true,
     experiment: 'adaptive-small-qwen-source-grounded-retry',
+    smokeTrialCount: process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1,
     modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [] }
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
   const smokeOnly = process.env.QFN_QWEN_SMOKE_ONLY === '1'
@@ -601,23 +603,35 @@ async function main() {
             mode.fixture === 'biology_french' ||
             (mode.fixture === 'biology' && mode.type === 'short_answer'))),
         { fixture: 'materials', type: 'multiple_choice' }]
-    for (const mode of answerFirstModes) {
-      const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
-      const result = await runAnswerFirstFixture(provider, fixture,
-        EXPERIMENT_PLANS[mode.fixture], mode.type)
-      report.answerFirstRuns.push(result)
-      await save()
-      console.log('ANSWER-FIRST QWEN ' + modelId + ' ' + mode.fixture + '/' + mode.type +
-        ' accepted=' + result.sourceSupportedQuestions +
-        ' oracle=' + result.independentOracleMatches +
-        ' fullPass=' + result.fullFiveQuestionPass +
-        ' calls=' + result.inferenceCalls +
-        ' failureStages=' + [...new Set(result.perFactOutcomes
-          .filter(x => x.status !== 'accepted')
-          .map(x => x.stage + ':' + x.status))].join(','))
+    // Repeat the same real-model smoke twice. These are repeat measurements,
+    // not independently seeded runs. Preserve each trial's exact pass count.
+    const trials = smokeOnly ? [1, 2] : [1]
+    for (const trial of trials) {
+      for (const mode of answerFirstModes) {
+        const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
+        const result = await runAnswerFirstFixture(provider, fixture,
+          EXPERIMENT_PLANS[mode.fixture], mode.type, { strategy: 'hybrid', trial })
+        report.answerFirstRuns.push(result)
+        await save()
+        console.log('ANSWER-FIRST QWEN ' + modelId + ' trial=' + trial +
+          ' ' + mode.fixture + '/' + mode.type +
+          ' accepted=' + result.sourceSupportedQuestions +
+          ' oracle=' + result.independentOracleMatches +
+          ' fullPass=' + result.fullFiveQuestionPass +
+          ' calls=' + result.inferenceCalls +
+          ' visibleAccepted=' + result.perFactOutcomes
+            .filter(x => x.status === 'accepted' && x.variant === 'visible').length +
+          ' maskedAccepted=' + result.perFactOutcomes
+            .filter(x => x.status === 'accepted' && x.variant === 'masked').length +
+          ' failureStages=' + [...new Set(result.perFactOutcomes
+            .filter(x => x.status !== 'accepted')
+            .map(x => x.stage + ':' + x.status))].join(','))
+      }
     }
     if (smokeOnly) {
-      const gate = assessSmokeResults(report.answerFirstRuns, answerFirstModes)
+      const expected = trials.flatMap(trial =>
+        answerFirstModes.map(mode => ({ ...mode, trial })))
+      const gate = assessSmokeResults(report.answerFirstRuns, expected)
       report.smokeQualityGate = gate
       await save()
       console.log('QWEN SMOKE QUALITY ' + modelId + ' status=' + gate.status +
