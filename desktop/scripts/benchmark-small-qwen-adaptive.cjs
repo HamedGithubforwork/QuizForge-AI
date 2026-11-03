@@ -624,22 +624,64 @@ function assessSmokeResults(runs, expectedModes) {
   }
 }
 
+// Keep startup diagnostics precise without exposing paths, model text, API keys
+// or child-process stderr. The provider intentionally maps runtime faults to
+// 'runtime_unavailable'; these allowlisted events retain the lost distinction.
+const RUNTIME_EVENTS = new Set([
+  'runtime_launch', 'runtime_ready', 'runtime_failed',
+])
+const RUNTIME_STAGES = new Set([
+  'verification', 'startup', 'inference', 'cleanup',
+])
+const RUNTIME_REASONS = new Set([
+  'startup_failed', 'watchdog_failed', 'watchdog_timeout',
+  'watchdog_shutdown_failed', 'watchdog_unavailable',
+  'model_missing', 'invalid_model', 'invalid_runtime',
+  'unexpected_files', 'unsafe_directory', 'invalid_directory',
+  'request_failed', 'invalid_request', 'runtime_closed',
+  'shutdown_failed', 'timed_out', 'cancelled',
+])
+function sanitizedRuntimeEvent(event, fields) {
+  if (!RUNTIME_EVENTS.has(event)) return null
+  return Object.freeze({
+    event,
+    ...(RUNTIME_STAGES.has(fields?.stage) ? { stage: fields.stage } : {}),
+    ...(RUNTIME_REASONS.has(fields?.reason) ? { reason: fields.reason } :
+      event === 'runtime_failed' ? { reason: 'unclassified' } : {}),
+    ...(fields?.acceleration === 'cpu' || fields?.acceleration === 'gpu'
+      ? { acceleration: fields.acceleration } : {}),
+  })
+}
+
 async function main() {
   assert.equal(process.platform, 'win32', 'Windows benchmark only')
   const [runtimeDir, modelsDir, reportPath, modelId] = process.argv.slice(2)
   assert.ok(runtimeDir && modelsDir && reportPath)
   assert.ok(['qwen3-0p6b-q4-k-m', 'qwen3-1p7b-q4-k-m'].includes(modelId))
   const model = getBenchmarkModel(modelId)
-  const store = createLocalModelStore({ directory: path.resolve(modelsDir), model })
-  const runtime = createLocalRuntime({ directory: path.resolve(runtimeDir), modelStore: store })
-  const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const report = { schema: 1, syntheticOnly: true,
     experiment: 'adaptive-small-qwen-source-grounded-retry',
     publicPdfSources: PUBLIC_PDF_EXCERPTS.map(
       ({slot,domain,pdfUrl,pdfPage}) => ({slot,domain,pdfUrl,pdfPage})),
     smokeTrialCount: process.env.QFN_QWEN_RETIRED_CHECK === '1' ? 1 :
       (process.env.QFN_QWEN_SMOKE_ONLY === '1' ? 2 : 1),
-    modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [] }
+    modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [],
+    runtimeDiagnostics: [] }
+  const store = createLocalModelStore({ directory: path.resolve(modelsDir), model })
+  const runtime = createLocalRuntime({
+    directory: path.resolve(runtimeDir), modelStore: store,
+    onDiagnostic(event, fields) {
+      const record = sanitizedRuntimeEvent(event, fields)
+      if (record && report.runtimeDiagnostics.length < 30) {
+        report.runtimeDiagnostics.push(record)
+        if (record.event === 'runtime_failed') {
+          console.error('QWEN BENCHMARK RUNTIME failed stage='+
+            (record.stage ?? 'unknown')+' reason='+(record.reason ?? 'unclassified'))
+        }
+      }
+    },
+  })
+  const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
   const smokeOnly = process.env.QFN_QWEN_SMOKE_ONLY === '1'
   try {
@@ -744,7 +786,7 @@ module.exports = {
   EXPERIMENT_FIXTURES, EXPERIMENT_PLANS, MODES, PUBLIC_PDF_EXCERPTS, buildPrompt,
   inspectCandidate, runAdaptiveFixture, runBatchedFixture, buildPairPrompt,
   MCQ_SCHEMA, SHORT_SCHEMA, languageMatches, frenchContext,
-  assessSmokeResults,
+  assessSmokeResults, sanitizedRuntimeEvent,
 }
 if (require.main === module) main().catch(error => {
   console.error('Adaptive small Qwen benchmark failed: ' +

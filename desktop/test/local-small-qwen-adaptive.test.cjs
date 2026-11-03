@@ -160,6 +160,24 @@ test('smoke quality gate rejects missing, incomplete and partially correct quizz
     complete[0], complete[0],
   ], expectedModes).status, 'incomplete_benchmark')
 })
+test('runtime benchmark records safe Windows startup stage without source leakage', () => {
+  const { sanitizedRuntimeEvent } =
+    require('../scripts/benchmark-small-qwen-adaptive.cjs')
+  assert.deepEqual(sanitizedRuntimeEvent('runtime_failed',{
+    stage:'startup',reason:'watchdog_timeout',
+    prompt:'private notes',path:'D:\\secret',key:'dont-record',
+  }),{
+    event:'runtime_failed',stage:'startup',reason:'watchdog_timeout',
+  })
+  assert.deepEqual(sanitizedRuntimeEvent('runtime_failed',{
+    stage:'startup',reason:'Unexpected secret with path',
+  }),{
+    event:'runtime_failed',stage:'startup',reason:'unclassified',
+  })
+  assert.equal(sanitizedRuntimeEvent('untrusted_log',{
+    prompt:'private',
+  }),null)
+})
 test('focused GitHub Actions job cannot mask a failed model benchmark as green', () => {
   const fs = require('node:fs')
   const path = require('node:path')
