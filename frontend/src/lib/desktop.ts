@@ -1,12 +1,23 @@
 import type { AiAnswerReviewDecision } from './answerFallback.ts'
 import type { Quiz } from '../types/api.generated.ts'
 export type DesktopLocalQuizProgress = {
-  phase: 'generating' | 'checking_duplicates'
-  completedBatches: number
-  totalBatches: number
+  phase: 'extracting_pdf' | 'selecting_source' | 'extracting_facts' | 'generating' | 'checking_duplicates' | 'finalizing_quiz'
+  completedBatches?: number
+  totalBatches?: number
   validQuestions: number
   requestedQuestions: number
   previewQuestions?: string[]
+  pdfPhase?: 'opening' | 'extracting' | 'ocr' | 'complete'
+  completedPages?: number
+  totalPages?: number
+  originalSourceBytes?: number
+  selectedSourceBytes?: number
+  selectedPages?: number
+  candidateCount?: number
+  topicCount?: number
+  evaluatedCandidates?: number
+  modelAcceptedCount?: number
+  repairedCount?: number
 }
 
 export type DesktopLocalAiQuizStatus = {
@@ -23,6 +34,7 @@ export type DesktopLocalAiQuizStatus = {
     | 'runtime_unavailable'
     | null
   busy: boolean
+  experimentalSourceGroundedPdf?: boolean
   modelId?: string
   execution?: 'local'
   constraints?: {

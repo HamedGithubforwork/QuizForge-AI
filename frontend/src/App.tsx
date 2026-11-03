@@ -28,6 +28,7 @@ import { normalizePageSelection } from './lib/pageSelection.ts'
 import {
   desktopLocalQuizBridge,
   desktopLocalPdfBridge,
+  desktopLocalDocumentQuizBridge,
   type DesktopLocalAiQuizStatus,
   type DesktopLocalQuizProgress,
   type DesktopLocalPdfDocument,
@@ -124,6 +125,8 @@ function App() {
     useRef(desktopLocalQuizBridge())
   const localQuizBridge =
     localQuizBridgeRef.current
+  const localDocumentQuizBridgeRef = useRef(desktopLocalDocumentQuizBridge())
+  const localDocumentQuizBridge = localDocumentQuizBridgeRef.current
   const [localBatchProgress, setLocalBatchProgress] = useState<DesktopLocalQuizProgress | null>(null)
   const localPdfBridgeRef = useRef(desktopLocalPdfBridge())
   const localPdfBridge = localPdfBridgeRef.current
@@ -597,28 +600,60 @@ function App() {
           )
         }
 
-        const request =
-          await buildLocalQuizRequest(
-            documentResult,
-            difficulty,
-            localQuizStatus,
-            loadCurrentSourcePageText,
-            localController?.signal,
-            questionCount as 5 | 10 | 15,
-            questionType,
-          )
-
-        localController?.signal
-          .throwIfAborted()
-
-        setGenerationStage(
-          'Generating and validating on this computer...',
-        )
-
-        const result =
-          await localQuizBridge
-            .generateLocalAiQuiz(request)
-
+        // The experimental 1.7B PDF route can select bounded evidence from
+        // larger source pages. The shipped 4B path retains the original
+        // selected-text request and its strict size limit.
+        const useExperimentalPdf = localQuizStatus.experimentalSourceGroundedPdf === true &&
+          Boolean(selectedFile) && Boolean(localProcessedPages) &&
+          questionCount === 5 && questionType === 'short_answer' &&
+          Boolean(localDocumentQuizBridge)
+        let result: Awaited<ReturnType<NonNullable<typeof localQuizBridge>['generateLocalAiQuiz']>>
+        if (useExperimentalPdf && selectedFile && localDocumentQuizBridge) {
+          const selectedPages = documentResult.pages.map(page => page.page_number)
+          if (selectedPages.length > 20) {
+            throw new Error('Select up to 20 PDF pages for experimental Local AI generation.')
+          }
+          setGenerationStage('Extracting and selecting source evidence on this computer...')
+          const documentQuiz = await localDocumentQuizBridge.generateLocalDocumentQuiz({
+            bytes: await readLocalPdfBytes(selectedFile),
+            filename: selectedFile.name,
+            selectedPages,
+            questionCount: 5,
+            difficulty: difficulty as 'easy' | 'medium' | 'hard',
+            questionType: 'short_answer',
+          })
+          if (!documentQuiz.ok && documentQuiz.error !== 'cancelled') {
+            const messages: Record<string,string> = {
+              source_too_large: 'The selected PDF pages could not be reduced to verified source facts.',
+              document_too_large: 'The PDF exceeds the 15 MB local limit.',
+              too_many_pages: 'Select up to 20 PDF pages for local quiz generation.',
+              insufficient_source: 'The selected PDF pages did not contain enough verifiable facts.',
+              processing_failed: 'Local PDF extraction failed.',
+              quiz_validation_failed: 'No source-verified quiz could be produced.',
+              runtime_unavailable: 'The local model runtime is unavailable.',
+              model_missing: 'The local model is missing.',
+              invalid_model: 'The local model could not be verified.',
+            }
+            throw new Error(messages[documentQuiz.error] ?? 'Experimental Local AI quiz generation failed.')
+          }
+          result = documentQuiz.ok
+            ? {ok:true,quiz:documentQuiz.quiz}
+            : {ok:false,error:'cancelled'}
+        } else {
+          const request =
+            await buildLocalQuizRequest(
+              documentResult,
+              difficulty,
+              localQuizStatus,
+              loadCurrentSourcePageText,
+              localController?.signal,
+              questionCount as 5 | 10 | 15,
+              questionType,
+            )
+          localController?.signal.throwIfAborted()
+          setGenerationStage('Generating and validating on this computer...')
+          result = await localQuizBridge.generateLocalAiQuiz(request)
+        }
         localController?.signal
           .throwIfAborted()
 

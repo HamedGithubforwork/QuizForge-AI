@@ -9,6 +9,9 @@ on:
       - desktop/src/experimental-source-grounded-quiz.cjs
       - desktop/src/local-document-quiz-service.cjs
       - desktop/src/windows-local-ai-stack.cjs
+      - frontend/src/lib/desktop.ts
+      - frontend/src/components/quiz/GenerationTimingPanel.tsx
+      - frontend/src/App.tsx
       - desktop/test/local-source-selection.test.cjs
       - desktop/test/local-source-facts.test.cjs
       - desktop/test/local-document-quiz-service.test.cjs

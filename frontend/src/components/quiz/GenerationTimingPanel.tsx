@@ -23,9 +23,19 @@ export default function GenerationTimingPanel({
       <p><strong>Elapsed:</strong> {formatGenerationDuration(elapsedMs)}</p>
       {progress && (
         <p className="generation-timing-note" role="status">
-          {progress.phase === 'checking_duplicates'
-            ? `Checking repeated facts — ${progress.validQuestions} validated questions`
-            : `Batch ${Math.min(progress.completedBatches + 1, progress.totalBatches)} of ${progress.totalBatches} · ${progress.validQuestions} validated questions so far`}
+          {progress.phase === 'extracting_pdf'
+            ? `Reading PDF pages — ${progress.completedPages ?? 0} of ${progress.totalPages || '?'}`
+            : progress.phase === 'selecting_source'
+              ? `Selecting source evidence — ${progress.selectedSourceBytes ?? 0} of ${progress.originalSourceBytes ?? 0} bytes retained`
+              : progress.phase === 'extracting_facts'
+                ? `Identified ${progress.candidateCount ?? 0} source-backed facts across ${progress.topicCount ?? 0} topics`
+                : progress.phase === 'checking_duplicates'
+                  ? `Checking repeated facts — ${progress.validQuestions} validated questions`
+                  : progress.phase === 'finalizing_quiz'
+                    ? `Finalizing quiz — ${progress.validQuestions} verified questions`
+                    : progress.candidateCount !== undefined
+                      ? `Validating source questions — ${progress.validQuestions} accepted of ${progress.requestedQuestions} requested · ${progress.repairedCount ?? 0} source repairs`
+                      : `Batch ${Math.min((progress.completedBatches ?? 0) + 1, progress.totalBatches ?? 1)} of ${progress.totalBatches ?? 1} · ${progress.validQuestions} validated questions so far`}
         </p>
       )}
       {progress?.phase === 'generating' && Boolean(progress.previewQuestions?.length) && (

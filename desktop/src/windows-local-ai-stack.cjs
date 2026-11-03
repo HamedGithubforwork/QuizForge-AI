@@ -383,6 +383,7 @@ function createWindowsLocalAiStack({
       available: true,
       reason: null,
       busy: quizOperation !== null || documentOperation !== null,
+      experimentalSourceGroundedPdf: useExperimentalGrounding,
       modelId: resources.modelId,
       execution: 'local',
       constraints: Object.freeze({
