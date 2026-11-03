@@ -3146,7 +3146,6 @@ test('real-Qwen-style weak-area recovery preserves four grounded questions and r
     explanation: RETRY_FACTS[5].text,
   }
   let calls = 0
-  const rejected = { ...recovered.questions[0], choices: [...recovered.questions[0].choices] }
   const service = createLocalQuizService({
     provider: { async generate(request) {
       calls++
@@ -3154,16 +3153,14 @@ test('real-Qwen-style weak-area recovery preserves four grounded questions and r
         text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
       if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
       assert.equal(request.generationProfile, 'quiz-mcq-targeted-retry-v1')
-      assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+      assert.equal(request.jsonSchema.properties.questions.minItems, 1,
+        'only one unsupported prior wording needs replacement')
+      assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
       assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
       assert.match(request.messages.at(-1).content, /REJECTED CANDIDATES AND FILTER REASONS/)
       assert.match(request.messages.at(-1).content, /Previously asked fact\?/)
       return { finishReason: 'stop', text: JSON.stringify({
-        title: 'Only replacement candidates', questions: [
-          rejected,
-          { ...recovered.questions[1], question: 'Same source as already retained?' },
-          candidate,
-        ],
+        title: 'Only the missing replacement', questions: [candidate],
       }) }
     } },
   })
@@ -3251,10 +3248,12 @@ test('rich targeted practice preserves verified survivors through two bounded re
         }) }
       }
       assert.match(request.generationProfile, /^quiz-mcq-targeted-retry-v[12]$/)
-      assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+      assert.equal(request.jsonSchema.properties.questions.minItems,
+        calls === 2 ? 2 : 3,
+        'first batch requests only missing facts, second gets one backup')
       assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
       const replacements = calls === 2
-        ? [makeQuestion(2), makeQuestion(3), makeQuestion(4)]
+        ? [makeQuestion(2), makeQuestion(3)]
         : [makeQuestion(0, 'Which device has a cobalt casing?'),
            makeQuestion(1, 'Which device has a 17 samples capacity?'),
            makeQuestion(5)]
