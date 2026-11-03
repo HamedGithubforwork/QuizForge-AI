@@ -46,12 +46,11 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        model:
-          - qwen3-4b-q4-k-m
-          - qwen3-1p7b-q4-k-m
-          - qwen3-0p6b-q4-k-m
-          - deepseek-r1-qwen-1p5b-q4-k-m
-          - deepseek-r1-qwen-7b-q4-k-m
+        # Qwen experiment PRs should not start 4B/DeepSeek downloads every edit.
+        # workflow_dispatch or non-Qwen PRs retain the complete comparison.
+        model: ${{ fromJSON(startsWith(github.head_ref, 'experiment/small-qwen')
+          && '["qwen3-1p7b-q4-k-m","qwen3-0p6b-q4-k-m"]'
+          || '["qwen3-4b-q4-k-m","qwen3-1p7b-q4-k-m","qwen3-0p6b-q4-k-m","deepseek-r1-qwen-1p5b-q4-k-m","deepseek-r1-qwen-7b-q4-k-m"]') }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -85,6 +84,7 @@ jobs:
         shell: pwsh
         env:
           BENCHMARK_MODEL_ID: ${{ matrix.model }}
+          QFN_QWEN_SMOKE_ONLY: ${{ startsWith(github.head_ref, 'experiment/small-qwen') && '1' || '0' }}
         run: |
           # A slow DeepSeek 7B download must not prevent smaller models running.
           # The benchmark writes sanitized evidence on a failed validation too.
@@ -96,6 +96,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             Write-Warning "Verified benchmark model was not available: $env:BENCHMARK_MODEL_ID"
           } else {
+            # Full baseline/scaffold remains for manually dispatched milestone runs.
+            if ($env:QFN_QWEN_SMOKE_ONLY -ne '1') {
             node desktop/scripts/benchmark-local-generation.cjs "$env:RUNNER_TEMP/llama" $modelDir "$reports/$env:BENCHMARK_MODEL_ID.json" cpu 3 $env:BENCHMARK_MODEL_ID
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "Source-fact quality gate failed; retaining the report for $env:BENCHMARK_MODEL_ID"
@@ -109,6 +111,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) {
                 Write-Warning "Scaffolded diagnostics incomplete; preserving original baseline result for $env:BENCHMARK_MODEL_ID"
               }
+            }
             }
             # Experimental Qwen: 0.6B returns question+answer only, with
             # code-owned source/options; 1.7B batches English source facts
@@ -136,7 +139,9 @@ jobs:
   aggregate:
     name: Aggregate five model quality results
     needs: model
-    if: always()
+    # The aggregator requires five results. Experimental Qwen PRs upload only
+    # two per-model reports; full milestones retain the five-way quality gate.
+    if: ${{ always() && !startsWith(github.head_ref, 'experiment/small-qwen') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
