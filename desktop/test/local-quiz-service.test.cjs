@@ -3208,3 +3208,69 @@ test('weak-area recovery never admits repeated or fabricated replacements', asyn
   }), { code: 'quiz_validation_failed' })
   assert.equal(calls, 4, 'never loop endlessly or accept an unsafe fallback')
 })
+
+test('rich targeted practice preserves verified survivors through two bounded replacement batches', async () => {
+  const notes = [
+    { pageNumber: 2, text: 'Aster casing material is cobalt. Aster capacity is 17 samples. Aster sampling interval is five hours.' },
+    { pageNumber: 4, text: 'Boreal casing material is glass. Boreal capacity is 23 samples. Boreal sampling interval is seven hours.' },
+  ]
+  const facts = [
+    { page: 2, quote: 'Aster casing material is cobalt.', answer: 'cobalt', question: 'What is the Aster casing material?' },
+    { page: 2, quote: 'Aster capacity is 17 samples.', answer: '17 samples', question: 'What is the Aster capacity?' },
+    { page: 2, quote: 'Aster sampling interval is five hours.', answer: 'five hours', question: 'What is the Aster sampling interval?' },
+    { page: 4, quote: 'Boreal casing material is glass.', answer: 'glass', question: 'What is the Boreal casing material?' },
+    { page: 4, quote: 'Boreal capacity is 23 samples.', answer: '23 samples', question: 'What is the Boreal capacity?' },
+    { page: 4, quote: 'Boreal sampling interval is seven hours.', answer: 'seven hours', question: 'What is the Boreal sampling interval?' },
+  ]
+  const makeQuestion = (index, question = facts[index].question) => ({
+    question,
+    choices: [facts[index].answer, 'unknown A', 'unknown B', 'unknown C'],
+    correct_index: 0,
+    explanation: facts[index].quote,
+    source_pages: [facts[index].page],
+    source_fact: facts[index].quote,
+  })
+  const avoided = [facts[0].question, facts[1].question]
+  let calls = 0
+  const service = createLocalQuizService({
+    provider: { async generate(request) {
+      calls++
+      if (calls === 1) {
+        assert.equal(request.generationProfile, 'quiz-mcq-v1')
+        const hintMessage = request.messages.at(-1).content
+        assert.match(hintMessage, /SOURCE-VERIFIED FACT CANDIDATES/)
+        const parsedHints = JSON.parse(hintMessage.split('\n')[1])
+        assert.equal(parsedHints.length, 6)
+        assert.ok(parsedHints.every(hint =>
+          notes.some(page => page.pageNumber === hint.page &&
+            page.text.includes(hint.source_fact))))
+        return { finishReason: 'stop', text: JSON.stringify({
+          title: 'Bounded recovery', questions: [0, 1, 2, 3, 4].map(makeQuestion),
+        }) }
+      }
+      assert.match(request.generationProfile, /^quiz-mcq-targeted-retry-v[12]$/)
+      assert.equal(request.jsonSchema.properties.questions.minItems, 3)
+      assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
+      const replacements = calls === 2
+        ? [makeQuestion(2), makeQuestion(3), makeQuestion(4)]
+        : [makeQuestion(0, 'Which device has a cobalt casing?'),
+           makeQuestion(1, 'Which device has a 17 samples capacity?'),
+           makeQuestion(5)]
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Bounded replacements', questions: replacements,
+      }) }
+    } },
+  })
+  const result = await service.generate({
+    pages: notes, questionCount: 5, difficulty: 'medium',
+    questionType: 'multiple_choice', practice: { avoidQuestions: avoided },
+  })
+  assert.equal(calls, 3)
+  assert.equal(result.questions.length, 5)
+  assert.ok(result.questions.every(question =>
+    !avoided.includes(question.question) &&
+    notes.some(page => question.source_pages.includes(page.pageNumber) &&
+      page.text.includes(question.explanation))))
+  assert.equal(new Set(result.questions.map(q => q.question)).size, 5)
+  assert.equal(new Set(result.questions.map(q => q.explanation)).size, 5)
+})
