@@ -91,6 +91,39 @@ test('invalid early recovery preserves established targeted generation fallback'
     issue.reason === 'insufficient_source'))
 })
 
+test('six-fact weak-area practice goes to strict recovery after one model abstention', async () => {
+  let calls = 0
+  const issues = []
+  const service = createLocalQuizService({
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: { async generate(prompt) {
+      calls++
+      if (calls === 1) {
+        assert.equal(prompt.generationProfile, 'quiz-mcq-targeted-primary-v1')
+        return { finishReason: 'stop', text: JSON.stringify({
+          title: 'Insufficient source material', questions: [],
+        }) }
+      }
+      assert.equal(calls, 2, 'skip a redundant strict-targeted retry')
+      assert.equal(prompt.generationProfile, 'quiz-mcq-v1')
+      assert.ok(prompt.messages.some(message =>
+        message.content.includes('SOURCE-VERIFIED FACT CANDIDATES')))
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Source-verified follow-up', questions: candidates.slice(0, 5),
+      }) }
+    } },
+  })
+  const quiz = await service.generate(request)
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 5)
+  assert.deepEqual(issues.map(issue => [issue.attempt, issue.reason]), [
+    ['primary', 'insufficient_source'],
+  ])
+  assert.ok(quiz.questions.every(question =>
+    !Object.hasOwn(question, 'source_fact') &&
+    !request.practice.avoidQuestions.includes(question.question)))
+})
+
 test('one-page targeted practice keeps its existing candidate-pool path', async () => {
   const onePage = {
     pageNumber: 2,
