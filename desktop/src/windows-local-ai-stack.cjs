@@ -208,9 +208,13 @@ function createWindowsLocalAiStack({
       const produce = async activeProvider => {
         const experimental = useExperimentalGrounding &&
           request?.questionType === 'short_answer' && request?.questionCount === 5
+        // Origins are ephemeral, keyed by validated object identity. They are
+        // not included in output quizzes, telemetry or persisted history.
+        const questionOrigins = new Map()
         const generator = experimental
           ? createExperimentalSourceGroundedQuizService({
               provider:activeProvider,onValidationIssue:captureQuizValidationIssue,
+              onAccepted({question,origin}){questionOrigins.set(question,origin)},
             })
           : createGenerator(activeProvider)
         const generated = await generator.generate(request, options)
@@ -220,10 +224,35 @@ function createWindowsLocalAiStack({
           validQuestions: generated.questions.length,
         })
         const distinctnessStarted = performance.now()
-        const verified = await reviewQuizDistinctness({
+        let verified = await reviewQuizDistinctness({
           provider: activeProvider, quiz: generated,
           pages: request.pages, signal: options?.signal,
         })
+        let replenishmentAttempted = false
+        if(experimental && verified.questions.length < request.questionCount &&
+            generated.generation?.candidatesEvaluated <
+              generated.generation?.candidateCount &&
+            !options?.signal?.aborted){
+          // One bounded source-grounded refill from *unused candidate indices*
+          // after semantic duplicate review. No new model session is created.
+          replenishmentAttempted = true
+          try{
+            const extra = await generator.generate(request,{
+              ...options,startAt:generated.generation.candidatesEvaluated,
+              targetCount:request.questionCount-verified.questions.length,
+              excludeQuestions:verified.questions.map(q=>q.question),
+            })
+            verified = await reviewQuizDistinctness({
+              provider:activeProvider,
+              quiz:{...generated,questions:[...verified.questions,...extra.questions]},
+              pages:request.pages,signal:options?.signal,
+            })
+          }catch(error){
+            if(options?.signal?.aborted||error?.code==='cancelled')throw error
+            if(!['insufficient_source','quiz_validation_failed'].includes(error?.code))
+              throw error
+          }
+        }
         diagnostic('distinctness_completed', {
           elapsedMs: performance.now() - distinctnessStarted,
           status: verified.generation?.distinctness ?? 'unavailable',
@@ -233,6 +262,11 @@ function createWindowsLocalAiStack({
           ? { ...verified, generation:{
               ...generated.generation,...verified.generation,
               verifiedCount:verified.questions.length,
+              modelAcceptedCount:verified.questions.filter(q=>
+                questionOrigins.get(q)==='model').length,
+              repairedCount:verified.questions.filter(q=>
+                questionOrigins.get(q)==='source_repair').length,
+              replenishmentAttempted,
               partial:verified.questions.length < request.questionCount,
             } } : verified
       }

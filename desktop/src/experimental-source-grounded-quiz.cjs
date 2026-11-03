@@ -101,21 +101,29 @@ async function createOne({provider,fact,request,used,signal}){
   }catch{return null}
 }
 function createExperimentalSourceGroundedQuizService({
-  provider,onValidationIssue=()=>{}
+  provider,onValidationIssue=()=>{},onAccepted=()=>{}
 }={}){
   if(!provider||typeof provider.generate!=='function')throw failure('invalid_provider')
-  return Object.freeze({async generate(value,{signal}={}){
+  return Object.freeze({async generate(value,{signal,startAt=0,targetCount=5,
+    excludeQuestions=[]}={}){
     const request=normalizeRequest(value)
-    if(request.questionCount!==5||request.questionType!=='short_answer')
+    if(request.questionCount!==5||request.questionType!=='short_answer'||
+        !Number.isSafeInteger(startAt)||startAt<0||
+        !Number.isSafeInteger(targetCount)||targetCount<1||targetCount>5||
+        !Array.isArray(excludeQuestions)||excludeQuestions.length>15||
+        excludeQuestions.some(q=>typeof q!=='string'||q.length>500))
       throw failure('invalid_request')
-    const candidates=extractCandidates(request.pages)
-    const questions=[],used=new Set()
+    const allCandidates=extractCandidates(request.pages)
+    const candidates=allCandidates.slice(startAt)
+    const questions=[],used=new Set(excludeQuestions.map(norm))
+    let evaluatedCount=0
     let repairedCount=0,modelAcceptedCount=0,rejectedCount=0
     const factKinds=Object.create(null)
     for(const item of candidates)factKinds[item.kind]=(factKinds[item.kind]??0)+1
     for(const fact of candidates){
-      if(questions.length>=request.questionCount)break
+      if(questions.length>=targetCount)break
       if(signal?.aborted)throw failure('cancelled')
+      evaluatedCount++
       const result=await createOne({provider,fact,request,used,signal})
       if(!result){
         rejectedCount++
@@ -129,6 +137,8 @@ function createExperimentalSourceGroundedQuizService({
       used.add(key)
       if(result.repaired)repairedCount++
       else modelAcceptedCount++
+      try{onAccepted({question:result.question,origin:
+        result.repaired?'source_repair':'model'})}catch{}
     }
     if(!questions.length)throw failure('insufficient_source')
     return Object.freeze({
@@ -138,7 +148,8 @@ function createExperimentalSourceGroundedQuizService({
         sourceGroundedExperimental:true,
         requestedCount:request.questionCount,verifiedCount:questions.length,
         modelAcceptedCount,repairedCount,rejectedCount,
-        candidateCount:candidates.length,
+        candidateCount:allCandidates.length,
+        candidatesEvaluated:startAt+evaluatedCount,
         factKindCounts:Object.freeze({...factKinds}),
         partial:questions.length<request.questionCount,
       }),

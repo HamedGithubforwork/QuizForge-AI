@@ -79,6 +79,38 @@ test('five facts pass existing strict production source validator and cite corre
     assert.ok(pages[0].text.includes(q.correct_answer))
   }
 })
+test('bounded refill consumes unused source facts and avoids earlier wordings',async()=>{
+  const extra=extractCandidates([{pageNumber:1,text:[
+    'The museum preserves letters.',
+    'The council publishes reports.',
+    'The library archives records.',
+    'The agency reviews applications.',
+    'The court records dates.',
+    'The archive preserves maps.',
+  ].join(' ')}])
+  assert.equal(extra.length,6)
+  const accepted=[]
+  const service=createExperimentalSourceGroundedQuizService({
+    provider:{async generate(){return {
+      finishReason:'stop',text:'{"question":"What is the answer?"}',
+    }}},
+    onAccepted:({question,origin})=>accepted.push({question,origin}),
+  })
+  const opts={pages:[{pageNumber:1,text:extra.map(f=>f.quote).join(' ')}],
+    difficulty:'easy',questionCount:5,questionType:'short_answer'}
+  const first=await service.generate(opts)
+  assert.equal(first.questions.length,5)
+  assert.equal(first.generation.candidatesEvaluated,5)
+  const spare=await service.generate(opts,{
+    startAt:first.generation.candidatesEvaluated,targetCount:1,
+    excludeQuestions:first.questions.map(q=>q.question),
+  })
+  assert.equal(spare.questions.length,1)
+  assert.equal(spare.generation.candidatesEvaluated,6)
+  assert.equal(accepted.length,6)
+  assert.ok(accepted.every(x=>x.origin==='source_repair'))
+  assert.ok(!first.questions.some(q=>q.question===spare.questions[0].question))
+})
 test('unsupported source does not invent questions and returns explicit insufficiency',async()=>{
   const svc=createExperimentalSourceGroundedQuizService({
     provider:{async generate(){throw Error('must not call model')}}})

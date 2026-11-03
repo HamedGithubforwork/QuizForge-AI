@@ -277,7 +277,13 @@ function wordingMatchesRelationship(question,f){
       hasPhrase(q,a[2]) && hasPhrase(q,'into')
   }
   const verb=ACTIONS[f.relation]
-  return !!verb&&(hasPhrase(q,verb)||hasPhrase(q,f.relation))
+  if(!verb||!(hasPhrase(q,verb)||hasPhrase(q,f.relation)))return false
+  if(f.language==='fr')return true
+  // The subject must precede the action in English object questions:
+  // "What causes the storm?" reverses "the storm causes flooding".
+  const pos=q.indexOf(norm(f.subject))
+  const action=q.lastIndexOf(norm(verb))
+  return pos>=0&&action>pos
 }
 module.exports={ACTIONS,MODEL_SCHEMA:1,norm,hasPhrase,extractSourceFacts,
   parseSentence,parseLabel,parseTable,questionFromFact,wordingMatchesRelationship}
