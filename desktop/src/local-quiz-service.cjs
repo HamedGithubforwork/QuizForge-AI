@@ -2655,7 +2655,20 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
   })
 }
 
+// Experimental callers reuse the exact normal PDF quiz validation routine.
+// This wrapper does not modify thresholds, schema checks, source grounding, or
+// grade fields. Every item must include the original source_fact quote.
+function validateSourceGroundedDraft(draft, value) {
+  const request = normalizeRequest(value)
+  const pages = new Set(request.pages.map(page => page.pageNumber))
+  const sourceText = new Map(request.pages.map(page => [page.pageNumber,page.text]))
+  return parseRequestedQuiz(JSON.stringify(draft),request,pages,sourceText,{
+    requireSourceFact:true,allowPartial:true,filterRejected:false,
+  })
+}
+
 module.exports = {
+  validateSourceGroundedDraft,
   MAX_SOURCE_BYTES,
   MAX_AVOID_QUESTIONS,
   QUESTION_COUNT,

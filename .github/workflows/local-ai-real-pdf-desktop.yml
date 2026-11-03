@@ -32,7 +32,7 @@ jobs:
         run: |
           npm ci --prefix desktop
           if ($LASTEXITCODE -ne 0) { throw 'Desktop dependency installation failed' }
-          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs
+          node --test desktop/test/real-pdf-desktop-lifecycle.test.cjs desktop/test/pdfjs-local-engine.test.cjs desktop/test/local-document-processing.test.cjs desktop/test/local-document-quiz-service.test.cjs desktop/test/experimental-source-grounded-quiz.test.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Desktop PDF contracts failed' }
       - name: Retrieve official public PDFs
         shell: pwsh

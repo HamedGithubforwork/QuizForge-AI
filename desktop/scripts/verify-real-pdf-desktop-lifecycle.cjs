@@ -140,6 +140,7 @@ async function main(){
     stack=createWindowsLocalAiStack({
       userDataDirectory:tmp,modelDirectory:path.resolve(modelDir),
       runtimeDirectory:path.resolve(runtimeDir),benchmarkModelId:MODEL_ID,
+      experimentalSourceGroundedPdf:true,
       documentProcessor:createLocalDocumentProcessor({engine:createPdfJsLocalEngine()}),
       onDiagnostic(event,fields) {
         if(!['operation_started','operation_completed','operation_failed',

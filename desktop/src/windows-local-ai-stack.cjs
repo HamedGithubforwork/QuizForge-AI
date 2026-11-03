@@ -5,6 +5,8 @@ const { reviewQuizDistinctness } = require('./local-quiz-distinctness.cjs')
 const { createLocalAnswerReview, validateRequest: validateReviewRequest } = require('./local-answer-review.cjs')
 const { createCachedLocalDocumentProcessor } = require('./local-document-processing.cjs')
 const { createLocalAiDebugReport } = require('./local-ai-debug-report.cjs')
+const { MODEL_ID: EXPERIMENTAL_MODEL_ID, createExperimentalSourceGroundedQuizService } =
+  require('./experimental-source-grounded-quiz.cjs')
 const { randomUUID } = require('node:crypto')
 const {
   LocalAiError,
@@ -37,6 +39,7 @@ function createWindowsLocalAiStack({
   modelDirectory,
   runtimeDirectory,
   benchmarkModelId = null,
+  experimentalSourceGroundedPdf = false,
   documentProcessor = null,
   onRuntimeProcess = () => {},
   onDiagnostic = () => {},
@@ -50,6 +53,8 @@ function createWindowsLocalAiStack({
     ...(benchmarkModelId ? { benchmarkModelId } : {}),
   })
   const manager = resources.manager
+  const useExperimentalGrounding = experimentalSourceGroundedPdf === true &&
+    benchmarkModelId === EXPERIMENTAL_MODEL_ID
   const cachedDocumentProcessor = documentProcessor
     ? createCachedLocalDocumentProcessor(documentProcessor) : null
   const offloadPolicy = createLocalOffloadPolicy({ userDataDirectory, modelSha256: resources.modelSha256 })
@@ -201,7 +206,14 @@ function createWindowsLocalAiStack({
       // share one guarded local model process. The scoped provider cannot
       // open another session, and the model stops after this one quiz.
       const produce = async activeProvider => {
-        const generated = await createGenerator(activeProvider).generate(request, options)
+        const experimental = useExperimentalGrounding &&
+          request?.questionType === 'short_answer' && request?.questionCount === 5
+        const generator = experimental
+          ? createExperimentalSourceGroundedQuizService({
+              provider:activeProvider,onValidationIssue:captureQuizValidationIssue,
+            })
+          : createGenerator(activeProvider)
+        const generated = await generator.generate(request, options)
         quizProgressState = Object.freeze({
           ...quizProgressState, phase: 'checking_duplicates',
           completedBatches: quizProgressState.totalBatches,
@@ -217,7 +229,10 @@ function createWindowsLocalAiStack({
           status: verified.generation?.distinctness ?? 'unavailable',
           duplicateCount: verified.generation?.duplicateCount ?? 0,
         })
-        return verified
+        return experimental
+          ? { ...verified, generation:{
+              ...generated.generation,...verified.generation,
+            } } : verified
       }
       const quiz = typeof provider.withSession === 'function'
         ? await provider.withSession(produce, { signal: options?.signal })
