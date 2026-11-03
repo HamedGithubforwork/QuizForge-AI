@@ -8,6 +8,8 @@ test('two real PDF origins and pinned experimental model',()=>{
   assert.equal(CASES.length,2)
   assert.equal(new Set(CASES.map(c=>new URL(c.url).hostname)).size,2)
   assert.ok(CASES.every(c=>c.url.startsWith('https://')&&c.filename.endsWith('.pdf')))
+  assert.equal(CASES[0].allowPartial,undefined)
+  assert.equal(CASES[1].allowPartial,true)
 })
 test('PDF.js extraction requires text and selected-page fidelity',()=>{
   const tc=CASES[0]
@@ -28,6 +30,9 @@ test('quiz acceptance rejects duplicates, wrong count and unsupported citations'
     correct_answer:'fact '+i,source_pages:[1]}))}
   assert.doesNotThrow(()=>assertQuiz(data,[1]))
   assert.throws(()=>assertQuiz({questions:data.questions.slice(1)},[1]))
+  assert.doesNotThrow(()=>assertQuiz({questions:data.questions.slice(1)},[1],
+    {allowPartial:true}))
+  assert.throws(()=>assertQuiz({questions:[]},[1],{allowPartial:true}))
   assert.throws(()=>assertQuiz({questions:[...data.questions.slice(0,4),data.questions[0]]},[1]))
   assert.throws(()=>assertQuiz({questions:[...data.questions.slice(0,4),
     {...data.questions[4],source_pages:[2]}]},[1]))

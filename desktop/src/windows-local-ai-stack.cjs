@@ -232,6 +232,8 @@ function createWindowsLocalAiStack({
         return experimental
           ? { ...verified, generation:{
               ...generated.generation,...verified.generation,
+              verifiedCount:verified.questions.length,
+              partial:verified.questions.length < request.questionCount,
             } } : verified
       }
       const quiz = typeof provider.withSession === 'function'

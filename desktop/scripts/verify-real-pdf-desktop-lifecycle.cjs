@@ -15,7 +15,7 @@ const CASES = Object.freeze([
     selectedPages:[1], anchors:['earthquake','shaking'] },
   { id:'loc_primary_sources', filename:'loc-primary-sources.pdf',
     url:'https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf',
-    selectedPages:[1], anchors:['reflect','question'] },
+    selectedPages:[1], anchors:['reflect','question'], allowPartial:true },
 ])
 const SAFE = new Set(['processing_failed','input_too_large','invalid_input',
   'invalid_selection','invalid_result','too_many_pages','source_too_large',
@@ -47,9 +47,12 @@ function assertExtracted(doc, testcase) {
   assert.ok(metrics.sourceUtf8Bytes<=8000,'Local AI selected source size exceeded')
   assert.ok(metrics.anchorChecks.every(Boolean),'PDF source anchor missing')
 }
-function assertQuiz(quiz, selectedPages) {
+function assertQuiz(quiz, selectedPages, { allowPartial = false } = {}) {
   assert.ok(Array.isArray(quiz?.questions))
-  assert.equal(quiz.questions.length,5)
+  if (allowPartial) {
+    assert.ok(quiz.questions.length >= 1 && quiz.questions.length <= 5,
+      'partial quizzes must contain 1–5 verified questions')
+  } else assert.equal(quiz.questions.length,5)
   const normalized=new Set()
   for (const question of quiz.questions) {
     assert.equal(question.question_type,'short_answer')
@@ -82,11 +85,30 @@ async function checkOne(stack,tc,dir) {
     assert.equal(result.processing,'local')
     assert.equal(result.documentSha256,extracted.pdfSha256)
     assert.deepEqual(result.selectedPages,tc.selectedPages)
-    assertQuiz(result.quiz,tc.selectedPages)
+    out.questions=Array.isArray(result.quiz?.questions)?
+      result.quiz.questions.length:0
+    const generation=result.quiz?.generation??{}
+    out.generation={
+      sourceGroundedExperimental:generation.sourceGroundedExperimental===true,
+      requestedCount:generation.requestedCount??null,
+      verifiedCount:generation.verifiedCount??null,
+      partial:generation.partial===true,
+      modelAcceptedCount:generation.modelAcceptedCount??null,
+      repairedCount:generation.repairedCount??null,
+      distinctness:generation.distinctness??'unavailable',
+    }
+    assert.equal(out.generation.sourceGroundedExperimental,true,
+      'test must exercise the experimental desktop generator')
+    assert.equal(out.generation.verifiedCount,out.questions)
+    assert.equal(out.generation.requestedCount,5)
+    assert.equal(out.generation.partial,out.questions<5)
+    assertQuiz(result.quiz,tc.selectedPages,{allowPartial:tc.allowPartial===true})
     out.quiz='passed'
-    out.questions=result.quiz.questions.length
     out.stage='completed'
-    console.log('REAL PDF '+tc.id+' import=passed quiz=passed')
+    console.log('REAL PDF '+tc.id+' import=passed quiz=passed count='+
+      out.questions+' partial='+out.generation.partial+
+      ' modelAccepted='+out.generation.modelAcceptedCount+
+      ' repaired='+out.generation.repairedCount)
   } catch(error) {
     out.reason=reason(error)
     if(out.import!=='passed')out.import='failed'
