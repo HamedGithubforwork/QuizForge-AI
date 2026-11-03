@@ -504,7 +504,7 @@ async function main() {
   const provider = createWindowsLocalAiProvider({ runtime, modelStore: store, modelId })
   const report = { schema: 1, syntheticOnly: true,
     experiment: 'adaptive-small-qwen-source-grounded-retry',
-    modelId, maxRetriesPerFact: 1, runs: [] }
+    modelId, maxRetriesPerFact: 1, runs: [], answerFirstRuns: [] }
   const save = () => fs.writeFile(path.resolve(reportPath), JSON.stringify(report, null, 2) + '\n')
   try {
     for (const mode of MODES) {
@@ -524,6 +524,30 @@ async function main() {
         ' oracle=' + result.independentOracleMatches +
         ' fullPass=' + result.fullFiveQuestionPass +
         ' calls=' + result.inferenceCalls)
+    }
+    // Independently benchmark verified-answer-first generation. Keep all prior
+    // baseline and adaptive results intact so an experimental treatment cannot
+    // conceal regressions in the original generator. English 1.7B batching
+    // remains the current successful small-model path.
+    const { runAnswerFirstFixture } = require('./benchmark-qwen-answer-first.cjs')
+    const answerFirstModes = modelId === 'qwen3-0p6b-q4-k-m'
+      ? MODES : MODES.filter(mode => mode.fixture === 'french' ||
+          mode.fixture === 'biology_french' ||
+          (mode.fixture === 'biology' && mode.type === 'short_answer'))
+    for (const mode of answerFirstModes) {
+      const fixture = EXPERIMENT_FIXTURES.find(f => f.id === mode.fixture)
+      const result = await runAnswerFirstFixture(provider, fixture,
+        EXPERIMENT_PLANS[mode.fixture], mode.type)
+      report.answerFirstRuns.push(result)
+      await save()
+      console.log('ANSWER-FIRST QWEN ' + modelId + ' ' + mode.fixture + '/' + mode.type +
+        ' accepted=' + result.sourceSupportedQuestions +
+        ' oracle=' + result.independentOracleMatches +
+        ' fullPass=' + result.fullFiveQuestionPass +
+        ' calls=' + result.inferenceCalls +
+        ' failureStages=' + [...new Set(result.perFactOutcomes
+          .filter(x => x.status !== 'accepted')
+          .map(x => x.stage + ':' + x.status))].join(','))
     }
   } finally {
     await save()
