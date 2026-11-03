@@ -16,6 +16,10 @@ const CASES = Object.freeze([
   { id:'loc_primary_sources', filename:'loc-primary-sources.pdf',
     url:'https://www.loc.gov/static/programs/teachers/getting-started-with-primary-sources/documents/Analyzing_Primary_Sources.pdf',
     selectedPages:[1], anchors:['reflect','question'], allowPartial:true },
+  { id:'nist_csf_oversized', filename:'nist-csf-2.pdf',
+    url:'https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf',
+    selectedPages:[6,7,8,9], anchors:['cybersecurity','risk'],
+    allowPartial:true, expectOversized:true },
 ])
 const SAFE = new Set(['processing_failed','input_too_large','invalid_input',
   'invalid_selection','invalid_result','too_many_pages','source_too_large',
@@ -44,7 +48,13 @@ function assertExtracted(doc, testcase) {
   assert.deepEqual(doc.pages.map(p=>p.pageNumber),testcase.selectedPages)
   assert.ok(doc.characterCount >= 100)
   const metrics=extractionMetrics(doc,testcase)
-  assert.ok(metrics.sourceUtf8Bytes<=8000,'Local AI selected source size exceeded')
+  if (testcase.expectOversized) {
+    assert.ok(metrics.sourceUtf8Bytes>8000,
+      'Oversized real PDF case did not exceed the 8 KB model source budget')
+  } else {
+    assert.ok(metrics.sourceUtf8Bytes<=8000,
+      'Control real PDF case unexpectedly exceeds the 8 KB source budget')
+  }
   assert.ok(metrics.anchorChecks.every(Boolean),'PDF source anchor missing')
 }
 function assertQuiz(quiz, selectedPages, { allowPartial = false } = {}) {
