@@ -162,7 +162,7 @@ test('hybrid strategy selects by source grammar and switches only on semantic fa
     'visible')
   const cue = sourceRelationshipCue(fr, station)
   assert.match(cue.subject, /station Boréale/)
-  assert.match(cue.relation, /directrice est/)
+  assert.equal(cue.relation, 'est')
   assert.doesNotMatch(cue.relation, /Léa Morel/)
   const visible = questionPrompt(materials,
     extractVerifiedFact(EXPERIMENT_PLANS.materials[0], materials),
