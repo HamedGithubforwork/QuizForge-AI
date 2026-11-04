@@ -1,3 +1,7 @@
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 3
+
+[agents.merge_manager]
+description = "Independent PR checks and explicitly approved merges; read-only by default."
+config_file = "./agents/merge-manager.toml"
