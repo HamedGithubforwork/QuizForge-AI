@@ -1,0 +1,123 @@
+name: One-time prune temporary Local AI artifacts
+
+# Scheduled workflows run only from the default branch. The one-time push
+# trigger applies the cleanup when this workflow is first merged.
+on:
+  push:
+    branches: [perf/local-practice-minimal-replacement-batch-20261103]
+    paths:
+      - .github/workflows/prune-local-ai-artifacts-once.yml
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview deletions without removing files'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: prune-temporary-actions-artifacts
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Remove surplus temporary build artifacts only
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Safely prune old test artifacts and surplus Local AI previews
+        uses: actions/github-script@v7
+        env:
+          MANUAL_DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            // Manual executions are a dry run unless explicitly opted in.
+            // Scheduled and one-time default-branch push executions apply cleanup.
+            const dryRun = context.eventName === 'workflow_dispatch'
+              ? process.env.MANUAL_DRY_RUN !== 'false'
+              : false;
+            const MS_DAY = 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
+            // Explicitly restrict cleanup to CI-only artifact families.
+            // Never touch repository Releases or artifact names marked official.
+            const previewPattern = /^quiz-from-notes-local-ai-preview(?:$|[-_])/i;
+            const testPattern = /^(?:local-ai-|local-answer-|local-review-)/i;
+            const protectedPattern = /(?:^|[-_])(?:release|official|production|stable|signed)(?:$|[-_])/i;
+            const all = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner, repo, per_page: 100,
+            });
+            const grouped = new Map();
+            for (const artifact of all) {
+              if (!artifact || artifact.expired || protectedPattern.test(artifact.name)) continue;
+              const kind = previewPattern.test(artifact.name) ? 'preview'
+                : testPattern.test(artifact.name) ? 'test' : null;
+              if (!kind) continue;
+              const groupKey = kind + ':' + artifact.name;
+              if (!grouped.has(groupKey)) grouped.set(groupKey, []);
+              grouped.get(groupKey).push({ artifact, kind });
+            }
+
+            let kept = 0;
+            const selected = [];
+            for (const entries of grouped.values()) {
+              entries.sort((a, b) =>
+                Date.parse(b.artifact.created_at) - Date.parse(a.artifact.created_at));
+              for (const [index, entry] of entries.entries()) {
+                const created = Date.parse(entry.artifact.created_at);
+                if (!Number.isFinite(created)) { kept++; continue; }
+                const age = (now - created) / MS_DAY;
+                // Always preserve the newest report of every type, and the
+                // two newest preview installers. Keep useful newer reports.
+                const keepCount = entry.kind === 'preview' ? 2 : 1;
+                const maxAgeDays = entry.kind === 'preview' ? 7 : 3;
+                const keep = index === 0 ||
+                  (index < keepCount && age <= maxAgeDays) ||
+                  age < 3 / 24; // Never delete an artifact created <3h ago.
+                if (keep) { kept++; continue; }
+                selected.push(entry.artifact);
+              }
+            }
+
+            // Oldest first; bounded to avoid API abuse or sweeping surprises.
+            selected.sort((a, b) =>
+              Date.parse(a.created_at) - Date.parse(b.created_at));
+            const toDelete = selected.slice(0, 40);
+            let deleted = 0;
+            let bytes = 0;
+            for (const artifact of toDelete) {
+              console.log((dryRun ? 'DRY RUN' : 'DELETE') + ': ' +
+                artifact.name + ' id=' + artifact.id +
+                ' bytes=' + artifact.size_in_bytes);
+              if (dryRun) continue;
+              try {
+                await github.rest.actions.deleteArtifact({
+                  owner, repo, artifact_id: artifact.id,
+                });
+                deleted++;
+                bytes += artifact.size_in_bytes || 0;
+              } catch (error) {
+                // Concurrent manual deletion is harmless; other errors fail CI.
+                if (error.status !== 404) throw error;
+              }
+            }
+            const summary = [
+              'Temporary Actions artifact cleanup',
+              'Mode: ' + (dryRun ? 'dry run' : 'delete'),
+              'Matching artifact families: ' + grouped.size,
+              'Protected newest artifact records: ' + kept,
+              'Candidates in this pass: ' + toDelete.length,
+              'Deleted: ' + deleted,
+              'Freed bytes (estimated): ' + bytes,
+              'Remaining candidates for next scheduled pass: ' +
+                Math.max(0, selected.length - toDelete.length),
+              'Other artifacts, GitHub Releases and production builds are untouched.',
+            ].join('\n');
+            console.log(summary);
+            await core.summary.addHeading('Temporary Actions artifact cleanup')
+              .addCodeBlock(summary).write();
