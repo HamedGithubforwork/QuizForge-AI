@@ -1,0 +1,97 @@
+name: Local AI controlled same-runner comparison
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - desktop/scripts/compare-local-recovery-abba.cjs
+      - .github/workflows/local-ai-controlled-comparison.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qfn-local-abba-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  abba-windows-cpu:
+    name: Pinned Qwen 4B baseline vs optimized on one Windows host
+    runs-on: windows-2025
+    timeout-minutes: 40
+    steps:
+      - name: Check out candidate comparison harness
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned baseline generator
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          ref: fa78f5944381aa5cc6edbfa3c7f43e8211e226c0
+          path: baseline
+
+      - name: Confirm unchanged generator sources at pinned comparison commits
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (git -C baseline rev-parse HEAD).Trim()
+          if ($actual -ne 'fa78f5944381aa5cc6edbfa3c7f43e8211e226c0') {
+            throw 'Baseline source SHA mismatch'
+          }
+          git diff --exit-code 95b984a99b6d8289e6940b39e1c8b10d6d414a24 -- desktop/src/local-quiz-service.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate generator differs from pinned optimized commit' }
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Restore verified pinned Qwen 4B model
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: false
+
+      - name: Verify model SHA-256 or download pinned copy
+        shell: pwsh
+        run: |
+          node desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+
+      - name: Download and verify pinned llama.cpp Windows runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') {
+            throw 'Pinned runtime checksum mismatch'
+          }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+
+      - name: Check comparison script syntax
+        shell: pwsh
+        run: |
+          node --check desktop/scripts/compare-local-recovery-abba.cjs
+          exit $LASTEXITCODE
+
+      - name: Run alternating ABBA real-model benchmark
+        shell: pwsh
+        run: |
+          node desktop/scripts/compare-local-recovery-abba.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "baseline/desktop/src/local-quiz-service.cjs" "$env:RUNNER_TEMP/local-ai-abba.json"
+          exit $LASTEXITCODE
+
+      - name: Upload sanitized ABBA timings and validation summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-abba-same-host
+          path: ${{ runner.temp }}/local-ai-abba.json
+          if-no-files-found: warn
+          retention-days: 14
