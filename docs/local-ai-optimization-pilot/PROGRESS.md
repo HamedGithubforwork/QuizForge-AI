@@ -10,11 +10,13 @@ Base commit: `fa78f5944381aa5cc6edbfa3c7f43e8211e226c0`
 This pilot may attempt up to three optimization cycles. Each change requires a
 same-fixture baseline, focused implementation, local regression checks, an
 independent Reviewer and QA assessment, and comparable performance evidence.
-Windows x64 model runs are limited to one acceptance run per validated change;
-no run is started without a focused change that has passed local checks. No
-application changes are accepted without preserving source grounding, question
-uniqueness, grading, reliability, and existing security validation. This pilot
-does not merge pull requests, deploy, or start paid infrastructure.
+When an evidence gap blocks safe prioritization, the pilot allows at most one
+bounded, targeted Windows x64 diagnostic before the first proposed change.
+Implementation acceptance runs remain limited to what is needed to validate a
+focused change after local checks. No application changes are accepted without
+preserving source grounding, question uniqueness, grading, reliability, and
+existing security validation. This pilot does not merge pull requests, deploy,
+or start paid infrastructure.
 
 ## Branch selection and existing work
 
@@ -22,7 +24,8 @@ The starting point is PR #664, the latest branch in the Local Qwen stack with a
 green full product acceptance run. Its head is
 `fa78f5944381aa5cc6edbfa3c7f43e8211e226c0`. PR #665's candidate-batching
 descendant showed a two-trial speed signal but its latest full acceptance had
-critical-biology and factual-quality failures, so it was not used as a base.
+a critical-biology runtime availability failure and a separate targeted
+factual-quality failure, so it was not used as the implementation base.
 PR #666 supplies the ABBA comparison harness. Existing recovery routing in
 #663/#664 and batching work in #665 are treated as active work and are not
 duplicated here.
@@ -38,10 +41,12 @@ six generated runs, median quiz time was **128.537 s**, maximum was **175.795
 s**, maximum working set was **6,586,454,016 bytes** (about 6.14 GiB), and
 maximum process CPU time was **518.27 s**. The latency and process-resource
 screens passed. The targeted-practice fixture took **175.795 s**. Its single
-stage trace recorded generation at **20.835 s**, weak-area recovery at
-**107.192 s**, and retry generation at **172.343 s**. The final quiz contained
-five questions cited to source pages 2 and 4. This is one targeted sample and
-does not isolate prompt processing from generated-token time.
+stage trace records cumulative offsets from fixture start: primary generation
+at **20.835 s**, weak-area recovery at **107.192 s**, and retry generation at
+**172.343 s**. The derived intervals are about **20.8 s**, **86.4 s**, and
+**65.2 s**. The final quiz contained five questions cited to source pages 2
+and 4. This is one targeted sample and does not isolate prompt processing from
+generated-token time.
 
 **Local baseline checks.** On Node `v24.16.0`, ran:
 
@@ -67,12 +72,81 @@ This is not a completed optimization cycle. Reviewer and QA are asked to
 independently inspect this record and confirm that the branch contains no
 application changes. Do not claim a Qwen speedup from this attempt.
 
-## Remaining cycles
+## Follow-up evidence and diagnostic workflow decision
 
-Cycles 2 and 3 were not attempted. Resume only after a repeatable profile or
-same-fixture measurements identify a distinct opportunity and its baseline,
-quality checks, and resource budget are defined. Current evidence is not enough
-to justify a change to recovery behavior.
+The next workflow branch rechecked the existing PR artifacts instead of
+triggering a new workflow:
+
+- PR #665 acceptance run `41878992364` used the same synthetic fixture and
+  Windows x64 CPU conditions. The targeted trace records cumulative offsets:
+  primary response at **50.005 s**, weak-area recovery at **128.860 s**, retry
+  responses at **179.395 s** and **244.044 s**, then
+  `candidate_pool_exhausted` at **244.047 s**. Derived intervals are about
+  **50.0 s**, **78.9 s**, **50.5 s**, and **64.6 s**. Its product-acceptance
+  artifact omitted validator counters for the final recovery issue.
+- In that same run, the separate critical biology job failed with
+  `runtime_unavailable` before any generation attempt or validation. This is a
+  runtime setup failure, not evidence of lower biology question quality. The
+  factual-quality job failed only after targeted recovery exhausted its
+  candidate pool. The latency/resource gate was skipped.
+- PR #666 run `41748544318` measured its synthetic ABBA fixture on the same
+  host: baseline median **101.349 s / 3 calls**, optimized median **75.439 s /
+  2 calls**, two trials per variant, all four semantic checks passed. This is
+  useful evidence for that fixture but does not explain the #665 recovery
+  failure; its batching change remains in #665 and is not duplicated here.
+
+Investigator, Performance Engineer, and AI Quality independently agreed that
+existing evidence is sufficient to identify a specific unresolved question:
+which validator categories reject targeted-practice candidates, and what
+portion of each generation call is prompt prefill versus token decode when
+llama.cpp exposes those timings. One manual, targeted Windows x64 diagnostic is
+justified before any implementation change. Its planned fixture is
+`selected_pages_targeted_practice`; it derives prior-question exclusions from
+one warm-up quiz, then measures the targeted quiz once. The report retains only
+numeric timing/token/counter data, bounded outcome codes, and fixture/hardware
+labels. It does not retain raw prompts, responses, quiz text, source notes, or
+rejected candidate text. The workflow has a 25-minute timeout and does not run
+on pull requests. Dispatch was attempted once; GitHub did not create a run
+because the workflow is not on the default branch.
+
+## Diagnostic workflow implementation
+
+On branch `workflow/diagnostic-first-local-qwen-20261104`, the protocol now
+separates diagnostic measurements from implementation cycles. The new manual
+workflow can select only the allowlisted #664 or #665 source branch, checks out
+that exact app commit, and runs one warm-up plus one targeted-practice quiz on
+the synthetic selected-pages fixture. It records per-response time intervals,
+per-call timing/token data when available, and fixed validator/oracle reason
+counts. The report excludes all source notes, prompts, generated responses,
+questions, source facts, and rejected candidate text. The job is limited to
+hosted Windows x64 CPU, 25 minutes, read-only repository access, a verified
+pinned model/runtime, and a three-day artifact retention window. It has no
+pull-request trigger.
+
+Local validation on Node `v24.16.0`: diagnostic script and test syntax checks
+passed; four focused sanitizer/summary tests passed; `git diff --check` passed.
+A local YAML parser is unavailable on this host. The manual dispatch was
+attempted once with:
+
+```text
+gh workflow run .github/workflows/local-ai-targeted-practice-diagnostic.yml --ref workflow/diagnostic-first-local-qwen-20261104 -f source_branch=perf/local-practice-minimal-replacement-batch-20261103
+```
+
+GitHub returned **HTTP 404: workflow not found on the default branch**. No run
+was created. The workflow and diagnostic code are in PR #675, but the workflow
+cannot be dispatched until its definition exists on the default branch. The
+repository restriction against merging PRs prevents resolving that prerequisite
+in this task. No full product-acceptance or model-comparison workflow was used
+as a substitute. AI Quality independently confirmed the fixed synthetic
+oracle is suitable for fixture diagnostics only, the production semantic
+validator remains the actual quality gate, and the report does not persist
+raw content. No diagnostic results exist, so no root cause or quality result
+is claimed.
+
+**Current blocker and next action:** wait until the manual workflow is present
+on the default branch; then run the single targeted diagnostic against PR #665's
+allowlisted branch and record the returned source SHA. Do not propose a code
+optimization until that evidence identifies a safe, distinct cause.
 
 ## Evidence links
 
@@ -80,3 +154,4 @@ to justify a change to recovery behavior.
 - PR #664 full acceptance run: https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/41733439968
 - PR #665: https://github.com/HamedGithubforwork/QuizForge-AI/pull/665
 - PR #666: https://github.com/HamedGithubforwork/QuizForge-AI/pull/666
+- Diagnostic-first workflow PR #675: https://github.com/HamedGithubforwork/QuizForge-AI/pull/675
