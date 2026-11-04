@@ -125,7 +125,7 @@ jobs:
           name: local-ai-biology-hard-mixed-windows
           path: ${{ runner.temp }}/local-ai-biology-mixed.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
       - name: Upload biology sample evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -133,7 +133,7 @@ jobs:
           name: local-ai-biology-sample-windows
           path: ${{ runner.temp }}/local-ai-biology-sample.json
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 7
       - name: Verify actual biology quiz output appears and can be completed in Windows UI
         shell: pwsh
         working-directory: e2e
@@ -158,7 +158,7 @@ jobs:
             e2e/test-results/
             e2e/playwright-report/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
       - name: Verify duplicate-choice recovery with the real model
         shell: pwsh
         run: |
@@ -215,7 +215,7 @@ jobs:
           name: local-answer-review-windows
           path: ${{ runner.temp }}/local-answer-review.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   review-stack-model:
     name: Real quiz-to-local-grading desktop lifecycle
@@ -267,7 +267,7 @@ jobs:
           name: local-review-native-stack-windows
           path: ${{ runner.temp }}/local-review-native-stack.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
   weak-area-model:
     name: Real Local AI biology weak-area follow-up
@@ -319,7 +319,7 @@ jobs:
           name: local-ai-biology-weak-practice-windows
           path: ${{ runner.temp }}/local-ai-biology-practice.json
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 7
 
   quality:
     name: Local AI factual quality and edge cases
@@ -372,7 +372,7 @@ jobs:
           name: local-ai-product-acceptance-windows
           path: ${{ runner.temp }}/local-ai-product-acceptance.json
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
   performance:
     name: Local AI latency and resource acceptance

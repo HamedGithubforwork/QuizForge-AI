@@ -2363,7 +2363,15 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             let merged = recoveryText
             for (let batch = 0; batch < maxBatches; batch++) {
               const needed = Math.max(1, QUESTION_COUNT - poolIssue.retryEvidence.length)
-              const candidateCount = Math.min(TARGETED_RETRY_BATCH_CANDIDATES, needed + 2)
+              // First ask only for the number of independently validated
+              // replacements actually missing. Generating three candidates
+              // when only one is missing wastes an entire CPU inference.
+              // The existing second bounded batch keeps one backup candidate
+              // when the first smaller response fails validation.
+              const candidateCount = Math.min(
+                TARGETED_RETRY_BATCH_CANDIDATES,
+                needed + (batch === 0 ? 0 : 1),
+              )
               const replacements = await generateAttempt(
                 'candidate_pool_exhausted',
                 poolIssue.retryEvidence,
