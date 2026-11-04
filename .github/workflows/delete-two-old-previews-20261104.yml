@@ -1,0 +1,74 @@
+name: Remove two superseded Local AI preview installers
+
+# One-time, exact-ID cleanup approved by the repository owner.
+# The workflow only runs on the initial creation/update of this file
+# in the development branch. It does not run on a schedule.
+on:
+  push:
+    branches:
+      - perf/local-practice-minimal-replacement-batch-20261103
+    paths:
+      - .github/workflows/delete-two-old-previews-20261104.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  delete-two-old-previews:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete exactly the two superseded preview artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            // Explicit allowlist: no release, source, or current preview deletions.
+            const targets = [
+              {id: 13159233150, runId: 41480925084, bytes: 155456971},
+              {id: 13246715768, runId: 41664594741, bytes: 155469587},
+            ];
+            const newestKeptId = 13279513140;
+            const expectedName = 'quiz-from-notes-local-ai-preview';
+            const preserved = await github.rest.actions.getArtifact({
+              owner, repo, artifact_id: newestKeptId,
+            });
+            if (preserved.data.name !== expectedName) {
+              throw new Error('Newest preview artifact identity mismatch; refusing cleanup');
+            }
+            let deleted = 0;
+            let recoveredBytes = 0;
+            for (const target of targets) {
+              let artifact;
+              try {
+                artifact = (await github.rest.actions.getArtifact({
+                  owner, repo, artifact_id: target.id,
+                })).data;
+              } catch (error) {
+                if (error.status === 404) {
+                  console.log('Already deleted: artifact ' + target.id);
+                  continue;
+                }
+                throw error;
+              }
+              if (artifact.name !== expectedName ||
+                  artifact.size_in_bytes !== target.bytes ||
+                  (artifact.workflow_run?.id != null &&
+                   artifact.workflow_run.id !== target.runId)) {
+                throw new Error('Unexpected artifact identity at id ' + target.id);
+              }
+              await github.rest.actions.deleteArtifact({
+                owner, repo, artifact_id: target.id,
+              });
+              deleted++;
+              recoveredBytes += artifact.size_in_bytes;
+              console.log('Deleted obsolete installer artifact ' + target.id);
+            }
+            console.log('Preserved newest preview artifact: ' + newestKeptId);
+            console.log('Deleted: ' + deleted +
+              ', nominal bytes released: ' + recoveredBytes);
+            await core.summary.addHeading('Two old Local AI previews')
+              .addRaw('Deleted: ' + deleted +
+              '. Nominal bytes freed: ' + recoveredBytes +
+              '. Newest preview ' + newestKeptId + ' preserved.').write();
