@@ -106,12 +106,8 @@ one warm-up quiz, then measures the targeted quiz once. The report retains only
 numeric timing/token/counter data, bounded outcome codes, and fixture/hardware
 labels. It does not retain raw prompts, responses, quiz text, source notes, or
 rejected candidate text. The workflow has a 25-minute timeout and does not run
-on pull requests. No diagnostic model run has yet been triggered.
-
-**Next action:** validate the diagnostic sanitizer locally, then trigger no
-more than one manual Windows x64 run if GitHub Actions recognizes the workflow
-on this branch. If branch-scoped dispatch is unavailable, record that tool
-limitation and do not substitute the full product-acceptance matrix.
+on pull requests. Dispatch was attempted once; GitHub did not create a run
+because the workflow is not on the default branch.
 
 ## Diagnostic workflow implementation
 
@@ -127,10 +123,30 @@ hosted Windows x64 CPU, 25 minutes, read-only repository access, a verified
 pinned model/runtime, and a three-day artifact retention window. It has no
 pull-request trigger.
 
-Local validation on Node `v24.16.0`: diagnostic script syntax check passed;
-four focused sanitizer/summary tests passed; `git diff --check` passed. A local
-YAML parser is unavailable on this host, so the Actions workflow has not yet
-received parser validation through GitHub. No model workflow was triggered.
+Local validation on Node `v24.16.0`: diagnostic script and test syntax checks
+passed; four focused sanitizer/summary tests passed; `git diff --check` passed.
+A local YAML parser is unavailable on this host. The manual dispatch was
+attempted once with:
+
+```text
+gh workflow run .github/workflows/local-ai-targeted-practice-diagnostic.yml --ref workflow/diagnostic-first-local-qwen-20261104 -f source_branch=perf/local-practice-minimal-replacement-batch-20261103
+```
+
+GitHub returned **HTTP 404: workflow not found on the default branch**. No run
+was created. The workflow and diagnostic code are in PR #675, but the workflow
+cannot be dispatched until its definition exists on the default branch. The
+repository restriction against merging PRs prevents resolving that prerequisite
+in this task. No full product-acceptance or model-comparison workflow was used
+as a substitute. AI Quality independently confirmed the fixed synthetic
+oracle is suitable for fixture diagnostics only, the production semantic
+validator remains the actual quality gate, and the report does not persist
+raw content. No diagnostic results exist, so no root cause or quality result
+is claimed.
+
+**Current blocker and next action:** wait until the manual workflow is present
+on the default branch; then run the single targeted diagnostic against PR #665's
+allowlisted branch and record the returned source SHA. Do not propose a code
+optimization until that evidence identifies a safe, distinct cause.
 
 ## Evidence links
 
@@ -138,3 +154,4 @@ received parser validation through GitHub. No model workflow was triggered.
 - PR #664 full acceptance run: https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/41733439968
 - PR #665: https://github.com/HamedGithubforwork/QuizForge-AI/pull/665
 - PR #666: https://github.com/HamedGithubforwork/QuizForge-AI/pull/666
+- Diagnostic-first workflow PR #675: https://github.com/HamedGithubforwork/QuizForge-AI/pull/675
