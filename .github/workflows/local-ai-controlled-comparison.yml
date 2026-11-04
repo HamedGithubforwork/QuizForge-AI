@@ -40,8 +40,10 @@ jobs:
           if ($actual -ne 'fa78f5944381aa5cc6edbfa3c7f43e8211e226c0') {
             throw 'Baseline source SHA mismatch'
           }
-          git diff --exit-code 95b984a99b6d8289e6940b39e1c8b10d6d414a24 -- desktop/src/local-quiz-service.cjs
-          if ($LASTEXITCODE -ne 0) { throw 'Candidate generator differs from pinned optimized commit' }
+          $candidateBlob = (git hash-object desktop/src/local-quiz-service.cjs).Trim()
+          if ($candidateBlob -ne '4f696be61c44cb1a49d8fcbd65206d6b610dfd09') {
+            throw 'Candidate generator differs from pinned optimized source blob'
+          }
 
       - name: Set up Node 22
         uses: actions/setup-node@v7
