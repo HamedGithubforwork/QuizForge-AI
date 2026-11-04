@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Status: cycle 1 completed and kept; cycle 2 opportunity assessment is next.
+- Status: one cycle completed and kept; pilot stopped before cycle 2 implementation because no safe, meaningful non-overlapping opportunity is available on this `main` checkout.
 - Branch: `pilot/qfn-five-cycle-optimization` from `main` at `50ced51d965bce0e7bde69b4b90b1cff383ee6d3`.
 - Working tree started clean. No application code has changed.
 - Roles and concurrency: the merged team has Coordinator plus ten original specialists and `merge_manager`; `.codex/config.toml` retains a maximum of three concurrent threads.
@@ -21,11 +21,11 @@
 | Cycle | Opportunity / status | Baseline | Change | Quality and tests | Decision |
 |---|---|---|---|---|---|
 | 1 | Reduce repeated normalization in concept-rubric validation; a disjoint backend CPU path while Qwen source/tooling is unavailable on `main`. | On Python 3.12.6 ARM64 / Windows 11, command `py -3.12 backend/scripts/benchmark_quiz_validation_concepts.py --warmups 3 --samples 25 --batch-size 100`; 15 valid concept questions per quiz, 100 validations/sample, 25 measured samples. Baseline median 302.403 ms/batch (3.024 ms/validation); p95 319.240 ms/batch (3.1924 ms/validation). All fixtures passed. | Precompute alias tokens once per concept rubric and tokenize each answer once per grading call; bounded local memory only. Added a deterministic stdlib benchmark and four focused stdlib unit tests. | Coordinator post-run: median 147.173 ms/batch (-51.3%); p95 185.751 ms/batch (-41.8%). Independent QA repeat: median 154.200 ms/batch (-49.0%); p95 165.123 ms/batch (-48.3%). Four focused tests passed; `git diff --check` passed. Reviewer found no actionable issues; AI Quality approved semantic equivalence for concept grouping, partial answers, normalized aliases, and Unicode/spelling behavior. Full pytest/backend benchmark remains unavailable without PyMuPDF and backend dependencies; no dependency install, model run, or workflow trigger. | Keep: measured gain is far above the 10% threshold on the same host/runtime, p95 improved, fixture validity and focused grading checks passed. No memory reduction is claimed. |
-| 2 | Not started | — | — | — | — |
-| 3 | Not started | — | — | — | — |
-| 4 | Not started | — | — | — | — |
-| 5 | Not started | — | — | — | — |
+| 2 | Opportunity assessment only: quiz-history analytics was evaluated as a disjoint local candidate. Product work is bounded to a 20-row loaded page and 30 document-analysis attempts; reported same-host p50 was ~0.008 ms at 20 rows and ~1.662 ms for an artificial 5,000 rows. The focused Node test passes. Both Investigator and Performance Engineer judged it immaterial at product limits. No implementation or cycle baseline was started. | Not applicable: no candidate met the measurable/user-relevant benefit bar. | None | No new tests/workflows; relied on the existing focused Node test result reported by Investigator. | Do not spend a cycle on negligible bounded work. Stop further cycles: Qwen implementation/tooling is absent from `main` and active PRs already cover Qwen plus CI/artifact work; no other disjoint measurable candidate emerged. |
+| 3 | Not attempted: same stop reason as cycle 2; no safe, non-overlapping candidate with meaningful measurable benefit. | — | — | — | — |
+| 4 | Not attempted: same stop reason as cycle 2; no safe, non-overlapping candidate with meaningful measurable benefit. | — | — | — | — |
+| 5 | Not attempted: same stop reason as cycle 2; no safe, non-overlapping candidate with meaningful measurable benefit. | — | — | — | — |
 
 ## Resume notes
 
-Do not repeat the kickoff audit, cycle 1 baseline, or cycle 1 implementation. Cycle 1 is validated and retained locally on the pilot branch. For cycle 2, recheck the open PR stack and identify a distinct opportunity with an executable baseline. Do not claim that the backend grading benchmark measures Qwen generation or model quality.
+Do not repeat the kickoff audit, cycle 1 baseline, or cycle 1 implementation. Cycle 1 is validated and retained on the pilot branch. The pilot is stopped before cycle 2 implementation; resume only after the desktop/Qwen source and its supported runtime are available on `main`, or a new disjoint opportunity has credible product-scale impact, reproducible measurements, and focused tests. Do not claim that the backend grading benchmark measures Qwen generation or model quality.
