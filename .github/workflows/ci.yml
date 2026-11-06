@@ -8,6 +8,8 @@ on:
       - "backend/**"
       - "frontend/**"
       - "e2e/**"
+      - "desktop/scripts/diagnose-targeted-practice.cjs"
+      - "desktop/test/diagnose-targeted-practice.test.cjs"
       - ".python-version"
       - ".github/workflows/ci.yml"
       - ".github/workflows/deployment-smoke.yml"
@@ -31,6 +33,7 @@ jobs:
       backend: ${{ steps.changes.outputs.backend }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      desktop_diagnostic: ${{ steps.changes.outputs.desktop_diagnostic }}
 
     steps:
       - name: Check out repository history
@@ -64,6 +67,7 @@ jobs:
           backend=false
           frontend=false
           playwright=false
+          desktop_diagnostic=false
 
           while IFS= read -r file; do
             case "${file}" in
@@ -82,12 +86,16 @@ jobs:
                 frontend=true
                 playwright=true
                 ;;
+              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
+                desktop_diagnostic=true
+                ;;
             esac
           done < changed-files.txt
 
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+          echo "desktop_diagnostic=${desktop_diagnostic}" >> "${GITHUB_OUTPUT}"
 
   backend-tests:
     name: Backend tests
@@ -227,6 +235,24 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
 
+  desktop-diagnostic-tests:
+    name: Desktop diagnostic privacy tests
+    needs: changes
+    if: needs.changes.outputs.desktop_diagnostic == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Run diagnostic privacy tests
+        run: node --test desktop/test/diagnose-targeted-practice.test.cjs
+
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -234,6 +260,7 @@ jobs:
       - backend-tests
       - frontend-checks
       - playwright-e2e
+      - desktop-diagnostic-tests
     if: always()
     runs-on: ubuntu-latest
 
@@ -245,6 +272,7 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          DESKTOP_DIAGNOSTIC_RESULT: ${{ needs.desktop-diagnostic-tests.result }}
         run: |
           set -euo pipefail
 
@@ -252,13 +280,14 @@ jobs:
           echo "Backend tests:   ${BACKEND_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
+          echo "Desktop tests:   ${DESKTOP_DIAGNOSTIC_RESULT}"
 
           if [[ "${CHANGES_RESULT}" != "success" ]]; then
             echo "Change detection did not succeed."
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${DESKTOP_DIAGNOSTIC_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
@@ -270,3 +299,4 @@ jobs:
           done
 
           echo "All relevant CI jobs passed or were intentionally skipped."
+
