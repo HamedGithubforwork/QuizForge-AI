@@ -6,6 +6,9 @@ import type {
   QuizHistoryRow,
 } from '../../lib/quizHistory.ts'
 import {
+  formatQuizDeleteAccessibleName,
+} from '../../lib/quizHistoryAccessibility.ts'
+import {
   formatHistoryDate,
 } from './formatHistoryDate.ts'
 
@@ -88,6 +91,10 @@ function QuizHistoryList({
 
             <button
               className="history-delete"
+              aria-label={formatQuizDeleteAccessibleName(
+                item.quiz_title,
+                formatHistoryDate(item.created_at),
+              )}
               type="button"
               onClick={() =>
                 void onDelete(
@@ -126,3 +133,4 @@ function QuizHistoryList({
 }
 
 export default QuizHistoryList
+
