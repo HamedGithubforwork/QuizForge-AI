@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-06T23:40:16.861Z",
+  "updatedAt": "2026-11-06T23:48:10.321Z",
   "domains": [
     "local_ai",
     "backend",
@@ -326,10 +326,13 @@
       "benchmarkCost": "local",
       "benchmarkDirection": "lower_is_better",
       "metricName": "validation_metric_pipeline_calls",
-      "status": "ready",
+      "status": "blocked",
       "initialStatus": "ready",
       "investigationKey": "backend-validation-metric-batching",
-      "baseline": null,
+      "baseline": {
+        "metric": 2,
+        "evidenceRef": "backend/performance_metrics.py"
+      },
       "implementation": null,
       "testResult": null,
       "assessments": {
@@ -339,8 +342,27 @@
         "security": null
       },
       "validation": null,
-      "blocker": null,
-      "workPreserved": null,
+      "blocker": {
+        "code": "tooling_unavailable",
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T23:48:10.320Z"
+      },
+      "workPreserved": {
+        "baseline": {
+          "metric": 2,
+          "evidenceRef": "backend/performance_metrics.py"
+        },
+        "implementation": null,
+        "testResult": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null
     },
@@ -356,27 +378,86 @@
         "frontend/src/components/history/QuizHistoryList.tsx"
       ],
       "testRefs": [
+        "frontend/src/lib/quizHistoryAccessibility.test.ts",
         "frontend/src/components/history/QuizHistoryList.tsx"
       ],
       "benchmarkRefs": [],
       "benchmarkCost": "local",
       "benchmarkDirection": "higher_is_better",
       "metricName": "contextual_delete_accessible_names",
-      "status": "ready",
+      "status": "blocked",
       "initialStatus": "ready",
       "investigationKey": "history-delete-contextual-label",
-      "baseline": null,
-      "implementation": null,
-      "testResult": null,
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+      },
+      "implementation": {
+        "branch": "codex/history-delete-contextual-label-20261106",
+        "commitSha": "e16ebf7dc093cc29ef8338223fa5660a429f4ece"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+      },
       "assessments": {
-        "reviewer": null,
-        "qa": null,
-        "quality": null,
-        "security": null
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        }
       },
       "validation": null,
-      "blocker": null,
-      "workPreserved": null,
+      "blocker": {
+        "code": "tooling_unavailable",
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T23:48:04.545Z"
+      },
+      "workPreserved": {
+        "baseline": {
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+        },
+        "implementation": {
+          "branch": "codex/history-delete-contextual-label-20261106",
+          "commitSha": "e16ebf7dc093cc29ef8338223fa5660a429f4ece"
+        },
+        "testResult": {
+          "passed": true,
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        "assessments": {
+          "reviewer": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          },
+          "qa": {
+            "passed": true,
+            "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+          },
+          "quality": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          },
+          "security": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          }
+        },
+        "validation": null
+      },
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null
     }
@@ -384,12 +465,12 @@
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-01",
     "maxCycles": 5,
-    "cyclesStarted": 3,
+    "cyclesStarted": 5,
     "cyclesValidated": 3,
     "selectedTaskId": null,
-    "previousTaskId": "autonomy-state-tests-pr-ci",
+    "previousTaskId": "backend-validation-metric-batching",
     "optimizationGate": {
-      "status": "ACTIVE",
+      "status": "STOPPED",
       "consecutiveCleanAudits": 0,
       "lastAuditRefs": [
         ".github/workflows/ci.yml",
@@ -418,7 +499,7 @@
         "tests",
         "gha_efficiency"
       ],
-      "stopReason": null,
+      "stopReason": "budget",
       "finalReport": null,
       "auditHistory": [
         {
@@ -1005,6 +1086,88 @@
         "taskId": "autonomy-state-tests-pr-ci",
         "resultMetric": 26,
         "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      },
+      {
+        "at": "2026-11-06T23:41:28.681Z",
+        "type": "selected",
+        "taskId": "history-delete-contextual-label",
+        "cycle": 4
+      },
+      {
+        "at": "2026-11-06T23:41:59.339Z",
+        "type": "baseline",
+        "taskId": "history-delete-contextual-label",
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+      },
+      {
+        "at": "2026-11-06T23:44:16.438Z",
+        "type": "implemented",
+        "taskId": "history-delete-contextual-label",
+        "branch": "codex/history-delete-contextual-label-20261106",
+        "commitSha": "e16ebf7dc093cc29ef8338223fa5660a429f4ece"
+      },
+      {
+        "at": "2026-11-06T23:44:16.583Z",
+        "type": "tests_passed",
+        "taskId": "history-delete-contextual-label",
+        "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+      },
+      {
+        "at": "2026-11-06T23:48:04.172Z",
+        "type": "reviewer_passed",
+        "taskId": "history-delete-contextual-label",
+        "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+      },
+      {
+        "at": "2026-11-06T23:48:04.284Z",
+        "type": "qa_passed",
+        "taskId": "history-delete-contextual-label",
+        "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+      },
+      {
+        "at": "2026-11-06T23:48:04.372Z",
+        "type": "quality_passed",
+        "taskId": "history-delete-contextual-label",
+        "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+      },
+      {
+        "at": "2026-11-06T23:48:04.461Z",
+        "type": "security_passed",
+        "taskId": "history-delete-contextual-label",
+        "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+      },
+      {
+        "at": "2026-11-06T23:48:04.545Z",
+        "type": "blocked",
+        "taskId": "history-delete-contextual-label",
+        "blockerCode": "tooling_unavailable",
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      {
+        "at": "2026-11-06T23:48:04.546Z",
+        "type": "selected",
+        "taskId": "backend-validation-metric-batching",
+        "cycle": 5
+      },
+      {
+        "at": "2026-11-06T23:48:10.231Z",
+        "type": "baseline",
+        "taskId": "backend-validation-metric-batching",
+        "metric": 2,
+        "evidenceRef": "backend/performance_metrics.py"
+      },
+      {
+        "at": "2026-11-06T23:48:10.320Z",
+        "type": "blocked",
+        "taskId": "backend-validation-metric-batching",
+        "blockerCode": "tooling_unavailable",
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      {
+        "at": "2026-11-06T23:48:10.321Z",
+        "type": "gate_stopped",
+        "reasonCode": "budget"
       }
     ]
   }
