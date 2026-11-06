@@ -32,12 +32,18 @@ and returns the next independent task in the same transaction. `evidence
 <task-id> <new-reference>` reopens a blocked task only after distinct evidence
 arrives. `--state <path>` selects an isolated state file for deterministic
 tests or a separately managed pilot.
-`approve <task-id> <evidence-reference>` releases a task in
-`awaiting_approval` only after an allowlisted approval reference is supplied;
-it does not create approval automatically. `release-stop '<json>'` releases
-only a security/correctness stop and requires distinct remediation evidence,
-safe-scope review, Reviewer and QA evidence, Security evidence, and AI Quality
-evidence for correctness stops.
+`approve <task-id> <json-attestation>` releases a task in
+`awaiting_approval` only after an allowlisted JSON attestation is supplied.
+The attestation records `approverIdentity`, `approverRole`,
+`approvalEvidenceRef`, `authorizedScopeRef`, and the exact 40-character
+`scopeCommitSha`. `release-stop '<json>'` releases only a security/correctness
+stop and records `remediationEvidenceRef`, `authorizedScopeRef`,
+`scopeCommitSha`, and distinct Reviewer, QA, and Security approval objects
+(`role`, `identity`, `evidenceRef`); correctness stops also require AI Quality.
+The Coordinator must independently verify the approver's authority, evidence
+contents, and exact scope before attesting. The CLI stores these assertions; it
+does not authenticate identities, inspect external evidence, or verify Git
+commits.
 
 The exhaustion gate requires two consecutive complete repo-wide audits before it
 sets `OPTIMIZATION_EXHAUSTED`. Each audit must explicitly cover performance,
@@ -79,6 +85,10 @@ Validated records must contain baseline and implementation evidence, passing
 tests, Reviewer and QA approval, quality and security approval, and a measured
 improvement in the task's declared metric direction. Older task entries that
 omit `metricName` are read with the task ID as their metric name.
+Legacy `task_discovered` events without `initialStatus` are treated as ready;
+new discoveries persist their initial status. A task discovered as
+`awaiting_approval` cannot move to ready or another stage unless a later,
+structured `approval_recorded` event is present and valid.
 
 The writer uses an exclusive lock. It can recover a same-host lock only when
 the recorded process is proven absent. It may recover a malformed lock only

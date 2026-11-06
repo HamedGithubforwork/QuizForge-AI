@@ -21,6 +21,16 @@ function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, depend
   }
 }
 
+function approvalAttestation(approvalEvidenceRef = 'docs/ai-cost-controls.md') {
+  return {
+    approverIdentity: 'reviewer@example.com',
+    approverRole: 'reviewer',
+    approvalEvidenceRef,
+    authorizedScopeRef: 'docs/autonomy/optimization-loop.md',
+    scopeCommitSha: 'd'.repeat(40),
+  }
+}
+
 test('selects highest-value actionable work and breaks ties deterministically', () => {
   const state = createInitialState()
   addTask(state, task('low-value', { impact: 2, effort: 4 }))
@@ -203,15 +213,65 @@ test('CLI approval transition requires explicit evidence and makes the task read
   try {
     assert.equal(run('init').status, 0)
     assert.equal(run('add-task', JSON.stringify({ ...task('cli-approval-task'), status: 'awaiting_approval' })).status, 0)
-    const approved = run('approve', 'cli-approval-task', 'https://github.com/example/repo/issues/31')
+    const approved = run('approve', 'cli-approval-task', JSON.stringify(approvalAttestation(
+      'https://github.com/example/repo/issues/31')))
     assert.equal(approved.status, 0, approved.stderr)
     assert.equal(JSON.parse(approved.stdout).status, 'ready')
     const saved = JSON.parse(await fs.readFile(file, 'utf8'))
     assert.ok(saved.checkpoint.events.some(event => event.type === 'approval_recorded' &&
-      event.evidenceRef === 'https://github.com/example/repo/issues/31'))
+      event.approvalEvidenceRef === 'https://github.com/example/repo/issues/31' &&
+      event.approverIdentity === 'reviewer@example.com' && event.scopeCommitSha === 'd'.repeat(40)))
+    assert.equal(validateState(saved), saved)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
   }
+})
+
+test('cannot forge release of an initially awaiting-approval task', () => {
+  const legacy = createInitialState()
+  addTask(legacy, task('legacy-ready-discovery'))
+  delete legacy.checkpoint.events.find(event => event.type === 'task_discovered').initialStatus
+  assert.equal(validateState(legacy), legacy)
+
+  const state = createInitialState()
+  addTask(state, { ...task('approval-tamper-task'), status: 'awaiting_approval' })
+  assert.equal(state.tasks[0].initialStatus, 'awaiting_approval')
+  assert.equal(state.checkpoint.events[0].initialStatus, 'awaiting_approval')
+  assert.equal(validateState(state), state)
+
+  const forgedReady = structuredClone(state)
+  forgedReady.tasks[0].status = 'ready'
+  assert.throws(() => validateState(forgedReady), /changed status without structured approval evidence/)
+
+  recordApproval(state, 'approval-tamper-task', approvalAttestation())
+  assert.equal(state.tasks[0].status, 'ready')
+  assert.equal(validateState(state), state)
+
+  const removedApproval = structuredClone(state)
+  removedApproval.checkpoint.events = removedApproval.checkpoint.events.filter(event => event.type !== 'approval_recorded')
+  assert.throws(() => validateState(removedApproval), /changed status without structured approval evidence/)
+
+  const removedBoth = structuredClone(state)
+  removedBoth.checkpoint.events = removedBoth.checkpoint.events.filter(event =>
+    !['approval_recorded', 'task_discovered'].includes(event.type))
+  assert.throws(() => validateState(removedBoth), /lacks (?:a task_discovered event|its original approval discovery or approval evidence)/)
+
+  const forgedInitialReady = structuredClone(state)
+  forgedInitialReady.tasks[0].status = 'ready'
+  forgedInitialReady.tasks[0].initialStatus = 'ready'
+  forgedInitialReady.checkpoint.events = forgedInitialReady.checkpoint.events.filter(event =>
+    !['approval_recorded', 'task_discovered'].includes(event.type))
+  assert.throws(() => validateState(forgedInitialReady), /lacks a task_discovered event/)
+
+  const missingAttestation = structuredClone(state)
+  const approvalEvent = missingAttestation.checkpoint.events.find(event => event.type === 'approval_recorded')
+  delete approvalEvent.approverIdentity
+  assert.throws(() => validateState(missingAttestation), /Approval requires identity/)
+
+  const duplicateApprovalRefs = structuredClone(state)
+  const duplicateRefEvent = duplicateApprovalRefs.checkpoint.events.find(event => event.type === 'approval_recorded')
+  duplicateRefEvent.authorizedScopeRef = duplicateRefEvent.approvalEvidenceRef
+  assert.throws(() => validateState(duplicateApprovalRefs), /distinct references/)
 })
 
 test('drops unrecognized task fields, rejects unsafe references and caps pilot length', () => {
@@ -389,9 +449,9 @@ test('awaiting approval releases only with evidence and independent tasks can pr
     auditedDimensions: [...AUDIT_DIMENSIONS], evidenceRefs: ['docs/ai-cost-controls.md'],
     specialistAssessments: AUDIT_ROLES.map(role => ({ role, finding: 'clear', evidenceRef: 'docs/ai-cost-controls.md' })),
   })
-  assert.throws(() => recordApproval(state, 'approval-required-task', 'unsafe://approval'), /allowlisted/)
+  assert.throws(() => recordApproval(state, 'approval-required-task', approvalAttestation('unsafe://approval')), /allowlisted/)
   assert.equal(selectNextTask(state), null)
-  const released = recordApproval(state, 'approval-required-task', 'https://github.com/example/repo/issues/21')
+  const released = recordApproval(state, 'approval-required-task', approvalAttestation('https://github.com/example/repo/issues/21'))
   assert.equal(released.status, 'ready')
   assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(selectNextTask(state).id, 'approval-required-task')
@@ -417,7 +477,7 @@ test('awaiting approval releases only with evidence and independent tasks can pr
   recordOptimizationAudit(exhausted, { ...cleanAudit, auditId: 'audit-approval-clean-two' })
   addTask(exhausted, { ...task('approval-after-exhaustion'), status: 'awaiting_approval' })
   assert.equal(exhausted.checkpoint.optimizationGate.status, 'OPTIMIZATION_EXHAUSTED')
-  recordApproval(exhausted, 'approval-after-exhaustion', 'https://github.com/example/repo/issues/22')
+  recordApproval(exhausted, 'approval-after-exhaustion', approvalAttestation('https://github.com/example/repo/issues/22'))
   assert.equal(exhausted.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(selectNextTask(exhausted).id, 'approval-after-exhaustion')
 })
@@ -485,19 +545,28 @@ test('security and correctness stops require explicit remediation and independen
     const state = createInitialState()
     recordOptimizationAudit(state, { ...baseAudit, immediateStopCode: stopReason })
     const release = {
-      evidenceRef: 'docs/autonomy/optimization-loop.md',
-      reviewerEvidenceRef: 'docs/local-qwen-pilot-progress.md',
-      qaEvidenceRef: 'scripts/autonomy/test/optimization-orchestrator.test.cjs',
-      securityEvidenceRef: '.github/workflows/quizforge-autonomy-bridge.yml',
-      scopeReviewed: true,
-      ...(stopReason === 'correctness' ? { aiQualityEvidenceRef: 'docs/autonomy/optimization-report-template.md' } : {}),
+      remediationEvidenceRef: 'docs/autonomy/optimization-loop.md',
+      authorizedScopeRef: '.github/workflows/quizforge-autonomy-bridge.yml',
+      scopeCommitSha: 'e'.repeat(40),
+      approvals: [
+        { role: 'reviewer', identity: 'reviewer@example.com', evidenceRef: 'docs/local-qwen-pilot-progress.md' },
+        { role: 'qa', identity: 'qa@example.com', evidenceRef: 'scripts/autonomy/test/optimization-orchestrator.test.cjs' },
+        { role: 'security_privacy_engineer', identity: 'security@example.com', evidenceRef: 'docs/autonomy/optimization-report-template.md' },
+        ...(stopReason === 'correctness' ? [
+          { role: 'ai_quality_engineer', identity: 'ai-quality@example.com', evidenceRef: 'docs/autonomy/optimization-state.json' },
+        ] : []),
+      ],
     }
-    assert.throws(() => releaseStopGate(state, { ...release, scopeReviewed: false }), /safe-scope review/)
+    assert.throws(() => releaseStopGate(state, { ...release, scopeCommitSha: 'bad' }), /exact reviewed scope/)
     assert.equal(state.checkpoint.optimizationGate.status, 'STOPPED')
     releaseStopGate(state, release)
     assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
     assert.equal(state.checkpoint.optimizationGate.stopReason, null)
     assert.equal(validateState(state), state)
+    const forgedRelease = structuredClone(state)
+    const releaseEvent = forgedRelease.checkpoint.events.find(event => event.type === 'stop_released')
+    releaseEvent.authorizedScopeRef = releaseEvent.evidenceRef
+    assert.throws(() => validateState(forgedRelease), /distinct scope and evidence references/)
   }
 })
 
@@ -527,6 +596,17 @@ test('saveState recovers a provably dead owner lock and refuses an active lock',
     await fs.writeFile(`${activeFile}.lock`, activeLock)
     await assert.rejects(saveState(activeFile, createInitialState()), /live orchestrator process/)
     assert.equal(await fs.readFile(`${activeFile}.lock`, 'utf8'), activeLock)
+
+    const collisionFile = path.join(temp, 'recovery-collision.json')
+    const deadLock = JSON.stringify({
+      pid: 2147483647, host: os.hostname(), createdAt: new Date().toISOString(), token: 'dead-collision-owner',
+    })
+    const recoveryMarker = 'another-process-recovery-guard'
+    await fs.writeFile(`${collisionFile}.lock`, deadLock)
+    await fs.writeFile(`${collisionFile}.lock.recovery`, recoveryMarker)
+    await assert.rejects(saveState(collisionFile, createInitialState()), /recovery is already in progress/)
+    assert.equal(await fs.readFile(`${collisionFile}.lock`, 'utf8'), deadLock)
+    assert.equal(await fs.readFile(`${collisionFile}.lock.recovery`, 'utf8'), recoveryMarker)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
   }

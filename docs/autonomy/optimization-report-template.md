@@ -49,3 +49,9 @@ approval that permits work to resume. Do not restart a blocked investigation
 without distinct evidence. Do not restart after a budget or security stop
 without the appropriate authorization and a safe revised scope.
 
+For any approval or STOPPED-gate release, record the verified approver
+identities and roles, approval evidence references, authorized scope reference,
+and exact reviewed commit SHA. State that the Coordinator verified authority
+and evidence contents externally; the CLI only stores the attestation and does
+not authenticate it.
+

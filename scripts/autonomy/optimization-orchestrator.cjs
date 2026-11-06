@@ -43,6 +43,7 @@ const AUDIT_ROLES = Object.freeze([
   'performance_efficiency_engineer', 'ui_ux_engineer', 'release_reliability_engineer',
   'data_integrity_engineer',
 ])
+const IDENTITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9@._+-]{1,79}$/
 
 const DEFAULT_STATE_PATH = path.resolve(__dirname, '../../docs/autonomy/optimization-state.json')
 
@@ -123,6 +124,9 @@ function validateTask(task) {
   }
   if (task.status !== undefined && !TASK_STATUSES.includes(task.status)) {
     throw new Error('Invalid task status')
+  }
+  if (task.initialStatus !== undefined && !TASK_STATUSES.includes(task.initialStatus)) {
+    throw new Error('Invalid immutable initial task status')
   }
   if (task.baseline !== undefined && task.baseline !== null) {
     if (!onlyKeys(task.baseline, ['metric', 'evidenceRef']) || !Number.isFinite(task.baseline.metric)) {
@@ -229,6 +233,7 @@ function validateTask(task) {
     benchmarkDirection: task.benchmarkDirection ?? 'lower_is_better',
     metricName: task.metricName ?? task.id,
     status: task.status ?? 'ready',
+    initialStatus: task.initialStatus ?? task.status ?? 'ready',
     investigationKey: task.investigationKey ?? task.id,
     baseline: task.baseline ?? null,
     implementation: task.implementation ?? null,
@@ -317,9 +322,11 @@ function validateState(state) {
     'at', 'type', 'pilotId', 'maxCycles', 'taskId', 'cycle', 'domain', 'metric',
     'evidenceRef', 'branch', 'commitSha', 'reasonCode', 'blockerCode',
     'evidenceRevision', 'resultMetric',
+    'initialStatus',
     'auditStatus', 'consecutiveCleanAudits', 'actionableCount', 'blockedCount', 'auditedDimensions', 'specialistRoles',
     'auditId', 'auditEvidenceRefs', 'specialistAssessments', 'awaitingApprovalCount',
-    'reviewerEvidenceRef', 'qaEvidenceRef', 'securityEvidenceRef', 'aiQualityEvidenceRef', 'scopeReviewed',
+    'approverIdentity', 'approverRole', 'approvalEvidenceRef', 'authorizedScopeRef', 'scopeCommitSha',
+    'remediationEvidenceRef', 'approvals',
   ]
   for (const event of state.checkpoint.events) {
     if (!onlyKeys(event, eventKeys) || !eventTypes.has(event.type) ||
@@ -329,6 +336,10 @@ function validateState(state) {
     if (event.taskId && !/^[a-z0-9][a-z0-9-]{1,63}$/.test(event.taskId)) {
       throw new Error('Invalid task ID in checkpoint event')
     }
+    if (event.initialStatus !== undefined && (event.type !== 'task_discovered' ||
+        !['ready', 'awaiting_approval'].includes(event.initialStatus))) {
+      throw new Error('Invalid initial task status in discovery event')
+    }
     if (event.domain && !DOMAINS.includes(event.domain)) throw new Error('Invalid domain in checkpoint event')
     if (event.blockerCode && !BLOCKERS.includes(event.blockerCode)) throw new Error('Invalid blocker in checkpoint event')
     if (event.evidenceRef) assertReference(event.evidenceRef)
@@ -336,11 +347,17 @@ function validateState(state) {
     if (event.qaEvidenceRef) assertReference(event.qaEvidenceRef)
     if (event.securityEvidenceRef) assertReference(event.securityEvidenceRef)
     if (event.aiQualityEvidenceRef) assertReference(event.aiQualityEvidenceRef)
+    if (event.approvalEvidenceRef) assertReference(event.approvalEvidenceRef)
+    if (event.authorizedScopeRef) assertReference(event.authorizedScopeRef)
+    if (event.remediationEvidenceRef) assertReference(event.remediationEvidenceRef)
     if (event.branch && !/^codex\/[a-z0-9][a-z0-9-]{1,80}$/.test(event.branch)) {
       throw new Error('Invalid branch in checkpoint event')
     }
     if (event.commitSha && !/^[a-f0-9]{40}$/.test(event.commitSha)) {
       throw new Error('Invalid commit SHA in checkpoint event')
+    }
+    if (event.scopeCommitSha && !/^[a-f0-9]{40}$/.test(event.scopeCommitSha)) {
+      throw new Error('Invalid attested scope commit SHA in checkpoint event')
     }
     if (event.auditStatus && !['ACTIVE', 'BLOCKED', 'STOPPED', 'OPTIMIZATION_EXHAUSTED'].includes(event.auditStatus)) {
       throw new Error('Invalid exhaustion audit status')
@@ -362,12 +379,19 @@ function validateState(state) {
         throw new Error('Gate stop event requires an allowlisted stop reason')
       }
     } else if (event.type === 'stop_released') {
-      if (!['security', 'correctness'].includes(event.reasonCode) || event.scopeReviewed !== true ||
-          !event.evidenceRef || !event.reviewerEvidenceRef || !event.qaEvidenceRef || !event.securityEvidenceRef ||
-          (event.reasonCode === 'correctness' && !event.aiQualityEvidenceRef) ||
-          (event.reasonCode === 'security' && event.aiQualityEvidenceRef !== undefined)) {
-        throw new Error('Stop release event lacks required independent evidence')
-      }
+      validateStopReleaseAttestation({
+        reasonCode: event.reasonCode, remediationEvidenceRef: event.evidenceRef,
+        authorizedScopeRef: event.authorizedScopeRef, scopeCommitSha: event.scopeCommitSha,
+        approvals: event.approvals,
+      })
+    } else if (event.type === 'approval_recorded') {
+      validateApprovalAttestation({
+        approverIdentity: event.approverIdentity,
+        approverRole: event.approverRole,
+        approvalEvidenceRef: event.approvalEvidenceRef,
+        authorizedScopeRef: event.authorizedScopeRef,
+        scopeCommitSha: event.scopeCommitSha,
+      })
     } else if (event.auditedDimensions !== undefined || event.specialistRoles !== undefined) {
       throw new Error('Incomplete or invalid audit dimensions in event')
     }
@@ -375,6 +399,17 @@ function validateState(state) {
       if (event[countKey] !== undefined && (!Number.isSafeInteger(event[countKey]) || event[countKey] < 0)) {
         throw new Error('Invalid exhaustion audit count')
       }
+    }
+    if (event.type !== 'approval_recorded' &&
+        ['approverIdentity', 'approverRole', 'approvalEvidenceRef'].some(key => event[key] !== undefined)) {
+      throw new Error('Approval attestation fields are only valid on approval events')
+    }
+    if (!['approval_recorded', 'stop_released'].includes(event.type) &&
+        ['authorizedScopeRef', 'scopeCommitSha'].some(key => event[key] !== undefined)) {
+      throw new Error('Scope attestation fields are only valid on approval or stop-release events')
+    }
+    if (event.type !== 'stop_released' && event.approvals !== undefined) {
+      throw new Error('Release approval set is only valid on stop-release events')
     }
   }
   const persistedAuditEvents = state.checkpoint.events.filter(event =>
@@ -395,6 +430,57 @@ function validateState(state) {
   if (gate.status === 'OPTIMIZATION_EXHAUSTED' &&
       JSON.stringify(gate.finalReport.audits) !== JSON.stringify(gate.auditHistory)) {
     throw new Error('Exhaustion report does not preserve complete audit history')
+  }
+  const discoveryByTask = new Map()
+  const approvalsByTask = new Map()
+  for (const [index, event] of state.checkpoint.events.entries()) {
+    if (event.type === 'task_discovered' && event.taskId) {
+      if (discoveryByTask.has(event.taskId)) throw new Error(`Duplicate task discovery event: ${event.taskId}`)
+      discoveryByTask.set(event.taskId, {
+        index, domain: event.domain, initialStatus: event.initialStatus ?? 'ready',
+        hasInitialStatus: event.initialStatus !== undefined,
+      })
+    }
+    if (event.type === 'approval_recorded' && event.taskId) {
+      if (!approvalsByTask.has(event.taskId)) approvalsByTask.set(event.taskId, [])
+      approvalsByTask.get(event.taskId).push(index)
+    }
+  }
+  for (const task of state.tasks) {
+    const discovered = discoveryByTask.get(task.id)
+    if (!discovered) throw new Error(`Task ${task.id} lacks a task_discovered event`)
+    if (discovered.domain !== task.domain) throw new Error(`Task ${task.id} domain differs from its discovery event`)
+  }
+  for (const [taskId, indices] of approvalsByTask) {
+    const discovered = discoveryByTask.get(taskId)
+    if (!discovered || discovered.initialStatus !== 'awaiting_approval' ||
+        indices.some(index => index <= discovered.index)) {
+      throw new Error(`Approval event does not release a previously discovered awaiting-approval task: ${taskId}`)
+    }
+  }
+  for (const [taskId, discovered] of discoveryByTask) {
+    const task = state.tasks.find(candidate => candidate.id === taskId)
+    if (task && discovered.hasInitialStatus && discovered.initialStatus !== task.initialStatus) {
+      throw new Error(`Task ${taskId} initial status differs from its discovery event`)
+    }
+    if (discovered.initialStatus !== 'awaiting_approval') continue
+    const approvals = approvalsByTask.get(taskId) ?? []
+    if (!task) throw new Error(`Discovered approval task is missing: ${taskId}`)
+    if (approvals.length > 1) throw new Error(`Duplicate approval transition: ${taskId}`)
+    if (approvals.length === 0 && task.status !== 'awaiting_approval') {
+      throw new Error(`Awaiting-approval task ${taskId} changed status without structured approval evidence`)
+    }
+    if (approvals.length === 1 && task.status === 'awaiting_approval') {
+      throw new Error(`Approved task ${taskId} cannot return to awaiting_approval`)
+    }
+  }
+  for (const task of state.tasks.filter(candidate => candidate.initialStatus === 'awaiting_approval')) {
+    const discovered = discoveryByTask.get(task.id)
+    const approvals = approvalsByTask.get(task.id) ?? []
+    if (!discovered || discovered.initialStatus !== 'awaiting_approval' ||
+        (task.status !== 'awaiting_approval' && approvals.length !== 1)) {
+      throw new Error(`Task ${task.id} lacks its original approval discovery or approval evidence`)
+    }
   }
   if (gate.status === 'OPTIMIZATION_EXHAUSTED') {
     const expectedReport = buildFinalReport(state, [], gate.auditHistory.at(-1).specialistAssessments)
@@ -494,6 +580,64 @@ function validateSpecialistAssessments(assessments) {
     }
   }
   return true
+}
+
+function validateStopApprovals(reasonCode, approvals) {
+  const expectedRoles = reasonCode === 'security'
+    ? ['reviewer', 'qa', 'security_privacy_engineer']
+    : ['reviewer', 'qa', 'security_privacy_engineer', 'ai_quality_engineer']
+  if (!Array.isArray(approvals) || approvals.length !== expectedRoles.length) {
+    throw new Error('Stop release has an incomplete approval set')
+  }
+  const roles = new Set()
+  const identities = new Set()
+  const refs = new Set()
+  for (const approval of approvals) {
+    if (!onlyKeys(approval, ['role', 'identity', 'evidenceRef']) ||
+        !expectedRoles.includes(approval.role) || typeof approval.identity !== 'string' ||
+        !IDENTITY_PATTERN.test(approval.identity) ||
+        roles.has(approval.role)) throw new Error('Invalid stop release approver attestation')
+    assertReference(approval.evidenceRef)
+    if (identities.has(approval.identity) || refs.has(approval.evidenceRef)) {
+      throw new Error('Stop release approvals require distinct identities and evidence')
+    }
+    identities.add(approval.identity)
+    refs.add(approval.evidenceRef)
+    roles.add(approval.role)
+  }
+  if (expectedRoles.some(role => !roles.has(role))) throw new Error('Stop release lacks required role approvals')
+}
+
+function validateStopReleaseAttestation(release) {
+  if (!['security', 'correctness'].includes(release.reasonCode) ||
+      !/^[a-f0-9]{40}$/.test(release.scopeCommitSha ?? '') || !Array.isArray(release.approvals)) {
+    throw new Error('Stop release requires a valid reason and exact reviewed commit SHA')
+  }
+  assertReference(release.remediationEvidenceRef)
+  assertReference(release.authorizedScopeRef)
+  validateStopApprovals(release.reasonCode, release.approvals)
+  const refs = [release.remediationEvidenceRef, release.authorizedScopeRef,
+    ...release.approvals.map(item => item.evidenceRef)]
+  if (new Set(refs).size !== refs.length) {
+    throw new Error('Stop release requires distinct scope and evidence references')
+  }
+  return release
+}
+
+function validateApprovalAttestation(attestation) {
+  if (!onlyKeys(attestation, ['approverIdentity', 'approverRole', 'approvalEvidenceRef',
+    'authorizedScopeRef', 'scopeCommitSha']) ||
+      typeof attestation.approverIdentity !== 'string' || !IDENTITY_PATTERN.test(attestation.approverIdentity) ||
+      !AUDIT_ROLES.includes(attestation.approverRole) ||
+      !/^[a-f0-9]{40}$/.test(attestation.scopeCommitSha ?? '')) {
+    throw new Error('Approval requires identity, role, authorized scope, and exact commit SHA metadata')
+  }
+  assertReference(attestation.approvalEvidenceRef)
+  assertReference(attestation.authorizedScopeRef)
+  if (attestation.approvalEvidenceRef === attestation.authorizedScopeRef) {
+    throw new Error('Approval evidence and authorized scope must be distinct references')
+  }
+  return attestation
 }
 
 function validateAuditHistory(history) {
@@ -996,35 +1140,30 @@ function recordNewEvidence(state, taskId, evidenceRef) {
   return task
 }
 
-function recordApproval(state, taskId, evidenceRef) {
+function recordApproval(state, taskId, attestation) {
   const task = findTask(state, taskId)
   if (task.status !== 'awaiting_approval') throw new Error('Only tasks awaiting approval can be released')
-  assertReference(evidenceRef)
+  attestation = validateApprovalAttestation(attestation)
   task.status = 'ready'
-  appendEvent(state, { type: 'approval_recorded', taskId, evidenceRef })
+  appendEvent(state, {
+    type: 'approval_recorded', taskId, approverIdentity: attestation.approverIdentity,
+    approverRole: attestation.approverRole, approvalEvidenceRef: attestation.approvalEvidenceRef,
+    authorizedScopeRef: attestation.authorizedScopeRef, scopeCommitSha: attestation.scopeCommitSha,
+  })
   resumeOptimization(state, 'required_approval', task.id)
   return task
 }
 
 function releaseStopGate(state, release) {
-  const allowed = ['evidenceRef', 'reviewerEvidenceRef', 'qaEvidenceRef', 'securityEvidenceRef',
-    'aiQualityEvidenceRef', 'scopeReviewed']
-  if (!onlyKeys(release, allowed) || release.scopeReviewed !== true) {
-    throw new Error('Stop release requires remediation evidence, independent approvals, and safe-scope review')
+  const allowed = ['remediationEvidenceRef', 'authorizedScopeRef', 'scopeCommitSha', 'approvals']
+  if (!onlyKeys(release, allowed) || !/^[a-f0-9]{40}$/.test(release.scopeCommitSha ?? '')) {
+    throw new Error('Stop release requires remediation, exact reviewed scope, and structured approvals')
   }
   const gate = state.checkpoint.optimizationGate
   if (gate.status !== 'STOPPED' || !['security', 'correctness'].includes(gate.stopReason)) {
     throw new Error('Only security or correctness stops can be released through this transition')
   }
-  if (!release.reviewerEvidenceRef || !release.qaEvidenceRef || !release.securityEvidenceRef ||
-      (gate.stopReason === 'correctness' && !release.aiQualityEvidenceRef) ||
-      (gate.stopReason === 'security' && release.aiQualityEvidenceRef !== undefined)) {
-    throw new Error('Stop release requires Reviewer, QA, and Security evidence, plus AI Quality for correctness')
-  }
-  const refs = [release.evidenceRef, release.reviewerEvidenceRef, release.qaEvidenceRef, release.securityEvidenceRef,
-    ...(release.aiQualityEvidenceRef ? [release.aiQualityEvidenceRef] : [])]
-  refs.forEach(assertReference)
-  if (new Set(refs).size !== refs.length) throw new Error('Stop release requires distinct remediation and assessment evidence')
+  validateStopReleaseAttestation({ ...release, reasonCode: gate.stopReason })
   if (state.checkpoint.selectedTaskId) throw new Error('Resolve the active task before releasing a global stop')
   const reasonCode = gate.stopReason
   gate.status = 'ACTIVE'
@@ -1032,11 +1171,9 @@ function releaseStopGate(state, release) {
   gate.consecutiveCleanAudits = 0
   gate.finalReport = null
   appendEvent(state, {
-    type: 'stop_released', reasonCode, evidenceRef: release.evidenceRef,
-    reviewerEvidenceRef: release.reviewerEvidenceRef, qaEvidenceRef: release.qaEvidenceRef,
-    securityEvidenceRef: release.securityEvidenceRef,
-    ...(release.aiQualityEvidenceRef ? { aiQualityEvidenceRef: release.aiQualityEvidenceRef } : {}),
-    scopeReviewed: true,
+    type: 'stop_released', reasonCode, evidenceRef: release.remediationEvidenceRef,
+    authorizedScopeRef: release.authorizedScopeRef, scopeCommitSha: release.scopeCommitSha,
+    approvals: release.approvals.map(item => ({ ...item })),
   })
   return gate
 }
@@ -1096,6 +1233,9 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES } = {}) {
 }
 
 function addTask(state, taskInput) {
+  if (taskInput?.initialStatus !== undefined) {
+    throw new Error('Initial status is assigned by the orchestrator during task discovery')
+  }
   if (taskInput?.status !== undefined && !['ready', 'awaiting_approval'].includes(taskInput.status)) {
     throw new Error('Discovered tasks must start ready or awaiting_approval')
   }
@@ -1108,7 +1248,9 @@ function addTask(state, taskInput) {
     if (!state.tasks.some(item => item.id === dependency)) throw new Error(`Unknown dependency: ${dependency}`)
   }
   state.tasks.push(task)
-  appendEvent(state, { type: 'task_discovered', taskId: task.id, domain: task.domain })
+  appendEvent(state, {
+    type: 'task_discovered', taskId: task.id, domain: task.domain, initialStatus: task.initialStatus,
+  })
   if (task.status === 'ready') resumeOptimization(state, 'new_actionable_task', task.id)
   return task
 }
@@ -1170,7 +1312,11 @@ async function saveState(filePath, state) {
         if (guardError.code === 'EEXIST') throw new Error('State lock recovery is already in progress or needs operator recovery')
         throw guardError
       }
+      let guardToken
       try {
+        guardToken = crypto.randomUUID()
+        await recoveryLock.writeFile(guardToken)
+        await recoveryLock.sync()
         const [currentStat, currentText] = await Promise.all([
           fs.stat(lockPath).catch(() => null), fs.readFile(lockPath, 'utf8').catch(() => null),
         ])
@@ -1180,8 +1326,15 @@ async function saveState(filePath, state) {
         if (sameFile) await fs.unlink(lockPath)
         else throw new Error('State lock changed during recovery; refusing to remove it')
       } finally {
+        const ownedGuard = await recoveryLock.stat().catch(() => null)
         await recoveryLock.close().catch(() => {})
-        await fs.rm(recoveryPath, { force: true }).catch(() => {})
+        const currentGuardStat = await fs.lstat(recoveryPath).catch(() => null)
+        const currentGuardText = await fs.readFile(recoveryPath, 'utf8').catch(() => null)
+        if (ownedGuard && currentGuardStat && !currentGuardStat.isSymbolicLink() &&
+            currentGuardStat.dev === ownedGuard.dev && currentGuardStat.ino === ownedGuard.ino &&
+            guardToken && currentGuardText === guardToken) {
+          await fs.unlink(recoveryPath).catch(() => {})
+        }
       }
       recovered = true
     }
@@ -1257,7 +1410,9 @@ async function cli(argv) {
   } else if (command === 'evidence') {
     result = recordNewEvidence(state, args[0], args[1])
   } else if (command === 'approve') {
-    result = recordApproval(state, args[0], args[1])
+    let attestation
+    try { attestation = JSON.parse(args[1] ?? '') } catch { throw new Error('approve requires a JSON attestation argument') }
+    result = recordApproval(state, args[0], attestation)
   } else if (command === 'audit') {
     let audit
     try { audit = JSON.parse(args[0] ?? '') } catch { throw new Error('audit requires one JSON metadata argument') }

@@ -32,6 +32,7 @@
       "benchmarkDirection": "lower_is_better",
       "metricName": "local-qwen-664-candidate-root-cause",
       "status": "blocked",
+      "initialStatus": "ready",
       "investigationKey": "local-qwen-664-candidate-root-cause",
       "baseline": null,
       "implementation": null,
@@ -81,6 +82,7 @@
       "benchmarkDirection": "lower_is_better",
       "metricName": "local-ai-minimal-replacement-existing-pr-665",
       "status": "blocked",
+      "initialStatus": "ready",
       "investigationKey": "local-ai-minimal-replacement-existing-pr-665",
       "baseline": null,
       "implementation": null,
@@ -130,6 +132,7 @@
       "benchmarkDirection": "higher_is_better",
       "metricName": "independent_fallback_transitions",
       "status": "ready",
+      "initialStatus": "ready",
       "investigationKey": "autonomy-bridge-blocker-fallback",
       "baseline": null,
       "implementation": null,
@@ -162,7 +165,43 @@
       "finalReport": null,
       "auditHistory": []
     },
-    "events": []
+    "events": [
+      {
+        "at": "2026-11-06T22:19:09.317Z",
+        "type": "task_discovered",
+        "taskId": "local-qwen-664-candidate-root-cause",
+        "domain": "local_ai",
+        "initialStatus": "ready"
+      },
+      {
+        "at": "2026-11-06T22:19:09.317Z",
+        "type": "blocked",
+        "taskId": "local-qwen-664-candidate-root-cause",
+        "blockerCode": "unavailable_evidence",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959"
+      },
+      {
+        "at": "2026-11-06T22:19:09.317Z",
+        "type": "task_discovered",
+        "taskId": "local-ai-minimal-replacement-existing-pr-665",
+        "domain": "local_ai",
+        "initialStatus": "ready"
+      },
+      {
+        "at": "2026-11-06T22:19:09.317Z",
+        "type": "blocked",
+        "taskId": "local-ai-minimal-replacement-existing-pr-665",
+        "blockerCode": "existing_pr",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665"
+      },
+      {
+        "at": "2026-11-06T22:19:09.317Z",
+        "type": "task_discovered",
+        "taskId": "autonomy-bridge-blocker-fallback",
+        "domain": "reliability",
+        "initialStatus": "ready"
+      }
+    ]
   }
 }
 
