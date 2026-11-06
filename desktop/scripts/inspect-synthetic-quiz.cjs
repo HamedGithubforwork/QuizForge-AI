@@ -16,19 +16,27 @@ const pageNumbers = question => Array.isArray(question?.source_pages)
   ? question.source_pages.filter(n => Number.isSafeInteger(n)) : []
 
 function inspectQuestion(question, fixture, priorFacts = new Set()) {
+  const correctAnswer = typeof question?.correct_answer === 'string'
+    ? question.correct_answer
+    : Array.isArray(question?.choices) &&
+        Number.isSafeInteger(question.correct_index) &&
+        question.correct_index >= 0 && question.correct_index < question.choices.length &&
+        typeof question.choices[question.correct_index] === 'string'
+      ? question.choices[question.correct_index]
+      : null
   if (!question || typeof question.question !== 'string' ||
-      typeof question.correct_answer !== 'string') {
+      typeof correctAnswer !== 'string') {
     return { reason: 'question_shape', sourceFactId: null, oracleMatch: false, evidenceMatch: false }
   }
   const context = normalized(question.question + ' ' + (question.explanation ?? ''))
   const cited = pageNumbers(question)
   const related = fixture.facts.filter(fact =>
-    fact.routes.some(route => answerMatches(question.correct_answer, route.answers)))
+    fact.routes.some(route => answerMatches(correctAnswer, route.answers)))
   const withCitation = related.filter(fact =>
     (fact.pages ?? [fact.page]).every(number => cited.includes(number)))
   const matched = withCitation.filter(fact =>
     fact.routes.some(route =>
-      answerMatches(question.correct_answer, route.answers) &&
+      answerMatches(correctAnswer, route.answers) &&
       route.tokens.every(token => context.includes(normalized(token)))))
   const candidate = matched.length === 1 ? matched[0] : null
   const citedText = fixture.selectedPages.filter(p => cited.includes(p.pageNumber))
@@ -36,7 +44,7 @@ function inspectQuestion(question, fixture, priorFacts = new Set()) {
   const quote = normalized(question.source_fact)
   // A quote match is not by itself proof of answer correctness.
   const evidenceMatch = quote.length > 0 && citedText.includes(quote) &&
-    quote.includes(normalized(question.correct_answer))
+    quote.includes(normalized(correctAnswer))
   const duplicatesFact = candidate && priorFacts.has(candidate.id)
   const reason = matched.length > 1 ? 'oracle_ambiguous' :
     candidate && duplicatesFact ? 'duplicate_fact' :
