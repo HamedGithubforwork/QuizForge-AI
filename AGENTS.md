@@ -22,6 +22,57 @@ The main agent is the Coordinator. Coordinate the work, keep the user informed, 
 - Never automatically merge, deploy to production, incur paid charges, or delete important resources. Do not perform destructive or irreversible actions without explicit user direction.
 - Do not change application functionality during agent/configuration setup.
 
+## Global Optimization Exhaustion Rule
+
+For autonomous repository optimization, classify every backlog item as
+`actionable`, `awaiting_approval`, `blocked`, `completed`, or `rejected`.
+The orchestrator stores detailed pipeline stages: `ready`, `selected`,
+`baseline_established`, `implementing`, `implemented`, `tests_passed`,
+`reviewed`, `qa_passed`, and `quality_security_passed` derive to `actionable`;
+`awaiting_approval`, `blocked`, and `rejected` map directly; `validated` maps
+to `completed`. Preserve evidence and blocker records when changing stage or
+classification. Do not repeat an investigation of the same blocker without
+distinct new evidence.
+
+Before declaring the repository exhausted, record complete audits of
+performance, memory, CPU, code quality, security, reliability, Local AI, quiz
+generation, backend, grading, frontend UX, desktop UX, tests, and GitHub Actions
+efficiency. An audit missing any dimension is invalid. Every audit must also
+include evidence-backed findings from Reviewer, QA, Security/Privacy, AI
+Quality, Performance Efficiency, UI/UX, Release Reliability, and Data
+Integrity. Missing role evidence or a role finding blocked by unavailable
+evidence keeps the gate `BLOCKED`; do not infer a clean result. An
+`OPTIMIZATION_EXHAUSTED` gate requires two consecutive complete clean audits,
+no actionable work, and no credible specialist improvement assessment. A
+credible assessment or newly actionable task resumes the loop and clears the
+exhaustion gate. Tasks awaiting required approval count as blocked for
+selection. Release one only through an explicit approval-evidence transition;
+never infer or generate approval. Temporary blockers set the affected task to `blocked`; they do not
+count as repository exhaustion, and the Coordinator must select another
+independent actionable task when one exists.
+
+Budget limits and critical security or correctness concerns are immediate
+`STOPPED` conditions. Missing required approval immediately sets `BLOCKED` with
+an approval reason. Reaching the ten-cycle pilot cap also persists `STOPPED`
+with a budget reason. Start a new explicitly bounded pilot to replenish that
+budget. `STOPPED` is sticky across ordinary audits. Security/correctness stops
+require explicit remediation evidence, safe-scope review, and independent
+Reviewer, QA, and Security evidence (plus AI Quality evidence for correctness)
+through the release transition. Record the stop or blocker and
+preserve the checkpoint. Do not automatically merge, deploy, spend money, or
+perform destructive actions. Keep specialist concurrency at three or fewer.
+
+Each cycle must retain baseline and result evidence, focused test results,
+independent Reviewer and QA assessments, quality and security assessments,
+and the benchmark interpretation. The final report must state completed,
+rejected, blocked, awaiting-approval, and actionable counts; cite evidence and
+tests; identify stop reasons; and give concrete restart criteria. Do not claim
+exhaustion after one clean audit or while independent actionable work remains.
+Use `docs/autonomy/optimization-report-template.md` for the durable report
+shape. Persist `OPTIMIZATION_EXHAUSTED` only through the orchestrator's complete
+audit gate; two arbitrary status calls or incomplete audit references do not
+establish exhaustion.
+
 ## PR integration and merge authorization
 
 - Default to read-only PR review. The Merge Manager must identify the exact repository, PR number, current head SHA, and intended destination; independently inspect current GitHub evidence and report blockers or unverifiable checks. Do not edit PRs, comment, trigger workflows, or merge during read-only tests.
@@ -30,3 +81,4 @@ The main agent is the Coordinator. Coordinate the work, keep the user informed, 
 - Never override or bypass protections, force-push, directly modify a protected branch, enable auto-merge, weaken checks, or deploy automatically. If a merge itself would trigger an automatic deployment, stop and obtain an explicitly authorized, safe plan rather than initiating the merge.
 - Never merge experimental changes into production.
 - This role supplements the existing Coordinator and ten specialists; preserve all existing agent profiles and `max_concurrent_threads_per_session = 3`. No agent is authorized to merge without the same specific-PR approval.
+

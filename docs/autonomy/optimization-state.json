@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-06T22:19:09.317Z",
+  "domains": [
+    "local_ai",
+    "backend",
+    "frontend",
+    "desktop_ui",
+    "reliability",
+    "security",
+    "performance",
+    "ci_efficiency"
+  ],
+  "tasks": [
+    {
+      "id": "local-qwen-664-candidate-root-cause",
+      "domain": "local_ai",
+      "title": "Resolve #664 candidate rejection causes from retained sanitized evidence",
+      "impact": 5,
+      "effort": 3,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "docs/local-qwen-pilot-progress.md",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959"
+      ],
+      "testRefs": [
+        "desktop/test/diagnose-targeted-practice.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "local-qwen-664-candidate-root-cause",
+      "status": "blocked",
+      "investigationKey": "local-qwen-664-candidate-root-cause",
+      "baseline": null,
+      "implementation": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "unavailable_evidence",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T22:19:09.317Z"
+      },
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null
+    },
+    {
+      "id": "local-ai-minimal-replacement-existing-pr-665",
+      "domain": "local_ai",
+      "title": "Assess the existing #665 minimal replacement batching proposal",
+      "impact": 4,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665"
+      ],
+      "testRefs": [
+        "desktop/test/local-quiz-service.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "local-ai-minimal-replacement-existing-pr-665",
+      "status": "blocked",
+      "investigationKey": "local-ai-minimal-replacement-existing-pr-665",
+      "baseline": null,
+      "implementation": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "existing_pr",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T22:19:09.317Z"
+      },
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null
+    },
+    {
+      "id": "autonomy-bridge-blocker-fallback",
+      "domain": "reliability",
+      "title": "Replace autonomy bridge global-stop blocker semantics with fallback selection",
+      "impact": 5,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/quizforge-autonomy-bridge.yml"
+      ],
+      "testRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "independent_fallback_transitions",
+      "status": "ready",
+      "investigationKey": "autonomy-bridge-blocker-fallback",
+      "baseline": null,
+      "implementation": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null
+    }
+  ],
+  "checkpoint": {
+    "pilotId": null,
+    "maxCycles": 10,
+    "cyclesStarted": 0,
+    "cyclesValidated": 0,
+    "selectedTaskId": null,
+    "previousTaskId": null,
+    "optimizationGate": {
+      "status": "ACTIVE",
+      "consecutiveCleanAudits": 0,
+      "lastAuditRefs": [],
+      "lastAuditedDimensions": [],
+      "stopReason": null,
+      "finalReport": null,
+      "auditHistory": []
+    },
+    "events": []
+  }
+}
+

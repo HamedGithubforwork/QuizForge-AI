@@ -17,10 +17,7 @@ on:
       - completed
 
 permissions:
-  actions: write
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
   group: autonomy-bridge-${{ github.event.workflow_run.id || github.event.pull_request.number || github.run_id }}
@@ -35,6 +32,10 @@ jobs:
       (github.event.workflow_run.conclusion == 'failure' ||
        github.event.workflow_run.conclusion == 'timed_out')
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      issues: write
+      pull-requests: read
     steps:
       - name: Validate PR scope and retry failed jobs
         env:
@@ -63,7 +64,8 @@ jobs:
             gh run rerun "${RUN_ID}" --repo "${REPOSITORY}"
           fi
 
-          gh pr comment "${PR_NUMBER}" --repo "${REPOSITORY}"             --body "QuizForge autonomy bridge: this failed/timed-out workflow was retried once automatically. If the retry fails again, it will be added to the continuation queue for investigation."
+          gh pr comment "${PR_NUMBER}" --repo "${REPOSITORY}" \
+            --body "QuizForge autonomy bridge: this failed/timed-out workflow was retried once automatically. If it fails again, its blocker will be recorded while the Coordinator selects another independent actionable task."
 
   queue-merged-pr:
     name: Queue merged PR continuation
@@ -71,6 +73,8 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.pull_request.merged == true
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
       - name: Record merge for autonomous continuation
         env:
@@ -90,7 +94,9 @@ jobs:
 
           if [[ -z "${issue_number}" ]]; then
             issue_url="$(
-              gh issue create --repo "${REPOSITORY}"                 --title "QuizForge autonomous continuation queue"                 --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Close this issue only after all queued entries have been reconciled against the current repository state."
+              gh issue create --repo "${REPOSITORY}" \
+                --title "QuizForge autonomous continuation queue" \
+                --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Reconcile each entry with the current repository state; one blocked item does not prevent independent backlog work."
             )"
             issue_number="${issue_url##*/}"
           fi
@@ -106,6 +112,9 @@ jobs:
       (github.event.workflow_run.conclusion == 'failure' ||
        github.event.workflow_run.conclusion == 'timed_out')
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
     steps:
       - name: Record persistent failure for investigation
         env:
@@ -136,10 +145,13 @@ jobs:
 
           if [[ -z "${issue_number}" ]]; then
             issue_url="$(
-              gh issue create --repo "${REPOSITORY}"                 --title "QuizForge autonomous continuation queue"                 --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Close this issue only after all queued entries have been reconciled against the current repository state."
+              gh issue create --repo "${REPOSITORY}" \
+                --title "QuizForge autonomous continuation queue" \
+                --body "Durable handoff queue maintained by GitHub Actions. Entries are signals for the ChatGPT/Work continuation loop. Reconcile each entry with the current repository state; one blocked item does not prevent independent backlog work."
             )"
             issue_number="${issue_url##*/}"
           fi
 
-          body="$(printf 'BLOCKER: `%s` failed again after the automatic retry on PR #%s.\nRun: %s\nRun ID: `%s`\n\nNext action: inspect the failed jobs/logs, fix the underlying problem, rerun verification, and do not advance the roadmap until this blocker is resolved.' "${WORKFLOW_NAME}" "${PR_NUMBER}" "${RUN_URL}" "${RUN_ID}")"
+          body="$(printf 'BLOCKED TASK: `%s` failed again after the automatic retry on PR #%s.\nRun: %s\nRun ID: `%s`\n\nPreserve the task and its evidence as blocked. Immediately select the highest-value independent actionable backlog task. Revisit this blocker only when distinct new evidence is available.' "${WORKFLOW_NAME}" "${PR_NUMBER}" "${RUN_URL}" "${RUN_ID}")"
           gh issue comment "${issue_number}" --repo "${REPOSITORY}" --body "${body}"
+
