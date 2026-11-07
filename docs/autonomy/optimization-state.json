@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T00:16:51.308Z",
+  "updatedAt": "2026-11-07T00:21:31.550Z",
   "domains": [
     "local_ai",
     "backend",
@@ -15,7 +15,7 @@
     {
       "id": "local-qwen-664-candidate-root-cause",
       "domain": "local_ai",
-      "title": "Diagnose #664 candidate failures from available sanitized artifact",
+      "title": "Diagnose #664 because artifact lacks finish and candidate rejection details",
       "impact": 5,
       "effort": 3,
       "risk": 1,
