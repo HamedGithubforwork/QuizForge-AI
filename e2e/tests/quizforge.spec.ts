@@ -457,6 +457,15 @@ test(
       }),
     ).toBeVisible()
 
+    await page
+      .locator('.question-nav-button')
+      .nth(1)
+      .click()
+
+    await expect(
+      cards.nth(1),
+    ).toBeFocused()
+
     await expect(
       page.getByText(
         'TCP provides reliable, ordered delivery.',
@@ -569,3 +578,4 @@ test(
     ).toBeVisible()
   },
 )
+
