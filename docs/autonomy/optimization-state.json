@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T04:39:00.036Z",
+  "updatedAt": "2026-11-07T04:42:30.960Z",
   "domains": [
     "local_ai",
     "backend",
@@ -741,10 +741,13 @@
       "benchmarkCost": "local",
       "benchmarkDirection": "higher_is_better",
       "metricName": "question_nav_accessible_name_coverage",
-      "status": "ready",
+      "status": "baseline_established",
       "initialStatus": "ready",
       "investigationKey": "quiz-navigator-accessible-labels",
-      "baseline": null,
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/QuizSession.tsx"
+      },
       "implementation": null,
       "testResult": null,
       "assessments": {
@@ -766,11 +769,11 @@
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 4,
+    "cyclesStarted": 5,
     "cyclesValidated": 3,
-    "revision": 38,
-    "selectedTaskId": null,
-    "previousTaskId": "weak-area-prompt-data-isolation",
+    "revision": 40,
+    "selectedTaskId": "quiz-navigator-accessible-labels",
+    "previousTaskId": "quiz-navigator-accessible-labels",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -1812,6 +1815,21 @@
         "taskId": "weak-area-prompt-data-isolation",
         "resultMetric": 0,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:41:09.584Z",
+        "type": "selected",
+        "taskId": "quiz-navigator-accessible-labels",
+        "cycle": 5,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:42:30.960Z",
+        "type": "baseline",
+        "taskId": "quiz-navigator-accessible-labels",
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/QuizSession.tsx",
         "pilotId": "pilot-2026-11-06-02"
       }
     ]
