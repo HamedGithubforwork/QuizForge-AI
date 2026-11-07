@@ -1154,7 +1154,7 @@
       "benchmarkDirection": "lower_is_better",
       "metricName": "pdf_pages_processed",
       "status": "blocked",
-      "initialStatus": "blocked",
+      "initialStatus": "ready",
       "investigationKey": "pdf-page-count-resource-bound",
       "baseline": null,
       "implementation": null,
@@ -1172,7 +1172,18 @@
         "evidenceRevision": 0,
         "recordedAt": "2026-11-07T06:12:00.000Z"
       },
-      "workPreserved": null,
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "testResult": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
       "preservationDeferral": null,
       "preservationArchiveRefs": [],
       "evidenceRevision": 0,
