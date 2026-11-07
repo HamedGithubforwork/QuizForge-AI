@@ -6,11 +6,13 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
+const optimizationOrchestrator = require('../optimization-orchestrator.cjs')
 const {
-  AUDIT_DIMENSIONS, AUDIT_ROLES, addTask, beginRun, blockTask, createInitialState, createPilot,
+  AUDIT_DIMENSIONS, AUDIT_ROLES, addTask, beginRun, blockTask, createInitialState,
   recordApproval, recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordNewEvidence, recordOptimizationAudit, recordTests, releaseStopGate, resume, saveState, selectNextTask,
-  startNewCycle, validateState, validateTask,
+  startNewCycle, selectTask, validateState, validateTask, preparePilot, startPreparedPilot,
+  recordRecoveryDiagnosis, recordRecoveryAttempt,
 } = require('../optimization-orchestrator.cjs')
 
 function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, dependencies = [] } = {}) {
@@ -21,6 +23,21 @@ function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, depend
   }
 }
 
+// Tests seed an in-memory checkpoint directly so the production API cannot bypass
+// preparation and scoped authorization. This helper is intentionally test-local.
+function createPilot(state, { pilotId, maxCycles = 10 } = {}) {
+  if (!Number.isInteger(maxCycles) || maxCycles < 1 || maxCycles > 10) {
+    throw new Error('Pilot requires a safe id and maxCycles between 1 and 10')
+  }
+  state.checkpoint.pilotId = pilotId
+  state.checkpoint.maxCycles = maxCycles
+  state.checkpoint.cyclesStarted = 0
+  state.checkpoint.cyclesValidated = 0
+  state.checkpoint.events.push({
+    at: new Date().toISOString(), type: 'pilot_started', pilotId, maxCycles,
+  })
+}
+
 function approvalAttestation(approvalEvidenceRef = 'docs/ai-cost-controls.md') {
   return {
     approverIdentity: 'reviewer@example.com',
@@ -29,6 +46,32 @@ function approvalAttestation(approvalEvidenceRef = 'docs/ai-cost-controls.md') {
     authorizedScopeRef: 'docs/autonomy/optimization-loop.md',
     scopeCommitSha: 'd'.repeat(40),
   }
+}
+
+test('production API has no direct pilot creation and begin refuses an unprepared pilot', () => {
+  assert.equal(optimizationOrchestrator.createPilot, undefined)
+  const state = createInitialState()
+  assert.throws(() => beginRun(state), /prepare and explicitly authorize a pilot/)
+  assert.throws(() => resume(state), /without an explicitly started pilot/)
+  assert.throws(() => startNewCycle(state), /without an explicitly started pilot/)
+  assert.throws(() => selectTask(state), /requires an explicitly started pilot/)
+  const pending = preparePilot(state, { pilotId: 'first-explicit-pilot' })
+  assert.equal(pending.maxCycles, 10)
+  assert.throws(() => beginRun(state), /explicit start-pilot/)
+  assert.equal(state.checkpoint.pilotId, null)
+  assert.equal(state.checkpoint.selectedTaskId, null)
+  assert.equal(state.checkpoint.cyclesStarted, 0)
+})
+
+function blockWithDiagnosis(state, id, blockerCode, evidenceRef = 'docs/ai-cost-controls.md') {
+  return recordRecoveryDiagnosis(state, id, {
+    diagnosisCode: 'evidence_insufficient',
+    investigatorEvidenceRef: evidenceRef,
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: false,
+    blockerCode,
+    nonRecoverableReasonCode: 'evidence_unavailable',
+  })
 }
 
 test('selects highest-value actionable work and breaks ties deterministically', () => {
@@ -49,7 +92,7 @@ test('blocker is persisted and immediately selects independent actionable work',
 
   const selected = beginRun(state).task
   assert.equal(selected.id, 'blocked-local-ai')
-  const outcome = blockTask(state, selected.id, 'existing_pr', 'https://github.com/example/repo/pull/665')
+  const outcome = blockWithDiagnosis(state, selected.id, 'existing_pr', 'https://github.com/example/repo/pull/665')
 
   assert.equal(outcome.blocked.status, 'blocked')
   assert.equal(outcome.blocked.blocker.code, 'existing_pr')
@@ -80,13 +123,271 @@ test('resume loads the same active task and preserves blocker work across disk r
   }
 })
 
+test('prepare-pilot preserves stopped history and cannot select or start work implicitly', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'pilot-2026-11-06-01', maxCycles: 10 })
+  assert.throws(() => preparePilot(state, { pilotId: 'pilot-too-early' }), /only after the current pilot reaches a terminal/)
+  state.checkpoint.cyclesStarted = 3
+  state.checkpoint.cyclesValidated = 3
+  state.checkpoint.optimizationGate.status = 'STOPPED'
+  state.checkpoint.optimizationGate.stopReason = 'budget'
+  addTask(state, task('pending-pilot-task'))
+  const before = JSON.stringify({
+    pilotId: state.checkpoint.pilotId,
+    cyclesStarted: state.checkpoint.cyclesStarted,
+    cyclesValidated: state.checkpoint.cyclesValidated,
+    gate: state.checkpoint.optimizationGate,
+    selectedTaskId: state.checkpoint.selectedTaskId,
+  })
+  const pending = preparePilot(state, { pilotId: 'pilot-follow-up-2026-11-06' })
+  assert.equal(pending.maxCycles, 10)
+  assert.match(pending.pilotId, /^pilot-/)
+  assert.equal(state.checkpoint.preparedPilot.pilotId, pending.pilotId)
+  assert.equal(JSON.stringify({
+    pilotId: state.checkpoint.pilotId,
+    cyclesStarted: state.checkpoint.cyclesStarted,
+    cyclesValidated: state.checkpoint.cyclesValidated,
+    gate: state.checkpoint.optimizationGate,
+    selectedTaskId: state.checkpoint.selectedTaskId,
+  }), before)
+  assert.throws(() => beginRun(state), /explicit start-pilot/)
+  assert.equal(state.checkpoint.cyclesStarted, 3)
+  assert.equal(state.checkpoint.selectedTaskId, null)
+  assert.throws(() => preparePilot(state, { pilotId: pending.pilotId }), /already prepared/)
+  assert.throws(() => startPreparedPilot(state), /authorization/)
+  assert.throws(() => startPreparedPilot(state, {
+    pilotId: 'wrong-pilot', maxCycles: 10, approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  }), /match the prepared pilot ID/)
+  assert.throws(() => startPreparedPilot(state, {
+    pilotId: pending.pilotId, maxCycles: 9, approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  }), /match the prepared pilot ID/)
+  assert.equal(state.checkpoint.preparedPilot.pilotId, pending.pilotId)
+  startPreparedPilot(state, {
+    pilotId: pending.pilotId, maxCycles: 10, approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  })
+  assert.equal(state.checkpoint.pilotId, pending.pilotId)
+  assert.equal(state.checkpoint.cyclesStarted, 0)
+  assert.equal(state.checkpoint.selectedTaskId, null)
+  assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
+  assert.equal(state.checkpoint.optimizationGate.stopReason, null)
+  assert.deepEqual(state.checkpoint.pilotHistory.map(item => item.pilotId), ['pilot-2026-11-06-01'])
+  assert.equal(state.checkpoint.pilotHistory[0].cyclesStarted, 3)
+  assert.deepEqual(state.checkpoint.events.at(-1).pilotStartAuthorization, {
+    pilotId: pending.pilotId,
+    maxCycles: 10,
+    approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  })
+  assert.equal(validateState(state), state)
+  const forgedStart = structuredClone(state)
+  delete forgedStart.checkpoint.events.at(-1).pilotStartAuthorization
+  assert.throws(() => validateState(forgedStart), /preserve its scoped authorization attestation/)
+})
+
+test('recovery records reject free-text diagnosis and solution fields', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'recovery-code-only-pilot', maxCycles: 2 })
+  addTask(state, task('recovery-code-only-task'))
+  const active = beginRun(state).task
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'missing_dependency',
+    rootCause: 'arbitrary text should not enter the checkpoint',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  }), /allowlisted diagnosis/)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'missing_dependency',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: false,
+    blockerCode: 'tooling_unavailable',
+    rationale: 'free-text rationale is not permitted',
+  }), /allowlisted diagnosis/)
+  recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'missing_dependency',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  })
+  assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    strategy: 'dependency_repair',
+    solutionSummary: 'free text must be rejected',
+    evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10005',
+    result: 'failed',
+  }), /allowlisted strategy/)
+  assert.equal(state.tasks[0].recoveryHistory[0].diagnosis.diagnosisCode, 'missing_dependency')
+  assert.equal(Object.hasOwn(state.tasks[0].recoveryHistory[0].diagnosis, 'rootCause'), false)
+  assert.equal(validateState(state), state)
+})
+
+test('successful blocker recovery verifies the original allowlisted check and preserves active work', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'recovery-success-pilot', maxCycles: 2 })
+  addTask(state, task('recoverable-task'))
+  const active = beginRun(state).task
+  recordBaseline(state, active.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(state, active.id, { branch: 'codex/recoverable-task', commitSha: 'a'.repeat(40) })
+  recordTests(state, active.id, { passed: false, artifactRef: 'scripts/production/test_runtime.py' })
+  recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'missing_dependency',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  })
+  const recovered = recordRecoveryAttempt(state, active.id, {
+    strategy: 'dependency_repair',
+    evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10001',
+    result: 'passed',
+  })
+  assert.equal(recovered.recovered, true)
+  assert.equal(state.checkpoint.selectedTaskId, active.id)
+  assert.equal(active.status, 'tests_passed')
+  assert.equal(active.testResult.passed, true)
+  assert.equal(active.implementation.branch, 'codex/recoverable-task')
+  assert.equal(active.baseline.metric, 10)
+  assert.equal(active.recoveryHistory[0].attempts[0].checkRef, 'scripts/production/test_runtime.py')
+  assert.equal(active.recoveryHistory[0].outcome, 'recovered')
+  assert.equal(validateState(state), state)
+})
+
+test('two distinct failed recovery attempts persist, block, and select independent work', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-recovery-'))
+  const file = path.join(dir, 'state.json')
+  try {
+    const state = createInitialState()
+    createPilot(state, { pilotId: 'recovery-fallback-pilot', maxCycles: 4 })
+    addTask(state, task('recovery-blocked', { impact: 5 }))
+    addTask(state, task('recovery-independent', { domain: 'frontend', impact: 4 }))
+    const active = beginRun(state).task
+    recordRecoveryDiagnosis(state, active.id, {
+      diagnosisCode: 'environment_incompatible',
+      investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+      originalCheckRef: 'scripts/production/test_runtime.py',
+      recoverable: true,
+      blockerCode: 'tooling_unavailable',
+    })
+    const first = {
+      strategy: 'dependency_repair',
+      evidenceRef: 'docs/autonomy/optimization-loop.md',
+      verificationRef: 'https://github.com/example/repo/actions/runs/10002', result: 'failed',
+    }
+    recordRecoveryAttempt(state, active.id, first)
+    assert.throws(() => recordRecoveryAttempt(state, active.id, first), /Repeated recovery strategy/)
+    assert.throws(() => recordRecoveryAttempt(state, active.id, {
+      ...first, strategy: 'alternative_tooling',
+      evidenceRef: 'docs/autonomy/optimization-loop.md',
+      verificationRef: 'https://github.com/example/repo/actions/runs/10003',
+    }), /distinct evidence/)
+    await saveState(file, state)
+    const reopened = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(reopened.tasks[0].recoveryHistory[0].attempts.length, 1)
+    assert.equal(reopened.checkpoint.selectedTaskId, active.id)
+    const second = {
+      strategy: 'alternative_tooling',
+      evidenceRef: 'backend/performance_metrics.py',
+      verificationRef: 'https://github.com/example/repo/actions/runs/10004', result: 'failed',
+    }
+    const outcome = recordRecoveryAttempt(reopened, active.id, second)
+    assert.equal(outcome.blocked.status, 'blocked')
+    assert.equal(outcome.next.id, 'recovery-independent')
+    assert.equal(reopened.tasks[0].recoveryHistory[0].attempts.length, 2)
+    assert.equal(reopened.checkpoint.selectedTaskId, 'recovery-independent')
+    for (const staleRef of [
+      'docs/autonomy/optimization-loop.md',
+      'https://github.com/example/repo/actions/runs/10002',
+      'backend/performance_metrics.py',
+    ]) {
+      assert.throws(() => recordNewEvidence(reopened, active.id, staleRef), /distinct/)
+    }
+    assert.equal(reopened.tasks[0].evidenceRevision, 0)
+    assert.equal(reopened.tasks[0].status, 'blocked')
+    assert.equal(validateState(reopened), reopened)
+    assert.throws(() => recordRecoveryAttempt(reopened, active.id, second), /not the active checkpoint task/)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('recovery evidence stays unique across cases while a strategy may recur with fresh evidence', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'recovery-history-pilot', maxCycles: 5 })
+  addTask(state, task('recovery-history-task', { impact: 5 }))
+  addTask(state, task('recovery-history-fallback', { domain: 'frontend', impact: 4 }))
+  const firstTask = beginRun(state).task
+  recordRecoveryDiagnosis(state, firstTask.id, {
+    diagnosisCode: 'environment_incompatible',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  })
+  recordRecoveryAttempt(state, firstTask.id, {
+    strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/11001', result: 'failed',
+  })
+  recordRecoveryAttempt(state, firstTask.id, {
+    strategy: 'alternative_tooling', evidenceRef: 'backend/performance_metrics.py',
+    verificationRef: 'https://github.com/example/repo/actions/runs/11002', result: 'failed',
+  })
+  assert.equal(state.checkpoint.selectedTaskId, 'recovery-history-fallback')
+
+  recordNewEvidence(state, firstTask.id, 'https://github.com/example/repo/actions/runs/11003')
+  blockWithDiagnosis(state, 'recovery-history-fallback', 'unavailable_evidence')
+  assert.equal(state.checkpoint.selectedTaskId, firstTask.id)
+  recordRecoveryDiagnosis(state, firstTask.id, {
+    diagnosisCode: 'environment_incompatible',
+    investigatorEvidenceRef: 'https://github.com/example/repo/actions/runs/11003',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  })
+
+  assert.throws(() => recordRecoveryAttempt(state, firstTask.id, {
+    strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/11004', result: 'failed',
+  }), /distinct evidence/)
+  recordRecoveryAttempt(state, firstTask.id, {
+    strategy: 'dependency_repair', evidenceRef: 'scripts/autonomy/optimization-orchestrator.test.cjs',
+    verificationRef: 'https://github.com/example/repo/actions/runs/11005', result: 'failed',
+  })
+  assert.equal(firstTask.recoveryHistory[1].attempts[0].strategy, 'dependency_repair')
+  assert.equal(validateState(state), state)
+})
+
+test('blocked selections consume the ten-cycle pilot budget', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'ten-blocked-cycles', maxCycles: 10 })
+  for (let index = 1; index <= 10; index += 1) addTask(state, task(`budget-task-${index}`))
+  for (let index = 1; index <= 10; index += 1) {
+    const selected = state.checkpoint.selectedTaskId
+      ? state.tasks.find(item => item.id === state.checkpoint.selectedTaskId)
+      : beginRun(state).task
+    assert.ok(selected)
+    blockWithDiagnosis(state, selected.id, 'unavailable_evidence')
+  }
+  assert.equal(state.checkpoint.cyclesStarted, 10)
+  assert.equal(state.checkpoint.optimizationGate.status, 'STOPPED')
+  assert.equal(state.checkpoint.optimizationGate.stopReason, 'budget')
+  assert.equal(state.checkpoint.selectedTaskId, null)
+  assert.equal(validateState(state), state)
+})
+
 test('blocked task requires distinct new evidence before it can be selected again', () => {
   const state = createInitialState()
   createPilot(state, { pilotId: 'pilot-evidence-test', maxCycles: 4 })
   addTask(state, task('evidence-task', { impact: 5, effort: 1 }))
   addTask(state, task('fallback-task', { impact: 4, effort: 1 }))
   const first = beginRun(state).task
-  blockTask(state, first.id, 'unavailable_evidence', 'docs/ai-cost-controls.md')
+  blockWithDiagnosis(state, first.id, 'unavailable_evidence')
 
   assert.throws(() => recordNewEvidence(state, first.id, 'docs/ai-cost-controls.md'), /distinct/)
   assert.throws(() => addTask(state, {
@@ -95,6 +396,24 @@ test('blocked task requires distinct new evidence before it can be selected agai
   recordNewEvidence(state, first.id, 'https://github.com/example/repo/actions/runs/123')
   assert.equal(state.tasks.find(item => item.id === first.id).status, 'ready')
   assert.equal(state.tasks.find(item => item.id === first.id).evidenceRevision, 1)
+})
+
+test('blocked task at the evidence-reference cap rejects new evidence without mutation', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'evidence-cap-pilot', maxCycles: 2 })
+  const fullEvidence = Array.from({ length: 12 }, (_, index) => `docs/evidence-${index}.md`)
+  addTask(state, { ...task('evidence-cap-task'), evidenceRefs: fullEvidence })
+  const active = beginRun(state).task
+  blockWithDiagnosis(state, active.id, 'unavailable_evidence', fullEvidence[0])
+  const beforeTask = JSON.stringify(state.tasks[0])
+  const beforeCheckpoint = JSON.stringify(state.checkpoint)
+
+  assert.throws(() => recordNewEvidence(
+    state, active.id, 'https://github.com/example/repo/actions/runs/98765'),
+  /evidence reference limit reached/)
+  assert.equal(JSON.stringify(state.tasks[0]), beforeTask)
+  assert.equal(JSON.stringify(state.checkpoint), beforeCheckpoint)
+  assert.equal(validateState(state), state)
 })
 
 test('full validation lifecycle requires baseline, branch commit, tests, independent roles, and no regression', () => {
@@ -164,15 +483,37 @@ test('expensive benchmark work is blocked and the selector immediately advances'
   assert.equal(state.checkpoint.selectedTaskId, 'affordable-task')
 })
 
-test('starting a new pilot retains historical checkpoint events', () => {
+test('starting a new pilot archives immutable history and bounds active events', () => {
   const state = createInitialState()
   createPilot(state, { pilotId: 'pilot-history-one', maxCycles: 2 })
   const count = state.checkpoint.events.length
-  createPilot(state, { pilotId: 'pilot-history-two', maxCycles: 3 })
+  state.checkpoint.optimizationGate.status = 'STOPPED'
+  state.checkpoint.optimizationGate.stopReason = 'budget'
+  preparePilot(state, { pilotId: 'pilot-history-two' })
+  startPreparedPilot(state, {
+    pilotId: 'pilot-history-two', maxCycles: 10, approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  })
 
-  assert.equal(state.checkpoint.events.length, count + 1)
-  assert.equal(state.checkpoint.events[0].type, 'pilot_started')
+  assert.equal(count, 1)
+  assert.equal(state.checkpoint.events.length, 1)
+  assert.equal(state.checkpoint.eventArchives.flat()[0].type, 'pilot_started')
+  assert.deepEqual(state.checkpoint.pilotHistory.map(x => x.pilotId), ['pilot-history-one'])
   assert.equal(state.checkpoint.events.at(-1).pilotId, 'pilot-history-two')
+  assert.equal(validateState(state), state)
+})
+
+test('event history archives without dropping old transitions or pilot attribution', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'archive-events-pilot', maxCycles: 10 })
+  for (let index = 0; index < 520; index += 1) {
+    addTask(state, task(`archived-event-${index}`))
+  }
+  const allEvents = [...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events]
+  assert.equal(allEvents.length, 521)
+  assert.ok(allEvents.every(event => event.pilotId === 'archive-events-pilot'))
+  assert.ok(state.checkpoint.events.length < 500)
+  assert.equal(validateState(state), state)
 })
 
 test('CLI persists a blocker fallback and resumes the same active task', async () => {
@@ -189,10 +530,21 @@ test('CLI persists a blocker fallback and resumes the same active task', async (
     assert.equal(run('add-task', JSON.stringify(firstTask)).status, 0)
     assert.equal(run('add-task', JSON.stringify(secondTask)).status, 0)
 
+    assert.equal(run('prepare-pilot', 'pilot-cli-explicit').status, 0)
+    assert.equal(run('start-pilot', JSON.stringify({
+      pilotId: 'pilot-cli-explicit', maxCycles: 10, approverIdentity: 'hamed',
+      approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    })).status, 0)
     const first = JSON.parse(run('begin').stdout)
     assert.equal(first.task.id, firstTask.id)
-    const blocked = JSON.parse(run('block', firstTask.id, 'existing_pr',
-      'https://github.com/example/repo/pull/665').stdout)
+    const blocked = JSON.parse(run('diagnose-recovery', firstTask.id, JSON.stringify({
+      diagnosisCode: 'existing_change_conflict',
+      investigatorEvidenceRef: 'https://github.com/example/repo/pull/665',
+      originalCheckRef: 'scripts/production/test_runtime.py',
+      recoverable: false,
+      blockerCode: 'existing_pr',
+      nonRecoverableReasonCode: 'external_dependency',
+    })).stdout)
     assert.equal(blocked.next.id, secondTask.id)
     assert.equal(JSON.parse(run('resume').stdout).reason, 'active_checkpoint_resumed')
 
@@ -310,6 +662,7 @@ test('rejects blocked or rejected checkpoints without their corresponding record
 
 test('exhaustion requires two clean audits, blockers remain blocked, and new work resumes', () => {
   const state = createInitialState()
+  createPilot(state, { pilotId: 'exhaustion-restart-pilot', maxCycles: 10 })
   const fullAudit = {
     auditId: 'audit-clean-one', auditedDimensions: [...AUDIT_DIMENSIONS], evidenceRefs: ['docs/ai-cost-controls.md'],
     specialistAssessments: AUDIT_ROLES.map(role => ({
@@ -350,7 +703,7 @@ test('exhaustion requires two clean audits, blockers remain blocked, and new wor
   const blockedState = createInitialState()
   createPilot(blockedState, { pilotId: 'blocked-audit-test', maxCycles: 2 })
   addTask(blockedState, task('blocked-audit-task'))
-  blockTask(blockedState, beginRun(blockedState).task.id, 'existing_pr', 'https://github.com/example/repo/pull/665')
+  blockWithDiagnosis(blockedState, beginRun(blockedState).task.id, 'existing_pr', 'https://github.com/example/repo/pull/665')
   const blockedAudit = recordOptimizationAudit(blockedState, { ...fullAudit, auditId: 'audit-blocked' })
   assert.equal(blockedAudit.status, 'BLOCKED')
   assert.notEqual(blockedAudit.status, 'OPTIMIZATION_EXHAUSTED')
@@ -358,6 +711,10 @@ test('exhaustion requires two clean audits, blockers remain blocked, and new wor
   addTask(state, task('newly-actionable-task'))
   assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(state.checkpoint.optimizationGate.finalReport, null)
+  const pendingAfterExhaustion = preparePilot(state, { pilotId: 'pilot-after-exhaustion-reopened' })
+  assert.equal(pendingAfterExhaustion.maxCycles, 10)
+  assert.equal(state.checkpoint.selectedTaskId, null)
+  assert.equal(validateState(state), state)
   assert.equal(selectNextTask(state).id, 'newly-actionable-task')
   assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
   // A separately corroborated specialist improvement also resets the audit counter.
@@ -382,7 +739,7 @@ test('reaching the cycle cap persists a budget stop rather than exhaustion', () 
   createPilot(state, { pilotId: 'cycle-budget-test', maxCycles: 1 })
   addTask(state, task('last-cycle-task'))
   const active = beginRun(state).task
-  blockTask(state, active.id, 'existing_pr', 'https://github.com/example/repo/pull/88')
+  blockWithDiagnosis(state, active.id, 'existing_pr', 'https://github.com/example/repo/pull/88')
   assert.equal(state.checkpoint.optimizationGate.status, 'STOPPED')
   assert.equal(state.checkpoint.optimizationGate.stopReason, 'budget')
   assert.equal(startNewCycle(state).reason, 'cycle_limit_reached')
@@ -398,10 +755,11 @@ test('reaching the cycle cap persists a budget stop rather than exhaustion', () 
       branch: `codex/${selected.id}`, commitSha: 'c'.repeat(40),
     })
     if (!passedTests) {
-      const rejected = recordTests(finalState, active.id, {
+      recordTests(finalState, active.id, {
         passed: false, artifactRef: 'scripts/production/test_runtime.py',
       })
-      assert.equal(rejected.status, 'rejected')
+      blockWithDiagnosis(finalState, active.id, 'unavailable_evidence')
+      assert.equal(finalState.tasks[0].status, 'blocked')
     } else {
       recordTests(finalState, active.id, {
         passed: true, artifactRef: 'scripts/production/test_runtime.py',
@@ -499,7 +857,7 @@ test('unconfirmed specialist improvement remains blocked and new evidence clears
   createPilot(evidenceState, { pilotId: 'pilot-reopen-evidence', maxCycles: 2 })
   addTask(evidenceState, task('evidence-after-exhaustion'))
   const picked = beginRun(evidenceState).task
-  blockTask(evidenceState, picked.id, 'unavailable_evidence', 'docs/ai-cost-controls.md')
+  blockWithDiagnosis(evidenceState, picked.id, 'unavailable_evidence')
   evidenceState.checkpoint.optimizationGate.status = 'OPTIMIZATION_EXHAUSTED'
   evidenceState.checkpoint.optimizationGate.consecutiveCleanAudits = 2
   recordNewEvidence(evidenceState, picked.id, 'https://github.com/example/repo/actions/runs/123')
@@ -530,7 +888,11 @@ test('approval gates as BLOCKED; budget, security, and correctness stop immediat
   }
   const newBudget = createInitialState()
   recordOptimizationAudit(newBudget, { ...audit, immediateStopCode: 'budget' })
-  createPilot(newBudget, { pilotId: 'explicit-new-budget', maxCycles: 2 })
+  preparePilot(newBudget, { pilotId: 'explicit-new-budget' })
+  startPreparedPilot(newBudget, {
+    pilotId: 'explicit-new-budget', maxCycles: 10, approverIdentity: 'hamed',
+    approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+  })
   assert.equal(newBudget.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(newBudget.checkpoint.optimizationGate.stopReason, null)
 })
@@ -609,6 +971,33 @@ test('saveState recovers a provably dead owner lock and refuses an active lock',
     assert.equal(await fs.readFile(`${collisionFile}.lock.recovery`, 'utf8'), recoveryMarker)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('concurrent checkpoint writers reject stale revisions without losing the first update', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-revision-'))
+  const file = path.join(dir, 'state.json')
+  try {
+    await saveState(file, createInitialState())
+    const [writerA, writerB] = await Promise.all([
+      fs.readFile(file, 'utf8').then(JSON.parse),
+      fs.readFile(file, 'utf8').then(JSON.parse),
+    ])
+    addTask(writerA, task('revision-writer-a'))
+    addTask(writerB, task('revision-writer-b'))
+    const results = await Promise.allSettled([saveState(file, writerA), saveState(file, writerB)])
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+    assert.equal(results.filter(result => result.status === 'rejected').length, 1)
+    const rejected = results.find(result => result.status === 'rejected')
+    assert.match(rejected.reason.message, /Stale checkpoint revision|locked/)
+    const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(persisted.checkpoint.revision, 2)
+    assert.equal(persisted.tasks.length, 1)
+    assert.equal(validateState(persisted), persisted)
+    const stale = results[0].status === 'rejected' ? writerA : writerB
+    await assert.rejects(saveState(file, stale), /Stale checkpoint revision/)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
   }
 })
 

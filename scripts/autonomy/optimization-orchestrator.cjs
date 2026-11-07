@@ -11,6 +11,11 @@ const os = require('node:os')
 const SCHEMA_VERSION = 1
 const MAX_CYCLES = 10
 const MAX_EVENTS = 500
+const EVENT_ARCHIVE_CHUNK = 250
+const MAX_PILOT_SUMMARIES = 25
+const PILOT_SUMMARY_ARCHIVE_CHUNK = 25
+const MAX_RECOVERY_CASES = 10
+const MAX_RECOVERY_ATTEMPTS = 2
 const MALFORMED_LOCK_RECOVERY_MS = 24 * 60 * 60 * 1000
 const DOMAINS = Object.freeze([
   'local_ai', 'backend', 'frontend', 'desktop_ui', 'reliability',
@@ -25,6 +30,19 @@ const BLOCKERS = Object.freeze([
   'unavailable_evidence', 'tooling_unavailable', 'existing_pr',
   'benchmark_expensive', 'external_dependency', 'needs_user_authorization',
   'environment_failure', 'other',
+])
+const RECOVERY_STRATEGIES = Object.freeze([
+  'dependency_repair', 'configuration_repair', 'platform_adjustment',
+  'ci_verification', 'alternative_tooling', 'other',
+])
+const RECOVERY_DIAGNOSIS_CODES = Object.freeze([
+  'missing_dependency', 'environment_incompatible', 'configuration_invalid',
+  'evidence_insufficient', 'upstream_unavailable', 'benchmark_over_budget',
+  'existing_change_conflict', 'other',
+])
+const NON_RECOVERABLE_REASON_CODES = Object.freeze([
+  'unsafe_operation', 'approval_required', 'resource_unavailable',
+  'evidence_unavailable', 'external_dependency', 'other',
 ])
 const REFERENCES = Object.freeze([
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:pull|issues)\/[1-9][0-9]*$/,
@@ -71,8 +89,13 @@ function createInitialState() {
       maxCycles: MAX_CYCLES,
       cyclesStarted: 0,
       cyclesValidated: 0,
+      revision: 0,
       selectedTaskId: null,
       previousTaskId: null,
+      preparedPilot: null,
+      pilotHistory: [],
+      archivedPilotHistory: [],
+      eventArchives: [],
       optimizationGate: {
         status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
         stopReason: null, finalReport: null, auditHistory: [],
@@ -113,7 +136,9 @@ function validateTask(task) {
       (task.evidenceRevision !== undefined &&
         (!Number.isSafeInteger(task.evidenceRevision) || task.evidenceRevision < 0)) ||
       (task.priorBlockerEvidenceRevision !== undefined && task.priorBlockerEvidenceRevision !== null &&
-        (!Number.isSafeInteger(task.priorBlockerEvidenceRevision) || task.priorBlockerEvidenceRevision < 0))) {
+        (!Number.isSafeInteger(task.priorBlockerEvidenceRevision) || task.priorBlockerEvidenceRevision < 0)) ||
+      (task.recoveryHistory !== undefined && (!Array.isArray(task.recoveryHistory) ||
+        task.recoveryHistory.length > MAX_RECOVERY_CASES))) {
     throw new Error('Task must match the structured optimization-task schema')
   }
   for (const ref of [...task.evidenceRefs, ...task.testRefs, ...task.benchmarkRefs]) {
@@ -168,6 +193,17 @@ function validateTask(task) {
         !Number.isSafeInteger(task.blocker.evidenceRevision) || task.blocker.evidenceRevision < 0 ||
         typeof task.blocker.recordedAt !== 'string') throw new Error('Invalid blocker record')
     if (task.blocker.evidenceRef !== null) assertReference(task.blocker.evidenceRef)
+  }
+  const recoveryHistory = task.recoveryHistory ?? []
+  const recoveryReferences = new Set()
+  for (const recoveryCase of recoveryHistory) {
+    validateRecoveryCase(task, recoveryCase)
+    for (const reference of recoveryEvidenceReferences([recoveryCase])) {
+      if (recoveryReferences.has(reference)) {
+        throw new Error('Recovery evidence references must be unique across the task history')
+      }
+      recoveryReferences.add(reference)
+    }
   }
   if (task.validation !== undefined && task.validation !== null) {
     const acceptedKeys = ['accepted', 'baselineMetric', 'resultMetric', 'regression', 'evidenceRef']
@@ -245,6 +281,134 @@ function validateTask(task) {
     evidenceRevision: Number.isSafeInteger(task.evidenceRevision) ? task.evidenceRevision : 0,
     priorBlockerEvidenceRevision: Number.isSafeInteger(task.priorBlockerEvidenceRevision)
       ? task.priorBlockerEvidenceRevision : null,
+    recoveryHistory: clone(recoveryHistory),
+  }
+}
+
+function validateRecoveryCase(task, recoveryCase) {
+  if (!onlyKeys(recoveryCase, ['diagnosis', 'attempts', 'outcome']) ||
+      !recoveryCase.diagnosis || !onlyKeys(recoveryCase.diagnosis, [
+        'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
+        'blockerCode', 'nonRecoverableReasonCode', 'recordedAt',
+      ]) || !RECOVERY_DIAGNOSIS_CODES.includes(recoveryCase.diagnosis.diagnosisCode) ||
+      typeof recoveryCase.diagnosis.recoverable !== 'boolean' ||
+      !BLOCKERS.includes(recoveryCase.diagnosis.blockerCode) ||
+      typeof recoveryCase.diagnosis.recordedAt !== 'string' ||
+      Number.isNaN(Date.parse(recoveryCase.diagnosis.recordedAt)) ||
+      !Array.isArray(recoveryCase.attempts) || recoveryCase.attempts.length > MAX_RECOVERY_ATTEMPTS ||
+      !['in_progress', 'recovered', 'blocked'].includes(recoveryCase.outcome)) {
+    throw new Error('Invalid recovery diagnosis record')
+  }
+  assertReference(recoveryCase.diagnosis.investigatorEvidenceRef)
+  assertReference(recoveryCase.diagnosis.originalCheckRef)
+  if (![...task.testRefs, ...task.benchmarkRefs].includes(recoveryCase.diagnosis.originalCheckRef)) {
+    throw new Error('Recovery diagnosis must name an allowlisted original check')
+  }
+  if (recoveryCase.diagnosis.recoverable) {
+    if (recoveryCase.diagnosis.nonRecoverableReasonCode !== undefined) {
+      throw new Error('Recoverable diagnosis cannot contain a non-recoverable reason code')
+    }
+  } else if (!NON_RECOVERABLE_REASON_CODES.includes(recoveryCase.diagnosis.nonRecoverableReasonCode) ||
+      recoveryCase.attempts.length !== 0 ||
+      recoveryCase.outcome !== 'blocked') {
+    throw new Error('Non-recoverable diagnoses require an allowlisted reason code and cannot have recovery attempts')
+  }
+  const strategies = new Set()
+  const attemptEvidence = new Set([recoveryCase.diagnosis.investigatorEvidenceRef])
+  for (const attempt of recoveryCase.attempts) {
+    if (!onlyKeys(attempt, [
+      'strategy', 'evidenceRef', 'checkRef', 'verificationRef', 'result', 'recordedAt',
+    ]) || !RECOVERY_STRATEGIES.includes(attempt.strategy) ||
+        !['passed', 'failed'].includes(attempt.result) ||
+        typeof attempt.recordedAt !== 'string' || Number.isNaN(Date.parse(attempt.recordedAt)) ||
+        attempt.checkRef !== recoveryCase.diagnosis.originalCheckRef || strategies.has(attempt.strategy)) {
+      throw new Error('Invalid or unverifiable recovery attempt')
+    }
+    assertReference(attempt.evidenceRef)
+    assertReference(attempt.checkRef)
+    assertReference(attempt.verificationRef)
+    if (attempt.evidenceRef === attempt.verificationRef || attemptEvidence.has(attempt.evidenceRef) ||
+        attemptEvidence.has(attempt.verificationRef)) {
+      throw new Error('Recovery attempts require distinct evidence and verification references')
+    }
+    strategies.add(attempt.strategy)
+    attemptEvidence.add(attempt.evidenceRef)
+    attemptEvidence.add(attempt.verificationRef)
+  }
+  if (recoveryCase.diagnosis.recoverable && recoveryCase.outcome === 'recovered' &&
+      (recoveryCase.attempts.length === 0 || recoveryCase.attempts.at(-1).result !== 'passed')) {
+    throw new Error('Recovery cannot be marked successful without the original check passing')
+  }
+  if (recoveryCase.diagnosis.recoverable && recoveryCase.outcome === 'blocked' &&
+      (recoveryCase.attempts.length !== MAX_RECOVERY_ATTEMPTS ||
+        recoveryCase.attempts.some(attempt => attempt.result !== 'failed'))) {
+    throw new Error('A recoverable task can be blocked only after two failed recovery attempts')
+  }
+  if (recoveryCase.diagnosis.recoverable && recoveryCase.outcome === 'in_progress' &&
+      (recoveryCase.attempts.length >= MAX_RECOVERY_ATTEMPTS ||
+        recoveryCase.attempts.some(attempt => attempt.result === 'passed'))) {
+    throw new Error('Recovery case outcome does not match its attempts')
+  }
+}
+
+function recoveryEvidenceReferences(recoveryHistory) {
+  return new Set(recoveryHistory.flatMap(recoveryCase => [
+    recoveryCase.diagnosis.investigatorEvidenceRef,
+    ...recoveryCase.attempts.flatMap(attempt => [attempt.evidenceRef, attempt.verificationRef]),
+  ]))
+}
+
+function validatePreparedPilot(prepared) {
+  if (!onlyKeys(prepared, ['pilotId', 'maxCycles', 'preparedAt']) ||
+      !/^[a-z0-9][a-z0-9-]{1,40}$/.test(prepared.pilotId ?? '') ||
+      prepared.maxCycles !== MAX_CYCLES || typeof prepared.preparedAt !== 'string' ||
+      Number.isNaN(Date.parse(prepared.preparedAt))) {
+    throw new Error('Prepared pilot must have a unique ID and ten-task budget')
+  }
+}
+
+function validatePilotStartAuthorization(attestation, prepared) {
+  if (!onlyKeys(attestation, [
+    'pilotId', 'maxCycles', 'approverIdentity', 'approvalEvidenceRef',
+  ]) || attestation.pilotId !== prepared.pilotId || attestation.maxCycles !== prepared.maxCycles ||
+      typeof attestation.approverIdentity !== 'string' || !IDENTITY_PATTERN.test(attestation.approverIdentity)) {
+    throw new Error('Pilot start authorization must explicitly match the prepared pilot ID and cycle budget')
+  }
+  assertReference(attestation.approvalEvidenceRef)
+  return {
+    pilotId: attestation.pilotId,
+    maxCycles: attestation.maxCycles,
+    approverIdentity: attestation.approverIdentity,
+    approvalEvidenceRef: attestation.approvalEvidenceRef,
+  }
+}
+
+function hasActionableRestartEvidence(checkpoint, tasks) {
+  const priorExhaustion = checkpoint.optimizationGate.auditHistory.at(-1)
+  if (priorExhaustion?.auditStatus !== 'OPTIMIZATION_EXHAUSTED') return false
+  return checkpoint.events.some(event => {
+    if (event.type !== 'optimization_resumed' || event.reasonCode !== 'new_actionable_task' || !event.taskId ||
+        Date.parse(event.at) <= Date.parse(priorExhaustion.recordedAt)) return false
+    const task = tasks.find(item => item.id === event.taskId)
+    return task && ['ready', 'selected', 'baseline_established', 'implementing', 'implemented',
+      'tests_passed', 'reviewed', 'qa_passed', 'quality_security_passed'].includes(task.status)
+  })
+}
+
+function validatePilotSummary(summary) {
+  if (!onlyKeys(summary, [
+    'pilotId', 'maxCycles', 'cyclesStarted', 'cyclesValidated', 'gateStatus',
+    'stopReason', 'startedAt', 'completedAt',
+  ]) || !/^[a-z0-9][a-z0-9-]{1,40}$/.test(summary.pilotId ?? '') ||
+      !Number.isInteger(summary.maxCycles) || summary.maxCycles < 1 || summary.maxCycles > MAX_CYCLES ||
+      !Number.isInteger(summary.cyclesStarted) || summary.cyclesStarted < 0 ||
+      summary.cyclesStarted > summary.maxCycles || !Number.isInteger(summary.cyclesValidated) ||
+      summary.cyclesValidated < 0 || summary.cyclesValidated > summary.cyclesStarted ||
+      !['ACTIVE', 'BLOCKED', 'STOPPED', 'OPTIMIZATION_EXHAUSTED'].includes(summary.gateStatus) ||
+      (summary.stopReason !== null && !['budget', 'security', 'correctness', 'approval'].includes(summary.stopReason)) ||
+      (summary.startedAt !== null && (typeof summary.startedAt !== 'string' || Number.isNaN(Date.parse(summary.startedAt)))) ||
+      typeof summary.completedAt !== 'string' || Number.isNaN(Date.parse(summary.completedAt))) {
+    throw new Error('Invalid prior pilot summary')
   }
 }
 
@@ -261,6 +425,44 @@ function validateState(state) {
       !Number.isInteger(state.checkpoint.cyclesValidated) || state.checkpoint.cyclesValidated < 0 ||
       state.checkpoint.cyclesValidated > state.checkpoint.cyclesStarted) {
     throw new Error('Invalid optimization state file')
+  }
+  const checkpoint = state.checkpoint
+  checkpoint.revision ??= 0
+  checkpoint.preparedPilot ??= null
+  checkpoint.pilotHistory ??= []
+  checkpoint.archivedPilotHistory ??= []
+  checkpoint.eventArchives ??= []
+  if (!Number.isSafeInteger(checkpoint.revision) || checkpoint.revision < 0 ||
+      !onlyKeys(checkpoint, [
+        'pilotId', 'maxCycles', 'cyclesStarted', 'cyclesValidated', 'revision',
+        'selectedTaskId', 'previousTaskId', 'preparedPilot', 'pilotHistory',
+        'archivedPilotHistory', 'eventArchives', 'optimizationGate', 'events',
+      ])) {
+    throw new Error('Invalid optimization checkpoint revision or fields')
+  }
+  if (!Array.isArray(checkpoint.pilotHistory) || checkpoint.pilotHistory.length > MAX_PILOT_SUMMARIES ||
+      !Array.isArray(checkpoint.archivedPilotHistory) ||
+      checkpoint.archivedPilotHistory.some(chunk => !Array.isArray(chunk) ||
+        chunk.length === 0 || chunk.length > PILOT_SUMMARY_ARCHIVE_CHUNK) ||
+      !Array.isArray(checkpoint.eventArchives) ||
+      checkpoint.eventArchives.some(chunk => !Array.isArray(chunk) || chunk.length === 0 || chunk.length > MAX_EVENTS)) {
+    throw new Error('Invalid archived pilot or event history')
+  }
+  for (const summary of [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]) {
+    validatePilotSummary(summary)
+  }
+  if (checkpoint.preparedPilot !== null) validatePreparedPilot(checkpoint.preparedPilot)
+  const seenPilotIds = new Set()
+  for (const summary of [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]) {
+    if (seenPilotIds.has(summary.pilotId)) throw new Error('Duplicate pilot history ID')
+    seenPilotIds.add(summary.pilotId)
+  }
+  if (checkpoint.pilotId && !/^[a-z0-9][a-z0-9-]{1,40}$/.test(checkpoint.pilotId)) {
+    throw new Error('Invalid active pilot ID')
+  }
+  if (checkpoint.preparedPilot && (checkpoint.preparedPilot.pilotId === checkpoint.pilotId ||
+      seenPilotIds.has(checkpoint.preparedPilot.pilotId))) {
+    throw new Error('Prepared pilot ID must be unique across checkpoint history')
   }
   if (state.checkpoint.optimizationGate === undefined) {
     state.checkpoint.optimizationGate = {
@@ -312,29 +514,71 @@ function validateState(state) {
     seen.add(task.id)
     investigations.add(task.investigationKey)
   }
+  if (checkpoint.preparedPilot) {
+    const initialPilot = !checkpoint.pilotId && checkpoint.pilotHistory.length === 0 &&
+      checkpoint.archivedPilotHistory.length === 0 && checkpoint.cyclesStarted === 0 &&
+      ![...checkpoint.eventArchives.flat(), ...checkpoint.events]
+        .some(event => event.type === 'pilot_started')
+    const mayPrepare = initialPilot || (checkpoint.pilotId && checkpoint.selectedTaskId === null && (
+      (gate.status === 'STOPPED' && gate.stopReason === 'budget') ||
+      (gate.status === 'ACTIVE' && hasActionableRestartEvidence(checkpoint, state.tasks))
+    ))
+    if (!mayPrepare) throw new Error('Pending pilot lacks a valid terminal or independently reopened checkpoint')
+  }
   const eventTypes = new Set([
-    'pilot_started', 'task_discovered', 'selected', 'baseline', 'implemented',
+    'pilot_started', 'pilot_prepared', 'task_discovered', 'selected', 'baseline', 'implemented',
     'tests_passed', 'reviewer_passed', 'qa_passed', 'quality_passed', 'security_passed',
+    'tests_failed', 'recovery_diagnosed', 'recovery_attempted', 'recovery_recovered',
     'validated', 'rejected', 'blocked', 'new_evidence', 'approval_recorded', 'optimization_resumed',
     'audit_completed', 'gate_stopped', 'stop_released',
   ])
   const eventKeys = [
     'at', 'type', 'pilotId', 'maxCycles', 'taskId', 'cycle', 'domain', 'metric',
     'evidenceRef', 'branch', 'commitSha', 'reasonCode', 'blockerCode',
-    'evidenceRevision', 'resultMetric',
+    'evidenceRevision', 'resultMetric', 'recoveryCaseIndex', 'recoveryStrategy', 'recoveryResult',
     'initialStatus',
     'auditStatus', 'consecutiveCleanAudits', 'actionableCount', 'blockedCount', 'auditedDimensions', 'specialistRoles',
     'auditId', 'auditEvidenceRefs', 'specialistAssessments', 'awaitingApprovalCount',
     'approverIdentity', 'approverRole', 'approvalEvidenceRef', 'authorizedScopeRef', 'scopeCommitSha',
-    'remediationEvidenceRef', 'approvals',
+    'remediationEvidenceRef', 'approvals', 'pilotStartAuthorization',
   ]
-  for (const event of state.checkpoint.events) {
+  const allEvents = [...checkpoint.eventArchives.flat(), ...checkpoint.events]
+  const preparedPilotIds = new Set(allEvents.filter(event => event.type === 'pilot_prepared').map(event => event.pilotId))
+  for (const event of allEvents) {
     if (!onlyKeys(event, eventKeys) || !eventTypes.has(event.type) ||
         typeof event.at !== 'string' || Number.isNaN(Date.parse(event.at))) {
       throw new Error('Invalid checkpoint event')
     }
     if (event.taskId && !/^[a-z0-9][a-z0-9-]{1,63}$/.test(event.taskId)) {
       throw new Error('Invalid task ID in checkpoint event')
+    }
+    if (event.pilotId !== undefined && event.pilotId !== null &&
+        !/^[a-z0-9][a-z0-9-]{1,40}$/.test(event.pilotId)) {
+      throw new Error('Invalid pilot ID in checkpoint event')
+    }
+    if (event.type === 'pilot_prepared' &&
+        (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(event.pilotId ?? '') || event.maxCycles !== MAX_CYCLES)) {
+      throw new Error('Prepared pilot event must carry the unique ten-task pilot configuration')
+    }
+    if (event.pilotStartAuthorization !== undefined) {
+      if (event.type !== 'pilot_started') throw new Error('Pilot start authorization is only valid on a pilot start event')
+      validatePilotStartAuthorization(event.pilotStartAuthorization, {
+        pilotId: event.pilotId, maxCycles: event.maxCycles,
+      })
+    }
+    if (event.type === 'pilot_started' && preparedPilotIds.has(event.pilotId) &&
+        event.pilotStartAuthorization === undefined) {
+      throw new Error('A prepared pilot start event must preserve its scoped authorization attestation')
+    }
+    if (event.type === 'recovery_diagnosed' &&
+        (!Number.isSafeInteger(event.recoveryCaseIndex) || event.recoveryCaseIndex < 0)) {
+      throw new Error('Recovery diagnosis event requires a case index')
+    }
+    if (event.type === 'recovery_attempted' &&
+        (!Number.isSafeInteger(event.recoveryCaseIndex) || event.recoveryCaseIndex < 0 ||
+          !RECOVERY_STRATEGIES.includes(event.recoveryStrategy) ||
+          !['passed', 'failed'].includes(event.recoveryResult))) {
+      throw new Error('Recovery attempt event is invalid')
     }
     if (event.initialStatus !== undefined && (event.type !== 'task_discovered' ||
         !['ready', 'awaiting_approval'].includes(event.initialStatus))) {
@@ -412,7 +656,7 @@ function validateState(state) {
       throw new Error('Release approval set is only valid on stop-release events')
     }
   }
-  const persistedAuditEvents = state.checkpoint.events.filter(event =>
+  const persistedAuditEvents = allEvents.filter(event =>
     event.type === 'audit_completed' || (event.type === 'gate_stopped' && event.auditId !== undefined))
   if (persistedAuditEvents.length !== gate.auditHistory.length) {
     throw new Error('Persisted audit events do not match audit history')
@@ -433,7 +677,7 @@ function validateState(state) {
   }
   const discoveryByTask = new Map()
   const approvalsByTask = new Map()
-  for (const [index, event] of state.checkpoint.events.entries()) {
+  for (const [index, event] of allEvents.entries()) {
     if (event.type === 'task_discovered' && event.taskId) {
       if (discoveryByTask.has(event.taskId)) throw new Error(`Duplicate task discovery event: ${event.taskId}`)
       discoveryByTask.set(event.taskId, {
@@ -882,10 +1126,37 @@ function recordOptimizationAudit(state, audit = {}) {
 
 function appendEvent(state, event) {
   if (state.checkpoint.events.length >= MAX_EVENTS) {
-    throw new Error('Event log limit reached; archive the checkpoint before continuing')
+    const amount = Math.min(EVENT_ARCHIVE_CHUNK, state.checkpoint.events.length)
+    state.checkpoint.eventArchives.push(state.checkpoint.events.splice(0, amount))
   }
-  state.checkpoint.events.push({ at: now(), ...event })
+  const entry = { at: now(), ...event }
+  if (!Object.hasOwn(entry, 'pilotId')) entry.pilotId = state.checkpoint.pilotId
+  state.checkpoint.events.push(entry)
   state.updatedAt = now()
+}
+
+function archivePriorPilotSummary(checkpoint, previousCheckpoint, completedAt = now()) {
+  if (!previousCheckpoint.pilotId) return
+  const started = [...(previousCheckpoint.eventArchives ?? []).flat(), ...(previousCheckpoint.events ?? [])]
+    .find(event => event.type === 'pilot_started' && event.pilotId === previousCheckpoint.pilotId)
+  const summary = {
+    pilotId: previousCheckpoint.pilotId,
+    maxCycles: previousCheckpoint.maxCycles,
+    cyclesStarted: previousCheckpoint.cyclesStarted,
+    cyclesValidated: previousCheckpoint.cyclesValidated,
+    gateStatus: previousCheckpoint.optimizationGate.status,
+    stopReason: previousCheckpoint.optimizationGate.stopReason,
+    startedAt: started?.at ?? null,
+    completedAt,
+  }
+  validatePilotSummary(summary)
+  const ids = [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]
+    .map(item => item.pilotId)
+  if (ids.includes(summary.pilotId)) throw new Error('Pilot history already contains this pilot ID')
+  if (checkpoint.pilotHistory.length >= MAX_PILOT_SUMMARIES) {
+    checkpoint.archivedPilotHistory.push(checkpoint.pilotHistory.splice(0, PILOT_SUMMARY_ARCHIVE_CHUNK))
+  }
+  checkpoint.pilotHistory.push(summary)
 }
 
 function resumeOptimization(state, reasonCode, taskId) {
@@ -904,6 +1175,9 @@ function resumeOptimization(state, reasonCode, taskId) {
 }
 
 function selectTask(state) {
+  if (!state.checkpoint.pilotId) {
+    throw new Error('Task selection requires an explicitly started pilot')
+  }
   if (state.checkpoint.cyclesStarted >= state.checkpoint.maxCycles) {
     stopForBudget(state)
     return null
@@ -926,7 +1200,21 @@ function selectTask(state) {
   state.checkpoint.cyclesStarted += 1
   appendEvent(state, { type: 'selected', taskId: task.id, cycle: state.checkpoint.cyclesStarted })
   if (task.benchmarkCost === 'expensive') {
-    const fallback = blockTask(state, task.id, 'benchmark_expensive', task.benchmarkRefs[0] ?? null)
+    const checkRef = task.benchmarkRefs[0] ?? task.testRefs[0]
+    const investigatorEvidenceRef = task.evidenceRefs[0] ?? checkRef
+    if (!checkRef || !investigatorEvidenceRef) {
+      throw new Error('Expensive benchmark task lacks evidence to record a safe blocker')
+    }
+    recordRecoveryDiagnosis(state, task.id, {
+      diagnosisCode: 'benchmark_over_budget',
+      investigatorEvidenceRef,
+      originalCheckRef: checkRef,
+      recoverable: false,
+      blockerCode: 'benchmark_expensive',
+      nonRecoverableReasonCode: 'resource_unavailable',
+    })
+    const fallback = { next: state.checkpoint.selectedTaskId
+      ? findTask(state, state.checkpoint.selectedTaskId) : null }
     return fallback.next
   }
   return task
@@ -1012,7 +1300,9 @@ function recordTests(state, taskId, { passed, artifactRef }) {
   if (passed === false) {
     assertReference(artifactRef)
     task.testResult = { passed: false, evidenceRef: artifactRef }
-    return rejectTask(state, taskId, 'tests_failed', artifactRef)
+    task.status = 'implemented'
+    appendEvent(state, { type: 'tests_failed', taskId, evidenceRef: artifactRef })
+    return task
   }
   if (task.status !== 'implemented' || passed !== true) {
     throw new Error('Tests can pass only after implementation and require passed=true')
@@ -1097,6 +1387,15 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
   const task = requireSelected(state, taskId)
   if (!BLOCKERS.includes(blockerCode)) throw new Error('Blocker code is not allowlisted')
   if (evidenceRef) assertReference(evidenceRef)
+  const recoveryCase = task.recoveryHistory.at(-1)
+  if (!recoveryCase || recoveryCase.outcome !== 'blocked' ||
+      recoveryCase.diagnosis.blockerCode !== blockerCode ||
+      (recoveryCase.diagnosis.recoverable &&
+        (recoveryCase.attempts.length !== MAX_RECOVERY_ATTEMPTS ||
+          recoveryCase.attempts.some(attempt => attempt.result !== 'failed'))) ||
+      (!recoveryCase.diagnosis.recoverable && recoveryCase.attempts.length !== 0)) {
+    throw new Error('Blocking requires an Investigator diagnosis and completed safe recovery policy')
+  }
   task.status = 'blocked'
   task.blocker = {
     code: blockerCode,
@@ -1118,12 +1417,137 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
   return { blocked: task, next }
 }
 
+function recordRecoveryDiagnosis(state, taskId, payload) {
+  const task = requireSelected(state, taskId)
+  const allowed = [
+    'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
+    'blockerCode', 'nonRecoverableReasonCode',
+  ]
+  if (!onlyKeys(payload, allowed) || !RECOVERY_DIAGNOSIS_CODES.includes(payload.diagnosisCode) ||
+      typeof payload.recoverable !== 'boolean' || !BLOCKERS.includes(payload.blockerCode)) {
+    throw new Error('Investigator diagnosis requires allowlisted diagnosis, recoverability, and blocker codes')
+  }
+  assertReference(payload.investigatorEvidenceRef)
+  assertReference(payload.originalCheckRef)
+  if (![...task.testRefs, ...task.benchmarkRefs].includes(payload.originalCheckRef)) {
+    throw new Error('Investigator must identify the original allowlisted check')
+  }
+  if (payload.recoverable && payload.nonRecoverableReasonCode !== undefined) {
+    throw new Error('Recoverable diagnosis cannot include a non-recoverable reason code')
+  }
+  if (!payload.recoverable && !NON_RECOVERABLE_REASON_CODES.includes(payload.nonRecoverableReasonCode)) {
+    throw new Error('A non-recoverable diagnosis requires an allowlisted reason code')
+  }
+  if (task.recoveryHistory.length >= MAX_RECOVERY_CASES) {
+    throw new Error('Recovery history limit reached; preserve and archive the task before reopening')
+  }
+  if (task.recoveryHistory.some(item => item.outcome === 'in_progress')) {
+    throw new Error('Resolve the current recovery case before recording another diagnosis')
+  }
+  if (recoveryEvidenceReferences(task.recoveryHistory).has(payload.investigatorEvidenceRef)) {
+    throw new Error('Recovery diagnosis requires evidence not used in any prior recovery case')
+  }
+  if (!task.evidenceRefs.includes(payload.investigatorEvidenceRef)) {
+    if (task.evidenceRefs.length >= 12) throw new Error('Task evidence reference limit reached')
+    task.evidenceRefs.push(payload.investigatorEvidenceRef)
+  }
+  const recoveryCase = {
+    diagnosis: {
+      diagnosisCode: payload.diagnosisCode,
+      investigatorEvidenceRef: payload.investigatorEvidenceRef,
+      originalCheckRef: payload.originalCheckRef,
+      recoverable: payload.recoverable,
+      blockerCode: payload.blockerCode,
+      ...(payload.recoverable ? {} : { nonRecoverableReasonCode: payload.nonRecoverableReasonCode }),
+      recordedAt: now(),
+    },
+    attempts: [],
+    outcome: payload.recoverable ? 'in_progress' : 'blocked',
+  }
+  task.recoveryHistory.push(recoveryCase)
+  appendEvent(state, {
+    type: 'recovery_diagnosed', taskId, recoveryCaseIndex: task.recoveryHistory.length - 1,
+    evidenceRef: payload.investigatorEvidenceRef,
+  })
+  if (!payload.recoverable) return blockTask(state, taskId, payload.blockerCode, payload.investigatorEvidenceRef)
+  return recoveryCase
+}
+
+function recordRecoveryAttempt(state, taskId, payload) {
+  const task = requireSelected(state, taskId)
+  const recoveryCase = task.recoveryHistory.at(-1)
+  if (!recoveryCase || recoveryCase.outcome !== 'in_progress' || !recoveryCase.diagnosis.recoverable) {
+    throw new Error('An active, safely recoverable Investigator diagnosis is required')
+  }
+  if (!onlyKeys(payload, ['strategy', 'evidenceRef', 'verificationRef', 'result']) ||
+      !RECOVERY_STRATEGIES.includes(payload.strategy) ||
+      !['passed', 'failed'].includes(payload.result)) {
+    throw new Error('Recovery attempt must use an allowlisted strategy and result')
+  }
+  if (recoveryCase.attempts.length >= MAX_RECOVERY_ATTEMPTS) {
+    throw new Error('Recovery is limited to two distinct attempts')
+  }
+  assertReference(payload.evidenceRef)
+  assertReference(payload.verificationRef)
+  if (recoveryCase.attempts.some(attempt => attempt.strategy === payload.strategy)) {
+    throw new Error('Repeated recovery strategy; new evidence and a distinct strategy are required')
+  }
+  const recordedEvidence = recoveryEvidenceReferences(task.recoveryHistory)
+  if (recordedEvidence.has(payload.evidenceRef) || recordedEvidence.has(payload.verificationRef) ||
+      payload.evidenceRef === payload.verificationRef) {
+    throw new Error('Recovery attempt requires distinct evidence and verification references')
+  }
+  const attempt = {
+    strategy: payload.strategy,
+    evidenceRef: payload.evidenceRef,
+    checkRef: recoveryCase.diagnosis.originalCheckRef,
+    verificationRef: payload.verificationRef,
+    result: payload.result,
+    recordedAt: now(),
+  }
+  recoveryCase.attempts.push(attempt)
+  appendEvent(state, {
+    type: 'recovery_attempted', taskId, recoveryCaseIndex: task.recoveryHistory.length - 1,
+    recoveryStrategy: attempt.strategy, recoveryResult: attempt.result,
+    evidenceRef: attempt.verificationRef,
+  })
+  if (payload.result === 'passed') {
+    recoveryCase.outcome = 'recovered'
+    if (task.testResult?.passed === false) {
+      task.testResult = { passed: true, evidenceRef: attempt.verificationRef }
+      task.status = 'tests_passed'
+      appendEvent(state, { type: 'tests_passed', taskId, evidenceRef: attempt.verificationRef })
+    }
+    appendEvent(state, {
+      type: 'recovery_recovered', taskId, recoveryCaseIndex: task.recoveryHistory.length - 1,
+      evidenceRef: attempt.verificationRef,
+    })
+    return { recovered: true, task, next: task }
+  }
+  if (recoveryCase.attempts.length < MAX_RECOVERY_ATTEMPTS) {
+    return { recovered: false, retryAvailable: true, task, next: task }
+  }
+  recoveryCase.outcome = 'blocked'
+  const blocked = blockTask(state, taskId, recoveryCase.diagnosis.blockerCode, attempt.verificationRef)
+  return { recovered: false, retryAvailable: false, ...blocked }
+}
+
 function recordNewEvidence(state, taskId, evidenceRef) {
   const task = findTask(state, taskId)
   if (task.status !== 'blocked') throw new Error('Only blocked tasks can receive unblock evidence')
   assertReference(evidenceRef)
   if (task.evidenceRefs.includes(evidenceRef) || task.blocker?.evidenceRef === evidenceRef) {
     throw new Error('New evidence must be distinct from all evidence already recorded for this task')
+  }
+  const recoveryEvidence = new Set(task.recoveryHistory.flatMap(recoveryCase => [
+    recoveryCase.diagnosis.investigatorEvidenceRef,
+    ...recoveryCase.attempts.flatMap(attempt => [attempt.evidenceRef, attempt.verificationRef]),
+  ]))
+  if (recoveryEvidence.has(evidenceRef)) {
+    throw new Error('New evidence must be distinct from all recovery diagnosis and attempt evidence')
+  }
+  if (task.evidenceRefs.length >= 12) {
+    throw new Error('Task evidence reference limit reached; preserve the existing evidence set')
   }
   task.evidenceRevision += 1
   task.evidenceRefs = [...new Set([...task.evidenceRefs, evidenceRef])]
@@ -1179,6 +1603,9 @@ function releaseStopGate(state, release) {
 }
 
 function startNewCycle(state) {
+  if (!state.checkpoint.pilotId) {
+    throw new Error('Cannot start a cycle without an explicitly started pilot')
+  }
   if (state.checkpoint.selectedTaskId) {
     throw new Error('Cannot start another cycle while the current task is active; resume or close it first')
   }
@@ -1192,6 +1619,9 @@ function startNewCycle(state) {
 }
 
 function resume(state) {
+  if (!state.checkpoint.pilotId) {
+    throw new Error('Cannot resume without an explicitly started pilot')
+  }
   if (state.checkpoint.selectedTaskId) {
     return {
       task: findTask(state, state.checkpoint.selectedTaskId),
@@ -1201,7 +1631,7 @@ function resume(state) {
   return startNewCycle(state)
 }
 
-function createPilot(state, { pilotId, maxCycles = MAX_CYCLES } = {}) {
+function createPilot(state, { pilotId, maxCycles = MAX_CYCLES, pilotStartAuthorization } = {}) {
   if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(pilotId ?? '') ||
       !Number.isInteger(maxCycles) || maxCycles < 1 || maxCycles > MAX_CYCLES) {
     throw new Error(`Pilot requires a safe id and maxCycles between 1 and ${MAX_CYCLES}`)
@@ -1210,6 +1640,21 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES } = {}) {
     throw new Error('Cannot replace an active pilot checkpoint')
   }
   const previousCheckpoint = state.checkpoint
+  const knownPilotIds = new Set([
+    ...previousCheckpoint.archivedPilotHistory.flat().map(summary => summary.pilotId),
+    ...previousCheckpoint.pilotHistory.map(summary => summary.pilotId),
+    ...[...previousCheckpoint.eventArchives.flat(), ...previousCheckpoint.events]
+      .filter(event => event.type === 'pilot_started' ||
+        (event.type === 'pilot_prepared' && event.pilotId !== previousCheckpoint.preparedPilot?.pilotId))
+      .map(event => event.pilotId),
+    ...(previousCheckpoint.pilotId ? [previousCheckpoint.pilotId] : []),
+  ])
+  if (knownPilotIds.has(pilotId)) throw new Error('Pilot IDs must be unique across current and archived history')
+  archivePriorPilotSummary(state.checkpoint, previousCheckpoint)
+  const preservedEvents = [...previousCheckpoint.events]
+  while (preservedEvents.length) {
+    previousCheckpoint.eventArchives.push(preservedEvents.splice(0, MAX_EVENTS))
+  }
   if (previousCheckpoint.optimizationGate?.status === 'STOPPED' &&
       previousCheckpoint.optimizationGate.stopReason === 'budget') {
     previousCheckpoint.optimizationGate.status = 'ACTIVE'
@@ -1221,15 +1666,60 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES } = {}) {
     maxCycles,
     cyclesStarted: 0,
     cyclesValidated: 0,
+    revision: previousCheckpoint.revision,
     selectedTaskId: null,
     previousTaskId: previousCheckpoint.previousTaskId,
+    preparedPilot: null,
+    pilotHistory: previousCheckpoint.pilotHistory,
+    archivedPilotHistory: previousCheckpoint.archivedPilotHistory,
+    eventArchives: previousCheckpoint.eventArchives,
     optimizationGate: previousCheckpoint.optimizationGate ?? {
       status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
       stopReason: null, finalReport: null, auditHistory: [],
     },
-    events: [...previousCheckpoint.events],
+    events: [],
   }
-  appendEvent(state, { type: 'pilot_started', pilotId, maxCycles })
+  appendEvent(state, {
+    type: 'pilot_started', pilotId, maxCycles,
+    ...(pilotStartAuthorization ? { pilotStartAuthorization } : {}),
+  })
+}
+
+function preparePilot(state, { pilotId = `pilot-${crypto.randomBytes(6).toString('hex')}` } = {}) {
+  const checkpoint = state.checkpoint
+  if (checkpoint.preparedPilot) throw new Error('A pilot is already prepared; explicitly start or resolve it first')
+  if (checkpoint.selectedTaskId) throw new Error('Cannot prepare a pilot while an optimization task is active')
+  const events = [...checkpoint.eventArchives.flat(), ...checkpoint.events]
+  const initialPilot = !checkpoint.pilotId && checkpoint.pilotHistory.length === 0 &&
+    checkpoint.archivedPilotHistory.length === 0 && checkpoint.cyclesStarted === 0 &&
+    !events.some(event => event.type === 'pilot_started')
+  const terminal = initialPilot || (checkpoint.pilotId && checkpoint.selectedTaskId === null && (
+    (checkpoint.optimizationGate.status === 'STOPPED' && checkpoint.optimizationGate.stopReason === 'budget') ||
+    (checkpoint.optimizationGate.status === 'ACTIVE' && hasActionableRestartEvidence(checkpoint, state.tasks))
+  ))
+  if (!terminal) throw new Error('A new pilot can be prepared only after the current pilot reaches a terminal budget or exhaustion state')
+  if (!/^[a-z0-9][a-z0-9-]{1,40}$/.test(pilotId)) throw new Error('Prepared pilot ID is invalid')
+  const knownPilotIds = new Set([
+    ...checkpoint.archivedPilotHistory.flat().map(summary => summary.pilotId),
+    ...checkpoint.pilotHistory.map(summary => summary.pilotId),
+    ...[...checkpoint.eventArchives.flat(), ...checkpoint.events]
+      .filter(event => ['pilot_started', 'pilot_prepared'].includes(event.type)).map(event => event.pilotId),
+    ...(checkpoint.pilotId ? [checkpoint.pilotId] : []),
+  ])
+  if (knownPilotIds.has(pilotId)) throw new Error('Prepared pilot ID must be unique')
+  checkpoint.preparedPilot = { pilotId, maxCycles: MAX_CYCLES, preparedAt: now() }
+  appendEvent(state, { type: 'pilot_prepared', pilotId, maxCycles: MAX_CYCLES })
+  return checkpoint.preparedPilot
+}
+
+function startPreparedPilot(state, attestation) {
+  const prepared = state.checkpoint.preparedPilot
+  if (!prepared) throw new Error('No pending pilot; prepare one before explicitly starting it')
+  const pilotStartAuthorization = validatePilotStartAuthorization(attestation, prepared)
+  createPilot(state, {
+    pilotId: prepared.pilotId, maxCycles: prepared.maxCycles, pilotStartAuthorization,
+  })
+  return { checkpoint: state.checkpoint, started: true, selectedTask: null }
 }
 
 function addTask(state, taskInput) {
@@ -1256,8 +1746,13 @@ function addTask(state, taskInput) {
 }
 
 function beginRun(state) {
+  if (state.checkpoint.preparedPilot && state.checkpoint.optimizationGate.status === 'STOPPED') {
+    throw new Error('A pilot is prepared but not started; use the explicit start-pilot transition')
+  }
   if (!state.checkpoint.pilotId) {
-    createPilot(state, { pilotId: `pilot-${crypto.randomBytes(4).toString('hex')}`, maxCycles: MAX_CYCLES })
+    throw new Error(state.checkpoint.preparedPilot
+      ? 'A pilot is prepared but not started; use the explicit start-pilot transition'
+      : 'No active pilot; prepare and explicitly authorize a pilot before beginning')
   }
   return resume(state)
 }
@@ -1343,6 +1838,18 @@ async function saveState(filePath, state) {
   const tempPath = `${target}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`
   try {
     await lock.writeFile(lockData)
+    let diskRevision = 0
+    try {
+      const current = JSON.parse(await fs.readFile(target, 'utf8'))
+      diskRevision = current.checkpoint?.revision ?? 0
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw new Error('Cannot verify checkpoint revision; refusing to overwrite state')
+    }
+    if (diskRevision !== state.checkpoint.revision) {
+      throw new Error(`Stale checkpoint revision ${state.checkpoint.revision}; current revision is ${diskRevision}`)
+    }
+    state.checkpoint.revision += 1
+    validateState(state)
     await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     await fs.rename(tempPath, target)
   } finally {
@@ -1393,6 +1900,12 @@ async function cli(argv) {
     result = resume(state)
   } else if (command === 'new-cycle') {
     result = startNewCycle(state)
+  } else if (command === 'prepare-pilot') {
+    result = preparePilot(state, { pilotId: args[0] })
+  } else if (command === 'start-pilot') {
+    let authorization
+    try { authorization = JSON.parse(args[0] ?? '') } catch { throw new Error('start-pilot requires a JSON authorization attestation') }
+    result = startPreparedPilot(state, authorization)
   } else if (command === 'add-task') {
     result = addTask(state, JSON.parse(args[0] ?? 'null'))
   } else if (command === 'baseline') {
@@ -1401,6 +1914,10 @@ async function cli(argv) {
     result = recordImplementation(state, args[0], JSON.parse(args[1] ?? 'null'))
   } else if (command === 'tests') {
     result = recordTests(state, args[0], JSON.parse(args[1] ?? 'null'))
+  } else if (command === 'diagnose-recovery') {
+    result = recordRecoveryDiagnosis(state, args[0], JSON.parse(args[1] ?? 'null'))
+  } else if (command === 'recovery-attempt') {
+    result = recordRecoveryAttempt(state, args[0], JSON.parse(args[1] ?? 'null'))
   } else if (command === 'assess') {
     result = recordAssessment(state, args[0], JSON.parse(args[1] ?? 'null'))
   } else if (command === 'benchmark') {
@@ -1422,7 +1939,7 @@ async function cli(argv) {
     try { release = JSON.parse(args[0] ?? '') } catch { throw new Error('release-stop requires one JSON metadata argument') }
     result = releaseStopGate(state, release)
   } else {
-    throw new Error('Usage: init|status|begin|resume|new-cycle|add-task|baseline|implement|tests|assess|benchmark|block|evidence|approve|audit|release-stop [--state path]')
+    throw new Error('Usage: init|status|begin|resume|new-cycle|prepare-pilot|start-pilot|add-task|baseline|implement|tests|diagnose-recovery|recovery-attempt|assess|benchmark|block|evidence|approve|audit|release-stop [--state path]')
   }
   await saveState(filePath, state)
   return print(result)
@@ -1437,9 +1954,10 @@ if (require.main === module) {
 
 module.exports = {
   AUDIT_DIMENSIONS, AUDIT_ROLES, BLOCKERS, DEFAULT_STATE_PATH, DOMAINS, MAX_CYCLES, TASK_STATUSES,
-  addTask, beginRun, blockTask, createInitialState, createPilot,
+  addTask, beginRun, blockTask, createInitialState, preparePilot, startPreparedPilot,
   recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
-  recordApproval, recordNewEvidence, recordOptimizationAudit, recordTests, rejectTask, releaseStopGate, resume, saveState, selectNextTask,
+  recordApproval, recordNewEvidence, recordOptimizationAudit, recordRecoveryAttempt, recordRecoveryDiagnosis,
+  recordTests, rejectTask, releaseStopGate, resume, saveState, selectNextTask,
   selectTask, startNewCycle, taskValue, validateState, validateTask,
 }
 

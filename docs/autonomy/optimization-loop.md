@@ -15,7 +15,8 @@ Only sanitized task metadata, numeric measurements, allowlisted role results,
 and evidence references belong in the state file. Store no notes, prompts,
 responses, PDFs, secrets, or user study data.
 
-Every pilot is capped at ten cycles. A task must have a numeric baseline,
+Every newly prepared pilot has a ten-cycle cap. Selecting a task consumes one
+cycle, including a task that is later blocked. A task must have a numeric baseline,
 focused test evidence, independent Reviewer and QA passes, quality and security
 passes, a local benchmark result, and a dedicated `codex/` branch commit before
 it can be validated. Expensive benchmarks are recorded as blockers and cause
@@ -25,13 +26,46 @@ distinct evidence is recorded.
 ## CLI
 
 Run `node scripts/autonomy/optimization-orchestrator.cjs status` to inspect the
-backlog. Use `begin` for a new bounded pilot, `resume` to continue the selected
-checkpoint or select the next task, and `new-cycle` after a terminal task.
-`block <task-id> <allowlisted-code> [evidence-reference]` records the blocker
-and returns the next independent task in the same transaction. `evidence
-<task-id> <new-reference>` reopens a blocked task only after distinct evidence
-arrives. `--state <path>` selects an isolated state file for deterministic
-tests or a separately managed pilot.
+backlog. Use `prepare-pilot [unique-id]` to create a pending ten-cycle pilot.
+Preparation only records its ID and budget; it does not change the current gate,
+select a task, consume a cycle, or start work. Preparation is available only
+for a fresh checkpoint with no pilot history, after the prior pilot stopped at
+its cycle budget, or after an independently recorded actionable task reopened
+a previously exhausted gate. `start-pilot
+'<json-attestation>'` is the explicit transition that archives the prior pilot
+and activates the pending pilot. The attestation must include the exact pending
+`pilotId`, its `maxCycles`, `approverIdentity`, and an allowlisted
+`approvalEvidenceRef`. The transition stores that claim; it does not authenticate
+the approver or independently verify the evidence. A pending pilot is never
+started implicitly. Use `begin` when no pilot is pending,
+`resume` to continue the selected checkpoint or select the next task, and
+`new-cycle` after a terminal task.
+
+Before blocking a selected task, record an Investigator diagnosis with
+`diagnose-recovery <task-id> '<json>'`. The diagnosis contains an allowlisted
+root-cause code, an exact allowlisted original check, evidence references, an
+allowlisted blocker class, and whether recovery is safely supported. No raw
+diagnosis prose or rationale is stored. A non-recoverable diagnosis needs an
+allowlisted reason code and immediately records the blocker and selects
+independent work. A recoverable diagnosis permits at most two attempts, each
+with a different fixed allowlisted strategy identifier and distinct evidence
+references, via `recovery-attempt <task-id> '<json>'`. Each attempt records
+evidence and the verification result for the same original check. The
+orchestrator records the Coordinator's claim; it does not run or independently
+verify that check. The Coordinator must run the original check and confirm its
+result before recording an attempt. A passing check resumes the same task with
+its prior baseline and implementation intact; two distinct failed attempts
+block the task and select independent work. Strategy identifiers must differ
+within a case, and diagnosis, attempt, and verification references must remain
+unique across the task's complete recovery history. A later case may repeat a
+strategy only with a new diagnosis and entirely new evidence. Task text and
+strategy identifiers are never executed as shell commands, model prompts, or
+workflow instructions. `block <task-id>
+<allowlisted-code> [evidence-reference]`
+is permitted only after the diagnosis and recovery policy are complete.
+`evidence <task-id> <new-reference>` reopens a blocked task only after distinct
+evidence arrives. `--state <path>` selects an isolated state file for
+deterministic tests or a separately managed pilot.
 `approve <task-id> <json-attestation>` releases a task in
 `awaiting_approval` only after an allowlisted JSON attestation is supplied.
 The attestation records `approverIdentity`, `approverRole`,
@@ -89,6 +123,14 @@ Legacy `task_discovered` events without `initialStatus` are treated as ready;
 new discoveries persist their initial status. A task discovered as
 `awaiting_approval` cannot move to ready or another stage unless a later,
 structured `approval_recorded` event is present and valid.
+
+Every state update holds an exclusive lock while comparing the checkpoint
+revision read from disk with the writer's revision. A stale writer fails rather
+than overwriting newer work; successful writes increment the revision. Pilot
+starts move the prior bounded summary and all prior events into append-only
+archives, and event archives rotate in bounded chunks so the active log does
+not become a permanent 500-event dead end. Lifecycle events carry pilot
+attribution, including pilot preparation and start transitions.
 
 The writer uses an exclusive lock. It can recover a same-host lock only when
 the recorded process is proven absent. It may recover a malformed lock only
