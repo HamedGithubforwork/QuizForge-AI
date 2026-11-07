@@ -1144,10 +1144,11 @@
       "evidenceRefs": [
         "backend/quiz_service.py",
         "backend/document_api.py",
-        "frontend/src/components/quiz/PagePreviews.tsx"
+        "frontend/src/components/quiz/PagePreviews.tsx",
+        "backend/tests/test_pdf_extraction_async.py"
       ],
       "testRefs": [
-        "backend/tests/test_pdf_extraction.py"
+        "backend/tests/test_pdf_extraction_async.py"
       ],
       "benchmarkRefs": [],
       "benchmarkCost": "local",
@@ -1239,7 +1240,7 @@
     "maxCycles": 10,
     "cyclesStarted": 10,
     "cyclesValidated": 9,
-    "revision": 88,
+    "revision": 89,
     "selectedTaskId": null,
     "previousTaskId": "history-disclosure-expanded-state",
     "preparedPilot": null,
