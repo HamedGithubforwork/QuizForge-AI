@@ -5,14 +5,15 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
+const crypto = require('node:crypto')
 const { spawnSync } = require('node:child_process')
 const optimizationOrchestrator = require('../optimization-orchestrator.cjs')
 const {
   AUDIT_DIMENSIONS, AUDIT_ROLES, addTask, beginRun, blockTask, createInitialState,
   recordApproval, recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordNewEvidence, recordOptimizationAudit, recordTests, releaseStopGate, resume, saveState, selectNextTask,
-  startNewCycle, selectTask, validateState, validateTask, preparePilot, startPreparedPilot,
-  recordRecoveryDiagnosis, recordRecoveryAttempt,
+  startNewCycle, selectTask, validateState, validateTask, preparePilot, startPreparedPilot, loadState,
+  recordRecoveryDiagnosis, recordRecoveryAttempt, createPreservationArchive, resolvePreservationDeferral,
 } = require('../optimization-orchestrator.cjs')
 
 function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, dependencies = [] } = {}) {
@@ -396,6 +397,344 @@ test('blocked task requires distinct new evidence before it can be selected agai
   recordNewEvidence(state, first.id, 'https://github.com/example/repo/actions/runs/123')
   assert.equal(state.tasks.find(item => item.id === first.id).status, 'ready')
   assert.equal(state.tasks.find(item => item.id === first.id).evidenceRevision, 1)
+})
+
+test('legacy reopened ready task preserves stale lifecycle and selects with a fresh active cycle', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-legacy-reopen-'))
+  const file = path.join(directory, 'state.json')
+  try {
+    const state = createInitialState()
+    createPilot(state, { pilotId: 'legacy-reopen-pilot', maxCycles: 3 })
+    const existingSnapshot = {
+      baseline: { metric: 3, evidenceRef: 'backend/performance_metrics.py' },
+      implementation: { branch: 'codex/older-reopened-work', commitSha: 'b'.repeat(40) },
+      testResult: { passed: true, evidenceRef: 'scripts/production/test_runtime.py' },
+      assessments: {
+        reviewer: null,
+        qa: { passed: true, evidenceRef: 'scripts/production/test_runtime.py' },
+        quality: null,
+        security: null,
+      },
+      validation: { accepted: false, reasonCode: 'earlier_preserved_attempt', evidenceRef: 'backend/performance_metrics.py' },
+    }
+    addTask(state, {
+      ...task('legacy-reopened-task', { impact: 5 }),
+      baseline: { metric: 9, evidenceRef: 'docs/ai-cost-controls.md' },
+      implementation: { branch: 'codex/legacy-reopened-task', commitSha: 'a'.repeat(40) },
+      testResult: { passed: false, evidenceRef: 'scripts/production/test_runtime.py' },
+      assessments: {
+        reviewer: { passed: true, evidenceRef: 'docs/ai-cost-controls.md' },
+        qa: null, quality: null, security: null,
+      },
+      validation: { accepted: false, reasonCode: 'prior_attempt_blocked', evidenceRef: 'docs/ai-cost-controls.md' },
+      workPreserved: structuredClone(existingSnapshot),
+    })
+    // Old persisted ready tasks predate the recoveryHistory field and can retain
+    // lifecycle evidence from a previous attempt.
+    delete state.tasks[0].recoveryHistory
+    validateState(state)
+    const oldLifecycle = structuredClone({
+      baseline: state.tasks[0].baseline,
+      implementation: state.tasks[0].implementation,
+      testResult: state.tasks[0].testResult,
+      assessments: state.tasks[0].assessments,
+      validation: state.tasks[0].validation,
+    })
+
+    const selected = beginRun(state).task
+    assert.equal(selected.status, 'selected')
+    assert.equal(state.checkpoint.cyclesStarted, 1)
+    assert.deepEqual(selected.workPreserved, { ...oldLifecycle, priorSnapshots: [existingSnapshot] })
+    assert.equal(selected.baseline, null)
+    assert.equal(selected.implementation, null)
+    assert.equal(selected.testResult, null)
+    assert.deepEqual(selected.assessments, { reviewer: null, qa: null, quality: null, security: null })
+    assert.equal(selected.validation, null)
+    assert.equal(validateState(state), state)
+
+    await saveState(file, state)
+    const reopened = validateState(JSON.parse(await fs.readFile(file, 'utf8')))
+    const persisted = reopened.tasks.find(item => item.id === selected.id)
+    assert.equal(reopened.checkpoint.selectedTaskId, selected.id)
+    assert.equal(reopened.checkpoint.cyclesStarted, 1)
+    assert.deepEqual(persisted.workPreserved, { ...oldLifecycle, priorSnapshots: [existingSnapshot] })
+    assert.equal(persisted.baseline, null)
+    assert.equal(persisted.implementation, null)
+    assert.equal(persisted.testResult, null)
+    assert.equal(persisted.validation, null)
+    assert.throws(() => recordImplementation(reopened, selected.id, {
+      branch: 'codex/legacy-reopened-task', commitSha: 'b'.repeat(40),
+    }), /baseline/)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('full lifecycle history defers high-ranked task and selects independent work without extra cycle', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-full-preserved-history-'))
+  const file = path.join(directory, 'state.json')
+  try {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'full-preserved-history-pilot', maxCycles: 2 })
+  const priorSnapshot = {
+    baseline: { metric: 3, evidenceRef: 'backend/performance_metrics.py' },
+    implementation: { branch: 'codex/preserved-work', commitSha: 'c'.repeat(40) },
+    testResult: null,
+    assessments: { reviewer: null, qa: null, quality: null, security: null },
+    validation: null,
+  }
+  addTask(state, {
+    ...task('full-preserved-history-task', { impact: 5 }),
+    baseline: { metric: 9, evidenceRef: 'docs/ai-cost-controls.md' },
+    implementation: { branch: 'codex/full-preserved-history-task', commitSha: 'd'.repeat(40) },
+    workPreserved: { ...priorSnapshot, priorSnapshots: Array.from({ length: 10 }, () => structuredClone(priorSnapshot)) },
+  })
+  addTask(state, task('independent-after-deferral', { impact: 3, effort: 1 }))
+  const selected = beginRun(state).task
+  const deferred = state.tasks.find(item => item.id === 'full-preserved-history-task')
+  assert.equal(selected.id, 'independent-after-deferral')
+  assert.equal(state.checkpoint.cyclesStarted, 1)
+  assert.equal(state.checkpoint.selectedTaskId, selected.id)
+  assert.equal(deferred.status, 'blocked')
+  assert.equal(deferred.blocker.code, 'snapshot_history_full')
+  assert.equal(deferred.workPreserved.priorSnapshots.length, 10)
+  assert.deepEqual(deferred.preservationDeferral.lifecycleSnapshot, {
+    baseline: { metric: 9, evidenceRef: 'docs/ai-cost-controls.md' },
+    implementation: { branch: 'codex/full-preserved-history-task', commitSha: 'd'.repeat(40) },
+    testResult: null,
+    assessments: { reviewer: null, qa: null, quality: null, security: null },
+    validation: null,
+  })
+  assert.throws(() => recordNewEvidence(
+    state, deferred.id, 'https://github.com/example/repo/actions/runs/13001'), /awaiting snapshot archive/)
+  assert.equal(validateState(state), state)
+  await saveState(file, state)
+  const reopened = validateState(JSON.parse(await fs.readFile(file, 'utf8')))
+  const persistedDeferred = reopened.tasks.find(item => item.id === deferred.id)
+  assert.equal(reopened.checkpoint.selectedTaskId, 'independent-after-deferral')
+  assert.equal(reopened.checkpoint.cyclesStarted, 1)
+  assert.equal(persistedDeferred.workPreserved.priorSnapshots.length, 10)
+  assert.equal(persistedDeferred.preservationDeferral.reasonCode, 'snapshot_history_full')
+
+  const forgedDeferral = structuredClone(reopened)
+  forgedDeferral.tasks.find(item => item.id === persistedDeferred.id).workPreserved.priorSnapshots.pop()
+  assert.throws(() => validateState(forgedDeferral), /full prior snapshot history/)
+  const forgedSnapshot = structuredClone(reopened)
+  const sameSnapshot = {
+    baseline: persistedDeferred.workPreserved.baseline,
+    implementation: persistedDeferred.workPreserved.implementation,
+    testResult: persistedDeferred.workPreserved.testResult,
+    assessments: persistedDeferred.workPreserved.assessments,
+    validation: persistedDeferred.workPreserved.validation,
+  }
+  forgedSnapshot.tasks.find(item => item.id === persistedDeferred.id).preservationDeferral.lifecycleSnapshot =
+    structuredClone(sameSnapshot)
+  assert.throws(() => validateState(forgedSnapshot), /must exceed the bounded work-history capacity/)
+
+  await assert.rejects(resolvePreservationDeferral(
+    reopened, persistedDeferred.id, 'docs/autonomy/optimization-report-template.md', directory),
+  /task-scoped SHA-256 path/)
+  await assert.rejects(resolvePreservationDeferral(
+    reopened, 'different-task-id', 'docs/autonomy/archives/different-task-id-' + 'f'.repeat(64) + '.json', directory),
+  /Unknown task/)
+  assert.equal(persistedDeferred.status, 'blocked')
+
+  const archiveReference = await createPreservationArchive(reopened, persistedDeferred.id, directory)
+  assert.match(archiveReference,
+    new RegExp(`^docs/autonomy/archives/${persistedDeferred.id}-[a-f0-9]{64}\\.json$`))
+  const cappedArchiveState = structuredClone(reopened)
+  const cappedArchiveTask = cappedArchiveState.tasks.find(item => item.id === persistedDeferred.id)
+  cappedArchiveTask.preservationArchiveRefs = Array.from({ length: 10 }, (_, index) =>
+    `docs/autonomy/archives/${persistedDeferred.id}-${String(index).padStart(64, '0')}.json`)
+  const archiveDirectory = path.join(directory, 'docs', 'autonomy', 'archives')
+  const archiveFilesBeforeCapFailure = await fs.readdir(archiveDirectory)
+  await assert.rejects(createPreservationArchive(cappedArchiveState, persistedDeferred.id, directory),
+    /archive reference history is full/)
+  assert.deepEqual(await fs.readdir(archiveDirectory), archiveFilesBeforeCapFailure)
+
+  const archiveFile = path.join(directory, ...archiveReference.split('/'))
+  const archiveBytes = await fs.readFile(archiveFile)
+  await fs.writeFile(archiveFile, Buffer.from('tampered'))
+  await assert.rejects(resolvePreservationDeferral(reopened, persistedDeferred.id, archiveReference, directory),
+    /SHA-256 does not match/)
+  assert.equal(persistedDeferred.status, 'blocked')
+  await fs.writeFile(archiveFile, archiveBytes)
+
+  await resolvePreservationDeferral(reopened, persistedDeferred.id, archiveReference, directory)
+  assert.equal(persistedDeferred.status, 'ready')
+  assert.equal(persistedDeferred.preservationDeferral, null)
+  assert.equal(persistedDeferred.preservationArchiveRefs.length, 1)
+  assert.equal(persistedDeferred.workPreserved.baseline.metric, 9)
+  assert.equal(persistedDeferred.workPreserved.priorSnapshots, undefined)
+  assert.equal(persistedDeferred.baseline, null)
+  assert.equal(reopened.checkpoint.cyclesStarted, 1)
+  assert.equal(validateState(reopened), reopened)
+  const missingArchiveEvent = structuredClone(reopened)
+  missingArchiveEvent.checkpoint.events = missingArchiveEvent.checkpoint.events.filter(event =>
+    !(event.type === 'preservation_archived' && event.taskId === persistedDeferred.id))
+  assert.throws(() => validateState(missingArchiveEvent), /archive references do not match persisted archive events/)
+  const changedArchiveReference = structuredClone(reopened)
+  changedArchiveReference.tasks.find(item => item.id === persistedDeferred.id).preservationArchiveRefs[0] =
+    `docs/autonomy/archives/${persistedDeferred.id}-${'a'.repeat(64)}.json`
+  assert.throws(() => validateState(changedArchiveReference), /archive references do not match persisted archive events/)
+  const checkpointFile = path.join(directory, 'checkpoint.json')
+  const persistedCheckpoint = structuredClone(reopened)
+  persistedCheckpoint.checkpoint.revision = 0
+  await saveState(checkpointFile, persistedCheckpoint)
+  assert.equal((await loadState(checkpointFile, directory)).tasks.find(item => item.id === persistedDeferred.id).id,
+    persistedDeferred.id)
+  const archiveDirectoryBackup = `${archiveDirectory}.real`
+  await fs.rename(archiveDirectory, archiveDirectoryBackup)
+  let archiveDirectoryLinkCreated = false
+  try {
+    await fs.symlink(archiveDirectoryBackup, archiveDirectory, 'junction')
+    archiveDirectoryLinkCreated = true
+  } catch (error) {
+    await fs.rename(archiveDirectoryBackup, archiveDirectory)
+    if (!['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) throw error
+    t.diagnostic(`Skipped archive-directory symlink assertion: ${error.code}`)
+  }
+  if (archiveDirectoryLinkCreated) {
+    try {
+      await assert.rejects(loadState(checkpointFile, directory), /cannot contain symlinks/)
+    } finally {
+      await fs.unlink(archiveDirectory)
+      await fs.rename(archiveDirectoryBackup, archiveDirectory)
+    }
+  }
+  const archivedEventCheckpoint = structuredClone(reopened)
+  const archivedEventIndex = archivedEventCheckpoint.checkpoint.events.findIndex(event =>
+    event.type === 'preservation_archived' && event.taskId === persistedDeferred.id)
+  archivedEventCheckpoint.checkpoint.eventArchives.push([
+    ...archivedEventCheckpoint.checkpoint.events.splice(archivedEventIndex, 1),
+  ])
+  archivedEventCheckpoint.checkpoint.revision = 0
+  const archivedEventFile = path.join(directory, 'archived-event-checkpoint.json')
+  await saveState(archivedEventFile, archivedEventCheckpoint)
+  assert.equal((await loadState(archivedEventFile, directory)).tasks.find(item => item.id === persistedDeferred.id).id,
+    persistedDeferred.id)
+  await fs.rename(archiveFile, `${archiveFile}.missing`)
+  await assert.rejects(loadState(checkpointFile, directory), /archive artifact is missing/i)
+  await fs.rename(`${archiveFile}.missing`, archiveFile)
+  await fs.writeFile(archiveFile, Buffer.from('tampered'))
+  await assert.rejects(loadState(checkpointFile, directory), /lifecycle archive SHA-256 does not match its path/)
+  await fs.writeFile(archiveFile, archiveBytes)
+
+  const oversizedBytes = Buffer.alloc(128 * 1024 + 1, 0x61)
+  const oversizedRef = `docs/autonomy/archives/${persistedDeferred.id}-${crypto.createHash('sha256').update(oversizedBytes).digest('hex')}.json`
+  const oversizedState = structuredClone(reopened)
+  oversizedState.tasks.find(item => item.id === persistedDeferred.id).preservationArchiveRefs[0] = oversizedRef
+  oversizedState.checkpoint.events.find(event => event.type === 'preservation_archived' &&
+    event.taskId === persistedDeferred.id).evidenceRef = oversizedRef
+  oversizedState.checkpoint.revision = 0
+  const oversizedFile = path.join(directory, `${persistedDeferred.id}-oversized.json`)
+  await fs.writeFile(path.join(directory, ...oversizedRef.split('/')), oversizedBytes)
+  await saveState(oversizedFile, oversizedState)
+  await assert.rejects(loadState(oversizedFile, directory), /exceeds its bounded size/)
+
+  const malformedManifest = {
+    schemaVersion: 1, taskId: persistedDeferred.id, snapshotCount: 2,
+    snapshots: [
+      { kind: 'work_preserved', snapshot: {} },
+      { kind: 'deferred', snapshot: {} },
+    ],
+  }
+  const malformedBytes = Buffer.from(`${JSON.stringify(malformedManifest, null, 2)}\n`)
+  const malformedRef = `docs/autonomy/archives/${persistedDeferred.id}-${crypto.createHash('sha256').update(malformedBytes).digest('hex')}.json`
+  const malformedState = structuredClone(reopened)
+  malformedState.tasks.find(item => item.id === persistedDeferred.id).preservationArchiveRefs[0] = malformedRef
+  const malformedEvent = malformedState.checkpoint.events.find(event => event.type === 'preservation_archived' &&
+    event.taskId === persistedDeferred.id)
+  malformedEvent.evidenceRef = malformedRef
+  malformedEvent.archivedSnapshotCount = 2
+  malformedState.checkpoint.revision = 0
+  const malformedFile = path.join(directory, `${persistedDeferred.id}-malformed.json`)
+  await fs.writeFile(path.join(directory, ...malformedRef.split('/')), malformedBytes)
+  await saveState(malformedFile, malformedState)
+  await assert.rejects(loadState(malformedFile, directory), /Invalid preserved/)
+
+  const onlyState = createInitialState()
+  createPilot(onlyState, { pilotId: 'archive-only-task-pilot', maxCycles: 2 })
+  addTask(onlyState, {
+    ...task('archive-only-task', { impact: 5 }),
+    baseline: { metric: 6, evidenceRef: 'docs/ai-cost-controls.md' },
+    workPreserved: { ...priorSnapshot, priorSnapshots: Array.from({ length: 10 }, () => structuredClone(priorSnapshot)) },
+  })
+  assert.equal(beginRun(onlyState).task, null)
+  assert.equal(onlyState.checkpoint.cyclesStarted, 0)
+  const onlyTask = onlyState.tasks.find(item => item.id === 'archive-only-task')
+  const freshArchiveRoot = path.join(directory, 'fresh-concurrent-root')
+  await fs.mkdir(freshArchiveRoot)
+  const [onlyArchive, concurrentArchive] = await Promise.all([
+    createPreservationArchive(onlyState, onlyTask.id, freshArchiveRoot),
+    createPreservationArchive(onlyState, onlyTask.id, freshArchiveRoot),
+  ])
+  assert.equal(concurrentArchive, onlyArchive)
+  await resolvePreservationDeferral(onlyState, onlyTask.id, onlyArchive, freshArchiveRoot)
+  assert.equal(onlyTask.evidenceRevision, 1)
+  assert.equal(beginRun(onlyState).task.id, onlyTask.id)
+  assert.equal(onlyState.checkpoint.cyclesStarted, 1)
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('recovery diagnosis and final failed attempt fail atomically when snapshot history is full', () => {
+  const previousSnapshot = {
+    baseline: { metric: 3, evidenceRef: 'backend/performance_metrics.py' },
+    implementation: { branch: 'codex/old-preserved-work', commitSha: 'e'.repeat(40) },
+    testResult: { passed: true, evidenceRef: 'scripts/production/test_runtime.py' },
+    assessments: { reviewer: null, qa: null, quality: null, security: null },
+    validation: null,
+  }
+  const makeStateWithFullHistory = pilotId => {
+    const state = createInitialState()
+    createPilot(state, { pilotId, maxCycles: 3 })
+    addTask(state, task(`${pilotId}-task`))
+    const active = beginRun(state).task
+    recordBaseline(state, active.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+    recordImplementation(state, active.id, {
+      branch: `codex/${active.id}`, commitSha: 'f'.repeat(40),
+    })
+    recordTests(state, active.id, { passed: false, artifactRef: 'scripts/production/test_runtime.py' })
+    active.workPreserved = {
+      ...structuredClone(previousSnapshot),
+      priorSnapshots: Array.from({ length: 10 }, () => structuredClone(previousSnapshot)),
+    }
+    assert.equal(validateState(state), state)
+    return { state, active }
+  }
+
+  const nonrecoverable = makeStateWithFullHistory('recovery-atomic-diagnosis')
+  const beforeDiagnosis = JSON.stringify(nonrecoverable.state)
+  assert.throws(() => recordRecoveryDiagnosis(nonrecoverable.state, nonrecoverable.active.id, {
+    diagnosisCode: 'evidence_insufficient',
+    investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: false,
+    blockerCode: 'unavailable_evidence',
+    nonRecoverableReasonCode: 'evidence_unavailable',
+  }), /bounded work history is full/)
+  assert.equal(JSON.stringify(nonrecoverable.state), beforeDiagnosis)
+
+  const recoverable = makeStateWithFullHistory('recovery-atomic-attempt')
+  recordRecoveryDiagnosis(recoverable.state, recoverable.active.id, {
+    diagnosisCode: 'environment_incompatible',
+    investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  })
+  recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+    strategy: 'dependency_repair', evidenceRef: 'backend/performance_metrics.py',
+    verificationRef: 'https://github.com/example/repo/actions/runs/12001', result: 'failed',
+  })
+  const beforeFinalAttempt = JSON.stringify(recoverable.state)
+  assert.throws(() => recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+    strategy: 'alternative_tooling', evidenceRef: 'scripts/autonomy/test/optimization-orchestrator.test.cjs',
+    verificationRef: 'https://github.com/example/repo/actions/runs/12002', result: 'failed',
+  }), /bounded work history is full/)
+  assert.equal(JSON.stringify(recoverable.state), beforeFinalAttempt)
 })
 
 test('blocked task at the evidence-reference cap rejects new evidence without mutation', () => {
@@ -1035,4 +1374,3 @@ test('autonomy bridge write permissions are scoped to jobs', async () => {
   assert.match(workflow, /queue-repeat-failure:[\s\S]*?\r?\n    permissions:\r?\n      issues: write/)
   assert.doesNotMatch(workflow, /pull-requests: write/)
 })
-

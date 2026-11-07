@@ -16,6 +16,9 @@ const MAX_PILOT_SUMMARIES = 25
 const PILOT_SUMMARY_ARCHIVE_CHUNK = 25
 const MAX_RECOVERY_CASES = 10
 const MAX_RECOVERY_ATTEMPTS = 2
+const MAX_PRESERVATION_ARCHIVE_BYTES = 128 * 1024
+const MAX_PRESERVED_SNAPSHOTS = MAX_RECOVERY_CASES
+const MAX_PRESERVATION_ARCHIVES = MAX_RECOVERY_CASES
 const MALFORMED_LOCK_RECOVERY_MS = 24 * 60 * 60 * 1000
 const DOMAINS = Object.freeze([
   'local_ai', 'backend', 'frontend', 'desktop_ui', 'reliability',
@@ -29,7 +32,7 @@ const TASK_STATUSES = Object.freeze([
 const BLOCKERS = Object.freeze([
   'unavailable_evidence', 'tooling_unavailable', 'existing_pr',
   'benchmark_expensive', 'external_dependency', 'needs_user_authorization',
-  'environment_failure', 'other',
+  'environment_failure', 'snapshot_history_full', 'other',
 ])
 const RECOVERY_STRATEGIES = Object.freeze([
   'dependency_repair', 'configuration_repair', 'platform_adjustment',
@@ -64,6 +67,7 @@ const AUDIT_ROLES = Object.freeze([
 const IDENTITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9@._+-]{1,79}$/
 
 const DEFAULT_STATE_PATH = path.resolve(__dirname, '../../docs/autonomy/optimization-state.json')
+const REPOSITORY_ROOT = path.resolve(__dirname, '../..')
 
 function now() {
   return new Date().toISOString()
@@ -224,34 +228,55 @@ function validateTask(task) {
     }
   }
   if (task.workPreserved !== undefined && task.workPreserved !== null) {
-    if (!onlyKeys(task.workPreserved, ['baseline', 'implementation', 'testResult', 'assessments', 'validation'])) {
+    const workPreservedKeys = ['baseline', 'implementation', 'testResult', 'assessments', 'validation', 'priorSnapshots']
+    if (!onlyKeys(task.workPreserved, workPreservedKeys)) {
       throw new Error('Invalid preserved-work record')
     }
-    if (task.workPreserved.baseline !== null) {
-      const baseline = task.workPreserved.baseline
-      if (!onlyKeys(baseline, ['metric', 'evidenceRef']) || !Number.isFinite(baseline.metric)) {
-        throw new Error('Invalid preserved baseline')
-      }
-      assertReference(baseline.evidenceRef)
+    const { priorSnapshots, ...currentSnapshot } = task.workPreserved
+    validatePreservedSnapshot(currentSnapshot)
+    if (priorSnapshots !== undefined && (!Array.isArray(priorSnapshots) ||
+        priorSnapshots.length > MAX_PRESERVED_SNAPSHOTS)) {
+      throw new Error('Preserved lifecycle snapshot history exceeds its bounded limit')
     }
-    if (task.workPreserved.implementation !== null) {
-      const implementation = task.workPreserved.implementation
-      if (!onlyKeys(implementation, ['branch', 'commitSha']) ||
-          !/^codex\/[a-z0-9][a-z0-9-]{1,80}$/.test(implementation.branch ?? '') ||
-          !/^[a-f0-9]{40}$/.test(implementation.commitSha ?? '')) {
-        throw new Error('Invalid preserved implementation')
-      }
+    for (const snapshot of priorSnapshots ?? []) {
+      validatePreservedSnapshot(snapshot)
     }
-    if (task.workPreserved.testResult !== undefined && task.workPreserved.testResult !== null) {
-      if (!onlyKeys(task.workPreserved.testResult, ['passed', 'evidenceRef']) ||
-          typeof task.workPreserved.testResult.passed !== 'boolean') throw new Error('Invalid preserved test result')
-      assertReference(task.workPreserved.testResult.evidenceRef)
+  }
+  if (task.preservationDeferral !== undefined && task.preservationDeferral !== null) {
+    const deferred = task.preservationDeferral
+    if (!onlyKeys(deferred, ['reasonCode', 'lifecycleSnapshot', 'recordedAt']) ||
+        deferred.reasonCode !== 'snapshot_history_full' ||
+        typeof deferred.recordedAt !== 'string' || Number.isNaN(Date.parse(deferred.recordedAt))) {
+      throw new Error('Invalid preservation deferral record')
     }
-    if (!onlyKeys(task.workPreserved.assessments, ASSESSMENT_ROLES) ||
-        (task.workPreserved.validation !== null &&
-          !onlyKeys(task.workPreserved.validation,
-            ['baselineMetric', 'resultMetric', 'regression', 'evidenceRef', 'accepted', 'reasonCode']))) {
-      throw new Error('Invalid preserved assessment or validation record')
+    validatePreservedSnapshot(deferred.lifecycleSnapshot)
+    if (task.status !== 'blocked' || task.blocker?.code !== deferred.reasonCode) {
+      throw new Error('Preservation deferrals must remain blocked until archived')
+    }
+    if (task.workPreserved?.priorSnapshots?.length !== MAX_PRESERVED_SNAPSHOTS) {
+      throw new Error('Preservation deferral requires a full prior snapshot history')
+    }
+    let overflowRequired = false
+    try {
+      mergeWorkPreserved(task, deferred.lifecycleSnapshot)
+    } catch (error) {
+      if (!error.message.includes('bounded work history is full')) throw error
+      overflowRequired = true
+    }
+    if (!overflowRequired) {
+      throw new Error('Preservation deferral snapshot must exceed the bounded work-history capacity')
+    }
+  }
+  const preservationArchiveRefs = task.preservationArchiveRefs ?? []
+  if (!Array.isArray(preservationArchiveRefs) || preservationArchiveRefs.length > MAX_PRESERVATION_ARCHIVES ||
+      new Set(preservationArchiveRefs).size !== preservationArchiveRefs.length) {
+    throw new Error('Invalid or excessive lifecycle archive references')
+  }
+  preservationArchiveRefs.forEach(assertReference)
+  for (const archiveReference of preservationArchiveRefs) {
+    const digest = archiveReference.match(/^docs\/autonomy\/archives\/[a-z0-9][a-z0-9-]{1,63}-([a-f0-9]{64})\.json$/)?.[1]
+    if (!digest || archiveReference !== preservationArchiveReference(task.id, digest)) {
+      throw new Error('Preserved lifecycle archives must use task-scoped SHA-256 paths')
     }
   }
   return {
@@ -278,10 +303,65 @@ function validateTask(task) {
     validation: task.validation ?? null,
     blocker: task.blocker ?? null,
     workPreserved: task.workPreserved ?? null,
+    preservationDeferral: task.preservationDeferral ?? null,
+    preservationArchiveRefs: [...preservationArchiveRefs],
     evidenceRevision: Number.isSafeInteger(task.evidenceRevision) ? task.evidenceRevision : 0,
     priorBlockerEvidenceRevision: Number.isSafeInteger(task.priorBlockerEvidenceRevision)
       ? task.priorBlockerEvidenceRevision : null,
     recoveryHistory: clone(recoveryHistory),
+  }
+}
+
+function validatePreservedSnapshot(snapshot) {
+  if (!onlyKeys(snapshot, ['baseline', 'implementation', 'testResult', 'assessments', 'validation'])) {
+    throw new Error('Invalid preserved lifecycle snapshot')
+  }
+  if (snapshot.baseline !== null) {
+    const baseline = snapshot.baseline
+    if (!onlyKeys(baseline, ['metric', 'evidenceRef']) || !Number.isFinite(baseline.metric)) {
+      throw new Error('Invalid preserved baseline')
+    }
+    assertReference(baseline.evidenceRef)
+  }
+  if (snapshot.implementation !== null) {
+    const implementation = snapshot.implementation
+    if (!onlyKeys(implementation, ['branch', 'commitSha']) ||
+        !/^codex\/[a-z0-9][a-z0-9-]{1,80}$/.test(implementation.branch ?? '') ||
+        !/^[a-f0-9]{40}$/.test(implementation.commitSha ?? '')) {
+      throw new Error('Invalid preserved implementation')
+    }
+  }
+  if (snapshot.testResult !== undefined && snapshot.testResult !== null) {
+    if (!onlyKeys(snapshot.testResult, ['passed', 'evidenceRef']) ||
+        typeof snapshot.testResult.passed !== 'boolean') throw new Error('Invalid preserved test result')
+    assertReference(snapshot.testResult.evidenceRef)
+  }
+  if (!onlyKeys(snapshot.assessments, ASSESSMENT_ROLES)) {
+    throw new Error('Invalid preserved assessment or validation record')
+  }
+  for (const assessment of Object.values(snapshot.assessments)) {
+    if (assessment !== null &&
+        (!onlyKeys(assessment, ['passed', 'evidenceRef']) || typeof assessment.passed !== 'boolean')) {
+      throw new Error('Invalid preserved assessment or validation record')
+    }
+    if (assessment !== null) assertReference(assessment.evidenceRef)
+  }
+  if (snapshot.validation !== null && snapshot.validation !== undefined) {
+    const rejectedKeys = ['accepted', 'reasonCode', 'evidenceRef']
+    const acceptedKeys = ['accepted', 'baselineMetric', 'resultMetric', 'regression', 'evidenceRef']
+    if (snapshot.validation.accepted === false) {
+      if (!onlyKeys(snapshot.validation, rejectedKeys) || typeof snapshot.validation.reasonCode !== 'string' ||
+          snapshot.validation.reasonCode.length > 48) {
+        throw new Error('Invalid preserved assessment or validation record')
+      }
+      if (snapshot.validation.evidenceRef !== null) assertReference(snapshot.validation.evidenceRef)
+    } else if (!onlyKeys(snapshot.validation, acceptedKeys) || snapshot.validation.accepted !== true ||
+        !Number.isFinite(snapshot.validation.baselineMetric) || !Number.isFinite(snapshot.validation.resultMetric) ||
+        typeof snapshot.validation.regression !== 'boolean') {
+      throw new Error('Invalid preserved assessment or validation record')
+    } else {
+      assertReference(snapshot.validation.evidenceRef)
+    }
   }
 }
 
@@ -529,6 +609,7 @@ function validateState(state) {
     'pilot_started', 'pilot_prepared', 'task_discovered', 'selected', 'baseline', 'implemented',
     'tests_passed', 'reviewer_passed', 'qa_passed', 'quality_passed', 'security_passed',
     'tests_failed', 'recovery_diagnosed', 'recovery_attempted', 'recovery_recovered',
+    'preservation_archived',
     'validated', 'rejected', 'blocked', 'new_evidence', 'approval_recorded', 'optimization_resumed',
     'audit_completed', 'gate_stopped', 'stop_released',
   ])
@@ -541,6 +622,7 @@ function validateState(state) {
     'auditId', 'auditEvidenceRefs', 'specialistAssessments', 'awaitingApprovalCount',
     'approverIdentity', 'approverRole', 'approvalEvidenceRef', 'authorizedScopeRef', 'scopeCommitSha',
     'remediationEvidenceRef', 'approvals', 'pilotStartAuthorization',
+    'archivedSnapshotCount',
   ]
   const allEvents = [...checkpoint.eventArchives.flat(), ...checkpoint.events]
   const preparedPilotIds = new Set(allEvents.filter(event => event.type === 'pilot_prepared').map(event => event.pilotId))
@@ -579,6 +661,13 @@ function validateState(state) {
           !RECOVERY_STRATEGIES.includes(event.recoveryStrategy) ||
           !['passed', 'failed'].includes(event.recoveryResult))) {
       throw new Error('Recovery attempt event is invalid')
+    }
+    if (event.type === 'preservation_archived' &&
+        (!event.taskId || !Number.isSafeInteger(event.archivedSnapshotCount) || event.archivedSnapshotCount < 1 ||
+          !/^docs\/autonomy\/archives\/[a-z0-9][a-z0-9-]{1,63}-[a-f0-9]{64}\.json$/.test(event.evidenceRef ?? '') ||
+          event.evidenceRef !== preservationArchiveReference(
+            event.taskId, event.evidenceRef.match(/-([a-f0-9]{64})\.json$/)?.[1]))) {
+      throw new Error('Lifecycle archive event requires task and snapshot count')
     }
     if (event.initialStatus !== undefined && (event.type !== 'task_discovered' ||
         !['ready', 'awaiting_approval'].includes(event.initialStatus))) {
@@ -655,6 +744,17 @@ function validateState(state) {
     if (event.type !== 'stop_released' && event.approvals !== undefined) {
       throw new Error('Release approval set is only valid on stop-release events')
     }
+  }
+  const preservationArchiveEvents = allEvents.filter(event => event.type === 'preservation_archived')
+  for (const task of state.tasks) {
+    const taskEvents = preservationArchiveEvents.filter(event => event.taskId === task.id)
+    if (taskEvents.length !== task.preservationArchiveRefs.length ||
+        taskEvents.some((event, index) => event.evidenceRef !== task.preservationArchiveRefs[index])) {
+      throw new Error(`Task ${task.id} archive references do not match persisted archive events`)
+    }
+  }
+  if (preservationArchiveEvents.some(event => !state.tasks.some(task => task.id === event.taskId))) {
+    throw new Error('Lifecycle archive event references an unknown task')
   }
   const persistedAuditEvents = allEvents.filter(event =>
     event.type === 'audit_completed' || (event.type === 'gate_stopped' && event.auditId !== undefined))
@@ -782,13 +882,16 @@ function validateLifecycle(task) {
   if (task.status === 'blocked' && (!task.blocker || !task.workPreserved)) {
     throw new Error(`Task ${task.id} blocked state lacks blocker or preserved work`)
   }
-  if (task.status === 'blocked' && (JSON.stringify(task.workPreserved.baseline) !== JSON.stringify(task.baseline) ||
-      JSON.stringify(task.workPreserved.implementation) !== JSON.stringify(task.implementation) ||
-      JSON.stringify(task.workPreserved.assessments) !== JSON.stringify(task.assessments) ||
-      JSON.stringify(task.workPreserved.validation) !== JSON.stringify(task.validation) ||
-      (task.workPreserved.testResult !== undefined &&
-       JSON.stringify(task.workPreserved.testResult) !== JSON.stringify(task.testResult)))) {
-    throw new Error(`Task ${task.id} blocked state does not match preserved work`)
+  if (task.status === 'blocked') {
+    const preservedSnapshot = task.preservationDeferral?.lifecycleSnapshot ?? task.workPreserved
+    if (JSON.stringify(preservedSnapshot.baseline) !== JSON.stringify(task.baseline) ||
+        JSON.stringify(preservedSnapshot.implementation) !== JSON.stringify(task.implementation) ||
+        JSON.stringify(preservedSnapshot.assessments) !== JSON.stringify(task.assessments) ||
+        JSON.stringify(preservedSnapshot.validation) !== JSON.stringify(task.validation) ||
+        (preservedSnapshot.testResult !== undefined &&
+         JSON.stringify(preservedSnapshot.testResult) !== JSON.stringify(task.testResult))) {
+      throw new Error(`Task ${task.id} blocked state does not match preserved work`)
+    }
   }
   if (task.status !== 'blocked' && task.blocker !== null) throw new Error(`Task ${task.id} has stale blocker`)
   if (task.status === 'selected' &&
@@ -1194,6 +1297,13 @@ function selectTask(state) {
     excludeTaskIds: [],
   })
   if (!task) return null
+  try {
+    preserveAndResetStaleLifecycle(task)
+  } catch (error) {
+    if (!error.message.includes('bounded work history is full')) throw error
+    deferTaskForSnapshotArchive(state, task)
+    return selectTask(state)
+  }
   task.status = 'selected'
   state.checkpoint.previousTaskId = task.id
   state.checkpoint.selectedTaskId = task.id
@@ -1218,6 +1328,74 @@ function selectTask(state) {
     return fallback.next
   }
   return task
+}
+
+function preserveAndResetStaleLifecycle(task) {
+  const hasStaleLifecycle = Boolean(task.baseline || task.implementation || task.testResult || task.validation ||
+    Object.values(task.assessments ?? {}).some(assessment => assessment !== null))
+  if (!hasStaleLifecycle) return
+  const snapshot = mergeWorkPreserved(task, lifecycleSnapshot(task))
+  task.workPreserved = snapshot
+  task.baseline = null
+  task.implementation = null
+  task.testResult = null
+  task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+  task.validation = null
+}
+
+function deferTaskForSnapshotArchive(state, task) {
+  const snapshot = lifecycleSnapshot(task)
+  task.status = 'blocked'
+  task.blocker = {
+    code: 'snapshot_history_full',
+    evidenceRef: null,
+    evidenceRevision: task.evidenceRevision,
+    recordedAt: now(),
+  }
+  task.preservationDeferral = {
+    reasonCode: 'snapshot_history_full',
+    lifecycleSnapshot: snapshot,
+    recordedAt: now(),
+  }
+  state.checkpoint.previousTaskId = task.id
+  appendEvent(state, { type: 'blocked', taskId: task.id, blockerCode: 'snapshot_history_full', evidenceRef: null })
+}
+
+function lifecycleSnapshot(task) {
+  return {
+    baseline: clone(task.baseline),
+    implementation: clone(task.implementation),
+    testResult: clone(task.testResult),
+    assessments: clone(task.assessments),
+    validation: clone(task.validation),
+  }
+}
+
+function snapshotHasLifecycle(snapshot) {
+  return Boolean(snapshot.baseline || snapshot.implementation || snapshot.testResult || snapshot.validation ||
+    Object.values(snapshot.assessments ?? {}).some(assessment => assessment !== null))
+}
+
+function mergeWorkPreserved(task, latestSnapshot) {
+  const existing = task.workPreserved
+  const priorSnapshots = [...(existing?.priorSnapshots ?? [])]
+  if (existing && snapshotHasLifecycle(existing)) {
+    const previousSnapshot = {
+      baseline: clone(existing.baseline),
+      implementation: clone(existing.implementation),
+      testResult: clone(existing.testResult),
+      assessments: clone(existing.assessments),
+      validation: clone(existing.validation),
+    }
+    if (JSON.stringify(previousSnapshot) !== JSON.stringify(latestSnapshot)) priorSnapshots.push(previousSnapshot)
+  }
+  if (priorSnapshots.length > MAX_PRESERVED_SNAPSHOTS) {
+    throw new Error('Cannot preserve another lifecycle snapshot; bounded work history is full')
+  }
+  return {
+    ...clone(latestSnapshot),
+    ...(priorSnapshots.length > 0 ? { priorSnapshots } : {}),
+  }
 }
 
 function stopForBudget(state) {
@@ -1396,6 +1574,7 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
       (!recoveryCase.diagnosis.recoverable && recoveryCase.attempts.length !== 0)) {
     throw new Error('Blocking requires an Investigator diagnosis and completed safe recovery policy')
   }
+  const preservedWork = mergeWorkPreserved(task, lifecycleSnapshot(task))
   task.status = 'blocked'
   task.blocker = {
     code: blockerCode,
@@ -1403,13 +1582,7 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
     evidenceRevision: task.evidenceRevision,
     recordedAt: now(),
   }
-  task.workPreserved = {
-    baseline: clone(task.baseline),
-    implementation: clone(task.implementation),
-    testResult: clone(task.testResult),
-    assessments: clone(task.assessments),
-    validation: clone(task.validation),
-  }
+  task.workPreserved = preservedWork
   state.checkpoint.selectedTaskId = null
   state.checkpoint.previousTaskId = task.id
   appendEvent(state, { type: 'blocked', taskId, blockerCode, evidenceRef: evidenceRef ?? null })
@@ -1447,10 +1620,10 @@ function recordRecoveryDiagnosis(state, taskId, payload) {
   if (recoveryEvidenceReferences(task.recoveryHistory).has(payload.investigatorEvidenceRef)) {
     throw new Error('Recovery diagnosis requires evidence not used in any prior recovery case')
   }
-  if (!task.evidenceRefs.includes(payload.investigatorEvidenceRef)) {
-    if (task.evidenceRefs.length >= 12) throw new Error('Task evidence reference limit reached')
-    task.evidenceRefs.push(payload.investigatorEvidenceRef)
-  }
+  const addsEvidenceRef = !task.evidenceRefs.includes(payload.investigatorEvidenceRef)
+  if (addsEvidenceRef && task.evidenceRefs.length >= 12) throw new Error('Task evidence reference limit reached')
+  if (!payload.recoverable) mergeWorkPreserved(task, lifecycleSnapshot(task))
+  if (addsEvidenceRef) task.evidenceRefs.push(payload.investigatorEvidenceRef)
   const recoveryCase = {
     diagnosis: {
       diagnosisCode: payload.diagnosisCode,
@@ -1497,6 +1670,8 @@ function recordRecoveryAttempt(state, taskId, payload) {
       payload.evidenceRef === payload.verificationRef) {
     throw new Error('Recovery attempt requires distinct evidence and verification references')
   }
+  const willBlock = payload.result === 'failed' && recoveryCase.attempts.length + 1 === MAX_RECOVERY_ATTEMPTS
+  if (willBlock) mergeWorkPreserved(task, lifecycleSnapshot(task))
   const attempt = {
     strategy: payload.strategy,
     evidenceRef: payload.evidenceRef,
@@ -1535,6 +1710,9 @@ function recordRecoveryAttempt(state, taskId, payload) {
 function recordNewEvidence(state, taskId, evidenceRef) {
   const task = findTask(state, taskId)
   if (task.status !== 'blocked') throw new Error('Only blocked tasks can receive unblock evidence')
+  if (task.preservationDeferral) {
+    throw new Error('Task is blocked awaiting snapshot archive; new evidence cannot reopen it yet')
+  }
   assertReference(evidenceRef)
   if (task.evidenceRefs.includes(evidenceRef) || task.blocker?.evidenceRef === evidenceRef) {
     throw new Error('New evidence must be distinct from all evidence already recorded for this task')
@@ -1561,6 +1739,294 @@ function recordNewEvidence(state, taskId, evidenceRef) {
   task.validation = null
   appendEvent(state, { type: 'new_evidence', taskId, evidenceRef, evidenceRevision: task.evidenceRevision })
   resumeOptimization(state, 'distinct_blocker_evidence', task.id)
+  return task
+}
+
+function preservationSnapshotManifest(task) {
+  const priorSnapshots = task.workPreserved.priorSnapshots ?? []
+  const currentSnapshot = {
+    baseline: clone(task.workPreserved.baseline),
+    implementation: clone(task.workPreserved.implementation),
+    testResult: clone(task.workPreserved.testResult),
+    assessments: clone(task.workPreserved.assessments),
+    validation: clone(task.workPreserved.validation),
+  }
+  const snapshots = [
+    ...priorSnapshots.map((snapshot, index) => ({ kind: 'prior', index, snapshot: clone(snapshot) })),
+    { kind: 'work_preserved', snapshot: currentSnapshot },
+    { kind: 'deferred', snapshot: clone(task.preservationDeferral.lifecycleSnapshot) },
+  ]
+  return { schemaVersion: 1, taskId: task.id, snapshotCount: snapshots.length, snapshots }
+}
+
+function taskStoredEvidenceReferences(task) {
+  const refs = new Set([
+    ...task.evidenceRefs,
+    ...task.testRefs,
+    ...task.benchmarkRefs,
+    ...recoveryEvidenceReferences(task.recoveryHistory),
+    ...task.preservationArchiveRefs,
+  ])
+  if (task.blocker?.evidenceRef) refs.add(task.blocker.evidenceRef)
+  for (const snapshot of [
+    lifecycleSnapshot(task),
+    ...(task.workPreserved ? [
+      {
+        baseline: task.workPreserved.baseline,
+        implementation: task.workPreserved.implementation,
+        testResult: task.workPreserved.testResult,
+        assessments: task.workPreserved.assessments,
+        validation: task.workPreserved.validation,
+      },
+      ...(task.workPreserved.priorSnapshots ?? []),
+    ] : []),
+    ...(task.preservationDeferral ? [task.preservationDeferral.lifecycleSnapshot] : []),
+  ]) {
+    if (snapshot.baseline?.evidenceRef) refs.add(snapshot.baseline.evidenceRef)
+    if (snapshot.testResult?.evidenceRef) refs.add(snapshot.testResult.evidenceRef)
+    if (snapshot.validation?.evidenceRef) refs.add(snapshot.validation.evidenceRef)
+    for (const assessment of Object.values(snapshot.assessments ?? {})) {
+      if (assessment?.evidenceRef) refs.add(assessment.evidenceRef)
+    }
+  }
+  return refs
+}
+
+function preservationArchiveReference(taskId, digest) {
+  return `docs/autonomy/archives/${taskId}-${digest}.json`
+}
+
+function archiveTargetPath(repositoryRoot, taskId, archiveReference) {
+  if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(taskId ?? '') || typeof archiveReference !== 'string') {
+    throw new Error('Lifecycle archive reference is invalid')
+  }
+  const match = archiveReference.match(/^docs\/autonomy\/archives\/([a-z0-9][a-z0-9-]{1,63})-([a-f0-9]{64})\.json$/)
+  if (!match || match[1] !== taskId) {
+    throw new Error('Lifecycle archive must use the exact task-scoped SHA-256 path')
+  }
+  const root = path.resolve(repositoryRoot)
+  const target = path.resolve(root, ...archiveReference.split('/'))
+  const expectedDirectory = path.resolve(root, 'docs', 'autonomy', 'archives')
+  if (path.dirname(target) !== expectedDirectory || path.basename(target) !== `${taskId}-${match[2]}.json`) {
+    throw new Error('Lifecycle archive path escapes its task-scoped archive directory')
+  }
+  return { root, directory: expectedDirectory, target, digest: match[2], reference: archiveReference }
+}
+
+async function inspectArchiveDirectory(repositoryRoot, create) {
+  const root = path.resolve(repositoryRoot)
+  let rootStat
+  try { rootStat = await fs.lstat(root) } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('Lifecycle archive repository root is missing')
+    throw error
+  }
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error('Lifecycle archive repository root must be a real directory')
+  }
+  let current = root
+  for (const segment of ['docs', 'autonomy', 'archives']) {
+    current = path.join(current, segment)
+    let stat
+    try { stat = await fs.lstat(current) } catch (error) {
+      if (error.code !== 'ENOENT' || !create) throw new Error('Lifecycle archive directory is missing')
+      try { await fs.mkdir(current) } catch (mkdirError) {
+        if (mkdirError.code !== 'EEXIST') throw mkdirError
+      }
+      stat = await fs.lstat(current)
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory() || path.resolve(await fs.realpath(current)) !== current) {
+      throw new Error('Lifecycle archive directories cannot contain symlinks or traversal components')
+    }
+  }
+  return current
+}
+
+function preservationArchiveBytes(manifest) {
+  return Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+}
+
+async function createPreservationArchive(state, taskId, repositoryRoot = REPOSITORY_ROOT) {
+  const task = findTask(state, taskId)
+  if (task.status !== 'blocked' || !task.preservationDeferral) {
+    throw new Error('Only a task awaiting lifecycle snapshot archive can be archived')
+  }
+  if (task.preservationArchiveRefs.length >= MAX_PRESERVATION_ARCHIVES) {
+    throw new Error('Lifecycle archive reference history is full')
+  }
+  const manifest = preservationSnapshotManifest(task)
+  const bytes = preservationArchiveBytes(manifest)
+  const digest = crypto.createHash('sha256').update(bytes).digest('hex')
+  const archiveReference = preservationArchiveReference(task.id, digest)
+  if (taskStoredEvidenceReferences(task).has(archiveReference)) {
+    throw new Error('Generated lifecycle archive path collides with evidence already stored on the task')
+  }
+  const { directory, target } = archiveTargetPath(repositoryRoot, task.id, archiveReference)
+  await inspectArchiveDirectory(repositoryRoot, true)
+
+  let existing
+  try { existing = await fs.lstat(target) } catch (error) {
+    if (error.code !== 'ENOENT') throw error
+  }
+  if (existing) {
+    if (existing.isSymbolicLink() || !existing.isFile()) throw new Error('Lifecycle archive target is not a regular file')
+    const { bytes: currentBytes } = await readTaskScopedArchive(repositoryRoot, task.id, archiveReference)
+    if (!currentBytes.equals(bytes)) throw new Error('Existing lifecycle archive content does not match its SHA-256 name')
+    return archiveReference
+  }
+
+  const temporaryPath = path.join(directory, `.${task.id}.${crypto.randomUUID()}.tmp`)
+  let handle
+  try {
+    handle = await fs.open(temporaryPath, 'wx')
+    await handle.writeFile(bytes)
+    await handle.sync()
+    await handle.close()
+    handle = null
+    try {
+      await fs.link(temporaryPath, target)
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      const { bytes: concurrentBytes } = await readTaskScopedArchive(repositoryRoot, task.id, archiveReference)
+      if (!concurrentBytes.equals(bytes)) {
+        throw new Error('Concurrent lifecycle archive differs from the expected immutable artifact')
+      }
+    }
+  } finally {
+    await handle?.close().catch(() => {})
+    await fs.rm(temporaryPath, { force: true }).catch(() => {})
+  }
+  return archiveReference
+}
+
+async function readTaskScopedArchive(repositoryRoot, taskId, archiveReference) {
+  const { target, digest } = archiveTargetPath(repositoryRoot, taskId, archiveReference)
+  await inspectArchiveDirectory(repositoryRoot, false)
+  const beforeStat = await fs.lstat(target).catch(error => {
+    if (error.code === 'ENOENT') throw new Error('Lifecycle archive artifact is missing')
+    throw error
+  })
+  if (beforeStat.isSymbolicLink() || !beforeStat.isFile()) {
+    throw new Error('Lifecycle archive artifact must be a regular non-symlink file')
+  }
+  if (beforeStat.size > MAX_PRESERVATION_ARCHIVE_BYTES) {
+    throw new Error('Lifecycle archive exceeds its bounded size')
+  }
+  const handle = await fs.open(target, 'r')
+  let bytes
+  try {
+    const openedStat = await handle.stat()
+    const afterStat = await fs.lstat(target)
+    if (afterStat.isSymbolicLink() || afterStat.dev !== beforeStat.dev || afterStat.ino !== beforeStat.ino ||
+        openedStat.dev !== beforeStat.dev || openedStat.ino !== beforeStat.ino ||
+        openedStat.size !== beforeStat.size || openedStat.size > MAX_PRESERVATION_ARCHIVE_BYTES) {
+      throw new Error('Lifecycle archive target changed while being verified')
+    }
+    const buffer = Buffer.alloc(MAX_PRESERVATION_ARCHIVE_BYTES + 1)
+    let totalBytes = 0
+    while (totalBytes < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, totalBytes, buffer.length - totalBytes, totalBytes)
+      if (bytesRead === 0) break
+      totalBytes += bytesRead
+      if (totalBytes > MAX_PRESERVATION_ARCHIVE_BYTES) {
+        throw new Error('Lifecycle archive exceeds its bounded size')
+      }
+    }
+    bytes = buffer.subarray(0, totalBytes)
+  } finally {
+    await handle.close()
+  }
+  return { bytes, digest }
+}
+
+async function verifyPreservationArchive(state, taskId, archiveReference, repositoryRoot = REPOSITORY_ROOT) {
+  const task = findTask(state, taskId)
+  if (task.status !== 'blocked' || !task.preservationDeferral) {
+    throw new Error('Only a task awaiting lifecycle snapshot archive can be resolved')
+  }
+  const { bytes, digest } = await readTaskScopedArchive(repositoryRoot, task.id, archiveReference)
+  const actualDigest = crypto.createHash('sha256').update(bytes).digest('hex')
+  if (actualDigest !== digest) throw new Error('Lifecycle archive SHA-256 does not match its path')
+  const expected = preservationArchiveBytes(preservationSnapshotManifest(task))
+  if (!bytes.equals(expected)) throw new Error('Lifecycle archive snapshot manifest or count does not match the task')
+  if (taskStoredEvidenceReferences(task).has(archiveReference)) {
+    throw new Error('Lifecycle archive reference must be distinct from every stored task evidence source')
+  }
+  return { archiveReference, archivedSnapshotCount: preservationSnapshotManifest(task).snapshotCount }
+}
+
+async function verifyPersistedPreservationArchives(state, repositoryRoot = REPOSITORY_ROOT) {
+  const archiveEvents = [...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events]
+    .filter(event => event.type === 'preservation_archived')
+  for (const task of state.tasks) {
+    for (const archiveReference of task.preservationArchiveRefs) {
+      const event = archiveEvents.find(candidate => candidate.taskId === task.id && candidate.evidenceRef === archiveReference)
+      if (!event) throw new Error(`Task ${task.id} lifecycle archive has no matching checkpoint event`)
+      const { bytes, digest } = await readTaskScopedArchive(repositoryRoot, task.id, archiveReference)
+      if (crypto.createHash('sha256').update(bytes).digest('hex') !== digest) {
+        throw new Error(`Task ${task.id} lifecycle archive SHA-256 does not match its path`)
+      }
+      let manifest
+      try { manifest = JSON.parse(bytes.toString('utf8')) } catch {
+        throw new Error(`Task ${task.id} lifecycle archive manifest is invalid JSON`)
+      }
+      if (!onlyKeys(manifest, ['schemaVersion', 'taskId', 'snapshotCount', 'snapshots']) ||
+          manifest.schemaVersion !== 1 || manifest.taskId !== task.id ||
+          !Array.isArray(manifest.snapshots) || manifest.snapshotCount !== manifest.snapshots.length ||
+          manifest.snapshotCount !== event.archivedSnapshotCount ||
+          manifest.snapshotCount < 2 || manifest.snapshotCount > MAX_PRESERVED_SNAPSHOTS + 2) {
+        throw new Error(`Task ${task.id} lifecycle archive manifest does not match its checkpoint event`)
+      }
+      const priorCount = manifest.snapshotCount - 2
+      for (let index = 0; index < priorCount; index += 1) {
+        const entry = manifest.snapshots[index]
+        if (!onlyKeys(entry, ['kind', 'index', 'snapshot']) || entry.kind !== 'prior' || entry.index !== index) {
+          throw new Error(`Task ${task.id} lifecycle archive snapshot sequence is invalid`)
+        }
+        validatePreservedSnapshot(entry.snapshot)
+      }
+      for (const [index, kind] of [[priorCount, 'work_preserved'], [priorCount + 1, 'deferred']]) {
+        const entry = manifest.snapshots[index]
+        if (!onlyKeys(entry, ['kind', 'snapshot']) || entry.kind !== kind) {
+          throw new Error(`Task ${task.id} lifecycle archive snapshot sequence is invalid`)
+        }
+        validatePreservedSnapshot(entry.snapshot)
+      }
+      if (!preservationArchiveBytes(manifest).equals(bytes)) {
+        throw new Error(`Task ${task.id} lifecycle archive manifest is not canonical`)
+      }
+    }
+  }
+}
+
+async function resolvePreservationDeferral(state, taskId, archiveReference, repositoryRoot = REPOSITORY_ROOT) {
+  const task = findTask(state, taskId)
+  const { archivedSnapshotCount } = await verifyPreservationArchive(state, taskId, archiveReference, repositoryRoot)
+  if (task.preservationArchiveRefs.length >= MAX_PRESERVATION_ARCHIVES) {
+    throw new Error('Lifecycle archive reference history is full')
+  }
+  if (!Number.isSafeInteger(task.evidenceRevision + 1)) {
+    throw new Error('Task evidence revision cannot be advanced safely')
+  }
+  const previousBlockerEvidenceRevision = task.blocker?.evidenceRevision ?? 0
+  const latestSnapshot = clone(task.preservationDeferral.lifecycleSnapshot)
+
+  task.preservationArchiveRefs.push(archiveReference)
+  task.evidenceRevision += 1
+  task.priorBlockerEvidenceRevision = previousBlockerEvidenceRevision
+  task.workPreserved = latestSnapshot
+  task.baseline = null
+  task.implementation = null
+  task.testResult = null
+  task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+  task.validation = null
+  task.preservationDeferral = null
+  task.blocker = null
+  task.status = 'ready'
+  appendEvent(state, {
+    type: 'preservation_archived', taskId, evidenceRef: archiveReference,
+    evidenceRevision: task.evidenceRevision, archivedSnapshotCount,
+  })
+  resumeOptimization(state, 'new_actionable_task', task.id)
   return task
 }
 
@@ -1729,6 +2195,9 @@ function addTask(state, taskInput) {
   if (taskInput?.status !== undefined && !['ready', 'awaiting_approval'].includes(taskInput.status)) {
     throw new Error('Discovered tasks must start ready or awaiting_approval')
   }
+  if (taskInput?.preservationDeferral || taskInput?.preservationArchiveRefs?.length) {
+    throw new Error('Lifecycle preservation metadata is assigned only by orchestrator transitions')
+  }
   const task = validateTask(taskInput)
   if (state.tasks.some(item => item.id === task.id)) throw new Error(`Task already exists: ${task.id}`)
   if (state.tasks.some(item => item.investigationKey === task.investigationKey)) {
@@ -1757,11 +2226,13 @@ function beginRun(state) {
   return resume(state)
 }
 
-async function loadState(filePath = DEFAULT_STATE_PATH) {
+async function loadState(filePath = DEFAULT_STATE_PATH, repositoryRoot = REPOSITORY_ROOT) {
   const text = await fs.readFile(filePath, 'utf8')
   let state
   try { state = JSON.parse(text) } catch { throw new Error(`Invalid JSON in state file: ${filePath}`) }
-  return validateState(state)
+  validateState(state)
+  await verifyPersistedPreservationArchives(state, repositoryRoot)
+  return state
 }
 
 async function saveState(filePath, state) {
@@ -1926,6 +2397,10 @@ async function cli(argv) {
     result = blockTask(state, args[0], args[1], args[2])
   } else if (command === 'evidence') {
     result = recordNewEvidence(state, args[0], args[1])
+  } else if (command === 'archive-preserved') {
+    if (!args[0] || args.length !== 1) throw new Error('archive-preserved requires only the blocked task ID')
+    const archiveReference = await createPreservationArchive(state, args[0])
+    result = await resolvePreservationDeferral(state, args[0], archiveReference)
   } else if (command === 'approve') {
     let attestation
     try { attestation = JSON.parse(args[1] ?? '') } catch { throw new Error('approve requires a JSON attestation argument') }
@@ -1939,7 +2414,7 @@ async function cli(argv) {
     try { release = JSON.parse(args[0] ?? '') } catch { throw new Error('release-stop requires one JSON metadata argument') }
     result = releaseStopGate(state, release)
   } else {
-    throw new Error('Usage: init|status|begin|resume|new-cycle|prepare-pilot|start-pilot|add-task|baseline|implement|tests|diagnose-recovery|recovery-attempt|assess|benchmark|block|evidence|approve|audit|release-stop [--state path]')
+    throw new Error('Usage: init|status|begin|resume|new-cycle|prepare-pilot|start-pilot|add-task|baseline|implement|tests|diagnose-recovery|recovery-attempt|assess|benchmark|block|evidence|archive-preserved|approve|audit|release-stop [--state path]')
   }
   await saveState(filePath, state)
   return print(result)
@@ -1957,7 +2432,7 @@ module.exports = {
   addTask, beginRun, blockTask, createInitialState, preparePilot, startPreparedPilot,
   recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordApproval, recordNewEvidence, recordOptimizationAudit, recordRecoveryAttempt, recordRecoveryDiagnosis,
-  recordTests, rejectTask, releaseStopGate, resume, saveState, selectNextTask,
+  createPreservationArchive, resolvePreservationDeferral,
+  recordTests, rejectTask, releaseStopGate, resume, saveState, loadState, selectNextTask,
   selectTask, startNewCycle, taskValue, validateState, validateTask,
 }
-
