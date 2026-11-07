@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T00:09:56.974Z",
+  "updatedAt": "2026-11-07T00:13:36.387Z",
   "domains": [
     "local_ai",
     "backend",
@@ -22,8 +22,7 @@
       "dependencies": [],
       "evidenceRefs": [
         "docs/local-qwen-pilot-progress.md",
-        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959",
-        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959/artifacts/13540873823"
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959"
       ],
       "testRefs": [
         "desktop/test/diagnose-targeted-practice.test.cjs"
@@ -45,17 +44,10 @@
       },
       "validation": null,
       "blocker": {
-        "code": "insufficient_diagnostic_detail",
-        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959/artifacts/13540873823",
-        "artifactId": "13540873823",
-        "artifactSha256": "2c04541180be833e3af2988a6ec3bd8ea870c0ffcff7cf21283c9924fa6df637",
-        "missingEvidence": [
-          "raw model response or privacy-safe structural summary",
-          "termination/finish reason",
-          "candidate-level validation rejection categories"
-        ],
-        "evidenceRevision": 1,
-        "recordedAt": "2026-11-07T00:09:56.973Z"
+        "code": "unavailable_evidence",
+        "evidenceRef": "docs/local-qwen-pilot-progress.md",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T22:19:09.317Z"
       },
       "workPreserved": {
         "baseline": null,
@@ -68,8 +60,8 @@
         },
         "validation": null
       },
-      "evidenceRevision": 1,
-      "priorBlockerEvidenceRevision": 0,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
       "testResult": null
     },
     {
@@ -1176,17 +1168,6 @@
         "at": "2026-11-06T23:48:10.321Z",
         "type": "gate_stopped",
         "reasonCode": "budget"
-      },
-      {
-        "at": "2026-11-07T00:09:56.974Z",
-        "type": "blocker_evidence_updated",
-        "taskId": "local-qwen-664-candidate-root-cause",
-        "previousBlockerCode": "unavailable_evidence",
-        "blockerCode": "insufficient_diagnostic_detail",
-        "evidenceRevision": 1,
-        "artifactId": "13540873823",
-        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959/artifacts/13540873823",
-        "note": "Artifact is available; it confirms aggregate timings/classifications but does not contain response termination details or candidate-level rejection causes."
       }
     ]
   }
