@@ -101,5 +101,13 @@ The durable per-task lifecycle and audit history is maintained in [optimization-
 
 - The orchestrator selected `quiz-navigator-accessible-labels` as task 5. Baseline: 0% of quiz navigator buttons expose answered/correctness state in their accessible name; the `<nav>` landmark is unnamed. This work is separate from PR #679's saved-quiz delete labels.
 - UI/UX and Investigator independently confirmed the issue and recommended a named navigation landmark plus button names that announce question number and answered/unanswered before results, then correct/incorrect after results. Preserve native button behavior and avoid `aria-pressed`, since these controls navigate rather than toggle.
-- Baseline recorded from `frontend/src/components/quiz/QuizSession.tsx`. Five selection slots remain; implementation has not begun.
-- Current state: Pilot 02 has 5 selected tasks, 3 validated implementation cycles, and 1 rejected discovery-only measurement. Task 5 is selected at baseline; 5 selection slots remain. Two Local Qwen ideas are blocked pending evidence and existing PR resolution; no other actionable task is ready in the backlog.
+- Baseline was recorded from `frontend/src/components/quiz/QuizSession.tsx`; result is recorded below.
+
+### Task 5 validation
+
+- Implementation commit: `592cad167414ebd602c82f133b2875407894e7bd` on [`codex/quiz-nav-accessible-labels-20261107`](https://github.com/HamedGithubforwork/QuizForge-AI/commit/592cad167414ebd602c82f133b2875407894e7bd); draft PR [#684](https://github.com/HamedGithubforwork/QuizForge-AI/pull/684) is open and unmerged.
+- The question navigator landmark now has an accessible name. Each button announces its question number and answered/unanswered state before results; it announces correct/incorrect only after results. Visible numbering and native jump behavior remain unchanged.
+- Measured coverage improved from 0% to 100% of navigation buttons having state in their accessible name; the navigation landmark count improved from 0 named to 1 named.
+- Focused Node tests passed 4/4. CI run [42340152685](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685) passed frontend tests and coverage, lint, TypeScript/Vite build, Playwright E2E, and required PR gate. The Lightsail release-candidate PR workflow ran validation only; its AWS build job did not run. Backend tests were skipped by path filter. Local `git diff --check` passed.
+- Reviewer, QA, UI/UX, and Security assessments passed. QA noted tests exercise the formatter rather than a rendered component; integration wiring was independently inspected. The new test follows the repository's existing `// @ts-nocheck` convention for Node test files under the frontend TypeScript build.
+- Pilot 02 now has 5 selected tasks, 4 validated implementation cycles, and 1 rejected discovery-only measurement. Backlog totals: 8 validated, 2 blocked Local Qwen ideas, 1 rejected, 0 ready tasks. Five task-selection slots remain; no task is currently selected. A fresh repository-wide discovery audit is required before the Coordinator selects more work.
