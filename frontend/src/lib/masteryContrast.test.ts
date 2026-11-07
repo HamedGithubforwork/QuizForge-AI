@@ -6,24 +6,47 @@ import test from 'node:test'
 const stylesheet = readFileSync(
   new URL('../MasteryAnalyticsPanel.css', import.meta.url),
   'utf8',
-)
+).replace(/\s+/g, ' ')
 
-function colorForRule(selector: string): string {
-  const normalizedStylesheet = stylesheet.replace(/\s+/g, ' ')
+function propertyForRule(selector: string, property: string): string {
   const normalizedSelector = selector.replace(/\s+/g, ' ')
-  const start = normalizedStylesheet.indexOf(normalizedSelector)
+  const start = stylesheet.indexOf(`${normalizedSelector} {`)
   assert.notEqual(start, -1, `Missing selector: ${selector}`)
 
-  const blockStart = normalizedStylesheet.indexOf('{', start)
-  const blockEnd = normalizedStylesheet.indexOf('}', blockStart)
+  const blockStart = stylesheet.indexOf('{', start)
+  const blockEnd = stylesheet.indexOf('}', blockStart)
   assert.notEqual(blockStart, -1, `Missing rule body: ${selector}`)
   assert.notEqual(blockEnd, -1, `Unclosed rule body: ${selector}`)
 
-  const color = normalizedStylesheet
+  const value = stylesheet
     .slice(blockStart, blockEnd)
-    .match(/\bcolor:\s*(#[0-9a-f]{6})\b/i)?.[1]
-  assert.ok(color, `Missing foreground color: ${selector}`)
+    .match(new RegExp(`\\b${property}:\\s*([^;]+);`, 'i'))?.[1]
+  assert.ok(value, `Missing ${property} declaration: ${selector}`)
+  return value.trim()
+}
+
+function colorForRule(selector: string): string {
+  const color = propertyForRule(selector, 'color')
+  assert.match(color, /^#[0-9a-f]{6}$/i, `Invalid foreground: ${color}`)
   return color
+}
+
+function backgroundsForRule(selector: string): string[] {
+  const background = propertyForRule(selector, 'background')
+  const gradient = background.match(/linear-gradient\(([^)]+)\)/i)
+
+  if (gradient) {
+    const stops = gradient[1].match(/#[0-9a-f]{6}/gi) ?? []
+    assert.ok(stops.length > 0, `No gradient colors found: ${selector}`)
+    return stops
+  }
+
+  if (background.toLowerCase() === 'white') {
+    return ['#ffffff']
+  }
+
+  assert.match(background, /^#[0-9a-f]{6}$/i, `Unsupported background: ${background}`)
+  return [background]
 }
 
 function relativeLuminance(hex: string): number {
@@ -51,22 +74,52 @@ function contrastRatio(foreground: string, background: string): number {
 }
 
 test('mastery analytics small text meets AA contrast on its surfaces', () => {
-  const failingRules = [
-    ['.mastery-overview-grid span', '#ffffff'],
-    [
-      '.mastery-type-label span,\n.mastery-type-score span',
-      '#ffffff',
-    ],
-    ['.mastery-trend-date', '#f7f8fe'],
-    ['.mastery-page-list span', '#fffaf7'],
+  const textRules = [
+    {
+      selector: '.mastery-overview-grid span',
+      backgroundSelector: '.mastery-overview-grid article',
+    },
+    {
+      selector: '.mastery-type-label span,\n.mastery-type-score span',
+      backgroundSelector: '.mastery-type-row',
+    },
+    {
+      selector: '.mastery-trend-date',
+      backgroundSelector: '.mastery-panel',
+    },
+    {
+      selector: '.mastery-page-list span',
+      backgroundSelector: '.mastery-page-list article',
+    },
+    {
+      selector: '.mastery-status-pending',
+      backgroundSelector: '.mastery-status-pending',
+    },
+    {
+      selector: '.mastery-file span',
+      backgroundSelector: '.mastery-panel',
+    },
+    {
+      selector: '.mastery-subheading span',
+      backgroundSelector: '.mastery-panel',
+    },
+    {
+      selector: '.mastery-method-note',
+      backgroundSelector: '.mastery-method-note',
+    },
   ] as const
 
-  for (const [selector, background] of failingRules) {
-    const ratio = contrastRatio(colorForRule(selector), background)
-    assert.ok(
-      ratio >= 4.5,
-      `${selector} contrast ${ratio.toFixed(2)}:1 is below 4.5:1`,
-    )
+  assert.equal(textRules.length, 8)
+
+  for (const { selector, backgroundSelector } of textRules) {
+    const foreground = colorForRule(selector)
+    for (const background of backgroundsForRule(backgroundSelector)) {
+      const ratio = contrastRatio(foreground, background)
+      assert.ok(
+        ratio >= 4.5,
+        `${selector} on ${background} is ${ratio.toFixed(2)}:1, below 4.5:1`,
+      )
+    }
   }
 })
 
