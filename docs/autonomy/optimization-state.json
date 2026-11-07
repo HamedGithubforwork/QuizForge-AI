@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T06:18:02.000Z",
+  "updatedAt": "2026-11-07T06:20:00.000Z",
   "domains": [
     "local_ai",
     "backend",
@@ -1240,7 +1240,7 @@
     "maxCycles": 10,
     "cyclesStarted": 10,
     "cyclesValidated": 9,
-    "revision": 90,
+    "revision": 91,
     "selectedTaskId": null,
     "previousTaskId": "history-disclosure-expanded-state",
     "preparedPilot": null,
@@ -2739,30 +2739,6 @@
         "domain": "ci_efficiency",
         "initialStatus": "ready",
         "pilotId": "pilot-2026-11-06-02"
-      },
-      {
-        "at": "2026-11-07T06:12:00.000Z",
-        "type": "discovery_audit",
-        "auditId": "pilot-2026-11-06-02-task10-candidate-pass-01",
-        "auditStatus": "CANDIDATES_FOUND",
-        "actionableCount": 2,
-        "blockedCount": 3,
-        "specialistRoles": [
-          "investigator",
-          "ui_ux_engineer",
-          "security_privacy_engineer",
-          "performance_efficiency_engineer",
-          "ai_quality_engineer"
-        ],
-        "evidenceRefs": [
-          "frontend/src/QuizHistory.tsx",
-          "backend/quiz_service.py",
-          "backend/document_api.py",
-          "frontend/src/components/quiz/PagePreviews.tsx",
-          ".github/workflows/ci.yml",
-          ".github/workflows/backend-ecr.yml",
-          "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
-        ]
       },
       {
         "at": "2026-11-07T06:12:00.000Z",
