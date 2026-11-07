@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T06:20:00.000Z",
+  "updatedAt": "2026-11-07T06:23:00.000Z",
   "domains": [
     "local_ai",
     "backend",
@@ -1138,9 +1138,7 @@
       "impact": 5,
       "effort": 2,
       "risk": 2,
-      "dependencies": [
-        "product-supported-pdf-page-ceiling"
-      ],
+      "dependencies": [],
       "evidenceRefs": [
         "backend/quiz_service.py",
         "backend/document_api.py",
@@ -1240,7 +1238,7 @@
     "maxCycles": 10,
     "cyclesStarted": 10,
     "cyclesValidated": 9,
-    "revision": 91,
+    "revision": 92,
     "selectedTaskId": null,
     "previousTaskId": "history-disclosure-expanded-state",
     "preparedPilot": null,
