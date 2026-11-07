@@ -157,7 +157,7 @@ def test_answer_review_fallback_is_independent_from_quiz_fallback(
         redis_integration._memory_generation_requests.clear()
 
 
-def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_users(
+def test_answer_review_fallback_prunes_expired_buckets_with_bounded_work(
     monkeypatch,
 ):
     now = [0.0]
@@ -178,10 +178,29 @@ def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_u
     )
 
     request_store = redis_integration._memory_answer_review_requests
+    bucket_queue = redis_integration._memory_rate_limit_sweep_queues[
+        "answer_review"
+    ]
     request_store.clear()
+    bucket_queue.clear()
     redis_integration._memory_rate_limit_sweep_counts[
         "answer_review"
     ] = 0
+    sweep_visits = []
+    prune_buckets = (
+        redis_integration._prune_expired_memory_rate_limit_buckets
+    )
+
+    def track_prune_work(*args, **kwargs):
+        visited = prune_buckets(*args, **kwargs)
+        sweep_visits.append(visited)
+        return visited
+
+    monkeypatch.setattr(
+        redis_integration,
+        "_prune_expired_memory_rate_limit_buckets",
+        track_prune_work,
+    )
 
     async def scenario():
         for index in range(100):
@@ -191,6 +210,7 @@ def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_u
             )
 
         assert len(request_store) == 100
+        assert len(bucket_queue) == 100
 
         now[0] = 61.0
         await enforce_answer_review_rate_limit(
@@ -208,13 +228,34 @@ def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_u
                 client=BrokenRedis(),
             )
 
-        # The sweep runs on fallback admission 128, not on every request.
-        assert len(request_store) == 27
-        assert "active-user" in request_store
+        # The first scheduled sweep checks no more than the fixed 64 buckets.
+        assert sweep_visits == [
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS
+        ]
+        assert len(request_store) == 63
+        assert sum(
+            f"one-off-{index}" in request_store
+            for index in range(100)
+        ) == 36
+
+        for index in range(64):
+            await enforce_answer_review_rate_limit(
+                f"later-current-{index}",
+                client=BrokenRedis(),
+            )
+
+        # A second bounded sweep eventually visits and removes the rest of the
+        # expired one-off buckets while retaining live entries.
+        assert sweep_visits == [
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
+        ]
         assert all(
             f"one-off-{index}" not in request_store
             for index in range(100)
         )
+        assert "active-user" in request_store
+        assert len(bucket_queue) == len(request_store)
 
         with pytest.raises(HTTPException) as error:
             await enforce_answer_review_rate_limit(
@@ -228,7 +269,7 @@ def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_u
         asyncio.run(scenario())
     finally:
         request_store.clear()
+        bucket_queue.clear()
         redis_integration._memory_rate_limit_sweep_counts[
             "answer_review"
         ] = 0
-
