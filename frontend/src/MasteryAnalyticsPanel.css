@@ -166,7 +166,7 @@
 }
 
 .mastery-overview-grid span {
-  color: #888e9e;
+  color: #666d80;
 
   font-size: 9px;
   font-weight: 800;
@@ -257,7 +257,7 @@
 
 .mastery-type-label span,
 .mastery-type-score span {
-  color: #989dad;
+  color: #666d80;
 
   font-size: 9px;
 }
@@ -294,7 +294,7 @@
 }
 
 .mastery-trend-date {
-  color: #858b9c;
+  color: #666d80;
 
   font-size: 9px;
 }
@@ -338,7 +338,7 @@
 }
 
 .mastery-page-list span {
-  color: #8a766c;
+  color: #666d80;
 
   font-size: 9px;
   line-height: 1.4;
@@ -403,3 +403,4 @@
     grid-column: auto;
   }
 }
+
