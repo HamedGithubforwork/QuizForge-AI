@@ -52,3 +52,14 @@ QA identified the missing PR gate for the orchestrator suite; Reviewer and Relea
 
 The durable per-task lifecycle and audit history is maintained in [optimization-state.json](optimization-state.json).
 
+## Pilot 02 progress
+
+- **Status:** `ACTIVE`; the user-authorized pilot is capped at ten selected tasks. One task has been selected and one implementation cycle validated. No task is currently selected.
+- The first selection attempt exposed stale legacy lifecycle evidence on the reopened backend task. The orchestrator preserved that history, required a fresh active baseline, and then selected the task without charging a slot for the failed attempt. The archive integrity fix and the failed-selection recovery are covered in the orchestrator tests and committed on PR #678.
+- **Cycle 1 — backend validation timing batch:** Task `backend-validation-metric-batching`, domain `performance`. Baseline: two Redis pipeline executions for two validation samples in one generation retry. Result: one pipeline execution for the same two-sample batch, a 50% reduction in Redis pipeline executions for this path. This is an operation-count measurement; no end-to-end latency improvement is claimed.
+- Implementation is on [`codex/backend-validation-metric-batching-20261107`](https://github.com/HamedGithubforwork/QuizForge-AI/commit/e3512deaed06cb0e126a8864dd26883a31011316), with draft PR [#680](https://github.com/HamedGithubforwork/QuizForge-AI/pull/680). No merge or deployment occurred.
+- CI run [42335246666](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42335246666) passed 159 backend tests, the deterministic backend benchmark, generated API contract validation, Docker image build, and OCR runtime verification. Reviewer, QA, Performance Efficiency, and Security/Privacy independently passed. Local Python is unavailable; the repository's existing Ubuntu x64 CI environment supplied test execution.
+- PR #680's `Backend ECR image` workflow ran its pull-request image build successfully; the ECR push job is restricted to pushes on `main` or manual dispatch and did not run. No AWS deployment or paid infrastructure was used.
+- Current backlog: 5 validated, 1 ready (`measure-checkpoint-validation-growth`), 2 blocked Local Qwen items. The #664 diagnostic remains blocked because the sanitized report omits termination and candidate-level rejection evidence; #665 remains blocked by the existing PR. No Local Qwen inference was run.
+- The pilot remains open with nine selection slots. Continue with the remaining evidence-backed actionable task, and stop at the ten-task cap, an approval/safety boundary, or after two complete clean exhaustion audits.
+
