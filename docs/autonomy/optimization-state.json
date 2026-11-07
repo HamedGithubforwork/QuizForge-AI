@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T00:13:36.387Z",
+  "updatedAt": "2026-11-07T00:16:51.308Z",
   "domains": [
     "local_ai",
     "backend",
@@ -15,7 +15,7 @@
     {
       "id": "local-qwen-664-candidate-root-cause",
       "domain": "local_ai",
-      "title": "Resolve #664 candidate rejection causes from retained sanitized evidence",
+      "title": "Diagnose #664 candidate failures from available sanitized artifact",
       "impact": 5,
       "effort": 3,
       "risk": 1,
@@ -44,10 +44,10 @@
       },
       "validation": null,
       "blocker": {
-        "code": "unavailable_evidence",
+        "code": "other",
         "evidenceRef": "docs/local-qwen-pilot-progress.md",
-        "evidenceRevision": 0,
-        "recordedAt": "2026-11-06T22:19:09.317Z"
+        "evidenceRevision": 1,
+        "recordedAt": "2026-11-07T00:16:51.307Z"
       },
       "workPreserved": {
         "baseline": null,
@@ -60,8 +60,8 @@
         },
         "validation": null
       },
-      "evidenceRevision": 0,
-      "priorBlockerEvidenceRevision": null,
+      "evidenceRevision": 1,
+      "priorBlockerEvidenceRevision": 0,
       "testResult": null
     },
     {
@@ -1168,6 +1168,13 @@
         "at": "2026-11-06T23:48:10.321Z",
         "type": "gate_stopped",
         "reasonCode": "budget"
+      },
+      {
+        "at": "2026-11-07T00:16:51.308Z",
+        "type": "blocked",
+        "taskId": "local-qwen-664-candidate-root-cause",
+        "blockerCode": "other",
+        "evidenceRef": "docs/local-qwen-pilot-progress.md"
       }
     ]
   }
