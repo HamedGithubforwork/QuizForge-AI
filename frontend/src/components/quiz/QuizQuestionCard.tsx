@@ -55,6 +55,7 @@ function QuizQuestionCard({
   return (
     <article
       id={`question-${questionIndex}`}
+      tabIndex={-1}
       className={
         `question-card ${
           needsAttention
@@ -351,3 +352,4 @@ function QuizQuestionCard({
 }
 
 export default QuizQuestionCard
+
