@@ -11,6 +11,7 @@ from fastapi import HTTPException, UploadFile
 
 from processed_documents import normalize_document_sha256
 from quiz_service import (
+    read_pdf_upload,
     validate_pdf_content_type,
     validate_pdf_size,
 )
@@ -68,8 +69,10 @@ async def get_generation_source_identity(
         file.content_type
     )
 
-    contents = await file.read()
-    validate_size(contents)
+    contents = await read_pdf_upload(
+        file,
+        validate_size=validate_size,
+    )
 
     return (
         compute_hash(contents),

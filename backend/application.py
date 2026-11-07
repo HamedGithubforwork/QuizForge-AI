@@ -365,8 +365,7 @@ async def upload_pdf(
         file.content_type
     )
 
-    contents = await file.read()
-    validate_pdf_size(contents)
+    contents = await quiz_service.read_pdf_upload(file)
 
     pdf_sha256, pages = (
         await get_document_pages_with_cache(
