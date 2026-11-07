@@ -151,3 +151,4 @@ def test_quiz_generation_batches_each_contexts_validation_samples(
     assert all(name == "quiz_validation_latency_ms" for name, _ in recorded_batches)
     assert sorted(len(samples) for _, samples in recorded_batches) == [1, 2]
     assert all(duration >= 0 for _, samples in recorded_batches for duration in samples)
+

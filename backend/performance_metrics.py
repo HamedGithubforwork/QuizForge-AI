@@ -247,3 +247,4 @@ def install_performance_instrumentation(
     application_module._performance_metrics_installed = (
         True
     )
+

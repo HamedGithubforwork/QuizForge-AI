@@ -275,3 +275,4 @@ async def observe_http_request(request, call_next, metric_client=None):
         duration_ms=duration,
     )
     return response
+

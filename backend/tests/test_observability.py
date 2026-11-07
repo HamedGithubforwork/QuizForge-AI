@@ -282,3 +282,4 @@ def test_http_observability_adds_request_id_and_metrics():
         == f"{TIMING_PREFIX}http_latency_ms"
         for call in client.timing_calls
     )
+
