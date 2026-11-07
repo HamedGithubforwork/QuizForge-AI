@@ -130,7 +130,9 @@ _memory_answer_review_requests: dict[
 ] = defaultdict(deque)
 
 MEMORY_RATE_LIMIT_SWEEP_INTERVAL = 64
+MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS = 64
 _memory_rate_limit_sweep_counts: dict[str, int] = defaultdict(int)
+_memory_rate_limit_sweep_queues: dict[str, deque[str]] = defaultdict(deque)
 
 
 RATE_LIMIT_SCRIPT = """
@@ -198,7 +200,11 @@ def _enforce_memory_rate_limit(
 ):
     now = time.monotonic()
 
-    request_times = request_store[user_id]
+    request_times = request_store.get(user_id)
+    if request_times is None:
+        request_times = deque()
+        request_store[user_id] = request_times
+        _memory_rate_limit_sweep_queues[limiter_name].append(user_id)
 
     cutoff = now - window_seconds
 
@@ -236,24 +242,36 @@ def _enforce_memory_rate_limit(
     ):
         _prune_expired_memory_rate_limit_buckets(
             request_store,
+            _memory_rate_limit_sweep_queues[limiter_name],
             cutoff=cutoff,
+            max_buckets=MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
         )
 
 
 def _prune_expired_memory_rate_limit_buckets(
     request_store: dict[str, deque[float]],
+    bucket_queue: deque[str],
     *,
     cutoff: float,
+    max_buckets: int,
 ):
-    expired_users = []
-    for bucket_user_id, request_times in request_store.items():
+    inspected = 0
+    while bucket_queue and inspected < max_buckets:
+        bucket_user_id = bucket_queue.popleft()
+        inspected += 1
+        request_times = request_store.get(bucket_user_id)
+        if request_times is None:
+            continue
+
         while request_times and request_times[0] <= cutoff:
             request_times.popleft()
-        if not request_times:
-            expired_users.append(bucket_user_id)
 
-    for bucket_user_id in expired_users:
-        del request_store[bucket_user_id]
+        if request_times:
+            bucket_queue.append(bucket_user_id)
+        else:
+            del request_store[bucket_user_id]
+
+    return inspected
 
 
 async def _enforce_distributed_rate_limit(
