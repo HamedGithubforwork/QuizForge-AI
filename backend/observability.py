@@ -111,13 +111,27 @@ async def record_timing_sample(
     timing_name: str,
     duration_ms: float,
 ):
+    await record_timing_samples(
+        client,
+        timing_name,
+        [duration_ms],
+    )
+
+
+async def record_timing_samples(
+    client,
+    timing_name: str,
+    durations_ms,
+):
     if timing_name not in TIMING_SAMPLE_NAMES:
         return
 
-    normalized_duration = round(
-        max(0.0, float(duration_ms)),
-        2,
-    )
+    normalized_durations = [
+        round(max(0.0, float(duration_ms)), 2)
+        for duration_ms in durations_ms
+    ]
+    if not normalized_durations:
+        return
 
     if client is not None:
         try:
@@ -125,7 +139,7 @@ async def record_timing_sample(
             timing_key = f"{TIMING_PREFIX}{timing_name}"
             pipeline.lpush(
                 timing_key,
-                normalized_duration,
+                *normalized_durations[-TIMING_SAMPLE_LIMIT:],
             )
             pipeline.ltrim(
                 timing_key,
@@ -145,9 +159,7 @@ async def record_timing_sample(
                 error_type=type(error).__name__,
             )
 
-    _memory_timing_samples[timing_name].append(
-        normalized_duration
-    )
+    _memory_timing_samples[timing_name].extend(normalized_durations)
 
 
 async def record_document_cache_metric(client, cache_result: str):
