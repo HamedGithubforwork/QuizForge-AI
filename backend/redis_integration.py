@@ -129,6 +129,9 @@ _memory_answer_review_requests: dict[
     deque[float],
 ] = defaultdict(deque)
 
+MEMORY_RATE_LIMIT_SWEEP_INTERVAL = 64
+_memory_rate_limit_sweep_counts: dict[str, int] = defaultdict(int)
+
 
 RATE_LIMIT_SCRIPT = """
 local current = redis.call('INCR', KEYS[1])
@@ -191,6 +194,7 @@ def _enforce_memory_rate_limit(
     limit: int,
     window_seconds: int,
     detail: str,
+    limiter_name: str,
 ):
     now = time.monotonic()
 
@@ -223,6 +227,33 @@ def _enforce_memory_rate_limit(
         )
 
     request_times.append(now)
+
+    _memory_rate_limit_sweep_counts[limiter_name] += 1
+    if (
+        _memory_rate_limit_sweep_counts[limiter_name]
+        % MEMORY_RATE_LIMIT_SWEEP_INTERVAL
+        == 0
+    ):
+        _prune_expired_memory_rate_limit_buckets(
+            request_store,
+            cutoff=cutoff,
+        )
+
+
+def _prune_expired_memory_rate_limit_buckets(
+    request_store: dict[str, deque[float]],
+    *,
+    cutoff: float,
+):
+    expired_users = []
+    for bucket_user_id, request_times in request_store.items():
+        while request_times and request_times[0] <= cutoff:
+            request_times.popleft()
+        if not request_times:
+            expired_users.append(bucket_user_id)
+
+    for bucket_user_id in expired_users:
+        del request_store[bucket_user_id]
 
 
 async def _enforce_distributed_rate_limit(
@@ -281,6 +312,7 @@ async def _enforce_distributed_rate_limit(
         limit=limit,
         window_seconds=window_seconds,
         detail=detail,
+        limiter_name=limiter_name,
     )
 
 
@@ -694,3 +726,4 @@ async def cache_quiz(
             operation="write",
             error_type=type(error).__name__,
         )
+
