@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T06:03:00.000Z",
+  "updatedAt": "2026-11-07T06:12:00.000Z",
   "domains": [
     "local_ai",
     "backend",
@@ -1063,15 +1063,146 @@
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
       "recoveryHistory": []
+    },
+    {
+      "id": "history-disclosure-expanded-state",
+      "domain": "frontend",
+      "title": "Expose expanded state for My Quiz History disclosure",
+      "impact": 4,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/QuizHistory.tsx",
+        "frontend/src/lib/quizHistoryPagination.test.ts"
+      ],
+      "testRefs": [
+        "frontend/src/lib/quizHistoryPagination.test.ts"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "history_disclosure_expanded_state",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "history-disclosure-expanded-state",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "pdf-page-count-resource-bound",
+      "domain": "security",
+      "title": "Bound PDF page extraction and upload preview page counts",
+      "impact": 5,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [
+        "product-supported-pdf-page-ceiling"
+      ],
+      "evidenceRefs": [
+        "backend/quiz_service.py",
+        "backend/document_api.py",
+        "frontend/src/components/quiz/PagePreviews.tsx"
+      ],
+      "testRefs": [
+        "backend/tests/test_pdf_extraction.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "pdf_pages_processed",
+      "status": "blocked",
+      "initialStatus": "blocked",
+      "investigationKey": "pdf-page-count-resource-bound",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "unavailable_evidence",
+        "evidenceRef": "backend/quiz_service.py",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-07T06:12:00.000Z"
+      },
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "avoid-duplicate-backend-pr-image-build",
+      "domain": "ci_efficiency",
+      "title": "Avoid duplicate backend image builds across PR workflows",
+      "impact": 3,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/backend-ecr.yml",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119673",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+      ],
+      "testRefs": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/backend-ecr.yml"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "backend_pr_image_builds",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "avoid-duplicate-backend-pr-image-build",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
     }
   ],
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 9,
+    "cyclesStarted": 10,
     "cyclesValidated": 8,
-    "revision": 86,
-    "selectedTaskId": null,
+    "revision": 87,
+    "selectedTaskId": "history-disclosure-expanded-state",
     "previousTaskId": "prune-expired-memory-rate-limits",
     "preparedPilot": null,
     "pilotHistory": [
@@ -2526,6 +2657,77 @@
         "taskId": "prune-expired-memory-rate-limits",
         "resultMetric": 0,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "history-disclosure-expanded-state",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "pdf-page-count-resource-bound",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "blocked",
+        "taskId": "pdf-page-count-resource-bound",
+        "blockerCode": "unavailable_evidence",
+        "evidenceRef": "backend/quiz_service.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "avoid-duplicate-backend-pr-image-build",
+        "domain": "ci_efficiency",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "discovery_audit",
+        "auditId": "pilot-2026-11-06-02-task10-candidate-pass-01",
+        "auditStatus": "CANDIDATES_FOUND",
+        "actionableCount": 2,
+        "blockedCount": 3,
+        "specialistRoles": [
+          "investigator",
+          "ui_ux_engineer",
+          "security_privacy_engineer",
+          "performance_efficiency_engineer",
+          "ai_quality_engineer"
+        ],
+        "evidenceRefs": [
+          "frontend/src/QuizHistory.tsx",
+          "backend/quiz_service.py",
+          "backend/document_api.py",
+          "frontend/src/components/quiz/PagePreviews.tsx",
+          ".github/workflows/ci.yml",
+          ".github/workflows/backend-ecr.yml",
+          "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+        ]
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "selected",
+        "taskId": "history-disclosure-expanded-state",
+        "cycle": 10,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "baseline",
+        "taskId": "history-disclosure-expanded-state",
+        "metric": 0,
+        "evidenceRef": "frontend/src/QuizHistory.tsx",
         "pilotId": "pilot-2026-11-06-02"
       }
     ]
