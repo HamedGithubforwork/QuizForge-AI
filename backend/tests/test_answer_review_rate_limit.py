@@ -155,3 +155,80 @@ def test_answer_review_fallback_is_independent_from_quiz_fallback(
     finally:
         redis_integration._memory_answer_review_requests.clear()
         redis_integration._memory_generation_requests.clear()
+
+
+def test_answer_review_fallback_sweeps_expired_buckets_without_removing_active_users(
+    monkeypatch,
+):
+    now = [0.0]
+    monkeypatch.setattr(
+        redis_integration.time,
+        "monotonic",
+        lambda: now[0],
+    )
+    monkeypatch.setattr(
+        redis_integration,
+        "ANSWER_REVIEW_RATE_LIMIT",
+        2,
+    )
+    monkeypatch.setattr(
+        redis_integration,
+        "ANSWER_REVIEW_RATE_WINDOW_SECONDS",
+        60,
+    )
+
+    request_store = redis_integration._memory_answer_review_requests
+    request_store.clear()
+    redis_integration._memory_rate_limit_sweep_counts[
+        "answer_review"
+    ] = 0
+
+    async def scenario():
+        for index in range(100):
+            await enforce_answer_review_rate_limit(
+                f"one-off-{index}",
+                client=BrokenRedis(),
+            )
+
+        assert len(request_store) == 100
+
+        now[0] = 61.0
+        await enforce_answer_review_rate_limit(
+            "active-user",
+            client=BrokenRedis(),
+        )
+        await enforce_answer_review_rate_limit(
+            "active-user",
+            client=BrokenRedis(),
+        )
+
+        for index in range(26):
+            await enforce_answer_review_rate_limit(
+                f"current-{index}",
+                client=BrokenRedis(),
+            )
+
+        # The sweep runs on fallback admission 128, not on every request.
+        assert len(request_store) == 27
+        assert "active-user" in request_store
+        assert all(
+            f"one-off-{index}" not in request_store
+            for index in range(100)
+        )
+
+        with pytest.raises(HTTPException) as error:
+            await enforce_answer_review_rate_limit(
+                "active-user",
+                client=BrokenRedis(),
+            )
+
+        assert error.value.status_code == 429
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        request_store.clear()
+        redis_integration._memory_rate_limit_sweep_counts[
+            "answer_review"
+        ] = 0
+
