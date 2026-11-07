@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T06:22:00.000Z",
+  "updatedAt": "2026-11-07T06:18:02.000Z",
   "domains": [
     "local_ai",
     "backend",
@@ -1240,7 +1240,7 @@
     "maxCycles": 10,
     "cyclesStarted": 10,
     "cyclesValidated": 9,
-    "revision": 89,
+    "revision": 90,
     "selectedTaskId": null,
     "previousTaskId": "history-disclosure-expanded-state",
     "preparedPilot": null,
@@ -1263,7 +1263,7 @@
         "gateStatus": "STOPPED",
         "stopReason": "budget",
         "startedAt": "2026-11-07T02:09:00.596Z",
-        "completedAt": "2026-11-07T06:22:00.000Z"
+        "completedAt": "2026-11-07T06:18:02.000Z"
       }
     ],
     "archivedPilotHistory": [],
@@ -2780,7 +2780,7 @@
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "implemented",
         "taskId": "history-disclosure-expanded-state",
         "branch": "codex/history-disclosure-expanded-state-20261107",
@@ -2788,42 +2788,42 @@
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "tests_passed",
         "taskId": "history-disclosure-expanded-state",
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847",
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "reviewer_passed",
         "taskId": "history-disclosure-expanded-state",
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "qa_passed",
         "taskId": "history-disclosure-expanded-state",
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847",
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "quality_passed",
         "taskId": "history-disclosure-expanded-state",
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "security_passed",
         "taskId": "history-disclosure-expanded-state",
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "validated",
         "taskId": "history-disclosure-expanded-state",
         "resultMetric": 1,
@@ -2831,7 +2831,7 @@
         "pilotId": "pilot-2026-11-06-02"
       },
       {
-        "at": "2026-11-07T06:22:00.000Z",
+        "at": "2026-11-07T06:18:02.000Z",
         "type": "gate_stopped",
         "reasonCode": "budget",
         "pilotId": "pilot-2026-11-06-02",
