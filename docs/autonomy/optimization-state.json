@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T05:32:29.603Z",
+  "updatedAt": "2026-11-07T05:47:09.694Z",
   "domains": [
     "local_ai",
     "backend",
@@ -928,16 +928,124 @@
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
       "recoveryHistory": []
+    },
+    {
+      "id": "mastery-panel-aa-text-contrast",
+      "domain": "frontend",
+      "title": "Raise mastery analytics small-text contrast to WCAG AA",
+      "impact": 4,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/MasteryAnalyticsPanel.css",
+        "frontend/src/accessibility.css"
+      ],
+      "testRefs": [
+        "frontend/src/MasteryAnalyticsPanel.css",
+        "frontend/src/accessibility.css"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "mastery_panel_text_contrast_failures",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "mastery-panel-aa-text-contrast",
+      "baseline": {
+        "metric": 8,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css"
+      },
+      "implementation": {
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "530dea27fbc8669197f1884d9d6d3f713b1df415"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 8,
+        "resultMetric": 0,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "prune-expired-memory-rate-limits",
+      "domain": "reliability",
+      "title": "Prune expired in-memory rate-limit buckets during Redis fallback",
+      "impact": 3,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/redis_integration.py",
+        "backend/tests/test_answer_review_rate_limit.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_answer_review_rate_limit.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "expired_memory_rate_limit_buckets",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "prune-expired-memory-rate-limits",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
     }
   ],
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 7,
-    "cyclesValidated": 6,
-    "revision": 71,
+    "cyclesStarted": 8,
+    "cyclesValidated": 7,
+    "revision": 85,
     "selectedTaskId": null,
-    "previousTaskId": "bound-answer-review-rubric-payloads",
+    "previousTaskId": "mastery-panel-aa-text-contrast",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -2221,6 +2329,110 @@
         "taskId": "bound-answer-review-rubric-payloads",
         "resultMetric": 524288,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883280",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:13.919Z",
+        "type": "task_discovered",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:16.130Z",
+        "type": "task_discovered",
+        "taskId": "prune-expired-memory-rate-limits",
+        "domain": "reliability",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:20.179Z",
+        "type": "selected",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "cycle": 8,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:43.969Z",
+        "type": "baseline",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "metric": 4,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:40:45.188Z",
+        "type": "implemented",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "71173ddfb1202aca637aa83d4b490e5183ce8bf2",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:40:46.424Z",
+        "type": "tests_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:43:27.024Z",
+        "type": "baseline",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "metric": 8,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css"
+      },
+      {
+        "at": "2026-11-07T05:46:11.731Z",
+        "type": "implemented",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "530dea27fbc8669197f1884d9d6d3f713b1df415",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:46:12.923Z",
+        "type": "tests_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:04.849Z",
+        "type": "reviewer_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:06.155Z",
+        "type": "qa_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:07.352Z",
+        "type": "quality_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:08.536Z",
+        "type": "security_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:09.693Z",
+        "type": "validated",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "resultMetric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820",
         "pilotId": "pilot-2026-11-06-02"
       }
     ]
