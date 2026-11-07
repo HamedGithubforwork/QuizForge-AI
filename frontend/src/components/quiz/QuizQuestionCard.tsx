@@ -55,6 +55,7 @@ function QuizQuestionCard({
   return (
     <article
       id={`question-${questionIndex}`}
+      aria-labelledby={`question-title-${questionIndex}`}
       tabIndex={-1}
       className={
         `question-card ${
@@ -76,7 +77,9 @@ function QuizQuestionCard({
         </span>
       </div>
 
-      <h3>{question.question}</h3>
+      <h3 id={`question-title-${questionIndex}`}>
+        {question.question}
+      </h3>
 
       {question.question_type !==
         'short_answer' && (
