@@ -1,6 +1,8 @@
 'use strict'
 
 const test = require('node:test')
+
+require('./review-cross-layer-limits.test.cjs')
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
@@ -768,10 +770,22 @@ test('full validation lifecycle requires baseline, branch commit, tests, indepen
   recordBaseline(state, id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
   recordImplementation(state, id, { branch: 'codex/lifecycle-task', commitSha: 'a'.repeat(40) })
   recordTests(state, id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
-  recordAssessment(state, id, { role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
-  recordAssessment(state, id, { role: 'qa', passed: true, artifactRef: 'scripts/production/test_runtime.py' })
-  recordAssessment(state, id, { role: 'quality', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
-  recordAssessment(state, id, { role: 'security', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
+  assert.throws(() => recordAssessment(state, id, {
+    role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md',
+  }), /actual agent invocation reference/)
+  assert.throws(() => recordAssessment(state, id, {
+    role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md',
+    invocationRef: '/root/test_reviewer_invocation', targetCommitSha: 'b'.repeat(40),
+  }), /exact implemented commit/)
+  for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+    recordAssessment(state, id, {
+      role,
+      passed: true,
+      artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'a'.repeat(40),
+    })
+  }
   const validated = recordBenchmark(state, id, {
     resultMetric: 8, artifactRef: 'docs/ai-cost-controls.md',
   })
@@ -780,7 +794,132 @@ test('full validation lifecycle requires baseline, branch commit, tests, indepen
   assert.equal(state.checkpoint.optimizationGate.status, 'STOPPED')
   assert.equal(state.checkpoint.optimizationGate.stopReason, 'budget')
   assert.equal(validateState(state), state)
+  const reviewerEvent = state.checkpoint.events.find(event => event.type === 'reviewer_passed')
+  assert.equal(reviewerEvent.invocationRef, '/root/test_reviewer_invocation')
+  assert.equal(reviewerEvent.assessmentCommitSha, 'a'.repeat(40))
+  const missingTrace = structuredClone(state)
+  delete missingTrace.tasks[0].assessments.reviewer.invocationRef
+  delete missingTrace.tasks[0].assessments.reviewer.targetCommitSha
+  assert.throws(() => validateState(missingTrace), /traceable Reviewer and QA invocations/)
+  const wrongCommitTrace = structuredClone(state)
+  wrongCommitTrace.tasks[0].assessments.reviewer.targetCommitSha = 'b'.repeat(40)
+  assert.throws(() => validateState(wrongCommitTrace), /traceable Reviewer and QA invocations/)
+
+  const legacyState = structuredClone(state)
+  legacyState.schemaVersion = 1
+  for (const assessment of Object.values(legacyState.tasks[0].assessments)) {
+    delete assessment.invocationRef
+    delete assessment.targetCommitSha
+  }
+  for (const event of legacyState.checkpoint.events) {
+    delete event.invocationRef
+    delete event.assessmentCommitSha
+  }
+  assert.equal(validateState(legacyState), legacyState)
+  assert.equal(legacyState.schemaVersion, 2)
+  assert.equal(legacyState.tasks[0].assessmentProvenanceLegacy, true)
+  assert.ok(Object.values(legacyState.tasks[0].assessments).every(item => !('invocationRef' in item)))
   assert.equal(startNewCycle(state).reason, 'cycle_limit_reached')
+})
+
+test('schema v1 mid-review checkpoints preserve old events but require fresh traceable reviews', () => {
+  for (const reviewStage of ['reviewed', 'qa_passed', 'quality_security_passed']) {
+    const state = createInitialState()
+    createPilot(state, { pilotId: `legacy-${reviewStage.replaceAll('_', '-')}`, maxCycles: 2 })
+    addTask(state, task('legacy-review-migration'))
+    const selected = beginRun(state).task
+    recordBaseline(state, selected.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+    recordImplementation(state, selected.id, { branch: 'codex/legacy-review-migration', commitSha: 'a'.repeat(40) })
+    recordTests(state, selected.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+
+    selected.status = reviewStage
+    selected.assessments = Object.fromEntries(['reviewer', 'qa', 'quality', 'security'].map(role => [role, {
+      passed: true,
+      evidenceRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+    }]))
+    for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+      state.checkpoint.events.push({
+        at: new Date().toISOString(),
+        type: `${role}_passed`,
+        taskId: selected.id,
+        evidenceRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      })
+    }
+    state.schemaVersion = 1
+
+    assert.equal(validateState(state), state)
+    assert.equal(state.schemaVersion, 2)
+    assert.equal(selected.status, 'tests_passed')
+    assert.deepEqual(selected.assessments, { reviewer: null, qa: null, quality: null, security: null })
+    assert.equal(selected.assessmentProvenanceLegacy, undefined)
+    assert.ok(state.checkpoint.events.some(event => event.type === 'reviewer_passed' &&
+      event.taskId === selected.id && event.invocationRef === undefined))
+  }
+
+  const malformed = createInitialState()
+  createPilot(malformed, { pilotId: 'legacy-malformed-assessment', maxCycles: 1 })
+  addTask(malformed, task('legacy-malformed-task'))
+  const taskRecord = beginRun(malformed).task
+  recordBaseline(malformed, taskRecord.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(malformed, taskRecord.id, { branch: 'codex/legacy-malformed-task', commitSha: 'c'.repeat(40) })
+  recordTests(malformed, taskRecord.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  taskRecord.assessments = 'malformed'
+  malformed.schemaVersion = 1
+  assert.throws(() => validateState(malformed), /Invalid assessment record/)
+  assert.equal(taskRecord.assessments, 'malformed', 'migration must not erase malformed checkpoint data')
+})
+
+test('schema v1 blocker and rejection migrations preserve their matching lifecycle snapshots', () => {
+  const blockedState = createInitialState()
+  createPilot(blockedState, { pilotId: 'legacy-blocked-assessments', maxCycles: 2 })
+  addTask(blockedState, task('legacy-blocked-task'))
+  const blocked = beginRun(blockedState).task
+  recordBaseline(blockedState, blocked.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(blockedState, blocked.id, { branch: 'codex/legacy-blocked-task', commitSha: 'a'.repeat(40) })
+  recordTests(blockedState, blocked.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  blocked.assessments.reviewer = { passed: true, evidenceRef: 'docs/ai-cost-controls.md' }
+  blockWithDiagnosis(blockedState, blocked.id, 'unavailable_evidence')
+  const preservedBlockerSnapshot = structuredClone(blocked.workPreserved)
+  blockedState.schemaVersion = 1
+
+  assert.equal(validateState(blockedState), blockedState)
+  assert.equal(blocked.status, 'blocked')
+  assert.deepEqual(blocked.assessments, preservedBlockerSnapshot.assessments)
+  assert.deepEqual(blocked.workPreserved.assessments, preservedBlockerSnapshot.assessments)
+
+  const rejectedState = createInitialState()
+  createPilot(rejectedState, { pilotId: 'legacy-rejected-assessments', maxCycles: 1 })
+  addTask(rejectedState, task('legacy-rejected-task'))
+  const rejected = beginRun(rejectedState).task
+  recordBaseline(rejectedState, rejected.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(rejectedState, rejected.id, { branch: 'codex/legacy-rejected-task', commitSha: 'b'.repeat(40) })
+  recordTests(rejectedState, rejected.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+    recordAssessment(rejectedState, rejected.id, {
+      role,
+      passed: true,
+      artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'b'.repeat(40),
+    })
+  }
+  recordBenchmark(rejectedState, rejected.id, { resultMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  const rejectedRecord = structuredClone(rejected.validation)
+  rejectedState.schemaVersion = 1
+  for (const assessment of Object.values(rejected.assessments)) {
+    delete assessment.invocationRef
+    delete assessment.targetCommitSha
+  }
+  for (const event of rejectedState.checkpoint.events) {
+    delete event.invocationRef
+    delete event.assessmentCommitSha
+  }
+
+  assert.equal(validateState(rejectedState), rejectedState)
+  assert.equal(rejected.status, 'rejected')
+  assert.equal(rejected.validation.accepted, false)
+  assert.deepEqual(rejected.validation, rejectedRecord)
+  assert.ok(Object.values(rejected.assessments).every(assessment => assessment?.passed === true))
 })
 
 test('benchmark regression is derived from metric direction and rejects the task', () => {
@@ -795,6 +934,8 @@ test('benchmark regression is derived from metric direction and rejects the task
     recordAssessment(state, id, {
       role, passed: true,
       artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'b'.repeat(40),
     })
   }
   const rejected = recordBenchmark(state, id, {
@@ -1107,6 +1248,8 @@ test('reaching the cycle cap persists a budget stop rather than exhaustion', () 
         recordAssessment(finalState, active.id, {
           role, passed: true,
           artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+          invocationRef: `/root/test_${role}_invocation`,
+          targetCommitSha: active.implementation.commitSha,
         })
       }
       const completed = recordBenchmark(finalState, active.id, {
