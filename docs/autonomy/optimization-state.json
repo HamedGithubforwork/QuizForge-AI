@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T03:52:38.766Z",
+  "updatedAt": "2026-11-07T04:00:49.261Z",
   "domains": [
     "local_ai",
     "backend",
@@ -552,16 +552,146 @@
       "recoveryHistory": [],
       "preservationDeferral": null,
       "preservationArchiveRefs": []
+    },
+    {
+      "id": "bound-pdf-upload-read",
+      "domain": "security",
+      "title": "Bound PDF reads before buffering uploaded files",
+      "impact": 5,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/application.py",
+        "backend/quiz_generation_support.py",
+        "backend/quiz_service.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_main.py",
+        "backend/tests/test_quiz_generation_support.py"
+      ],
+      "benchmarkRefs": [
+        "backend/tests/test_main.py"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "oversize_upload_bytes_read",
+      "status": "baseline_established",
+      "initialStatus": "ready",
+      "investigationKey": "bound-pdf-upload-read",
+      "baseline": {
+        "metric": 104857600,
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "weak-area-prompt-data-isolation",
+      "domain": "security",
+      "title": "Keep previous quiz questions out of developer instructions",
+      "impact": 5,
+      "effort": 3,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/application.py",
+        "backend/quiz_service.py",
+        "backend/quiz_prompt.py",
+        "backend/quiz_generation_api.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_main.py",
+        "backend/tests/test_quiz_prompt.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "untrusted_developer_prompt_paths",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "weak-area-prompt-data-isolation",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "quiz-navigator-accessible-labels",
+      "domain": "frontend",
+      "title": "Expose accessible names and answer states in quiz navigation",
+      "impact": 4,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/components/quiz/QuizSession.tsx",
+        "frontend/src/App.css"
+      ],
+      "testRefs": [
+        "frontend/src/lib/quizNavigatorAccessibility.test.ts"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "question_nav_accessible_name_coverage",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "quiz-navigator-accessible-labels",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
     }
   ],
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 2,
+    "cyclesStarted": 3,
     "cyclesValidated": 1,
-    "revision": 15,
-    "selectedTaskId": null,
-    "previousTaskId": "measure-checkpoint-validation-growth",
+    "revision": 20,
+    "selectedTaskId": "bound-pdf-upload-read",
+    "previousTaskId": "bound-pdf-upload-read",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -1413,6 +1543,45 @@
         "type": "rejected",
         "taskId": "measure-checkpoint-validation-growth",
         "reasonCode": "no_measurable_improvement",
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:55.864Z",
+        "type": "task_discovered",
+        "taskId": "bound-pdf-upload-read",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:57.326Z",
+        "type": "task_discovered",
+        "taskId": "weak-area-prompt-data-isolation",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:59.631Z",
+        "type": "task_discovered",
+        "taskId": "quiz-navigator-accessible-labels",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:00:30.688Z",
+        "type": "selected",
+        "taskId": "bound-pdf-upload-read",
+        "cycle": 3,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:00:49.260Z",
+        "type": "baseline",
+        "taskId": "bound-pdf-upload-read",
+        "metric": 104857600,
         "evidenceRef": "docs/autonomy/pilot-report.md",
         "pilotId": "pilot-2026-11-06-02"
       }
