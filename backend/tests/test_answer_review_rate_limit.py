@@ -228,9 +228,11 @@ def test_answer_review_fallback_prunes_expired_buckets_with_bounded_work(
                 client=BrokenRedis(),
             )
 
-        # The first scheduled sweep checks no more than the fixed 64 buckets.
+        # Admission 64 sweeps before expiry; admission 128 sweeps again
+        # after expiry. Each sweep inspects no more than the fixed 64 buckets.
         assert sweep_visits == [
-            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
         ]
         assert len(request_store) == 63
         assert sum(
@@ -247,6 +249,7 @@ def test_answer_review_fallback_prunes_expired_buckets_with_bounded_work(
         # A second bounded sweep eventually visits and removes the rest of the
         # expired one-off buckets while retaining live entries.
         assert sweep_visits == [
+            redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
             redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
             redis_integration.MEMORY_RATE_LIMIT_SWEEP_MAX_BUCKETS,
         ]
