@@ -40,6 +40,16 @@ api.quizfromnotes.com {
         }
         reverse_proxy identity:8001
     }
+    handle /api/answers/review {
+        request_body {
+            max_size 512KiB
+        }
+        reverse_proxy api:8000 {
+            transport http {
+                response_header_timeout 120s
+            }
+        }
+    }
     handle /api/* {
         request_body {
             max_size 16MB
@@ -54,3 +64,4 @@ api.quizfromnotes.com {
         respond "Unknown route" 404
     }
 }
+

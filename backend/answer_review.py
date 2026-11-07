@@ -1,10 +1,10 @@
 import json
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import HTTPException
 from openai import OpenAIError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from outbound_clients import get_openai_client
 from redis_integration import (
@@ -13,17 +13,38 @@ from redis_integration import (
 
 
 MIN_CORRECT_CONFIDENCE = 0.80
+MAX_ANSWER_REVIEW_PAYLOAD_BYTES = 512 * 1024
+ANSWER_REVIEW_USER_PREFIX = (
+    "Review these borderline short answers:\n\n"
+)
+
+
+ReviewAlias = Annotated[str, Field(max_length=2000)]
+AnswerGroup = Annotated[list[ReviewAlias], Field(max_length=30)]
 
 
 class AnswerReviewCase(BaseModel):
     question_index: int = Field(ge=0)
     question: str = Field(min_length=1, max_length=2000)
     correct_answer: str = Field(min_length=1, max_length=2000)
-    accepted_answers: list[str] = Field(default_factory=list, max_length=30)
-    answer_groups: list[list[str]] = Field(default_factory=list, max_length=20)
+    accepted_answers: list[ReviewAlias] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+    answer_groups: list[AnswerGroup] = Field(
+        default_factory=list,
+        max_length=20,
+    )
     required_group_count: int = Field(ge=1, le=20)
     student_answer: str = Field(min_length=1, max_length=2000)
     explanation: str = Field(default="", max_length=3000)
+
+
+def serialize_review_cases(
+    cases: list[AnswerReviewCase],
+) -> str:
+    payload = [item.model_dump() for item in cases]
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class AnswerReviewRequest(BaseModel):
@@ -31,6 +52,18 @@ class AnswerReviewRequest(BaseModel):
         min_length=1,
         max_length=15,
     )
+
+    @model_validator(mode="after")
+    def enforce_serialized_payload_limit(self):
+        user_content = (
+            ANSWER_REVIEW_USER_PREFIX
+            + serialize_review_cases(self.cases)
+        )
+        if len(user_content.encode("utf-8")) > MAX_ANSWER_REVIEW_PAYLOAD_BYTES:
+            raise ValueError(
+                "Semantic answer review payload exceeds the 512 KiB limit."
+            )
+        return self
 
 
 class AnswerReviewDecision(BaseModel):
@@ -132,10 +165,7 @@ async def review_borderline_answers_with_ai(
             ),
         )
 
-    payload = [
-        item.model_dump()
-        for item in request.cases
-    ]
+    serialized_payload = serialize_review_cases(request.cases)
 
     prompt = """
 You are a conservative semantic-equivalence reviewer for short-answer quiz grading.
@@ -170,11 +200,8 @@ Rules:
                 {
                     "role": "user",
                     "content": (
-                        "Review these borderline short answers:\n\n"
-                        + json.dumps(
-                            payload,
-                            ensure_ascii=False,
-                        )
+                        ANSWER_REVIEW_USER_PREFIX
+                        + serialized_payload
                     ),
                 },
             ],
@@ -210,3 +237,4 @@ Rules:
                 "Semantic answer review returned inconsistent data."
             ),
         ) from error
+
