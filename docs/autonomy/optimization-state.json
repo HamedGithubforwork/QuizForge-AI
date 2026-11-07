@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T00:24:11.135Z",
+  "updatedAt": "2026-11-07T00:27:31.967Z",
   "domains": [
     "local_ai",
     "backend",
@@ -316,7 +316,9 @@
       "dependencies": [],
       "evidenceRefs": [
         "backend/performance_metrics.py",
-        "backend/observability.py"
+        "backend/observability.py",
+        ".github/workflows/ci.yml",
+        "backend/DEPENDENCIES.md"
       ],
       "testRefs": [
         "backend/tests/test_performance_metrics.py",
@@ -326,7 +328,7 @@
       "benchmarkCost": "local",
       "benchmarkDirection": "lower_is_better",
       "metricName": "validation_metric_pipeline_calls",
-      "status": "blocked",
+      "status": "ready",
       "initialStatus": "ready",
       "investigationKey": "backend-validation-metric-batching",
       "baseline": {
@@ -342,12 +344,7 @@
         "security": null
       },
       "validation": null,
-      "blocker": {
-        "code": "tooling_unavailable",
-        "evidenceRef": "docs/autonomy/pilot-report.md",
-        "evidenceRevision": 0,
-        "recordedAt": "2026-11-06T23:48:10.320Z"
-      },
+      "blocker": null,
       "workPreserved": {
         "baseline": {
           "metric": 2,
@@ -363,8 +360,8 @@
         },
         "validation": null
       },
-      "evidenceRevision": 0,
-      "priorBlockerEvidenceRevision": null
+      "evidenceRevision": 1,
+      "priorBlockerEvidenceRevision": 0
     },
     {
       "id": "history-delete-contextual-label",
@@ -1183,6 +1180,13 @@
         "taskId": "history-delete-contextual-label",
         "resultMetric": 1,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42317479552"
+      },
+      {
+        "at": "2026-11-07T00:27:31.964Z",
+        "type": "new_evidence",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": ".github/workflows/ci.yml",
+        "evidenceRevision": 1
       }
     ]
   }
