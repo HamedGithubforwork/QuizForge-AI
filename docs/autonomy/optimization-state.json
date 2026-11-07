@@ -1,9 +1,9 @@
-Warning: truncated output (original token count: 14097)
-Total output lines: 1665
+Warning: truncated output (original token count: 14241)
+Total output lines: 1683
 
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T04:11:21.732Z",
+  "updatedAt": "2026-11-07T04:15:51.230Z",
   "domains": [
     "local_ai",
     "backend",
@@ -649,10 +649,13 @@ Total output lines: 1665
       "benchmarkCost": "local",
       "benchmarkDirection": "lower_is_better",
       "metricName": "untrusted_developer_prompt_paths",
-      "status": "ready",
+      "status": "baseline_established",
       "initialStatus": "ready",
       "investigationKey": "weak-area-prompt-data-isolation",
-      "baseline": null,
+      "baseline": {
+        "metric": 1,
+        "evidenceRef": "backend/quiz_prompt.py"
+      },
       "implementation": null,
       "testResult": null,
       "assessments": {
@@ -714,11 +717,11 @@ Total output lines: 1665
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 3,
+    "cyclesStarted": 4,
     "cyclesValidated": 2,
-    "revision": 27,
-    "selectedTaskId": null,
-    "previousTaskId": "bound-pdf-upload-read",
+    "revision": 29,
+    "selectedTaskId": "weak-area-prompt-data-isolation",
+    "previousTaskId": "weak-area-prompt-data-isolation",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -746,21 +749,7 @@ Total output lines: 1665
           "at": "2026-11-06T22:19:09.317Z",
           "type": "blocked",
           "taskId": "local-qwen-664-candidate-root-cause",
-          "blockerCode": "unavailable_evidence",
-          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/…2097 tokens truncated…ted-practice.test.cjs"
-        },
-        {
-          "at": "2026-11-06T23:27:18.447Z",
-          "type": "validated",
-          "taskId": "desktop-diagnostic-pr-tests",
-          "resultMetric": 4,
-          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
-        },
-        {
-          "at": "2026-11-06T23:36:58.442Z",
-          "type": "audit_completed",
-          "auditStatus": "ACTIVE",
-          "auditId": "audit-2026-11-06-02",
+          "…2241 tokens truncated…02",
           "consecutiveCleanAudits": 0,
           "actionableCount": 0,
           "blockedCount": 2,
@@ -1430,7 +1419,22 @@ Total output lines: 1665
         "resultMetric": 15728641,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503",
         "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:14:13.083Z",
+        "type": "selected",
+        "taskId": "weak-area-prompt-data-isolation",
+        "cycle": 4,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:15:51.229Z",
+        "type": "baseline",
+        "taskId": "weak-area-prompt-data-isolation",
+        "metric": 1,
+        "evidenceRef": "backend/quiz_prompt.py",
+        "pilotId": "pilot-2026-11-06-02"
       }
     ]
   }
-}\n
+}
