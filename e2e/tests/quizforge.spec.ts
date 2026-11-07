@@ -465,6 +465,11 @@ test(
     await expect(
       cards.nth(1),
     ).toBeFocused()
+    await expect(
+      cards.nth(1),
+    ).toHaveAccessibleName(
+      firstQuiz.questions[1].question,
+    )
 
     await expect(
       page.getByText(
