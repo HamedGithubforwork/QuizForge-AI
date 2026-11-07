@@ -426,6 +426,14 @@ test(
       'HTTP',
     ]
 
+    await page
+      .locator('.question-nav-button')
+      .nth(1)
+      .click()
+    await expect(
+      cards.nth(1).locator('input:not(:disabled)').first(),
+    ).toBeFocused()
+
     for (
       let index = 0;
       index < answers.length;
