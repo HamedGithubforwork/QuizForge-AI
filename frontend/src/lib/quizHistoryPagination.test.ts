@@ -135,7 +135,7 @@ assert.match(
 
 const historyDisclosureButton =
   quizHistoryComponentSource.match(
-    /<button\\s+className="history-toggle"([\\s\\S]*?)>/,
+    /<button\s+className="history-toggle"([\s\S]*?)>/,
   )
 
 assert.ok(historyDisclosureButton)
