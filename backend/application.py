@@ -259,6 +259,9 @@ def build_quiz_generation_runtime():
         redis_client=redis_client,
         enforce_rate_limit=enforce_quiz_rate_limit,
         normalize_settings=normalize_quiz_settings,
+        parse_avoid_questions=(
+            quiz_service.parse_avoid_questions
+        ),
         get_source_identity=(
             get_generation_source_identity
         ),

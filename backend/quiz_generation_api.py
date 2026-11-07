@@ -1,4 +1,5 @@
 import logging
+import json
 import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
@@ -14,6 +15,7 @@ class QuizGenerationRuntime:
     redis_client: Any
     enforce_rate_limit: Callable[..., Awaitable[Any]]
     normalize_settings: Callable[..., tuple[int, str, str]]
+    parse_avoid_questions: Callable[[str], list[str]]
     get_source_identity: Callable[..., Awaitable[Any]]
     build_cache_key: Callable[..., str]
     get_cached_quiz: Callable[..., Awaitable[Any]]
@@ -101,6 +103,14 @@ async def generate_quiz_response(
             question_type,
         )
 
+        normalized_avoid_questions = json.dumps(
+            runtime.parse_avoid_questions(
+                avoid_questions
+            ),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
         (
             pdf_sha256,
             content_type,
@@ -118,7 +128,7 @@ async def generate_quiz_response(
             question_type=question_type,
             focus_pages=focus_pages,
             focus_question_types=focus_question_types,
-            avoid_questions=avoid_questions,
+            avoid_questions=normalized_avoid_questions,
             content_type=content_type,
         )
 
@@ -173,7 +183,7 @@ async def generate_quiz_response(
                 question_type=question_type,
                 focus_pages=focus_pages,
                 focus_question_types=focus_question_types,
-                avoid_questions=avoid_questions,
+                avoid_questions=normalized_avoid_questions,
                 cache_key=cache_key,
             )
         finally:
