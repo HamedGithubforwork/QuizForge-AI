@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T04:54:02.480Z",
+  "updatedAt": "2026-11-07T05:21:56.830Z",
   "domains": [
     "local_ai",
     "backend",
@@ -791,16 +791,129 @@
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
       "recoveryHistory": []
+    },
+    {
+      "id": "quiz-nav-post-results-focus-transfer",
+      "domain": "frontend",
+      "title": "Transfer focus to a question when navigating quiz results",
+      "impact": 3,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/components/quiz/useQuizAttempt.ts",
+        "frontend/src/components/quiz/QuizSession.tsx",
+        "docs/autonomy/pilot-report.md"
+      ],
+      "testRefs": [
+        "frontend/e2e/quiz.spec.ts"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "focus_transfer_after_results",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "quiz-nav-post-results-focus-transfer",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/useQuizAttempt.ts"
+      },
+      "implementation": {
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "656d24a2aa6c2cc4f1efb9357039ae9b844299fb"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "frontend/src/lib/quizNavigatorAccessibility.test.ts"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "bound-answer-review-rubric-payloads",
+      "domain": "security",
+      "title": "Bound nested answer-review aliases before model prompt serialization",
+      "impact": 5,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/answer_review.py",
+        "scripts/production/lightsail/Caddyfile",
+        "backend/tests/test_answer_review.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_answer_review.py",
+        "backend/tests/test_main.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "maximum_answer_review_prompt_payload_bytes",
+      "status": "baseline_established",
+      "initialStatus": "ready",
+      "investigationKey": "bound-answer-review-rubric-payloads",
+      "baseline": {
+        "metric": 16000000,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile"
+      },
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
     }
   ],
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 5,
-    "cyclesValidated": 4,
-    "revision": 47,
-    "selectedTaskId": null,
-    "previousTaskId": "quiz-navigator-accessible-labels",
+    "cyclesStarted": 7,
+    "cyclesValidated": 5,
+    "revision": 64,
+    "selectedTaskId": "bound-answer-review-rubric-payloads",
+    "previousTaskId": "bound-answer-review-rubric-payloads",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -1909,7 +2022,133 @@
         "resultMetric": 1,
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685",
         "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:16.568Z",
+        "type": "task_discovered",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:20.591Z",
+        "type": "selected",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "cycle": 6,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:34.114Z",
+        "type": "baseline",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/useQuizAttempt.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:13:48.014Z",
+        "type": "task_discovered",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:10.312Z",
+        "type": "implemented",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "66b43eb30009e9d8fd4ca1c6899071540e645778",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:12.301Z",
+        "type": "tests_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "frontend/src/lib/quizNavigatorAccessibility.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:27.920Z",
+        "type": "reviewer_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:30.012Z",
+        "type": "qa_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:45.961Z",
+        "type": "reviewer_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:47.110Z",
+        "type": "qa_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:48.568Z",
+        "type": "quality_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:49.694Z",
+        "type": "security_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:19:40.259Z",
+        "type": "implemented",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "656d24a2aa6c2cc4f1efb9357039ae9b844299fb"
+      },
+      {
+        "at": "2026-11-07T05:19:45.166Z",
+        "type": "validated",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "resultMetric": 1,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:20:32.563Z",
+        "type": "selected",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "cycle": 7,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:21:56.828Z",
+        "type": "baseline",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "metric": 16777216,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:22:52.452Z",
+        "type": "baseline",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "metric": 16000000,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile"
       }
     ]
   }
 }
+
