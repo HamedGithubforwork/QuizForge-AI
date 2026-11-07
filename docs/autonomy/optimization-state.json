@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T03:47:40.539Z",
+  "updatedAt": "2026-11-07T03:52:38.766Z",
   "domains": [
     "local_ai",
     "backend",
@@ -525,10 +525,13 @@
       "benchmarkCost": "local",
       "benchmarkDirection": "lower_is_better",
       "metricName": "checkpoint_validation_runtime_ms",
-      "status": "ready",
+      "status": "rejected",
       "initialStatus": "ready",
       "investigationKey": "measure-checkpoint-validation-growth",
-      "baseline": null,
+      "baseline": {
+        "metric": 0.4918,
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
       "implementation": null,
       "testResult": null,
       "assessments": {
@@ -537,7 +540,11 @@
         "quality": null,
         "security": null
       },
-      "validation": null,
+      "validation": {
+        "accepted": false,
+        "reasonCode": "no_measurable_improvement",
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
       "blocker": null,
       "workPreserved": null,
       "evidenceRevision": 0,
@@ -550,11 +557,11 @@
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 1,
+    "cyclesStarted": 2,
     "cyclesValidated": 1,
-    "revision": 12,
+    "revision": 15,
     "selectedTaskId": null,
-    "previousTaskId": "backend-validation-metric-batching",
+    "previousTaskId": "measure-checkpoint-validation-growth",
     "preparedPilot": null,
     "pilotHistory": [
       {
@@ -1384,6 +1391,29 @@
         "taskId": "backend-validation-metric-batching",
         "resultMetric": 1,
         "evidenceRef": "backend/tests/test_observability.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:50:21.668Z",
+        "type": "selected",
+        "taskId": "measure-checkpoint-validation-growth",
+        "cycle": 2,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:51:01.954Z",
+        "type": "baseline",
+        "taskId": "measure-checkpoint-validation-growth",
+        "metric": 0.4918,
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:52:38.766Z",
+        "type": "rejected",
+        "taskId": "measure-checkpoint-validation-growth",
+        "reasonCode": "no_measurable_improvement",
+        "evidenceRef": "docs/autonomy/pilot-report.md",
         "pilotId": "pilot-2026-11-06-02"
       }
     ]

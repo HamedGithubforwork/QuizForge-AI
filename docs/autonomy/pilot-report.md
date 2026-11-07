@@ -63,3 +63,10 @@ The durable per-task lifecycle and audit history is maintained in [optimization-
 - Current backlog: 5 validated, 1 ready (`measure-checkpoint-validation-growth`), 2 blocked Local Qwen items. The #664 diagnostic remains blocked because the sanitized report omits termination and candidate-level rejection evidence; #665 remains blocked by the existing PR. No Local Qwen inference was run.
 - The pilot remains open with nine selection slots. Continue with the remaining evidence-backed actionable task, and stop at the ten-task cap, an approval/safety boundary, or after two complete clean exhaustion audits.
 
+## Pilot 02 task 2 — checkpoint validation measurement
+
+- This was discovery-only and is not a completed implementation cycle. Before any redesign, the checkpoint measured 47,623 bytes. After five warmups, 100 calls to `validateState` on Node 24 produced a median of 0.4918 ms, p95 of 1.1775 ms, and one maximum outlier of 10.1884 ms. Process RSS was 44,953,600 bytes and heap use was 7,143,120 bytes; these are process-wide snapshots, not memory attributable to validation.
+- Performance Efficiency and Data Integrity independently found no supported checkpoint-validation optimization from this sample. Existing bounds and preservation checks should remain. Unbounded historical event/pilot archive growth is a monitoring concern, but a 48 KB checkpoint and one small selection delta do not establish material cost.
+- The task `measure-checkpoint-validation-growth` was rejected as `no_measurable_improvement`, with no code changes or tests added. Revisit only after a materially larger checkpoint, sustained multi-pilot growth, or observed validation delay; compare representative checkpoint sizes then.
+- Pilot 02 currently has two selected tasks, one validated implementation cycle, and one rejected discovery-only task. Five backlog items are validated, two Local Qwen items remain blocked, and the checkpoint measurement is rejected. No task remains actionable in the current backlog; perform fresh independent discovery before deciding whether the pilot is blocked or can resume on new evidence.
+
