@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T02:09:00.596Z",
+  "updatedAt": "2026-11-07T03:34:07.546Z",
   "domains": [
     "local_ai",
     "backend",
@@ -63,7 +63,9 @@
       "evidenceRevision": 1,
       "priorBlockerEvidenceRevision": 0,
       "testResult": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "local-ai-minimal-replacement-existing-pr-665",
@@ -115,7 +117,9 @@
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
       "testResult": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "autonomy-bridge-blocker-fallback",
@@ -179,7 +183,9 @@
         "passed": true,
         "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
       },
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "desktop-diagnostic-pr-tests",
@@ -244,7 +250,9 @@
       "workPreserved": null,
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "autonomy-state-tests-pr-ci",
@@ -309,7 +317,9 @@
       "workPreserved": null,
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "backend-validation-metric-batching",
@@ -333,7 +343,7 @@
       "benchmarkCost": "local",
       "benchmarkDirection": "lower_is_better",
       "metricName": "validation_metric_pipeline_calls",
-      "status": "ready",
+      "status": "baseline_established",
       "initialStatus": "ready",
       "investigationKey": "backend-validation-metric-batching",
       "baseline": {
@@ -367,7 +377,9 @@
       },
       "evidenceRevision": 1,
       "priorBlockerEvidenceRevision": 0,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "history-delete-contextual-label",
@@ -464,7 +476,9 @@
       },
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     },
     {
       "id": "measure-checkpoint-validation-growth",
@@ -504,16 +518,18 @@
       "workPreserved": null,
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
-      "recoveryHistory": []
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
     }
   ],
   "checkpoint": {
     "pilotId": "pilot-2026-11-06-02",
     "maxCycles": 10,
-    "cyclesStarted": 0,
+    "cyclesStarted": 1,
     "cyclesValidated": 0,
-    "revision": 3,
-    "selectedTaskId": null,
+    "revision": 5,
+    "selectedTaskId": "backend-validation-metric-batching",
     "previousTaskId": "backend-validation-metric-batching",
     "preparedPilot": null,
     "pilotHistory": [
@@ -1279,8 +1295,22 @@
           "approverIdentity": "HamedGithubforwork",
           "approvalEvidenceRef": "docs/autonomy/approvals/pilot-2026-11-06-02.md"
         }
+      },
+      {
+        "at": "2026-11-07T03:33:45.361Z",
+        "type": "selected",
+        "taskId": "backend-validation-metric-batching",
+        "cycle": 1,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:34:07.545Z",
+        "type": "baseline",
+        "taskId": "backend-validation-metric-batching",
+        "metric": 2,
+        "evidenceRef": "backend/performance_metrics.py",
+        "pilotId": "pilot-2026-11-06-02"
       }
     ]
   }
 }
-
