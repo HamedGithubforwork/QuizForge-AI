@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-11-07T01:08:16.429Z",
+  "updatedAt": "2026-11-07T01:38:23.031Z",
   "domains": [
     "local_ai",
     "backend",
@@ -462,6 +462,46 @@
         },
         "validation": null
       },
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "measure-checkpoint-validation-growth",
+      "domain": "reliability",
+      "title": "Measure checkpoint archive growth and validation cost before redesign",
+      "impact": 3,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "scripts/autonomy/optimization-orchestrator.cjs",
+        "docs/autonomy/optimization-state.json"
+      ],
+      "testRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "checkpoint_validation_runtime_ms",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "measure-checkpoint-validation-growth",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
       "evidenceRevision": 0,
       "priorBlockerEvidenceRevision": null,
       "recoveryHistory": []
@@ -1200,9 +1240,17 @@
         "type": "pilot_prepared",
         "pilotId": "pilot-2026-11-06-02",
         "maxCycles": 10
+      },
+      {
+        "at": "2026-11-07T01:38:23.020Z",
+        "type": "task_discovered",
+        "taskId": "measure-checkpoint-validation-growth",
+        "domain": "reliability",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-01"
       }
     ],
-    "revision": 1,
+    "revision": 2,
     "preparedPilot": {
       "pilotId": "pilot-2026-11-06-02",
       "maxCycles": 10,
