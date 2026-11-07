@@ -8,6 +8,11 @@ on:
       - "backend/**"
       - "frontend/**"
       - "e2e/**"
+      - "desktop/scripts/diagnose-targeted-practice.cjs"
+      - "desktop/test/diagnose-targeted-practice.test.cjs"
+      - "scripts/autonomy/optimization-orchestrator.cjs"
+      - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
       - ".github/workflows/ci.yml"
       - ".github/workflows/deployment-smoke.yml"
@@ -31,6 +36,8 @@ jobs:
       backend: ${{ steps.changes.outputs.backend }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      desktop_diagnostic: ${{ steps.changes.outputs.desktop_diagnostic }}
+      autonomy_tests: ${{ steps.changes.outputs.autonomy_tests }}
 
     steps:
       - name: Check out repository history
@@ -64,6 +71,8 @@ jobs:
           backend=false
           frontend=false
           playwright=false
+          desktop_diagnostic=false
+          autonomy_tests=false
 
           while IFS= read -r file; do
             case "${file}" in
@@ -82,12 +91,20 @@ jobs:
                 frontend=true
                 playwright=true
                 ;;
+              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
+                desktop_diagnostic=true
+                ;;
+              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|.github/workflows/quizforge-autonomy-bridge.yml)
+                autonomy_tests=true
+                ;;
             esac
           done < changed-files.txt
 
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+          echo "desktop_diagnostic=${desktop_diagnostic}" >> "${GITHUB_OUTPUT}"
+          echo "autonomy_tests=${autonomy_tests}" >> "${GITHUB_OUTPUT}"
 
   backend-tests:
     name: Backend tests
@@ -227,6 +244,42 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
 
+  desktop-diagnostic-tests:
+    name: Desktop diagnostic privacy tests
+    needs: changes
+    if: needs.changes.outputs.desktop_diagnostic == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Run diagnostic privacy tests
+        run: node --test desktop/test/diagnose-targeted-practice.test.cjs
+
+  autonomy-tests:
+    name: Optimization orchestrator tests
+    needs: changes
+    if: needs.changes.outputs.autonomy_tests == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Run orchestrator regression tests
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs
+
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -234,6 +287,8 @@ jobs:
       - backend-tests
       - frontend-checks
       - playwright-e2e
+      - desktop-diagnostic-tests
+      - autonomy-tests
     if: always()
     runs-on: ubuntu-latest
 
@@ -245,6 +300,8 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          DESKTOP_DIAGNOSTIC_RESULT: ${{ needs.desktop-diagnostic-tests.result }}
+          AUTONOMY_RESULT: ${{ needs.autonomy-tests.result }}
         run: |
           set -euo pipefail
 
@@ -252,13 +309,15 @@ jobs:
           echo "Backend tests:   ${BACKEND_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
+          echo "Desktop tests:   ${DESKTOP_DIAGNOSTIC_RESULT}"
+          echo "Autonomy tests:  ${AUTONOMY_RESULT}"
 
           if [[ "${CHANGES_RESULT}" != "success" ]]; then
             echo "Change detection did not succeed."
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${DESKTOP_DIAGNOSTIC_RESULT}" "${AUTONOMY_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
@@ -270,3 +329,4 @@ jobs:
           done
 
           echo "All relevant CI jobs passed or were intentionally skipped."
+
