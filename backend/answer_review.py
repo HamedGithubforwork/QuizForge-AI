@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Annotated, Literal
+from typing import Literal
 
 from fastapi import HTTPException
 from openai import OpenAIError
@@ -19,19 +19,15 @@ ANSWER_REVIEW_USER_PREFIX = (
 )
 
 
-ReviewAlias = Annotated[str, Field(max_length=2000)]
-AnswerGroup = Annotated[list[ReviewAlias], Field(max_length=30)]
-
-
 class AnswerReviewCase(BaseModel):
     question_index: int = Field(ge=0)
     question: str = Field(min_length=1, max_length=2000)
     correct_answer: str = Field(min_length=1, max_length=2000)
-    accepted_answers: list[ReviewAlias] = Field(
+    accepted_answers: list[str] = Field(
         default_factory=list,
         max_length=30,
     )
-    answer_groups: list[AnswerGroup] = Field(
+    answer_groups: list[list[str]] = Field(
         default_factory=list,
         max_length=20,
     )
@@ -59,7 +55,17 @@ class AnswerReviewRequest(BaseModel):
             ANSWER_REVIEW_USER_PREFIX
             + serialize_review_cases(self.cases)
         )
-        if len(user_content.encode("utf-8")) > MAX_ANSWER_REVIEW_PAYLOAD_BYTES:
+        try:
+            payload_size = len(user_content.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            # JSON permits escaped surrogate code points, but they are not
+            # valid Unicode scalar values and cannot be sent as UTF-8 content.
+            # Reject them as ordinary request validation failures before any
+            # rate-limited/model-backed review work begins.
+            raise ValueError(
+                "Answer review payload contains invalid Unicode."
+            ) from error
+        if payload_size > MAX_ANSWER_REVIEW_PAYLOAD_BYTES:
             raise ValueError(
                 "Semantic answer review payload exceeds the 512 KiB limit."
             )

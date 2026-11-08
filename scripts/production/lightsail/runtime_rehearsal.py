@@ -12,7 +12,13 @@ import sys
 import tempfile
 import time
 from urllib.error import HTTPError
-from urllib.request import urlopen, Request
+from urllib.request import (
+    HTTPRedirectHandler,
+    ProxyHandler,
+    Request,
+    build_opener,
+    urlopen,
+)
 
 import psycopg
 
@@ -67,6 +73,19 @@ def main():
     for name, service in stack['services'].items():
         service['image'] = tags[name]
         service.pop('cgroup_parent')
+    stack['services']['api-boundary'] = {
+        'image': 'quizforge-ci-api-current',
+        'command': [
+            'python', '-m', 'uvicorn', 'answer_review_proxy_boundary_app:app',
+            '--host', '0.0.0.0', '--port', '8000', '--no-access-log',
+        ],
+        'environment': {'PYTHONPATH': '/app/tests:/app'},
+        'healthcheck': {
+            'test': ['CMD', 'python', '-c',
+                     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"],
+            'interval': '5s', 'timeout': '3s', 'retries': 10,
+        },
+    }
     for name in (
         'api.env',
         'identity.env',
@@ -119,6 +138,7 @@ def main():
             else:
                 raise AssertionError('Unverified database transport was accepted')
         compose('up', '-d', '--wait', 'api', 'identity', 'guard')
+        compose('up', '-d', '--wait', 'api-boundary')
         notifier = subprocess.run(
             command + ['--profile','scheduled','run','--rm','--no-deps','notifier'],
             stdout=subprocess.PIPE,
@@ -159,6 +179,19 @@ else: raise AssertionError('Gateway did not start')
         caddy = (root/'Caddyfile').read_text().replace('{\n    admin off', '{\n    auto_https off\n    admin off', 1)
         caddy = caddy.replace('\nquizfromnotes.com {', '\nhttp://quizfromnotes.com:8080 {')
         caddy = caddy.replace('\napi.quizfromnotes.com {', '\nhttp://api.quizfromnotes.com:8080 {')
+        caddy = caddy.replace(
+            'reverse_proxy api:8000 {',
+            'reverse_proxy api-boundary:8000 {',
+            1,
+        )
+        caddy = caddy.replace(
+            '    handle /api/* {',
+            '    handle /api/__test/* {\n'
+            '        reverse_proxy api-boundary:8000\n'
+            '    }\n'
+            '    handle /api/* {',
+            1,
+        )
         (root/'Caddyfile').write_text(caddy)
         site = Path('/opt/quizforge/frontend')
         site.mkdir(parents=True, exist_ok=True)
@@ -177,10 +210,94 @@ else: raise AssertionError('Gateway did not start')
         with urlopen(Request('http://127.0.0.1/auth/callback', headers={'Host': 'quizfromnotes.com'}), timeout=2) as response:
             assert b'Synthetic release' in response.read(256)
             assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']
+
+        host = 'api.quizfromnotes.com'
+        fixture_url = 'http://127.0.0.1/api/__test/answer-review-payload?target_bytes='
+
+        def get_invalid_unicode_fixture():
+            with urlopen(Request(
+                'http://127.0.0.1/api/__test/answer-review-invalid-unicode',
+                headers={'Host': host},
+            ), timeout=15) as response:
+                return response.read()
+
+        def get_fixture(target_bytes):
+            with urlopen(Request(fixture_url + str(target_bytes), headers={'Host': host}), timeout=15) as response:
+                return response.read()
+
+        def post_boundary(path, body):
+            class RejectRedirects(HTTPRedirectHandler):
+                def redirect_request(
+                    self,
+                    request,
+                    response,
+                    code,
+                    message,
+                    headers,
+                    new_url,
+                ):
+                    return None
+
+            request = Request(
+                'http://127.0.0.1' + path,
+                data=body,
+                headers={'Host': host, 'Content-Type': 'application/json'},
+                method='POST',
+            )
+            try:
+                # A redirect must be observed as a failed boundary assertion;
+                # never follow it to a public or production host.
+                opener = build_opener(
+                    ProxyHandler({}),
+                    RejectRedirects(),
+                )
+                assert next(
+                    handler
+                    for handler in opener.handlers
+                    if isinstance(handler, ProxyHandler)
+                ).proxies == {}
+                with opener.open(request, timeout=20) as response:
+                    return response.status, response.read()
+            except HTTPError as error:
+                return error.code, error.read()
+
+        semantic_limit = 512 * 1024
+        exact_semantic_body = get_fixture(semantic_limit)
+        assert len(exact_semantic_body) > semantic_limit
+        assert len(exact_semantic_body) < 2 * 1024 * 1024
+        status, response_body = post_boundary('/api/answers/review', exact_semantic_body)
+        assert status == 200, (status, response_body[:200])
+        assert json.loads(response_body)['semantic_bytes'] == semantic_limit
+
+        over_semantic_body = get_fixture(semantic_limit + 1)
+        assert len(over_semantic_body) < 2 * 1024 * 1024
+        status, response_body = post_boundary('/api/answers/review', over_semantic_body)
+        assert status == 422, (status, response_body[:200])
+
+        raw_limit = 2 * 1024 * 1024
+        small_body = get_fixture(1024)
+        assert len(small_body) < raw_limit
+        exact_raw_body = small_body + (b' ' * (raw_limit - len(small_body)))
+        status, response_body = post_boundary('/api/answers/review', exact_raw_body)
+        assert status == 200, (status, response_body[:200])
+        status, response_body = post_boundary('/api/answers/review/', exact_raw_body)
+        assert status == 200, (status, response_body[:200])
+        over_raw_body = exact_raw_body + b' '
+        status, response_body = post_boundary('/api/answers/review', over_raw_body)
+        assert status == 413, (status, response_body[:200])
+        status, response_body = post_boundary('/api/answers/review/', over_raw_body)
+        assert status == 413, (status, response_body[:200])
+
+        invalid_unicode_body = get_invalid_unicode_fixture()
+        status, response_body = post_boundary(
+            '/api/answers/review', invalid_unicode_body
+        )
+        assert status == 422, (status, response_body[:200])
+
         compose('restart', 'api', 'guard')
         compose('up', '-d', '--wait', 'api', 'guard')
         compose('exec', '-T', 'api', 'python', '-c', probe)
-        print('PASS: Compose startup/restart; verified TLS; separate runtime roles; disabled gateway; Caddy validation and local routing')
+        print('PASS: Compose startup/restart; verified TLS; separate runtime roles; disabled gateway; Caddy validation and routing; answer-review semantic/raw-body boundaries and malformed Unicode rejection')
     finally:
         compose('down', '--timeout', '10')
 

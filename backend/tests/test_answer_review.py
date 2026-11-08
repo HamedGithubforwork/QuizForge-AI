@@ -96,9 +96,8 @@ def make_request_at_payload_size(target_size):
     for group_aliases, index in alias_slots:
         if remaining <= 0:
             break
-        length = min(2000, remaining)
-        group_aliases[index] = "x" * length
-        remaining -= length
+        group_aliases[index] = "x" * remaining
+        remaining = 0
 
     assert remaining == 0
     return [
@@ -251,18 +250,67 @@ def test_supported_multi_concept_and_alias_variants_remain_valid():
     assert request.cases[0].required_group_count == 2
 
 
-def test_alias_length_boundary_is_enforced():
-    make_case(accepted_answers=["x" * 2000])
+def test_long_aliases_remain_compatible_with_prior_unbounded_schema():
+    long_alias = "cognitive " + ("behavioural " * 200) + "therapy"
+    case = make_case(
+        accepted_answers=[long_alias],
+        answer_groups=[[long_alias]],
+    )
 
-    with pytest.raises(ValidationError):
-        make_case(accepted_answers=["x" * 2001])
+    assert len(case.accepted_answers[0]) > 2000
+    assert len(case.answer_groups[0][0]) > 2000
 
 
-def test_answer_group_alias_count_boundary_is_enforced():
-    make_case(answer_groups=[["alias"] * 30])
+def test_more_than_30_aliases_remain_compatible_with_prior_schema():
+    aliases = [f"TCP wording {index}" for index in range(31)]
+    case = make_case(answer_groups=[aliases])
 
-    with pytest.raises(ValidationError):
-        make_case(answer_groups=[["alias"] * 31])
+    assert len(case.answer_groups[0]) == 31
+
+
+def test_exact_semantic_payload_reaches_handler_without_model_call(monkeypatch):
+    handler_called = False
+
+    async def model_call(request, _user_id):
+        nonlocal handler_called
+        handler_called = True
+        return AnswerReviewModelResponse(
+            decisions=[
+                AnswerReviewDecision(
+                    question_index=case.question_index,
+                    verdict="uncertain",
+                    confidence=0.5,
+                    reason="Synthetic boundary verification.",
+                )
+                for case in request.cases
+            ]
+        )
+
+    monkeypatch.setattr(
+        app_shared,
+        "review_borderline_answers_with_ai",
+        model_call,
+    )
+    exact_cases = make_request_at_payload_size(
+        MAX_ANSWER_REVIEW_PAYLOAD_BYTES
+    )
+    app = create_app()
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        id="test-user",
+        email="test@example.com",
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/answers/review",
+                json={"cases": [case.model_dump() for case in exact_cases]},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert handler_called is True
 
 
 def test_aggregate_payload_limit_accepts_exact_limit_and_rejects_one_more():
@@ -325,5 +373,46 @@ def test_oversized_payload_is_rejected_before_model_client_invocation(
         app.dependency_overrides.clear()
 
     assert response.status_code == 422
+    assert model_client_called is False
+
+
+def test_lone_surrogate_returns_safe_422_before_model_call(monkeypatch):
+    model_client_called = False
+
+    async def model_call(_payload, _user_id):
+        nonlocal model_client_called
+        model_client_called = True
+        raise AssertionError("Invalid Unicode reached model handler")
+
+    monkeypatch.setattr(
+        app_shared,
+        "review_borderline_answers_with_ai",
+        model_call,
+    )
+    app = create_app()
+    app.dependency_overrides[get_current_user] = lambda: AuthenticatedUser(
+        id="test-user",
+        email="test@example.com",
+    )
+    body = (
+        b'{"cases":[{"question_index":0,"question":"q",'
+        b'"correct_answer":"a","accepted_answers":[],"answer_groups":[], '
+        b'"required_group_count":1,"student_answer":"\\ud800",'
+        b'"explanation":""}]}'
+    )
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/answers/review",
+                content=body,
+                headers={"Content-Type": "application/json"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert b"\\ud800" not in response.content
+    assert b"input" not in response.content
     assert model_client_called is False
 

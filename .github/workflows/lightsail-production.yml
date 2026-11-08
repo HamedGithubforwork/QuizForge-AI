@@ -77,6 +77,7 @@ jobs:
           python -m venv /tmp/quizforge-runtime-venv
           /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/production/requirements.lock
           docker build -t quizforge-ci-api application-candidate/backend
+          docker build -t quizforge-ci-api-current ./backend
           docker build -t quizforge-ci-operations -f scripts/production/operations.Dockerfile .
           docker build -t quizforge-ci-caddy --build-arg CADDY_BASE_IMAGE=caddy:2 -f scripts/production/lightsail/caddy.Dockerfile .
       - name: Rehearse the full private runtime with synthetic credentials and no model calls

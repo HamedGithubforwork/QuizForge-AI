@@ -40,9 +40,13 @@ api.quizfromnotes.com {
         }
         reverse_proxy identity:8001
     }
-    handle /api/answers/review {
+    @answer_review path /api/answers/review /api/answers/review/
+    handle @answer_review {
         request_body {
-            max_size 512KiB
+            # The backend caps canonical semantic content at 512 KiB. Standard
+            # JSON encoders can expand escaped Unicode to 3x UTF-8 size; this
+            # separate raw-body ceiling also bounds envelope and whitespace.
+            max_size 2MiB
         }
         reverse_proxy api:8000 {
             transport http {
