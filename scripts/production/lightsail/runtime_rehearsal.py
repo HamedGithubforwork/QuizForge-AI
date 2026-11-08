@@ -251,11 +251,10 @@ else: raise AssertionError('Gateway did not start')
                     ProxyHandler({}),
                     RejectRedirects(),
                 )
-                assert next(
-                    handler
+                assert not any(
+                    isinstance(handler, ProxyHandler)
                     for handler in opener.handlers
-                    if isinstance(handler, ProxyHandler)
-                ).proxies == {}
+                )
                 with opener.open(request, timeout=20) as response:
                     return response.status, response.read()
             except HTTPError as error:
