@@ -416,6 +416,9 @@ function gradeNumericAnswer(
 
   const value =
     measurement.valueInExpectedUnit
+  const conversionRoundingAllowance =
+    measurement.conversionRoundingAllowance ??
+    0
 
   const correct =
     measurement.status === 'ok' &&
@@ -425,11 +428,11 @@ function gradeNumericAnswer(
         value - grading.numeric_value,
       ) <= tolerance ||
       (
-        measurement.conversionRoundingAllowance > 0 &&
+        conversionRoundingAllowance > 0 &&
         Math.abs(
           value - grading.numeric_value,
         ) - tolerance <=
-          measurement.conversionRoundingAllowance
+          conversionRoundingAllowance
       )
     )
 
