@@ -13,8 +13,8 @@ on:
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
-    branches:
-      - main
+    # Run the PR-associated gate for stacked PRs as well as PRs targeting main.
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -31,6 +31,7 @@ jobs:
       backend: ${{ steps.changes.outputs.backend }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      workflow_policy: ${{ steps.changes.outputs.workflow_policy }}
 
     steps:
       - name: Check out repository history
@@ -64,6 +65,7 @@ jobs:
           backend=false
           frontend=false
           playwright=false
+          workflow_policy=false
 
           while IFS= read -r file; do
             case "${file}" in
@@ -81,6 +83,10 @@ jobs:
                 backend=true
                 frontend=true
                 playwright=true
+                workflow_policy=true
+                ;;
+              .github/workflows/quizforge-autonomy-bridge.yml|scripts/ci/*|.codex/agents/*.toml|AGENTS.md)
+                workflow_policy=true
                 ;;
             esac
           done < changed-files.txt
@@ -88,6 +94,7 @@ jobs:
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+          echo "workflow_policy=${workflow_policy}" >> "${GITHUB_OUTPUT}"
 
   backend-tests:
     name: Backend tests
@@ -227,6 +234,24 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
 
+  workflow-policy-tests:
+    name: CI trigger policy tests
+    needs: changes
+    if: needs.changes.outputs.workflow_policy == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify stacked PR trigger and agent evidence requirements
+        run: node --test scripts/ci/test-pr-ci-trigger.cjs
+
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -234,6 +259,7 @@ jobs:
       - backend-tests
       - frontend-checks
       - playwright-e2e
+      - workflow-policy-tests
     if: always()
     runs-on: ubuntu-latest
 
@@ -245,6 +271,7 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
         run: |
           set -euo pipefail
 
@@ -252,13 +279,14 @@ jobs:
           echo "Backend tests:   ${BACKEND_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
           echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
+          echo "CI trigger policy tests: ${WORKFLOW_POLICY_RESULT}"
 
           if [[ "${CHANGES_RESULT}" != "success" ]]; then
             echo "Change detection did not succeed."
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${WORKFLOW_POLICY_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
