@@ -40,6 +40,14 @@
     "accepted": false
   },
   {
+    "name": "raw large target receives no epsilon tolerance",
+    "numeric_value": 1e12,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "1000000000000.0001",
+    "accepted": false
+  },
+  {
     "name": "large finite same-unit value",
     "numeric_value": 1e308,
     "numeric_tolerance": 0,

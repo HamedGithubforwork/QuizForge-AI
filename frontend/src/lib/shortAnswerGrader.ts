@@ -433,7 +433,7 @@ function gradeNumericAnswer(
         value - grading.numeric_value,
       ) <= tolerance ||
       (
-        conversionRoundingAllowance > 0 &&
+        conversionRoundingScale > 0 &&
         Math.abs(
           value - grading.numeric_value,
         ) - tolerance <=
