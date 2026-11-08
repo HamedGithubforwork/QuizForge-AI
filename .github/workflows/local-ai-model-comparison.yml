@@ -1,36 +1,6 @@
 name: Local AI active-model comparison
 
 on:
-  pull_request:
-    paths:
-      - desktop/src/local-benchmark-models.cjs
-      - desktop/src/local-deepseek-adapter.cjs
-      - desktop/src/windows-local-ai-provider.cjs
-      - desktop/test/local-deepseek-adapter.test.cjs
-      - desktop/src/local-model-store.cjs
-      - desktop/src/windows-local-ai-manager.cjs
-      - desktop/src/windows-local-ai-stack.cjs
-      - desktop/src/local-offload-policy.cjs
-      - desktop/scripts/ensure-verified-model.cjs
-      - desktop/scripts/inspect-model-download-status.cjs
-      - desktop/test/model-download-status.test.cjs
-      - desktop/scripts/benchmark-local-generation.cjs
-      - desktop/scripts/benchmark-small-qwen-scaffold.cjs
-      - desktop/scripts/benchmark-small-qwen-adaptive.cjs
-      - desktop/test/local-small-qwen-adaptive.test.cjs
-      - desktop/test/local-small-qwen-batch.test.cjs
-      - desktop/scripts/benchmark-qwen-minimal.cjs
-      - desktop/scripts/benchmark-qwen-answer-first.cjs
-      - desktop/test/local-qwen-minimal.test.cjs
-      - desktop/test/local-qwen-answer-first.test.cjs
-      - desktop/test/local-qwen-french-context.test.cjs
-      - desktop/scripts/inspect-synthetic-quiz.cjs
-      - desktop/test/local-benchmark-inspection.test.cjs
-      - desktop/scripts/summarize-local-model-comparison.cjs
-      - desktop/test/local-benchmark-models.test.cjs
-      - desktop/test/local-model-comparison-scope.test.cjs
-      - desktop/test/local-model-store.test.cjs
-      - .github/workflows/local-ai-model-comparison.yml
   workflow_dispatch:
     inputs:
       scope:
