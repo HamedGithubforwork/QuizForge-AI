@@ -1195,6 +1195,12 @@ test('awaiting approval releases only with evidence and independent tasks can pr
     assert.throws(() => recordApproval(reloaded, 'approval-after-exhaustion',
       approvalAttestation('unsafe://approval')), /allowlisted/)
     assert.equal(validateState(reloaded), reloaded)
+    assert.equal(reloaded.checkpoint.optimizationGate.status, 'BLOCKED')
+    assert.equal(selectNextTask(reloaded), null)
+    recordApproval(reloaded, 'approval-after-exhaustion', approvalAttestation('https://github.com/example/repo/issues/22'))
+    assert.equal(reloaded.checkpoint.optimizationGate.status, 'ACTIVE')
+    assert.equal(selectNextTask(reloaded).id, 'approval-after-exhaustion')
+    assert.equal(validateState(reloaded), reloaded)
   } finally {
     await fs.rm(path.dirname(approvalStatePath), { recursive: true, force: true })
   }
