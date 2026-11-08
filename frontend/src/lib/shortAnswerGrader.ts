@@ -439,6 +439,11 @@ function gradeNumericAnswer(
     feedback =
       'No numeric value was detected in the answer.'
   } else if (
+    measurement.status === 'conversion_overflow'
+  ) {
+    feedback =
+      'The numeric value is outside the finite range supported for this unit conversion.'
+  } else if (
     measurement.status === 'missing_unit'
   ) {
     feedback = `Include the expected unit (${measurement.expectedUnit}).`

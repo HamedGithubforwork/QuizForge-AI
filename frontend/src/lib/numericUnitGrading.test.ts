@@ -354,6 +354,24 @@ assert.deepEqual(matchingUnknown, {
   converted: false,
 })
 
+const conversionOverflow = compareNumericMeasurement(
+  '1e308 kg',
+  'g',
+)
+assert.equal(
+  conversionOverflow.status,
+  'conversion_overflow',
+)
+const overflowGrade = gradeShortAnswer(
+  numericQuestion(1, 'g'),
+  '1e308 kg',
+)
+assert.equal(overflowGrade.correct, false)
+assert.match(
+  overflowGrade.feedback,
+  /outside the finite range supported for this unit conversion/,
+)
+
 console.log(
   'Numeric unit grading tests passed.',
 )

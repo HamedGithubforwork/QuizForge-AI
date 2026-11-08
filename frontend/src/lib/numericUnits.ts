@@ -4,6 +4,7 @@ export type NumericMeasurementStatus =
   | 'missing_unit'
   | 'unexpected_unit'
   | 'incompatible_unit'
+  | 'conversion_overflow'
 
 export type NumericMeasurement = {
   status: NumericMeasurementStatus
@@ -334,7 +335,7 @@ export function compareNumericMeasurement(
 
     if (!Number.isFinite(convertedValue)) {
       return {
-        status: 'no_number',
+        status: 'conversion_overflow',
         valueInExpectedUnit: null,
         providedUnit: providedUnitText,
         expectedUnit,
