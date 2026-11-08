@@ -1,0 +1,138 @@
+[
+  {
+    "name": "exact unitless value",
+    "numeric_value": 42,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "42",
+    "accepted": true
+  },
+  {
+    "name": "inside declared decimal tolerance",
+    "numeric_value": 10,
+    "numeric_tolerance": 0.1,
+    "numeric_unit": "",
+    "answer": "9.9",
+    "accepted": true
+  },
+  {
+    "name": "declared tolerance boundary",
+    "numeric_value": 10,
+    "numeric_tolerance": 0.1,
+    "numeric_unit": "",
+    "answer": "10.1",
+    "accepted": true
+  },
+  {
+    "name": "outside declared tolerance",
+    "numeric_value": 10,
+    "numeric_tolerance": 0.1,
+    "numeric_unit": "",
+    "answer": "10.1000001",
+    "accepted": false
+  },
+  {
+    "name": "large positive target discrepancy",
+    "numeric_value": 1e12,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "1000000000500",
+    "accepted": false
+  },
+  {
+    "name": "zero target discrepancy",
+    "numeric_value": 0,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "5e-10",
+    "accepted": false
+  },
+  {
+    "name": "negative large target discrepancy",
+    "numeric_value": -1e9,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "-999999999.5",
+    "accepted": false
+  },
+  {
+    "name": "very small nonzero target",
+    "numeric_value": 1e-12,
+    "numeric_tolerance": 0,
+    "numeric_unit": "g",
+    "answer": "0 g",
+    "accepted": false
+  },
+  {
+    "name": "scientific notation exact",
+    "numeric_value": 0.000001,
+    "numeric_tolerance": 0,
+    "numeric_unit": "",
+    "answer": "1e-6",
+    "accepted": true
+  },
+  {
+    "name": "percentage within declared tolerance",
+    "numeric_value": 84.2,
+    "numeric_tolerance": 0.2,
+    "numeric_unit": "%",
+    "answer": "84.3%",
+    "accepted": true
+  },
+  {
+    "name": "mass unit conversion",
+    "numeric_value": 1,
+    "numeric_tolerance": 0,
+    "numeric_unit": "g",
+    "answer": "1000 mg",
+    "accepted": true
+  },
+  {
+    "name": "Celsius Fahrenheit conversion exact",
+    "numeric_value": 0,
+    "numeric_tolerance": 0,
+    "numeric_unit": "°C",
+    "answer": "32 °F",
+    "accepted": true
+  },
+  {
+    "name": "Celsius Fahrenheit conversion roundoff",
+    "numeric_value": 20.1,
+    "numeric_tolerance": 0,
+    "numeric_unit": "°C",
+    "answer": "68.18 °F",
+    "accepted": true
+  },
+  {
+    "name": "fractional Celsius Fahrenheit conversion roundoff",
+    "numeric_value": 0.1,
+    "numeric_tolerance": 0,
+    "numeric_unit": "°C",
+    "answer": "32.18 °F",
+    "accepted": true
+  },
+  {
+    "name": "near zero Celsius genuine discrepancy",
+    "numeric_value": 0,
+    "numeric_tolerance": 0,
+    "numeric_unit": "°C",
+    "answer": "32.000000001 °F",
+    "accepted": false
+  },
+  {
+    "name": "milligram gram conversion with decimals",
+    "numeric_value": 0.1,
+    "numeric_tolerance": 0,
+    "numeric_unit": "g",
+    "answer": "100 mg",
+    "accepted": true
+  },
+  {
+    "name": "non-finite converted measurement",
+    "numeric_value": 1,
+    "numeric_tolerance": 0,
+    "numeric_unit": "g",
+    "answer": "1e308 kg",
+    "accepted": false
+  }
+]

@@ -420,9 +420,18 @@ function gradeNumericAnswer(
   const correct =
     measurement.status === 'ok' &&
     value !== null &&
-    Math.abs(
-      value - grading.numeric_value,
-    ) <= tolerance
+    (
+      Math.abs(
+        value - grading.numeric_value,
+      ) <= tolerance ||
+      (
+        measurement.conversionRoundingAllowance > 0 &&
+        Math.abs(
+          value - grading.numeric_value,
+        ) - tolerance <=
+          measurement.conversionRoundingAllowance
+      )
+    )
 
   let feedback: string
 

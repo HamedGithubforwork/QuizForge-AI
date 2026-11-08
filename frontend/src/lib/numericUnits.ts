@@ -8,6 +8,7 @@ export type NumericMeasurementStatus =
 export type NumericMeasurement = {
   status: NumericMeasurementStatus
   valueInExpectedUnit: number | null
+  conversionRoundingAllowance?: number
   providedUnit: string | null
   expectedUnit: string
   converted: boolean
@@ -331,15 +332,37 @@ export function compareNumericMeasurement(
         baseValue,
       )
 
+    if (!Number.isFinite(convertedValue)) {
+      return {
+        status: 'no_number',
+        valueInExpectedUnit: null,
+        providedUnit: providedUnitText,
+        expectedUnit,
+        converted: false,
+      }
+    }
+
+    const converted =
+      providedKnownUnit !== expectedKnownUnit
+
+    // Match backend validation: allow one binary64 rounding step only when
+    // a unit conversion was performed, never as extra raw-answer tolerance.
     return {
       status: 'ok',
       valueInExpectedUnit:
         convertedValue,
+      ...(converted
+        ? {
+            conversionRoundingAllowance:
+              Number.EPSILON * Math.max(
+                Math.abs(parsed.value),
+                Math.abs(convertedValue),
+              ),
+          }
+        : {}),
       providedUnit: providedUnitText,
       expectedUnit,
-      converted:
-        providedKnownUnit !==
-        expectedKnownUnit,
+      converted,
     }
   }
 
