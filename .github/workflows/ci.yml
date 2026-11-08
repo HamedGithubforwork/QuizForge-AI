@@ -18,8 +18,8 @@ on:
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
-    branches:
-      - main
+    # Run the PR-associated gate for stacked PRs as well as PRs targeting main.
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -280,6 +280,21 @@ jobs:
       - name: Run orchestrator regression tests
         run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs
 
+  workflow-policy-tests:
+    name: CI trigger policy tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify stacked PR trigger and agent evidence requirements
+        run: node --test scripts/ci/test-pr-ci-trigger.cjs
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -289,44 +304,31 @@ jobs:
       - playwright-e2e
       - desktop-diagnostic-tests
       - autonomy-tests
+      - workflow-policy-tests
     if: always()
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
       - name: Verify relevant CI jobs
-        shell: bash
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
+          FRONTEND_REQUIRED: ${{ needs.changes.outputs.frontend }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          PLAYWRIGHT_REQUIRED: ${{ needs.changes.outputs.playwright }}
           DESKTOP_DIAGNOSTIC_RESULT: ${{ needs.desktop-diagnostic-tests.result }}
+          DESKTOP_DIAGNOSTIC_REQUIRED: ${{ needs.changes.outputs.desktop_diagnostic }}
           AUTONOMY_RESULT: ${{ needs.autonomy-tests.result }}
-        run: |
-          set -euo pipefail
-
-          echo "Change detection: ${CHANGES_RESULT}"
-          echo "Backend tests:   ${BACKEND_RESULT}"
-          echo "Frontend checks: ${FRONTEND_RESULT}"
-          echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
-          echo "Desktop tests:   ${DESKTOP_DIAGNOSTIC_RESULT}"
-          echo "Autonomy tests:  ${AUTONOMY_RESULT}"
-
-          if [[ "${CHANGES_RESULT}" != "success" ]]; then
-            echo "Change detection did not succeed."
-            exit 1
-          fi
-
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}" "${DESKTOP_DIAGNOSTIC_RESULT}" "${AUTONOMY_RESULT}"; do
-            case "${result}" in
-              success|skipped)
-                ;;
-              *)
-                echo "A relevant CI job did not succeed."
-                exit 1
-                ;;
-            esac
-          done
-
-          echo "All relevant CI jobs passed or were intentionally skipped."
-
+          AUTONOMY_REQUIRED: ${{ needs.changes.outputs.autonomy_tests }}
+          WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
+        run: node scripts/ci/verify-required-pr-gate.cjs
