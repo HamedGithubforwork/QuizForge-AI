@@ -320,54 +320,55 @@ test('pinned schema v1 and canonical v2 fixtures load with inline history and no
 test('nonempty schema v1 history, gate state, and applicable archive refs survive migration and save/reload', async () => {
   const { root, file } = await fixture()
   try {
-    const state = createInitialState()
-    state.checkpoint.pilotId = 'legacy-history-pilot-01'
-    startPilot(state)
-    state.checkpoint.optimizationGate.status = 'STOPPED'
-    state.checkpoint.optimizationGate.stopReason = 'budget'
-    const prepared = preparePilot(state, { pilotId: 'legacy-history-pilot-02' })
-    startPreparedPilot(state, {
-      pilotId: prepared.pilotId, maxCycles: 10, approverIdentity: 'hamed',
-      approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
-    })
-    addTask(state, makeTask('legacy-history-task'))
-    for (let index = 0; index < 101; index += 1) {
-      recordOptimizationAudit(state, auditInput(`legacy-history-audit-${String(index).padStart(3, '0')}`))
+    const legacy = JSON.parse(await fs.readFile(path.join(__dirname, 'fixtures/optimization-state-v1-minimal.json'), 'utf8'))
+    startPilot(legacy)
+    for (let index = 0; index < 400; index += 1) addTask(legacy, makeTask(`legacy-history-task-${index}`))
+    addTask(legacy, { ...makeTask('legacy-history-approval-task'), status: 'awaiting_approval' })
+    for (let index = 0; index < 100; index += 1) {
+      recordOptimizationAudit(legacy, auditInput(`legacy-history-audit-${String(index).padStart(3, '0')}`))
     }
-    const expectedTasks = structuredClone(state.tasks)
-    const expectedEvents = structuredClone([...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events])
-    const expectedPilotHistory = structuredClone(state.checkpoint.pilotHistory)
-    const expectedGate = structuredClone(state.checkpoint.optimizationGate)
 
-    await saveState(file, state, root)
-    const persistedV2 = JSON.parse(await fs.readFile(file, 'utf8'))
-    assert.equal(persistedV2.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.auditCount, 0), 1)
-    assert.equal(persistedV2.checkpoint.optimizationGate.auditHistory.length, 100)
+    const summaries = Array.from({ length: 51 }, (_, index) => ({
+      pilotId: `legacy-prior-${String(index).padStart(3, '0')}`,
+      maxCycles: 10, cyclesStarted: 2, cyclesValidated: 1,
+      gateStatus: 'STOPPED', stopReason: 'budget',
+      startedAt: '2026-10-01T12:00:00.000Z', completedAt: '2026-10-02T12:00:00.000Z',
+    }))
+    legacy.checkpoint.archivedPilotHistory = [summaries.slice(0, 25), summaries.slice(25, 26)]
+    legacy.checkpoint.pilotHistory = summaries.slice(26)
+    assert.equal(Object.hasOwn(legacy.checkpoint, 'historyArchives'), false)
+    assert.equal(Object.hasOwn(legacy.checkpoint, 'historyCapacity'), false)
 
-    // Emulate a schema-v1 checkpoint that already carries an additive archive
-    // reference: older v1 checkpoints without this field still default to [].
-    const legacy = structuredClone(persistedV2)
-    legacy.schemaVersion = 1
-    delete legacy.checkpoint.historyCapacity
-    const legacyFile = path.join(root, 'nonempty-schema-v1.json')
-    await fs.writeFile(legacyFile, `${JSON.stringify(legacy, null, 2)}\n`)
+    const expectedTasks = structuredClone(legacy.tasks)
+    const expectedEvents = structuredClone([...legacy.checkpoint.eventArchives.flat(), ...legacy.checkpoint.events])
+    const expectedAudits = structuredClone(legacy.checkpoint.optimizationGate.auditHistory)
+    const expectedPilots = structuredClone([...legacy.checkpoint.archivedPilotHistory.flat(), ...legacy.checkpoint.pilotHistory])
+    const expectedGate = structuredClone(legacy.checkpoint.optimizationGate)
+    await fs.writeFile(file, `${JSON.stringify(legacy, null, 2)}\n`)
 
-    const migrated = await loadState(legacyFile, root)
+    const migrated = await loadState(file, root)
     assert.equal(migrated.schemaVersion, 2)
     assert.deepEqual(migrated.tasks, expectedTasks)
     assert.deepEqual([...migrated.checkpoint.eventArchives.flat(), ...migrated.checkpoint.events], expectedEvents)
-    assert.deepEqual(migrated.checkpoint.eventArchives, persistedV2.checkpoint.eventArchives)
-    assert.deepEqual(migrated.checkpoint.pilotHistory, expectedPilotHistory)
-    assert.deepEqual(migrated.checkpoint.historyArchives, persistedV2.checkpoint.historyArchives)
-    assert.equal(migrated.checkpoint.optimizationGate.status, 'ACTIVE')
+    assert.deepEqual(migrated.checkpoint.optimizationGate.auditHistory, expectedAudits)
+    assert.deepEqual([...migrated.checkpoint.archivedPilotHistory.flat(), ...migrated.checkpoint.pilotHistory], expectedPilots)
+    assert.deepEqual(migrated.checkpoint.historyArchives, [])
+    assert.equal(migrated.checkpoint.optimizationGate.status, 'BLOCKED')
+    assert.equal(migrated.checkpoint.optimizationGate.stopReason, 'approval')
     assert.deepEqual(migrated.checkpoint.optimizationGate, expectedGate)
 
-    await saveState(legacyFile, migrated, root)
-    const resumed = await loadState(legacyFile, root)
+    await saveState(file, migrated, root)
+    const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.ok(persisted.checkpoint.historyArchives.length > 0)
+    assert.ok(persisted.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.eventCount, 0) > 0)
+    assert.ok(persisted.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.pilotCount, 0) > 0)
+    assert.equal(persisted.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.auditCount, 0), 0)
+
+    const resumed = await loadState(file, root)
     assert.deepEqual(resumed.tasks, migrated.tasks)
     assert.deepEqual([...resumed.checkpoint.eventArchives.flat(), ...resumed.checkpoint.events], expectedEvents)
-    assert.deepEqual(resumed.checkpoint.eventArchives, migrated.checkpoint.eventArchives)
-    assert.deepEqual(resumed.checkpoint.pilotHistory, migrated.checkpoint.pilotHistory)
+    assert.deepEqual(resumed.checkpoint.optimizationGate.auditHistory, expectedAudits)
+    assert.deepEqual([...resumed.checkpoint.archivedPilotHistory.flat(), ...resumed.checkpoint.pilotHistory], expectedPilots)
     assert.deepEqual(resumed.checkpoint.historyArchives, migrated.checkpoint.historyArchives)
     assert.deepEqual(resumed.checkpoint.optimizationGate, migrated.checkpoint.optimizationGate)
     assert.equal(validateState(resumed), resumed)

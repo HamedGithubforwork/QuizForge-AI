@@ -64,11 +64,13 @@ untouched; subsequent saves externalize only records older than the active
 windows. The minimal v1 migration test copies the pinned fixture at
 `scripts/autonomy/test/fixtures/optimization-state-v1-minimal.json` to a
 temporary file; it does not depend on or write to the live pilot checkpoint.
-A second regression builds a populated v1-format checkpoint with tasks, events,
-audits, pilot history, and existing archive references, then verifies migration
-and save/reload preservation. There is no separately preserved historical v2
-snapshot in the repository, so the v2 migration test uses the canonical v2
-state constructor with the new additive reference field removed.
+A second regression builds a populated v1-format checkpoint without the
+additive archive-reference fields and verifies task, event, audit, pilot-history,
+and gate preservation. A subsequent save externalizes histories beyond the
+active windows into content-addressed references, which are verified on reload.
+There is no separately preserved historical v2 snapshot in the repository, so
+the v2 migration test uses the canonical v2 state constructor with the new
+additive reference field removed.
 
 For GitHub handoff or cross-checkout recovery, commit or copy the checkpoint
 JSON and every archive file it references together. The orchestrator does not
