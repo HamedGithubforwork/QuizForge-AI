@@ -290,18 +290,16 @@ def _parse_numeric_measurement(
         if not math.isfinite(converted_value):
             return None
 
-        conversion_allowance = 0.0
-        if provided_known != expected_known:
-            # Bound conversion roundoff to one machine-epsilon-scaled amount;
-            # raw numeric answers still use the declared tolerance exactly.
-            conversion_allowance = (
-                math.ulp(1.0)
-                * max(
-                    abs(value),
-                    abs(converted_value),
-                )
+        rounding_scale = abs(converted_value)
+        if expected_definition["dimension"] == "temperature":
+            # Celsius/Fahrenheit conversion has an affine offset; account for
+            # its input-scale rounding near the offset without scaling linear
+            # unit allowances by an unconverted source magnitude.
+            rounding_scale = max(
+                rounding_scale,
+                abs(value),
             )
-        return converted_value, conversion_allowance
+        return converted_value, rounding_scale
 
     if (
         _compact_unit_text(provided_unit_text)
@@ -326,15 +324,23 @@ def _numeric_answer_matches(
     if parsed_measurement is None:
         return False
 
-    converted_value, conversion_allowance = (
+    converted_value, conversion_rounding_scale = (
         parsed_measurement
     )
     difference = abs(
         converted_value - expected_value
     )
+    conversion_allowance = (
+        math.ulp(1.0)
+        * max(
+            abs(expected_value),
+            abs(converted_value),
+            conversion_rounding_scale,
+        )
+    )
 
     return difference <= tolerance or (
-        conversion_allowance > 0
+        conversion_rounding_scale > 0
         and difference - tolerance
         <= conversion_allowance
     )

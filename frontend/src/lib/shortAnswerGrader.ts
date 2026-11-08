@@ -416,9 +416,14 @@ function gradeNumericAnswer(
 
   const value =
     measurement.valueInExpectedUnit
+  const conversionRoundingScale =
+    measurement.conversionRoundingScale ?? 0
   const conversionRoundingAllowance =
-    measurement.conversionRoundingAllowance ??
-    0
+    Number.EPSILON * Math.max(
+      Math.abs(value ?? 0),
+      Math.abs(grading.numeric_value),
+      conversionRoundingScale,
+    )
 
   const correct =
     measurement.status === 'ok' &&

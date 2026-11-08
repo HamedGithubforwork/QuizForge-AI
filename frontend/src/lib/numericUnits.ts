@@ -9,7 +9,7 @@ export type NumericMeasurementStatus =
 export type NumericMeasurement = {
   status: NumericMeasurementStatus
   valueInExpectedUnit: number | null
-  conversionRoundingAllowance?: number
+  conversionRoundingScale?: number
   providedUnit: string | null
   expectedUnit: string
   converted: boolean
@@ -356,19 +356,24 @@ export function compareNumericMeasurement(
     const converted =
       providedKnownUnit !== expectedKnownUnit
 
-    // Match backend validation: bound roundoff to one epsilon-scaled amount
-    // only for unit conversion, never as extra raw-answer tolerance.
+    const conversionRoundingScale =
+      expectedDefinition.dimension ===
+      'temperature'
+        ? Math.max(
+            Math.abs(parsed.value),
+            Math.abs(convertedValue),
+          )
+        : Math.abs(convertedValue)
+
+    // Match backend validation: linear conversion error scales with the
+    // converted value. Temperature also includes the affine input offset.
     return {
       status: 'ok',
       valueInExpectedUnit:
         convertedValue,
       ...(converted
         ? {
-            conversionRoundingAllowance:
-              Number.EPSILON * Math.max(
-                Math.abs(parsed.value),
-                Math.abs(convertedValue),
-              ),
+            conversionRoundingScale,
           }
         : {}),
       providedUnit: providedUnitText,

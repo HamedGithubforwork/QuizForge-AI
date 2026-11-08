@@ -136,6 +136,14 @@
     "accepted": true
   },
   {
+    "name": "large scale-changing conversion remains outside zero tolerance",
+    "numeric_value": 1e302,
+    "numeric_tolerance": 0,
+    "numeric_unit": "m",
+    "answer": "1.0000000001e308 um",
+    "accepted": false
+  },
+  {
     "name": "non-finite converted measurement",
     "numeric_value": 1,
     "numeric_tolerance": 0,
