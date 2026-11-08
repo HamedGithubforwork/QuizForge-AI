@@ -47,6 +47,15 @@ const RECOVERY_DIAGNOSIS_CODES = Object.freeze([
   'evidence_insufficient', 'upstream_unavailable', 'benchmark_over_budget',
   'existing_change_conflict', 'other',
 ])
+const FAILURE_CLASSIFICATION_DIAGNOSIS_CODES = Object.freeze({
+  INTRODUCED_REGRESSION: 'other',
+  PREEXISTING_ON_BASE: 'other',
+  ENVIRONMENT_FAILURE: 'environment_incompatible',
+  INFRASTRUCTURE_FAILURE: 'upstream_unavailable',
+  INTERMITTENT_FAILURE: 'other',
+  EXTERNAL_DEPENDENCY: 'upstream_unavailable',
+  INSUFFICIENT_EVIDENCE: 'evidence_insufficient',
+})
 const NON_RECOVERABLE_REASON_CODES = Object.freeze([
   'unsafe_operation', 'approval_required', 'resource_unavailable',
   'evidence_unavailable', 'external_dependency', 'other',
@@ -129,6 +138,14 @@ function assertInvocationReference(reference) {
       reference.includes('..') || reference.includes('//') || /[\r\n]/.test(reference)) {
     throw new Error('Invalid actual agent invocation reference')
   }
+}
+
+function diagnosisCodeForFailureClassification(classification) {
+  if (!Object.hasOwn(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, classification)) {
+    throw new Error('Failure classification is not allowlisted')
+  }
+  const diagnosisCode = FAILURE_CLASSIFICATION_DIAGNOSIS_CODES[classification]
+  return diagnosisCode
 }
 
 function isValidAssessmentRecord(assessments) {
@@ -249,6 +266,7 @@ function validateTask(task) {
   }
   const recoveryHistory = task.recoveryHistory ?? []
   const recoveryReferences = new Set()
+  const recoveryInvocations = new Set()
   for (const recoveryCase of recoveryHistory) {
     validateRecoveryCase(task, recoveryCase)
     for (const reference of recoveryEvidenceReferences([recoveryCase])) {
@@ -256,6 +274,12 @@ function validateTask(task) {
         throw new Error('Recovery evidence references must be unique across the task history')
       }
       recoveryReferences.add(reference)
+    }
+    for (const reference of recoveryInvocationReferences([recoveryCase])) {
+      if (recoveryInvocations.has(reference)) {
+        throw new Error('Recovery agent invocation references must be unique across the task history')
+      }
+      recoveryInvocations.add(reference)
     }
   }
   if (task.validation !== undefined && task.validation !== null) {
@@ -430,7 +454,7 @@ function validateRecoveryCase(task, recoveryCase) {
   if (!onlyKeys(recoveryCase, ['diagnosis', 'attempts', 'outcome']) ||
       !recoveryCase.diagnosis || !onlyKeys(recoveryCase.diagnosis, [
         'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
-        'blockerCode', 'nonRecoverableReasonCode', 'recordedAt',
+        'blockerCode', 'nonRecoverableReasonCode', 'recordedAt', 'investigatorInvocationRef',
       ]) || !RECOVERY_DIAGNOSIS_CODES.includes(recoveryCase.diagnosis.diagnosisCode) ||
       typeof recoveryCase.diagnosis.recoverable !== 'boolean' ||
       !BLOCKERS.includes(recoveryCase.diagnosis.blockerCode) ||
@@ -441,6 +465,9 @@ function validateRecoveryCase(task, recoveryCase) {
     throw new Error('Invalid recovery diagnosis record')
   }
   assertReference(recoveryCase.diagnosis.investigatorEvidenceRef)
+  if (recoveryCase.diagnosis.investigatorInvocationRef !== undefined) {
+    assertInvocationReference(recoveryCase.diagnosis.investigatorInvocationRef)
+  }
   assertReference(recoveryCase.diagnosis.originalCheckRef)
   if (![...task.testRefs, ...task.benchmarkRefs].includes(recoveryCase.diagnosis.originalCheckRef)) {
     throw new Error('Recovery diagnosis must name an allowlisted original check')
@@ -455,10 +482,15 @@ function validateRecoveryCase(task, recoveryCase) {
     throw new Error('Non-recoverable diagnoses require an allowlisted reason code and cannot have recovery attempts')
   }
   const strategies = new Set()
+  const caseInvocations = new Set()
+  if (recoveryCase.diagnosis.investigatorInvocationRef) {
+    caseInvocations.add(recoveryCase.diagnosis.investigatorInvocationRef)
+  }
   const attemptEvidence = new Set([recoveryCase.diagnosis.investigatorEvidenceRef])
   for (const attempt of recoveryCase.attempts) {
     if (!onlyKeys(attempt, [
       'strategy', 'evidenceRef', 'checkRef', 'verificationRef', 'result', 'recordedAt',
+      'developerInvocationRef',
     ]) || !RECOVERY_STRATEGIES.includes(attempt.strategy) ||
         !['passed', 'failed'].includes(attempt.result) ||
         typeof attempt.recordedAt !== 'string' || Number.isNaN(Date.parse(attempt.recordedAt)) ||
@@ -468,6 +500,13 @@ function validateRecoveryCase(task, recoveryCase) {
     assertReference(attempt.evidenceRef)
     assertReference(attempt.checkRef)
     assertReference(attempt.verificationRef)
+    if (attempt.developerInvocationRef !== undefined) {
+      assertInvocationReference(attempt.developerInvocationRef)
+      if (caseInvocations.has(attempt.developerInvocationRef)) {
+        throw new Error('Recovery attempts require a distinct Developer invocation')
+      }
+      caseInvocations.add(attempt.developerInvocationRef)
+    }
     if (attempt.evidenceRef === attempt.verificationRef || attemptEvidence.has(attempt.evidenceRef) ||
         attemptEvidence.has(attempt.verificationRef)) {
       throw new Error('Recovery attempts require distinct evidence and verification references')
@@ -497,6 +536,13 @@ function recoveryEvidenceReferences(recoveryHistory) {
     recoveryCase.diagnosis.investigatorEvidenceRef,
     ...recoveryCase.attempts.flatMap(attempt => [attempt.evidenceRef, attempt.verificationRef]),
   ]))
+}
+
+function recoveryInvocationReferences(recoveryHistory) {
+  return new Set(recoveryHistory.flatMap(recoveryCase => [
+    recoveryCase.diagnosis.investigatorInvocationRef,
+    ...recoveryCase.attempts.map(attempt => attempt.developerInvocationRef),
+  ]).filter(Boolean))
 }
 
 function validatePreparedPilot(prepared) {
@@ -1441,7 +1487,7 @@ function selectTask(state) {
     if (!checkRef || !investigatorEvidenceRef) {
       throw new Error('Expensive benchmark task lacks evidence to record a safe blocker')
     }
-    recordRecoveryDiagnosis(state, task.id, {
+    recordSystemRecoveryDiagnosis(state, task.id, {
       diagnosisCode: 'benchmark_over_budget',
       investigatorEvidenceRef,
       originalCheckRef: checkRef,
@@ -1731,14 +1777,34 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
 }
 
 function recordRecoveryDiagnosis(state, taskId, payload) {
+  return recordRecoveryDiagnosisWithOrigin(state, taskId, payload, false)
+}
+
+function recordSystemRecoveryDiagnosis(state, taskId, payload) {
+  return recordRecoveryDiagnosisWithOrigin(state, taskId, payload, true)
+}
+
+function recordRecoveryDiagnosisWithOrigin(state, taskId, payload, systemGenerated) {
   const task = requireSelected(state, taskId)
   const allowed = [
     'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
-    'blockerCode', 'nonRecoverableReasonCode',
+    'blockerCode', 'nonRecoverableReasonCode', 'investigatorInvocationRef',
   ]
   if (!onlyKeys(payload, allowed) || !RECOVERY_DIAGNOSIS_CODES.includes(payload.diagnosisCode) ||
       typeof payload.recoverable !== 'boolean' || !BLOCKERS.includes(payload.blockerCode)) {
     throw new Error('Investigator diagnosis requires allowlisted diagnosis, recoverability, and blocker codes')
+  }
+  const isAutomaticBenchmarkBlocker = systemGenerated &&
+    payload.diagnosisCode === 'benchmark_over_budget' && !payload.recoverable &&
+    payload.blockerCode === 'benchmark_expensive' &&
+    payload.nonRecoverableReasonCode === 'resource_unavailable'
+  if (systemGenerated && !isAutomaticBenchmarkBlocker) {
+    throw new Error('The orchestrator may only create its automatic benchmark-cost blocker')
+  }
+  if (!isAutomaticBenchmarkBlocker) {
+    assertInvocationReference(payload.investigatorInvocationRef)
+  } else if (payload.investigatorInvocationRef !== undefined) {
+    throw new Error('Automatic benchmark blockers do not claim an Investigator invocation')
   }
   assertReference(payload.investigatorEvidenceRef)
   assertReference(payload.originalCheckRef)
@@ -1760,6 +1826,10 @@ function recordRecoveryDiagnosis(state, taskId, payload) {
   if (recoveryEvidenceReferences(task.recoveryHistory).has(payload.investigatorEvidenceRef)) {
     throw new Error('Recovery diagnosis requires evidence not used in any prior recovery case')
   }
+  if (payload.investigatorInvocationRef &&
+      recoveryInvocationReferences(task.recoveryHistory).has(payload.investigatorInvocationRef)) {
+    throw new Error('Recovery diagnosis requires a new Investigator invocation reference')
+  }
   const addsEvidenceRef = !task.evidenceRefs.includes(payload.investigatorEvidenceRef)
   if (addsEvidenceRef && task.evidenceRefs.length >= 12) throw new Error('Task evidence reference limit reached')
   if (!payload.recoverable) mergeWorkPreserved(task, lifecycleSnapshot(task))
@@ -1768,6 +1838,8 @@ function recordRecoveryDiagnosis(state, taskId, payload) {
     diagnosis: {
       diagnosisCode: payload.diagnosisCode,
       investigatorEvidenceRef: payload.investigatorEvidenceRef,
+      ...(payload.investigatorInvocationRef
+        ? { investigatorInvocationRef: payload.investigatorInvocationRef } : {}),
       originalCheckRef: payload.originalCheckRef,
       recoverable: payload.recoverable,
       blockerCode: payload.blockerCode,
@@ -1792,11 +1864,12 @@ function recordRecoveryAttempt(state, taskId, payload) {
   if (!recoveryCase || recoveryCase.outcome !== 'in_progress' || !recoveryCase.diagnosis.recoverable) {
     throw new Error('An active, safely recoverable Investigator diagnosis is required')
   }
-  if (!onlyKeys(payload, ['strategy', 'evidenceRef', 'verificationRef', 'result']) ||
+  if (!onlyKeys(payload, ['strategy', 'evidenceRef', 'verificationRef', 'result', 'developerInvocationRef']) ||
       !RECOVERY_STRATEGIES.includes(payload.strategy) ||
       !['passed', 'failed'].includes(payload.result)) {
     throw new Error('Recovery attempt must use an allowlisted strategy and result')
   }
+  assertInvocationReference(payload.developerInvocationRef)
   if (recoveryCase.attempts.length >= MAX_RECOVERY_ATTEMPTS) {
     throw new Error('Recovery is limited to two distinct attempts')
   }
@@ -1810,10 +1883,14 @@ function recordRecoveryAttempt(state, taskId, payload) {
       payload.evidenceRef === payload.verificationRef) {
     throw new Error('Recovery attempt requires distinct evidence and verification references')
   }
+  if (recoveryInvocationReferences(task.recoveryHistory).has(payload.developerInvocationRef)) {
+    throw new Error('Recovery attempt requires a new Developer invocation reference')
+  }
   const willBlock = payload.result === 'failed' && recoveryCase.attempts.length + 1 === MAX_RECOVERY_ATTEMPTS
   if (willBlock) mergeWorkPreserved(task, lifecycleSnapshot(task))
   const attempt = {
     strategy: payload.strategy,
+    developerInvocationRef: payload.developerInvocationRef,
     evidenceRef: payload.evidenceRef,
     checkRef: recoveryCase.diagnosis.originalCheckRef,
     verificationRef: payload.verificationRef,
@@ -2581,6 +2658,7 @@ if (require.main === module) {
 
 module.exports = {
   AUDIT_DIMENSIONS, AUDIT_ROLES, BLOCKERS, DEFAULT_STATE_PATH, DOMAINS, MAX_CYCLES, TASK_STATUSES,
+  FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, diagnosisCodeForFailureClassification,
   addTask, beginRun, blockTask, createInitialState, preparePilot, startPreparedPilot,
   recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordApproval, recordNewEvidence, recordOptimizationAudit, recordRecoveryAttempt, recordRecoveryDiagnosis,

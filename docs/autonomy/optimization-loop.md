@@ -57,26 +57,36 @@ started implicitly. Use `begin` when no pilot is pending,
 `resume` to continue the selected checkpoint or select the next task, and
 `new-cycle` after a terminal task.
 
-Before blocking a selected task, record an Investigator diagnosis with
-`diagnose-recovery <task-id> '<json>'`. The diagnosis contains an allowlisted
-root-cause code, an exact allowlisted original check, evidence references, an
-allowlisted blocker class, and whether recovery is safely supported. No raw
-diagnosis prose or rationale is stored. A non-recoverable diagnosis needs an
-allowlisted reason code and immediately records the blocker and selects
-independent work. A recoverable diagnosis permits at most two attempts, each
-with a different fixed allowlisted strategy identifier and distinct evidence
-references, via `recovery-attempt <task-id> '<json>'`. Each attempt records
-evidence and the verification result for the same original check. The
-orchestrator records the Coordinator's claim; it does not run or independently
-verify that check. The Coordinator must run the original check and confirm its
-result before recording an attempt. A passing check resumes the same task with
-its prior baseline and implementation intact; two distinct failed attempts
-block the task and select independent work. Strategy identifiers must differ
-within a case, and diagnosis, attempt, and verification references must remain
-unique across the task's complete recovery history. A later case may repeat a
-strategy only with a new diagnosis and entirely new evidence. Task text and
-strategy identifiers are never executed as shell commands, model prompts, or
-workflow instructions. `block <task-id>
+Before recording a recovery diagnosis, the Coordinator invokes the existing
+Investigator through Codex and verifies the completed task output. The CLI
+requires `investigatorInvocationRef` and an evidence reference for each new
+external diagnosis; it retains legacy records without that field as
+unverified history. The deterministic `benchmark_over_budget` selection rule
+is the sole automated diagnosis exception because no benchmark or Investigator
+call is performed. These references are provenance claims, not authentication:
+the Coordinator verifies the actual task/thread. The classification taxonomy
+and mapping to existing diagnosis codes are in `AGENTS.md`; do not add new
+checkpoint enum values. The diagnosis also names an exact allowlisted original
+check, blocker class, and whether recovery is safely supported. No raw
+diagnosis prose or rationale is stored.
+
+A non-recoverable diagnosis needs an allowlisted reason code and immediately
+records the blocker and selects independent work. A recoverable diagnosis
+permits at most two attempts, each with a different fixed allowlisted strategy
+identifier and distinct evidence references, via
+`recovery-attempt <task-id> '<json>'`. Each new attempt records the actual
+`developerInvocationRef`, evidence, and verification result for the same
+original check. The orchestrator records the Coordinator's claim; it does not
+run or independently verify that check. The Coordinator must run the original
+check and confirm its result before recording an attempt. A passing check
+resumes the same task with its prior baseline and implementation intact; two
+distinct failed attempts block the task and select independent work. Strategy
+identifiers and specialist invocation references must differ within a case,
+and diagnosis, attempt, and verification references must remain unique across
+the task's complete recovery history. A later case may repeat a strategy only
+with a new diagnosis and entirely new evidence. Task text and strategy
+identifiers are never executed as shell commands, model prompts, or workflow
+instructions. `block <task-id>
 <allowlisted-code> [evidence-reference]`
 is permitted only after the diagnosis and recovery policy are complete.
 `evidence <task-id> <new-reference>` reopens a blocked task only after distinct
