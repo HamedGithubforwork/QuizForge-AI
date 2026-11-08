@@ -317,6 +317,63 @@ test('pinned schema v1 and canonical v2 fixtures load with inline history and no
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
 
+test('nonempty schema v1 history, gate state, and applicable archive refs survive migration and save/reload', async () => {
+  const { root, file } = await fixture()
+  try {
+    const state = createInitialState()
+    state.checkpoint.pilotId = 'legacy-history-pilot-01'
+    startPilot(state)
+    state.checkpoint.optimizationGate.status = 'STOPPED'
+    state.checkpoint.optimizationGate.stopReason = 'budget'
+    const prepared = preparePilot(state, { pilotId: 'legacy-history-pilot-02' })
+    startPreparedPilot(state, {
+      pilotId: prepared.pilotId, maxCycles: 10, approverIdentity: 'hamed',
+      approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    })
+    addTask(state, makeTask('legacy-history-task'))
+    for (let index = 0; index < 101; index += 1) {
+      recordOptimizationAudit(state, auditInput(`legacy-history-audit-${String(index).padStart(3, '0')}`))
+    }
+    const expectedTasks = structuredClone(state.tasks)
+    const expectedEvents = structuredClone([...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events])
+    const expectedPilotHistory = structuredClone(state.checkpoint.pilotHistory)
+    const expectedGate = structuredClone(state.checkpoint.optimizationGate)
+
+    await saveState(file, state, root)
+    const persistedV2 = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(persistedV2.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.auditCount, 0), 1)
+    assert.equal(persistedV2.checkpoint.optimizationGate.auditHistory.length, 100)
+
+    // Emulate a schema-v1 checkpoint that already carries an additive archive
+    // reference: older v1 checkpoints without this field still default to [].
+    const legacy = structuredClone(persistedV2)
+    legacy.schemaVersion = 1
+    delete legacy.checkpoint.historyCapacity
+    const legacyFile = path.join(root, 'nonempty-schema-v1.json')
+    await fs.writeFile(legacyFile, `${JSON.stringify(legacy, null, 2)}\n`)
+
+    const migrated = await loadState(legacyFile, root)
+    assert.equal(migrated.schemaVersion, 2)
+    assert.deepEqual(migrated.tasks, expectedTasks)
+    assert.deepEqual([...migrated.checkpoint.eventArchives.flat(), ...migrated.checkpoint.events], expectedEvents)
+    assert.deepEqual(migrated.checkpoint.eventArchives, persistedV2.checkpoint.eventArchives)
+    assert.deepEqual(migrated.checkpoint.pilotHistory, expectedPilotHistory)
+    assert.deepEqual(migrated.checkpoint.historyArchives, persistedV2.checkpoint.historyArchives)
+    assert.equal(migrated.checkpoint.optimizationGate.status, 'ACTIVE')
+    assert.deepEqual(migrated.checkpoint.optimizationGate, expectedGate)
+
+    await saveState(legacyFile, migrated, root)
+    const resumed = await loadState(legacyFile, root)
+    assert.deepEqual(resumed.tasks, migrated.tasks)
+    assert.deepEqual([...resumed.checkpoint.eventArchives.flat(), ...resumed.checkpoint.events], expectedEvents)
+    assert.deepEqual(resumed.checkpoint.eventArchives, migrated.checkpoint.eventArchives)
+    assert.deepEqual(resumed.checkpoint.pilotHistory, migrated.checkpoint.pilotHistory)
+    assert.deepEqual(resumed.checkpoint.historyArchives, migrated.checkpoint.historyArchives)
+    assert.deepEqual(resumed.checkpoint.optimizationGate, migrated.checkpoint.optimizationGate)
+    assert.equal(validateState(resumed), resumed)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
 test('load rejects archive references exceeding cumulative byte and aggregate record caps before reading files', async () => {
   const { root, file } = await fixture()
   try {

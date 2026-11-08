@@ -40,15 +40,35 @@ name, regular-file type, bounded size, and 24-hour stale age can be reclaimed.
 Unknown, malformed, recent, or foreign-host artifacts are preserved and cause
 the archive operation to stop for manual inspection.
 
+## Local concurrency threat model
+
+The archive store is a local workspace persistence mechanism, not a defense
+boundary against another process that has write access to the same checkout.
+Supported multi-agent work assigns code changes and reviews in the shared
+worktree; archive tests use isolated temporary roots, and concurrent checkpoint
+saves serialize through the capacity lock and reject stale revisions. Those
+operations do not replace the archive directory itself. A process that
+deliberately removes or replaces `docs/autonomy/history-archives` between path
+validation and later path-based I/O could still race the current checks. Such
+hostile same-user filesystem mutation is outside the supported operating
+model; symlinks present when a path is checked are rejected, and a subsequent
+load fails closed if the directory has become a symlink. The residual race
+must remain explicitly accepted by independent Reviewer and Security review.
+If untrusted concurrent processes with workspace write access enter the threat
+model, this path-based implementation needs directory-handle-relative,
+no-follow operations or equivalent isolation before use.
+
 Schema v1 and v2 checkpoints without archive references are migrated in
 memory by initializing an empty reference list. Their inline history remains
 untouched; subsequent saves externalize only records older than the active
-windows. The v1 regression test copies the pinned minimal fixture at
+windows. The minimal v1 migration test copies the pinned fixture at
 `scripts/autonomy/test/fixtures/optimization-state-v1-minimal.json` to a
-temporary file before migration; it does not depend on the mutable live pilot
-checkpoint or write to the version-controlled fixture. There is no separately
-preserved historical v2 snapshot in the repository, so the v2 migration test uses the
-canonical v2 state constructor with the new additive reference field removed.
+temporary file; it does not depend on or write to the live pilot checkpoint.
+A second regression builds a populated v1-format checkpoint with tasks, events,
+audits, pilot history, and existing archive references, then verifies migration
+and save/reload preservation. There is no separately preserved historical v2
+snapshot in the repository, so the v2 migration test uses the canonical v2
+state constructor with the new additive reference field removed.
 
 For GitHub handoff or cross-checkout recovery, commit or copy the checkpoint
 JSON and every archive file it references together. The orchestrator does not
