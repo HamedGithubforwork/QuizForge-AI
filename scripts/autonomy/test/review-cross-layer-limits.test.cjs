@@ -2,13 +2,13 @@ const assert = require('node:assert/strict')
 const test = require('node:test')
 
 const SEMANTIC_LIMIT_BYTES = 512 * 1024
-const ORIGINAL_PROXY_LIMIT_BYTES = 512 * 1024
-const CORRECTED_PROXY_LIMIT_BYTES = 2 * 1024 * 1024
+const HISTORICAL_PROXY_LIMIT_BYTES = 512 * 1024
+const HISTORICAL_CORRECTED_PROXY_LIMIT_BYTES = 2 * 1024 * 1024
 const USER_PREFIX = 'Review these borderline short answers:\n\n'
 
-// PR #686 sets both the semantic and Caddy caps to 512 KiB. This review
-// fixture models a corrected 2 MiB proxy allowance; it does not claim a live
-// Caddy/backend run or prescribe a production limit without integration tests.
+// Historical PR #686 review fixture: this fixed-value model records the
+// request-envelope mismatch and a proposed allowance. It does not read live
+// Caddy/backend configuration or prove current runtime compatibility.
 
 function pythonCompatibleJson(value) {
   const compact = JSON.stringify(value)
@@ -93,32 +93,32 @@ function reviewRequestBodyLimit(requestBodyBytes, proxyLimitBytes) {
     : []
 }
 
-test('flags PR 686 limits when a supported max semantic payload has escaped JSON overhead', () => {
+test('historical fixed-value model flags PR 686 limits when escaped JSON exceeds its assumed proxy cap', () => {
   const cases = buildCasesAtSemanticLimit(SEMANTIC_LIMIT_BYTES)
   const semanticBytes = Buffer.byteLength(USER_PREFIX + pythonCompatibleJson(cases))
   const encodedHttpBody = escapeNonAsciiForJson({ cases })
   const requestBodyBytes = Buffer.byteLength(encodedHttpBody)
 
   assert.equal(semanticBytes, SEMANTIC_LIMIT_BYTES)
-  assert.ok(requestBodyBytes > ORIGINAL_PROXY_LIMIT_BYTES)
+  assert.ok(requestBodyBytes > HISTORICAL_PROXY_LIMIT_BYTES)
   assert.deepEqual(
-    reviewRequestBodyLimit(requestBodyBytes, ORIGINAL_PROXY_LIMIT_BYTES),
+    reviewRequestBodyLimit(requestBodyBytes, HISTORICAL_PROXY_LIMIT_BYTES),
     [{
       code: 'proxy_limit_below_valid_request',
       requestBodyBytes,
-      proxyLimitBytes: ORIGINAL_PROXY_LIMIT_BYTES,
+      proxyLimitBytes: HISTORICAL_PROXY_LIMIT_BYTES,
     }],
   )
 })
 
-test('accepts a corrected proxy limit that accommodates the same valid request', () => {
+test('historical fixed-value model accepts the proposed proxy allowance for the same request', () => {
   const cases = buildCasesAtSemanticLimit(SEMANTIC_LIMIT_BYTES)
   const encodedHttpBody = escapeNonAsciiForJson({ cases })
   const requestBodyBytes = Buffer.byteLength(encodedHttpBody)
 
-  assert.ok(requestBodyBytes <= CORRECTED_PROXY_LIMIT_BYTES)
+  assert.ok(requestBodyBytes <= HISTORICAL_CORRECTED_PROXY_LIMIT_BYTES)
   assert.deepEqual(
-    reviewRequestBodyLimit(requestBodyBytes, CORRECTED_PROXY_LIMIT_BYTES),
+    reviewRequestBodyLimit(requestBodyBytes, HISTORICAL_CORRECTED_PROXY_LIMIT_BYTES),
     [],
   )
 })

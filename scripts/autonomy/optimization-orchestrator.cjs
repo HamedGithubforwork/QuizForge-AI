@@ -7,9 +7,13 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const os = require('node:os')
+const checkpointHistory = require('./checkpoint-history-store.cjs')
 
 const SCHEMA_VERSION = 2
 const MAX_CYCLES = 10
+// Keep the version-controlled backlog finite. Tasks are never discarded; reaching
+// this ceiling is an explicit operator-visible error before state mutation.
+const MAX_TASKS = 1000
 const MAX_EVENTS = 500
 const EVENT_ARCHIVE_CHUNK = 250
 const MAX_PILOT_SUMMARIES = 25
@@ -100,6 +104,8 @@ function createInitialState() {
       preparedPilot: null,
       pilotHistory: [],
       archivedPilotHistory: [],
+      historyArchives: [],
+      historyCapacity: null,
       eventArchives: [],
       optimizationGate: {
         status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
@@ -548,6 +554,9 @@ function validatePilotSummary(summary) {
 }
 
 function validateState(state) {
+  if (Array.isArray(state?.tasks) && state.tasks.length > MAX_TASKS) {
+    throw new Error(`Task capacity exceeded (${MAX_TASKS}); preserve the complete backlog before continuing`)
+  }
   if (state?.schemaVersion === 1 && Array.isArray(state.tasks)) {
     // Preserve completed historical results without inventing invocation IDs.
     // In-progress, untraceable reviews remain in the event history, but the
@@ -573,7 +582,7 @@ function validateState(state) {
   if (!state || state.schemaVersion !== SCHEMA_VERSION ||
       !Array.isArray(state.domains) || state.domains.length !== DOMAINS.length ||
       DOMAINS.some(domain => !state.domains.includes(domain)) ||
-      !Array.isArray(state.tasks) || !state.checkpoint ||
+      !Array.isArray(state.tasks) || state.tasks.length > MAX_TASKS || !state.checkpoint ||
       !Array.isArray(state.checkpoint.events) || state.checkpoint.events.length > MAX_EVENTS ||
       !Number.isInteger(state.checkpoint.maxCycles) || state.checkpoint.maxCycles < 1 ||
       state.checkpoint.maxCycles > MAX_CYCLES ||
@@ -588,12 +597,14 @@ function validateState(state) {
   checkpoint.preparedPilot ??= null
   checkpoint.pilotHistory ??= []
   checkpoint.archivedPilotHistory ??= []
+  checkpoint.historyArchives ??= []
+  checkpoint.historyCapacity ??= null
   checkpoint.eventArchives ??= []
   if (!Number.isSafeInteger(checkpoint.revision) || checkpoint.revision < 0 ||
       !onlyKeys(checkpoint, [
         'pilotId', 'maxCycles', 'cyclesStarted', 'cyclesValidated', 'revision',
         'selectedTaskId', 'previousTaskId', 'preparedPilot', 'pilotHistory',
-        'archivedPilotHistory', 'eventArchives', 'optimizationGate', 'events',
+        'archivedPilotHistory', 'eventArchives', 'historyArchives', 'historyCapacity', 'optimizationGate', 'events',
       ])) {
     throw new Error('Invalid optimization checkpoint revision or fields')
   }
@@ -602,8 +613,18 @@ function validateState(state) {
       checkpoint.archivedPilotHistory.some(chunk => !Array.isArray(chunk) ||
         chunk.length === 0 || chunk.length > PILOT_SUMMARY_ARCHIVE_CHUNK) ||
       !Array.isArray(checkpoint.eventArchives) ||
-      checkpoint.eventArchives.some(chunk => !Array.isArray(chunk) || chunk.length === 0 || chunk.length > MAX_EVENTS)) {
+      checkpoint.eventArchives.some(chunk => !Array.isArray(chunk) || chunk.length === 0 || chunk.length > MAX_EVENTS) ||
+      !Array.isArray(checkpoint.historyArchives) ||
+      checkpoint.historyArchives.length > checkpointHistory.MAX_ARCHIVE_FILES) {
     throw new Error('Invalid archived pilot or event history')
+  }
+  checkpointHistory.validateRefs(checkpoint.historyArchives)
+  if (checkpoint.historyCapacity !== null &&
+      (!onlyKeys(checkpoint.historyCapacity, ['status', 'reason', 'recordedAt']) ||
+       checkpoint.historyCapacity.status !== 'BLOCKED' || checkpoint.historyCapacity.reason !== 'history_capacity' ||
+       typeof checkpoint.historyCapacity.recordedAt !== 'string' ||
+       Number.isNaN(Date.parse(checkpoint.historyCapacity.recordedAt)))) {
+    throw new Error('Invalid durable history-capacity blocker record')
   }
   for (const summary of [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]) {
     validatePilotSummary(summary)
@@ -638,11 +659,12 @@ function validateState(state) {
       !Array.isArray(gate.lastAuditRefs) || gate.lastAuditRefs.length > 12 ||
       !Array.isArray(gate.lastAuditedDimensions) ||
       gate.lastAuditedDimensions.some(d => !AUDIT_DIMENSIONS.includes(d)) ||
-      !Array.isArray(gate.auditHistory) || gate.auditHistory.length > 100 ||
+      !Array.isArray(gate.auditHistory) ||
       (gate.status === 'OPTIMIZATION_EXHAUSTED' &&
        (gate.consecutiveCleanAudits < 2 || AUDIT_DIMENSIONS.some(d => !gate.lastAuditedDimensions.includes(d)))) ||
       (gate.status === 'STOPPED' && !['budget', 'security', 'correctness'].includes(gate.stopReason)) ||
-      (gate.status === 'BLOCKED' && gate.stopReason !== null && gate.stopReason !== 'approval') ||
+      (gate.status === 'BLOCKED' && gate.stopReason !== null &&
+       !['approval', 'history_capacity'].includes(gate.stopReason)) ||
       (gate.status !== 'STOPPED' && gate.status !== 'BLOCKED' && gate.stopReason !== null) ||
       (gate.status === 'OPTIMIZATION_EXHAUSTED' && !validFinalReport(gate.finalReport)) ||
       (gate.status !== 'OPTIMIZATION_EXHAUSTED' && gate.finalReport !== null)) {
@@ -857,6 +879,7 @@ function validateState(state) {
     }
   }
   if (gate.status === 'OPTIMIZATION_EXHAUSTED' &&
+      JSON.stringify(gate.finalReport.audits) !== JSON.stringify(gate.auditHistory.slice(-2)) &&
       JSON.stringify(gate.finalReport.audits) !== JSON.stringify(gate.auditHistory)) {
     throw new Error('Exhaustion report does not preserve complete audit history')
   }
@@ -913,7 +936,13 @@ function validateState(state) {
   }
   if (gate.status === 'OPTIMIZATION_EXHAUSTED') {
     const expectedReport = buildFinalReport(state, [], gate.auditHistory.at(-1).specialistAssessments)
-    if (JSON.stringify(expectedReport) !== JSON.stringify(gate.finalReport)) {
+    const legacyFullReport = {
+      ...expectedReport,
+      auditEvidenceRefs: gate.auditHistory.flatMap(audit => audit.evidenceRefs),
+      audits: clone(gate.auditHistory),
+    }
+    if (JSON.stringify(expectedReport) !== JSON.stringify(gate.finalReport) &&
+        JSON.stringify(legacyFullReport) !== JSON.stringify(gate.finalReport)) {
       throw new Error('Exhaustion report does not match the persisted backlog and audit evidence')
     }
   }
@@ -1196,8 +1225,9 @@ function buildFinalReport(state, auditEvidenceRefs, specialistAssessments) {
     })),
     specialistFindings: specialistAssessments.map(item => ({ ...item })),
     auditDimensions: [...AUDIT_DIMENSIONS],
-    auditEvidenceRefs: state.checkpoint.optimizationGate.auditHistory.flatMap(audit => audit.evidenceRefs),
-    audits: clone(state.checkpoint.optimizationGate.auditHistory),
+    auditEvidenceRefs: state.checkpoint.optimizationGate.auditHistory.slice(-2)
+      .flatMap(audit => audit.evidenceRefs),
+    audits: clone(state.checkpoint.optimizationGate.auditHistory.slice(-2)),
     restartCriteria: ['new_actionable_task', 'distinct_blocker_evidence',
       'credible_specialist_improvement', 'required_approval', 'safe_scope_after_stop'],
   }
@@ -1257,7 +1287,6 @@ function recordOptimizationAudit(state, audit = {}) {
   validateSpecialistAssessments(specialistAssessments)
   const previousAudits = state.checkpoint.optimizationGate?.auditHistory ?? []
   if (previousAudits.some(item => item.auditId === auditId)) throw new Error(`Duplicate audit ID: ${auditId}`)
-  if (previousAudits.length >= 100) throw new Error('Audit history limit reached; archive checkpoint before continuing')
   if (state.checkpoint.optimizationGate?.status === 'STOPPED') {
     throw new Error('Stopped optimization gate requires an explicitly authorized release or new budgeted pilot')
   }
@@ -2300,6 +2329,9 @@ function startPreparedPilot(state, attestation) {
 }
 
 function addTask(state, taskInput) {
+  if (state.tasks.length >= MAX_TASKS) {
+    throw new Error(`Task capacity reached (${MAX_TASKS}); preserve the existing backlog and review capacity before adding tasks`)
+  }
   if (taskInput?.initialStatus !== undefined) {
     throw new Error('Initial status is assigned by the orchestrator during task discovery')
   }
@@ -2341,12 +2373,16 @@ async function loadState(filePath = DEFAULT_STATE_PATH, repositoryRoot = REPOSIT
   const text = await fs.readFile(filePath, 'utf8')
   let state
   try { state = JSON.parse(text) } catch { throw new Error(`Invalid JSON in state file: ${filePath}`) }
+  if (state?.checkpoint) {
+    state.checkpoint.historyArchives ??= []
+    await checkpointHistory.hydrateHistory(state, repositoryRoot)
+  }
   validateState(state)
   await verifyPersistedPreservationArchives(state, repositoryRoot)
   return state
 }
 
-async function saveState(filePath, state) {
+async function saveState(filePath, state, repositoryRoot = REPOSITORY_ROOT) {
   validateState(state)
   const target = path.resolve(filePath)
   await fs.mkdir(path.dirname(target), { recursive: true })
@@ -2430,10 +2466,13 @@ async function saveState(filePath, state) {
     if (diskRevision !== state.checkpoint.revision) {
       throw new Error(`Stale checkpoint revision ${state.checkpoint.revision}; current revision is ${diskRevision}`)
     }
-    state.checkpoint.revision += 1
-    validateState(state)
-    await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+    const candidate = clone(state)
+    candidate.checkpoint.revision += 1
+    validateState(candidate)
+    const persisted = await checkpointHistory.prepareHistoryForPersistence(candidate, repositoryRoot)
+    await fs.writeFile(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     await fs.rename(tempPath, target)
+    Object.assign(state, candidate)
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
     await lock.close().catch(() => {})

@@ -3,6 +3,7 @@
 const test = require('node:test')
 
 require('./review-cross-layer-limits.test.cjs')
+require('./checkpoint-history.test.cjs')
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
@@ -1212,6 +1213,33 @@ test('exhaustion requires two clean audits, blockers remain blocked, and new wor
   })
   assert.equal(resumed.status, 'ACTIVE')
   assert.equal(selectNextTask(state).id, 'newly-actionable-task')
+})
+
+test('audit history accepts the 101st audit without losing the exhaustion evidence', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'audit-history-rollover-test', maxCycles: 10 })
+  const input = {
+    auditedDimensions: [...AUDIT_DIMENSIONS], evidenceRefs: ['docs/ai-cost-controls.md'],
+    specialistAssessments: AUDIT_ROLES.map(role => ({ role, finding: 'clear', evidenceRef: 'docs/ai-cost-controls.md' })),
+  }
+  let result
+  for (let index = 0; index < 101; index += 1) {
+    result = recordOptimizationAudit(state, { ...input, auditId: `audit-roll-${String(index).padStart(3, '0')}` })
+  }
+  assert.equal(result.auditHistory.length, 101)
+  assert.equal(result.status, 'OPTIMIZATION_EXHAUSTED')
+  assert.equal(result.finalReport.audits.length, 2)
+  assert.equal(state.checkpoint.events.filter(event => event.auditId).length, 101)
+  assert.equal(validateState(state), state)
+  assert.throws(() => recordOptimizationAudit(state, { ...input, auditId: 'audit-roll-100' }), /Duplicate audit ID/)
+})
+
+test('task capacity rejects before mutation and preserves the existing backlog', () => {
+  const state = createInitialState()
+  state.tasks = Array.from({ length: 1000 }, (_, index) => ({ id: `preserved-${index}` }))
+  const before = structuredClone(state.tasks)
+  assert.throws(() => addTask(state, task('over-capacity')), /Task capacity reached \(1000\)/)
+  assert.deepEqual(state.tasks, before)
 })
 
 test('reaching the cycle cap persists a budget stop rather than exhaustion', () => {
