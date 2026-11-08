@@ -71,6 +71,7 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /- workflow-policy-tests/)
   assert.match(gate, /WORKFLOW_POLICY_RESULT/)
   assert.match(gate, /needs\.workflow-policy-tests\.result/)
+  assert.match(gate, /uses: actions\/checkout@v7[\s\S]*uses: actions\/setup-node@v7/)
   assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
 })
 
