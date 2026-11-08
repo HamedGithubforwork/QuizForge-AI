@@ -11,7 +11,7 @@ const {
   recordCompletedInferenceProfile,
 } = require('../src/windows-local-ai-stack.cjs')
 
-test('completed unknown-acceleration timing persists for the requested GPU profile only', async t => {
+test('unconfirmed GPU timing cannot influence profile selection', async t => {
   const userDataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-profile-measurement-'))
   t.after(() => fs.rm(userDataDirectory, { recursive: true, force: true }))
   const policy = createLocalOffloadPolicy({ userDataDirectory })
@@ -26,8 +26,9 @@ test('completed unknown-acceleration timing persists for the requested GPU profi
     layers: 99, acceleration: 'unknown', elapsedMs: 18000,
     decodeMs: 11600, completionTokens: 1000,
   }
-  assert.equal(isCompletedInferenceProfile(unknownGpu), true)
-  assert.equal(recordCompletedInferenceProfile(policy, unknownGpu), true)
+  assert.equal(policy.choose(), 99)
+  assert.equal(isCompletedInferenceProfile(unknownGpu), false)
+  assert.equal(recordCompletedInferenceProfile(policy, unknownGpu), false)
   assert.equal(isCompletedInferenceProfile({ layers: 24, acceleration: 'gpu' }), true)
   assert.equal(isCompletedInferenceProfile({ layers: 0, acceleration: 'cpu' }), true)
   assert.equal(isCompletedInferenceProfile({ layers: 99, acceleration: 'cpu' }), false)
@@ -37,6 +38,11 @@ test('completed unknown-acceleration timing persists for the requested GPU profi
   }), false)
   assert.equal(isCompletedInferenceProfile({ layers: -1, acceleration: 'unknown' }), false)
   assert.equal(isCompletedInferenceProfile({ layers: 1.5, acceleration: 'gpu' }), false)
+
+  assert.equal(policy.choose(), 99, 'unknown telemetry must not count a GPU candidate as measured')
+  const confirmedGpu = { ...unknownGpu, acceleration: 'gpu' }
+  assert.equal(recordCompletedInferenceProfile(policy, confirmedGpu), true)
+  assert.equal(policy.choose(), 24, 'confirmed GPU timing may advance normal calibration')
 
   await policy.flush()
   const profile = JSON.parse(await fs.readFile(

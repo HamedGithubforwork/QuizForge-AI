@@ -34,7 +34,10 @@ const QUIZ_REASONS = new Set([
 
 function isCompletedInferenceProfile(metric) {
   if (!metric || !Number.isSafeInteger(metric.layers) || metric.layers < 0) return false
-  return metric.layers === 0 || metric.acceleration === 'gpu' || metric.acceleration === 'unknown'
+  // A positive layer count is only the requested offload. If llama.cpp does
+  // not report the actual offloaded layer count, the sample may include CPU
+  // fallback time and must not influence GPU profile selection.
+  return metric.layers === 0 || metric.acceleration === 'gpu'
 }
 
 function recordCompletedInferenceProfile(offloadPolicy, metric) {
