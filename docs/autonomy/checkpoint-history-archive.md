@@ -48,3 +48,10 @@ temporary file and reads preservation artifacts from the repository; it never
 writes to the version-controlled snapshot. There is no separately preserved
 historical v2 snapshot in the repository, so the v2 migration test uses the
 canonical v2 state constructor with the new additive reference field removed.
+
+For GitHub handoff or cross-checkout recovery, commit or copy the checkpoint
+JSON and every archive file it references together. The orchestrator does not
+stage or commit files automatically. `.gitattributes` disables text/EOL
+normalization for content-addressed archive JSON, preserving the canonical LF
+bytes and SHA-256 digest across Windows checkouts configured with
+`core.autocrlf=true` and Unix checkouts.

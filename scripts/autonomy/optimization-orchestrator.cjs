@@ -2279,6 +2279,8 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES, pilotStartAuthori
     pilotHistory: previousCheckpoint.pilotHistory,
     archivedPilotHistory: previousCheckpoint.archivedPilotHistory,
     eventArchives: previousCheckpoint.eventArchives,
+    historyArchives: previousCheckpoint.historyArchives ?? [],
+    historyCapacity: previousCheckpoint.historyCapacity ?? null,
     optimizationGate: previousCheckpoint.optimizationGate ?? {
       status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
       stopReason: null, finalReport: null, auditHistory: [],

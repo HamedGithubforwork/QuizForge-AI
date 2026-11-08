@@ -6,9 +6,11 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
+const { spawnSync } = require('node:child_process')
+const historyStore = require('../checkpoint-history-store.cjs')
 const {
   AUDIT_DIMENSIONS, AUDIT_ROLES, addTask, createInitialState, recordOptimizationAudit,
-  saveState, loadState, validateState,
+  saveState, loadState, validateState, preparePilot, startPreparedPilot,
 } = require('../optimization-orchestrator.cjs')
 
 function makeTask(id) {
@@ -61,6 +63,77 @@ test('archives the 101st audit losslessly and preserves exhaustion across restar
       resumed.checkpoint.optimizationGate.auditHistory.slice(-2))
     assert.equal(validateState(resumed), resumed)
     assert.throws(() => recordOptimizationAudit(resumed, auditInput('archive-audit-000')), /Duplicate audit ID/)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('new pilot preserves immutable archive refs and capacity state across a disk round-trip', async () => {
+  const { root, file } = await fixture()
+  try {
+    const state = createInitialState()
+    startPilot(state)
+    for (let index = 0; index < 101; index += 1) {
+      recordOptimizationAudit(state, auditInput(`new-pilot-audit-${String(index).padStart(3, '0')}`))
+    }
+    recordOptimizationAudit(state, { ...auditInput('new-pilot-budget-stop'), immediateStopCode: 'budget' })
+    state.checkpoint.historyCapacity = {
+      status: 'BLOCKED', reason: 'history_capacity', recordedAt: new Date().toISOString(),
+    }
+    await saveState(file, state, root)
+    const loaded = await loadState(file, root)
+    const originalRefs = structuredClone(loaded.checkpoint.historyArchives)
+    const archiveDirectory = path.join(root, 'docs/autonomy/history-archives')
+    const archiveNames = (await fs.readdir(archiveDirectory)).sort()
+
+    const prepared = preparePilot(loaded, { pilotId: 'new-pilot-after-history-archive' })
+    startPreparedPilot(loaded, {
+      pilotId: prepared.pilotId, maxCycles: 10, approverIdentity: 'hamed',
+      approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    })
+    await saveState(file, loaded, root)
+    const resumed = await loadState(file, root)
+
+    assert.deepEqual(resumed.checkpoint.historyArchives, originalRefs)
+    assert.deepEqual((await fs.readdir(archiveDirectory)).sort(), archiveNames)
+    assert.deepEqual(resumed.checkpoint.historyCapacity, state.checkpoint.historyCapacity)
+    assert.equal(resumed.checkpoint.pilotId, prepared.pilotId)
+    assert.equal(resumed.checkpoint.optimizationGate.auditHistory.length, 102)
+    assert.equal([...resumed.checkpoint.eventArchives.flat(), ...resumed.checkpoint.events]
+      .filter(event => event.auditId).length, 102)
+    assert.equal(validateState(resumed), resumed)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('pilot summary archive keeps a 25-item active tail and restores every older summary', async () => {
+  const { root, file } = await fixture()
+  try {
+    const state = createInitialState()
+    let pilotId = 'summary-pilot-00'
+    let pending = preparePilot(state, { pilotId })
+    startPreparedPilot(state, {
+      pilotId: pending.pilotId, maxCycles: 10, approverIdentity: 'hamed',
+      approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    })
+    for (let index = 1; index < 30; index += 1) {
+      state.checkpoint.optimizationGate.status = 'STOPPED'
+      state.checkpoint.optimizationGate.stopReason = 'budget'
+      state.checkpoint.optimizationGate.finalReport = null
+      pilotId = `summary-pilot-${String(index).padStart(2, '0')}`
+      pending = preparePilot(state, { pilotId })
+      startPreparedPilot(state, {
+        pilotId: pending.pilotId, maxCycles: 10, approverIdentity: 'hamed',
+        approvalEvidenceRef: 'docs/autonomy/optimization-loop.md',
+      })
+    }
+    await saveState(file, state, root)
+    const disk = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(disk.checkpoint.pilotHistory.length, 25)
+    assert.equal(disk.checkpoint.historyArchives.reduce((sum, ref) => sum + ref.pilotCount, 0), 4)
+    const loaded = await loadState(file, root)
+    const allPilotIds = [...loaded.checkpoint.archivedPilotHistory.flat(), ...loaded.checkpoint.pilotHistory]
+      .map(summary => summary.pilotId)
+    assert.deepEqual(allPilotIds, Array.from({ length: 29 }, (_, index) =>
+      `summary-pilot-${String(index).padStart(2, '0')}`))
+    assert.equal(validateState(loaded), loaded)
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
 
@@ -213,20 +286,18 @@ test('concurrent writers cannot exceed history archive capacity or accept stale 
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })
 
-test('schema v1 and v2 copied fixtures load with inline history intact and no invented archive records', async () => {
+test('pinned schema v1 and canonical v2 fixtures load with inline history and no invented archives', async () => {
   const { root } = await fixture()
   try {
-    const repositoryRoot = path.resolve(__dirname, '../../..')
-    const legacyBytes = await fs.readFile(path.join(repositoryRoot, 'docs/autonomy/optimization-state.json'))
+    const legacyBytes = await fs.readFile(path.join(__dirname, 'fixtures/optimization-state-v1-minimal.json'))
     const legacyFixture = JSON.parse(legacyBytes.toString('utf8'))
-    assert.equal(legacyFixture.schemaVersion, 1, 'the checked-in pilot snapshot is the legacy v1 fixture')
+    assert.equal(legacyFixture.schemaVersion, 1)
     const v1File = path.join(root, 'schema-v1-copy.json')
     await fs.writeFile(v1File, legacyBytes)
-    const migratedV1 = await loadState(v1File, repositoryRoot)
+    const migratedV1 = await loadState(v1File, root)
     assert.equal(migratedV1.schemaVersion, 2)
     assert.deepEqual(migratedV1.checkpoint.historyArchives, [])
-    assert.equal(migratedV1.checkpoint.events.length + migratedV1.checkpoint.eventArchives.flat().length,
-      legacyFixture.checkpoint.events.length + legacyFixture.checkpoint.eventArchives.flat().length)
+    assert.equal(migratedV1.checkpoint.events.length + migratedV1.checkpoint.eventArchives.flat().length, 0)
     assert.equal(validateState(migratedV1), migratedV1)
 
     // The v2 fixture uses the canonical v2 schema constructor; the repository
@@ -332,5 +403,71 @@ test('directory scans stop at the bounded entry ceiling and preserve every unkno
     await assert.rejects(loadState(file, root), /exceeds its 545-entry inspection bound/)
     assert.equal((await fs.readdir(directory)).length, 546)
     assert.equal(await fs.readFile(path.join(directory, names[0]), 'utf8'), 'fresh temp')
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('33 fresh temporary artifacts fail closed without deleting any artifact', async () => {
+  const { root, file } = await fixture()
+  try {
+    const directory = path.join(root, 'docs/autonomy/history-archives')
+    await fs.mkdir(directory, { recursive: true })
+    for (let index = 0; index < 33; index += 1) {
+      const name = `.${index.toString(16).padStart(64, '0')}.00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}.tmp`
+      await fs.writeFile(path.join(directory, name), 'recent')
+    }
+    await fs.writeFile(file, `${JSON.stringify(createInitialState())}\n`)
+    await assert.rejects(loadState(file, root), /temporary-artifact overhead exceeds its bound/)
+    assert.equal((await fs.readdir(directory)).length, 33)
+  } finally { await fs.rm(root, { recursive: true, force: true }) }
+})
+
+test('archive reference accepts exactly 256 KiB and rejects one byte more', () => {
+  const base = { digest: 'c'.repeat(64), bytes: historyStore.MAX_ARCHIVE_FILE_BYTES,
+    eventCount: 0, auditCount: 0, pilotCount: 0 }
+  assert.equal(historyStore.validateRef(base), undefined)
+  assert.throws(() => historyStore.validateRef({ ...base, bytes: historyStore.MAX_ARCHIVE_FILE_BYTES + 1 }),
+    /Invalid bounded history archive reference/)
+})
+
+test('fresh clone with core.autocrlf=true preserves archive bytes and can resume the checkpoint', async () => {
+  const { root } = await fixture()
+  try {
+    const sourceRoot = path.join(root, 'source')
+    const cloneRoot = path.join(root, 'clone')
+    const repositoryRoot = path.resolve(__dirname, '../../..')
+    const attributes = await fs.readFile(path.join(repositoryRoot, '.gitattributes'))
+    await fs.mkdir(path.join(sourceRoot, 'docs/autonomy'), { recursive: true })
+    await fs.writeFile(path.join(sourceRoot, '.gitattributes'), attributes)
+    const state = createInitialState()
+    startPilot(state)
+    for (let index = 0; index < 520; index += 1) addTask(state, makeTask(`clone-task-${index}`))
+    const sourceStatePath = path.join(sourceRoot, 'docs/autonomy/optimization-state.json')
+    await saveState(sourceStatePath, state, sourceRoot)
+    const sourceDisk = JSON.parse(await fs.readFile(sourceStatePath, 'utf8'))
+    const ref = sourceDisk.checkpoint.historyArchives[0]
+    const sourceArchive = path.join(sourceRoot, 'docs/autonomy/history-archives', `${ref.digest}.json`)
+    const sourceBytes = await fs.readFile(sourceArchive)
+
+    const git = (...args) => {
+      const result = spawnSync('git', args, { cwd: sourceRoot, encoding: 'utf8', windowsHide: true })
+      assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`)
+      return result.stdout.trim()
+    }
+    git('init')
+    git('-c', 'core.autocrlf=true', 'add', '.')
+    git('-c', 'user.name=Archive Test', '-c', 'user.email=archive-test@example.invalid',
+      'commit', '-m', 'archive clone fixture')
+    const cloned = spawnSync('git', ['-c', 'core.autocrlf=true', 'clone', '--local', '--no-hardlinks', sourceRoot, cloneRoot], {
+      cwd: root, encoding: 'utf8', windowsHide: true,
+    })
+    assert.equal(cloned.status, 0, `git clone failed: ${cloned.stderr}`)
+
+    const cloneArchive = path.join(cloneRoot, 'docs/autonomy/history-archives', `${ref.digest}.json`)
+    const cloneBytes = await fs.readFile(cloneArchive)
+    assert.deepEqual(cloneBytes, sourceBytes)
+    assert.equal(crypto.createHash('sha256').update(cloneBytes).digest('hex'), ref.digest)
+    const restored = await loadState(path.join(cloneRoot, 'docs/autonomy/optimization-state.json'), cloneRoot)
+    assert.equal(restored.tasks.length, 520)
+    assert.equal(validateState(restored), restored)
   } finally { await fs.rm(root, { recursive: true, force: true }) }
 })

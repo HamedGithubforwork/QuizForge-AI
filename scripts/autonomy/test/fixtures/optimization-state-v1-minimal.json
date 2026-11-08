@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "domains": [
+    "local_ai",
+    "backend",
+    "frontend",
+    "desktop_ui",
+    "reliability",
+    "security",
+    "performance",
+    "ci_efficiency"
+  ],
+  "tasks": [],
+  "checkpoint": {
+    "pilotId": null,
+    "maxCycles": 10,
+    "cyclesStarted": 0,
+    "cyclesValidated": 0,
+    "revision": 0,
+    "selectedTaskId": null,
+    "previousTaskId": null,
+    "preparedPilot": null,
+    "pilotHistory": [],
+    "archivedPilotHistory": [],
+    "eventArchives": [],
+    "optimizationGate": {
+      "status": "ACTIVE",
+      "consecutiveCleanAudits": 0,
+      "lastAuditRefs": [],
+      "lastAuditedDimensions": [],
+      "stopReason": null,
+      "finalReport": null,
+      "auditHistory": []
+    },
+    "events": []
+  }
+}
