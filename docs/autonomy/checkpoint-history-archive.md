@@ -43,10 +43,11 @@ the archive operation to stop for manual inspection.
 Schema v1 and v2 checkpoints without archive references are migrated in
 memory by initializing an empty reference list. Their inline history remains
 untouched; subsequent saves externalize only records older than the active
-windows. The v1 regression test copies the checked-in v1 pilot snapshot to a
-temporary file and reads preservation artifacts from the repository; it never
-writes to the version-controlled snapshot. There is no separately preserved
-historical v2 snapshot in the repository, so the v2 migration test uses the
+windows. The v1 regression test copies the pinned minimal fixture at
+`scripts/autonomy/test/fixtures/optimization-state-v1-minimal.json` to a
+temporary file before migration; it does not depend on the mutable live pilot
+checkpoint or write to the version-controlled fixture. There is no separately
+preserved historical v2 snapshot in the repository, so the v2 migration test uses the
 canonical v2 state constructor with the new additive reference field removed.
 
 For GitHub handoff or cross-checkout recovery, commit or copy the checkpoint
