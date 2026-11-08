@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
+const { verifyRequiredPrGate } = require('./verify-required-pr-gate.cjs')
 
 const repositoryRoot = path.resolve(__dirname, '../..')
 const workflowPath = path.join(repositoryRoot, '.github/workflows/ci.yml')
@@ -70,6 +71,27 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /- workflow-policy-tests/)
   assert.match(gate, /WORKFLOW_POLICY_RESULT/)
   assert.match(gate, /needs\.workflow-policy-tests\.result/)
+  assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
+})
+
+test('a skipped CI trigger policy test cannot pass the Required PR gate', () => {
+  assert.throws(() => verifyRequiredPrGate({
+    CHANGES_RESULT: 'success',
+    BACKEND_RESULT: 'success',
+    FRONTEND_RESULT: 'success',
+    PLAYWRIGHT_RESULT: 'skipped',
+    WORKFLOW_POLICY_RESULT: 'skipped',
+  }), /CI trigger policy tests must run and pass/)
+})
+
+test('the Required PR gate still allows intentionally skipped application jobs when policy tests pass', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate({
+    CHANGES_RESULT: 'success',
+    BACKEND_RESULT: 'skipped',
+    FRONTEND_RESULT: 'success',
+    PLAYWRIGHT_RESULT: 'skipped',
+    WORKFLOW_POLICY_RESULT: 'success',
+  }))
 })
 
 test('Coordinator and CI assessors require actual event and check evidence', () => {
