@@ -45,9 +45,10 @@ the archive operation to stop for manual inspection.
 The archive store is a local workspace persistence mechanism, not a defense
 boundary against another process that has write access to the same checkout.
 Supported multi-agent work assigns code changes and reviews in the shared
-worktree; archive tests use isolated temporary roots, and concurrent checkpoint
-saves serialize through the capacity lock and reject stale revisions. Those
-operations do not replace the archive directory itself. A process that
+worktree; archive tests use isolated temporary roots. Checkpoint saves serialize
+through the state-file lock and reject stale revisions; the capacity lock
+serializes archive inventory and writes when chunks are added. Those operations
+do not replace the archive directory itself. A process that
 deliberately removes or replaces `docs/autonomy/history-archives` between path
 validation and later path-based I/O could still race the current checks. Such
 hostile same-user filesystem mutation is outside the supported operating
