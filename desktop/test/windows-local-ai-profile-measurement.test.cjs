@@ -42,12 +42,14 @@ test('unconfirmed GPU timing cannot influence profile selection', async t => {
   assert.equal(policy.choose(), 99, 'unknown telemetry must not count a GPU candidate as measured')
   const confirmedGpu = { ...unknownGpu, acceleration: 'gpu' }
   assert.equal(recordCompletedInferenceProfile(policy, confirmedGpu), true)
-  assert.equal(policy.choose(), 24, 'confirmed GPU timing may advance normal calibration')
+  assert.equal(policy.choose(), 99, 'confirmed GPU timing is valid but does not trigger an untested profile on a normal quiz')
+  assert.deepEqual(policy.fallbackLayers(), [24, 0], 'smaller profiles remain available after repeated startup failure')
 
   await policy.flush()
   const profile = JSON.parse(await fs.readFile(
     path.join(userDataDirectory, 'local-ai', 'offload-profile.json'), 'utf8'))
   assert.deepEqual(Object.keys(profile.timings), ['99'])
+  assert.equal(profile.schema, 5)
   assert.deepEqual(profile.timings['99'], {
     tokens: 1000, ms: 18000, samples: 1, decodeTokens: 1000, decodeMs: 11600,
   })

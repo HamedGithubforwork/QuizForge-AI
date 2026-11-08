@@ -10,7 +10,9 @@ const { CANDIDATE } = require('./local-model-store.cjs')
 const { MANIFEST } = require('./local-runtime.cjs')
 
 const GIB = 1024 ** 3
-const CACHE_VERSION = 4
+// Version 4 could persist positive-layer timings without verified runtime
+// offload telemetry. Do not let those samples select a GPU profile.
+const CACHE_VERSION = 5
 const MAX_CACHE_BYTES = 4096
 const MAX_SAMPLES = 8
 
@@ -175,11 +177,9 @@ function createLocalOffloadPolicy({ userDataDirectory, fileSystem = fs,
   function choose() {
     const available = candidates.filter(value => !failed.includes(value))
     const benchmark = benchmarkCandidates(available)
-    const untested = benchmark.find(value => !timings[String(value)])
-    if (untested !== undefined) {
-      selected = untested
-      return selected
-    }
+    // Normal quiz requests must not explore a slower, untested profile after
+    // the current candidate succeeds. Alternatives are reached only through
+    // the existing bounded startup-failure fallback chain.
     const measured = benchmark.filter(value => timings[String(value)])
     selected = measured.length ? measured.reduce((fastest, value) => {
       const score = timings[String(value)]
