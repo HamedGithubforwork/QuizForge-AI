@@ -346,8 +346,8 @@ export function compareNumericMeasurement(
     const converted =
       providedKnownUnit !== expectedKnownUnit
 
-    // Match backend validation: allow one binary64 rounding step only when
-    // a unit conversion was performed, never as extra raw-answer tolerance.
+    // Match backend validation: bound roundoff to one epsilon-scaled amount
+    // only for unit conversion, never as extra raw-answer tolerance.
     return {
       status: 'ok',
       valueInExpectedUnit:

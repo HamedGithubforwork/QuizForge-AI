@@ -289,7 +289,7 @@ def _parse_numeric_measurement(
 
         conversion_allowance = 0.0
         if provided_known != expected_known:
-            # Permit only one binary64 rounding step from unit conversion;
+            # Bound conversion roundoff to one machine-epsilon-scaled amount;
             # raw numeric answers still use the declared tolerance exactly.
             conversion_allowance = (
                 math.ulp(1.0)
