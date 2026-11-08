@@ -2,39 +2,6 @@ name: Local AI product acceptance
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - desktop/src/local-answer-review.cjs
-      - desktop/src/local-quiz-distinctness.cjs
-      - desktop/scripts/verify-local-answer-review.cjs
-      - desktop/scripts/verify-local-review-native-stack.cjs
-      - desktop/src/local-ai-provider.cjs
-      - desktop/src/local-quiz-service.cjs
-      - desktop/src/local-runtime.cjs
-      - desktop/src/local-model-store.cjs
-      - desktop/src/windows-local-ai-provider.cjs
-      - desktop/src/windows-local-ai-stack.cjs
-      - desktop/src/windows-hardware-probe.cjs
-      - desktop/src/windows-process-guard.cjs
-      - desktop/src/local-runtime-manifest.json
-      - desktop/src/local-offload-policy.cjs
-      - desktop/src/local-ai-capability.cjs
-      - desktop/src/local-ai-manager.cjs
-      - desktop/test/local-offload-policy.test.cjs
-      - desktop/test/local-runtime.test.cjs
-      - desktop/third_party/local-ai/**
-      - desktop/scripts/stage-local-runtime.cjs
-      - desktop/scripts/download-verified-model.cjs
-      - desktop/scripts/ensure-verified-model.cjs
-      - desktop/scripts/verify-local-product-acceptance.cjs
-      - desktop/scripts/verify-local-product-performance.cjs
-      - desktop/scripts/verify-local-choice-repair.cjs
-      - desktop/scripts/verify-local-biology-sample.cjs
-      - desktop/scripts/verify-local-biology-mixed.cjs
-      - desktop/scripts/verify-local-biology-practice.cjs
-      - desktop/test/fixtures/biology-study-notes.json
-      - e2e/tests/local-desktop-output.spec.ts
-      - .github/workflows/local-ai-product-acceptance.yml
 
 permissions:
   contents: read

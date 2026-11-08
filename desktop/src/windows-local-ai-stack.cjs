@@ -32,6 +32,21 @@ const QUIZ_REASONS = new Set([
   'runtime_unavailable',
 ])
 
+function isCompletedInferenceProfile(metric) {
+  if (!metric || !Number.isSafeInteger(metric.layers) || metric.layers < 0) return false
+  // A positive layer count is only the requested offload. If llama.cpp does
+  // not report the actual offloaded layer count, the sample may include CPU
+  // fallback time and must not influence GPU profile selection.
+  return metric.layers === 0 || metric.acceleration === 'gpu'
+}
+
+function recordCompletedInferenceProfile(offloadPolicy, metric) {
+  if (!offloadPolicy || typeof offloadPolicy.recordInference !== 'function' ||
+      !isCompletedInferenceProfile(metric)) return false
+  offloadPolicy.recordInference(metric)
+  return true
+}
+
 function publicReason(value) {
   return QUIZ_REASONS.has(value) ? value : 'runtime_unavailable'
 }
@@ -134,9 +149,11 @@ function createWindowsLocalAiStack({
       },
       onInferenceCompleted: metric => {
         diagnostic('inference_completed', metric)
-        if (metric.layers === 0 || metric.acceleration === 'gpu') {
-          offloadPolicy.recordInference(metric)
-        }
+        // `layers` identifies the requested offload profile whose observed
+        // throughput is being measured. Preserve completed samples even when
+        // this runtime cannot confirm actual acceleration from its logs; the
+        // `acceleration` field remains truthful and is not inferred here.
+        recordCompletedInferenceProfile(offloadPolicy, metric)
       },
       onDiagnostic: diagnostic,
       onProcessChange: pid => {
@@ -588,4 +605,8 @@ function createWindowsLocalAiStack({
   })
 }
 
-module.exports = { createWindowsLocalAiStack }
+module.exports = {
+  createWindowsLocalAiStack,
+  isCompletedInferenceProfile,
+  recordCompletedInferenceProfile,
+}

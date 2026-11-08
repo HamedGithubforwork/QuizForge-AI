@@ -8,6 +8,9 @@ on:
       - "backend/**"
       - "frontend/**"
       - "desktop/src/**"
+      - "desktop/test/**"
+      - "desktop/package.json"
+      - "desktop/package-lock.json"
       - "e2e/**"
       - "scripts/rds_rehearsal/identity_schema.sql"
       - "scripts/check_architecture.py"
@@ -19,9 +22,6 @@ on:
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
-    branches:
-      - main
-      - application/production
 
 permissions:
   contents: read
@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.changes.outputs.backend }}
+      desktop: ${{ steps.changes.outputs.desktop }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
 
@@ -69,6 +70,7 @@ jobs:
           cat changed-files.txt
 
           backend=false
+          desktop=false
           frontend=false
           playwright=false
 
@@ -76,6 +78,9 @@ jobs:
             case "${file}" in
               backend/*|scripts/rds_rehearsal/identity_schema.sql|.python-version|render.yaml)
                 backend=true
+                ;;
+              desktop/src/*|desktop/test/*|desktop/package.json|desktop/package-lock.json)
+                desktop=true
                 ;;
               frontend/*)
                 frontend=true
@@ -86,6 +91,7 @@ jobs:
                 ;;
               .github/workflows/ci.yml)
                 backend=true
+                desktop=true
                 frontend=true
                 playwright=true
                 ;;
@@ -132,6 +138,32 @@ jobs:
       - name: Enforce feature and platform boundaries
         run: node frontend/scripts/check-module-boundaries.mjs
 
+  desktop-tests:
+    name: Desktop tests
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install locked desktop dependencies
+        run: npm ci
+
+      - name: Run desktop tests
+        run: npm test
   backend-tests:
     name: Backend tests
     needs: changes
@@ -314,6 +346,7 @@ jobs:
     needs:
       - changes
       - architecture
+      - desktop-tests
       - backend-tests
       - postgres-history
       - frontend-checks
@@ -327,6 +360,7 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
+          DESKTOP_RESULT: ${{ needs.desktop-tests.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           POSTGRES_RESULT: ${{ needs.postgres-history.result }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
@@ -336,6 +370,7 @@ jobs:
 
           echo "Change detection: ${CHANGES_RESULT}"
           echo "Architecture:    ${ARCHITECTURE_RESULT}"
+          echo "Desktop tests:   ${DESKTOP_RESULT}"
           echo "Backend tests:   ${BACKEND_RESULT}"
           echo "PostgreSQL API:  ${POSTGRES_RESULT}"
           echo "Frontend checks: ${FRONTEND_RESULT}"
@@ -351,7 +386,7 @@ jobs:
             exit 1
           fi
 
-          for result in "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
+          for result in "${DESKTOP_RESULT}" "${BACKEND_RESULT}" "${POSTGRES_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
             case "${result}" in
               success|skipped)
                 ;;
