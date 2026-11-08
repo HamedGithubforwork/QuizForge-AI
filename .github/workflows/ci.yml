@@ -31,7 +31,6 @@ jobs:
       backend: ${{ steps.changes.outputs.backend }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
-      workflow_policy: ${{ steps.changes.outputs.workflow_policy }}
 
     steps:
       - name: Check out repository history
@@ -65,7 +64,6 @@ jobs:
           backend=false
           frontend=false
           playwright=false
-          workflow_policy=false
 
           while IFS= read -r file; do
             case "${file}" in
@@ -83,10 +81,6 @@ jobs:
                 backend=true
                 frontend=true
                 playwright=true
-                workflow_policy=true
-                ;;
-              .github/workflows/quizforge-autonomy-bridge.yml|scripts/ci/*|.codex/agents/*.toml|AGENTS.md)
-                workflow_policy=true
                 ;;
             esac
           done < changed-files.txt
@@ -94,7 +88,6 @@ jobs:
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
-          echo "workflow_policy=${workflow_policy}" >> "${GITHUB_OUTPUT}"
 
   backend-tests:
     name: Backend tests
@@ -236,8 +229,6 @@ jobs:
 
   workflow-policy-tests:
     name: CI trigger policy tests
-    needs: changes
-    if: needs.changes.outputs.workflow_policy == 'true'
     runs-on: ubuntu-latest
 
     steps:

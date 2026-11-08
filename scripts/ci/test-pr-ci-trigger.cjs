@@ -56,13 +56,20 @@ test('regression model rejects the prior main-only retarget procedure', () => {
   assert.equal(allowsPullRequestActivity(priorMainOnlyWorkflow, 'main', 'edited'), false)
 })
 
-test('workflow policy job is connected to the existing Required PR gate', () => {
+test('workflow policy test runs unconditionally and is connected to the existing Required PR gate', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8')
-  assert.match(workflow, /workflow-policy-tests:/)
+  const jobStart = workflow.indexOf('  workflow-policy-tests:')
+  const gateStart = workflow.indexOf('  required-pr-gate:', jobStart)
+  assert.notEqual(jobStart, -1)
+  assert.notEqual(gateStart, -1)
+  const policyJob = workflow.slice(jobStart, gateStart)
+  assert.match(policyJob, /name: CI trigger policy tests/)
+  assert.doesNotMatch(policyJob, /^\s+if:/m, 'policy test must not depend on the classifier it checks')
+  assert.doesNotMatch(policyJob, /^\s+needs:/m, 'policy test must run even if change detection fails')
   const gate = workflow.slice(workflow.indexOf('  required-pr-gate:'))
   assert.match(gate, /- workflow-policy-tests/)
-  assert.match(gate, /needs\.workflow-policy-tests\.result/)
   assert.match(gate, /WORKFLOW_POLICY_RESULT/)
+  assert.match(gate, /needs\.workflow-policy-tests\.result/)
 })
 
 test('Coordinator and CI assessors require actual event and check evidence', () => {
