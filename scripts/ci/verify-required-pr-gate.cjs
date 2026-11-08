@@ -1,7 +1,7 @@
-const OPTIONAL_JOB_RESULTS = Object.freeze([
-  ['Backend tests', 'BACKEND_RESULT'],
-  ['Frontend checks', 'FRONTEND_RESULT'],
-  ['Playwright E2E', 'PLAYWRIGHT_RESULT'],
+const CONDITIONAL_JOB_RESULTS = Object.freeze([
+  ['Backend tests', 'BACKEND_RESULT', 'BACKEND_REQUIRED'],
+  ['Frontend checks', 'FRONTEND_RESULT', 'FRONTEND_REQUIRED'],
+  ['Playwright E2E', 'PLAYWRIGHT_RESULT', 'PLAYWRIGHT_REQUIRED'],
 ])
 
 function verifyRequiredPrGate(env = process.env) {
@@ -16,15 +16,20 @@ function verifyRequiredPrGate(env = process.env) {
     throw new Error('CI trigger policy tests must run and pass.')
   }
 
-  for (const [name, key] of OPTIONAL_JOB_RESULTS) {
-    const result = env[key]
-    console.log(`${name}: ${result}`)
-    if (result !== 'success' && result !== 'skipped') {
-      throw new Error(`${name} did not succeed or was not intentionally skipped.`)
+  for (const [name, resultKey, requiredKey] of CONDITIONAL_JOB_RESULTS) {
+    const result = env[resultKey]
+    const required = env[requiredKey]
+    console.log(`${name}: ${result} (required=${required})`)
+
+    if (required !== 'true' && required !== 'false') {
+      throw new Error(`${name} relevance output must be true or false.`)
     }
+
+    if (result === 'success' || (result === 'skipped' && required === 'false')) continue
+    throw new Error(`${name} did not succeed despite its change relevance, or failed.`)
   }
 
-  console.log('All required jobs passed; other relevant jobs passed or were intentionally skipped.')
+  console.log('All required jobs passed; unrelated conditional jobs were skipped.')
 }
 
 if (require.main === module) {

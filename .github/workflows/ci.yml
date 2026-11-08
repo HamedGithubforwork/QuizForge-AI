@@ -267,7 +267,10 @@ jobs:
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
+          FRONTEND_REQUIRED: ${{ needs.changes.outputs.frontend }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
+          PLAYWRIGHT_REQUIRED: ${{ needs.changes.outputs.playwright }}
           WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
         run: node scripts/ci/verify-required-pr-gate.cjs

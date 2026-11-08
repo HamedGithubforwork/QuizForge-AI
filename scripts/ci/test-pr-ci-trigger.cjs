@@ -71,28 +71,76 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /- workflow-policy-tests/)
   assert.match(gate, /WORKFLOW_POLICY_RESULT/)
   assert.match(gate, /needs\.workflow-policy-tests\.result/)
+  assert.match(gate, /BACKEND_REQUIRED: \$\{\{ needs\.changes\.outputs\.backend \}\}/)
+  assert.match(gate, /FRONTEND_REQUIRED: \$\{\{ needs\.changes\.outputs\.frontend \}\}/)
+  assert.match(gate, /PLAYWRIGHT_REQUIRED: \$\{\{ needs\.changes\.outputs\.playwright \}\}/)
   assert.match(gate, /uses: actions\/checkout@v7[\s\S]*uses: actions\/setup-node@v7/)
   assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
 })
 
-test('a skipped CI trigger policy test cannot pass the Required PR gate', () => {
-  assert.throws(() => verifyRequiredPrGate({
+function successfulGateInputs(overrides = {}) {
+  return {
     CHANGES_RESULT: 'success',
     BACKEND_RESULT: 'success',
+    BACKEND_REQUIRED: 'true',
     FRONTEND_RESULT: 'success',
-    PLAYWRIGHT_RESULT: 'skipped',
-    WORKFLOW_POLICY_RESULT: 'skipped',
-  }), /CI trigger policy tests must run and pass/)
+    FRONTEND_REQUIRED: 'true',
+    PLAYWRIGHT_RESULT: 'success',
+    PLAYWRIGHT_REQUIRED: 'true',
+    WORKFLOW_POLICY_RESULT: 'success',
+    ...overrides,
+  }
+}
+
+test('a skipped CI trigger policy test cannot pass the Required PR gate', () => {
+  assert.throws(
+    () => verifyRequiredPrGate(successfulGateInputs({ WORKFLOW_POLICY_RESULT: 'skipped' })),
+    /CI trigger policy tests must run and pass/,
+  )
 })
 
-test('the Required PR gate still allows intentionally skipped application jobs when policy tests pass', () => {
-  assert.doesNotThrow(() => verifyRequiredPrGate({
-    CHANGES_RESULT: 'success',
+test('relevant conditional jobs cannot be skipped', () => {
+  for (const [resultKey, requiredKey] of [
+    ['BACKEND_RESULT', 'BACKEND_REQUIRED'],
+    ['FRONTEND_RESULT', 'FRONTEND_REQUIRED'],
+    ['PLAYWRIGHT_RESULT', 'PLAYWRIGHT_REQUIRED'],
+  ]) {
+    assert.throws(
+      () => verifyRequiredPrGate(successfulGateInputs({ [resultKey]: 'skipped' })),
+      /did not succeed despite its change relevance/,
+      requiredKey,
+    )
+  }
+})
+
+test('non-relevant conditional jobs may be skipped', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({
     BACKEND_RESULT: 'skipped',
-    FRONTEND_RESULT: 'success',
+    BACKEND_REQUIRED: 'false',
     PLAYWRIGHT_RESULT: 'skipped',
-    WORKFLOW_POLICY_RESULT: 'success',
-  }))
+    PLAYWRIGHT_REQUIRED: 'false',
+  })))
+})
+
+test('missing, failed, and cancelled conditional jobs fail the gate', () => {
+  for (const result of [undefined, 'failure', 'cancelled']) {
+    assert.throws(
+      () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_RESULT: result })),
+      /did not succeed despite its change relevance/,
+      String(result),
+    )
+  }
+})
+
+test('missing or invalid change-relevance outputs fail closed', () => {
+  assert.throws(
+    () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_REQUIRED: undefined })),
+    /relevance output must be true or false/,
+  )
+  assert.throws(
+    () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_REQUIRED: 'yes' })),
+    /relevance output must be true or false/,
+  )
 })
 
 test('Coordinator and CI assessors require actual event and check evidence', () => {
