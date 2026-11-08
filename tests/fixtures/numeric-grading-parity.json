@@ -40,6 +40,14 @@
     "accepted": false
   },
   {
+    "name": "large finite same-unit value",
+    "numeric_value": 1e308,
+    "numeric_tolerance": 0,
+    "numeric_unit": "kg",
+    "answer": "1e308 kg",
+    "accepted": true
+  },
+  {
     "name": "zero target discrepancy",
     "numeric_value": 0,
     "numeric_tolerance": 0,

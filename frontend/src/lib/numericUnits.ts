@@ -324,6 +324,16 @@ export function compareNumericMeasurement(
       }
     }
 
+    if (providedKnownUnit === expectedKnownUnit) {
+      return {
+        status: 'ok',
+        valueInExpectedUnit: parsed.value,
+        providedUnit: providedUnitText,
+        expectedUnit,
+        converted: false,
+      }
+    }
+
     const baseValue =
       providedDefinition.toBase(
         parsed.value,

@@ -278,6 +278,9 @@ def _parse_numeric_measurement(
         ):
             return None
 
+        if provided_known == expected_known:
+            return value, 0.0
+
         base_value = provided_definition[
             "to_base"
         ](value)
