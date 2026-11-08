@@ -2211,6 +2211,13 @@ function addTask(state, taskInput) {
     type: 'task_discovered', taskId: task.id, domain: task.domain, initialStatus: task.initialStatus,
   })
   if (task.status === 'ready') resumeOptimization(state, 'new_actionable_task', task.id)
+  else if (task.status === 'awaiting_approval' && state.checkpoint.optimizationGate?.status === 'OPTIMIZATION_EXHAUSTED') {
+    const gate = state.checkpoint.optimizationGate
+    gate.status = 'BLOCKED'
+    gate.consecutiveCleanAudits = 0
+    gate.stopReason = 'approval'
+    gate.finalReport = null
+  }
   return task
 }
 
