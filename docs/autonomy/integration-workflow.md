@@ -54,6 +54,16 @@ objects as historical evaluation snapshots; use the merge-task scope only as a
 checkpointed reference, and still refresh live GitHub state before approval or
 merge.
 
+PR 698's Required PR run `42563047575` is recorded as attached to head
+`f955` (abbreviated here), but it ran against `main` before PR 695's
+workflow-policy changes landed. Therefore,
+that run did not exercise the unconditional CI trigger-policy job introduced
+by PR 695 and is insufficient for readiness after the CI policy changes.
+Integrate PR 695 first. Once it is on `main`, refresh PR 698 against the
+updated target and obtain a new Required PR gate on PR 698's exact current head,
+confirming that workflow-policy tests ran and succeeded before readiness or
+approval.
+
 The checkpoint retains PR 695's earlier API base report
 `aad0afeda769a6715f2ba8351294b61839ff5fe6` as historical metadata and records
 `46f3412f673b0522cc1dfce2769e7e8d7d9d6aff` as the canonical target SHA from the
