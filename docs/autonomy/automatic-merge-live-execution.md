@@ -7,6 +7,8 @@ ID, and the current policy therefore blocks every automatic-merge candidate
 with `trusted_live_verification_unavailable`. Policy activation does not remove
 that block. Do not treat following this document manually as proof that the
 orchestrator can safely automate the GitHub merge.
+The checkpoint is an audit claim, not proof of live GitHub or agent-invocation
+evidence.
 
 If a separately reviewed trusted adapter is implemented, it must perform the
 following steps inside an active Coordinator session with authenticated GitHub
