@@ -80,6 +80,34 @@ selected until their predecessor merge is actually recorded as completed.
 This is an approval/dependency stop, not global completion. No approval is
 stored for any outstanding PR.
 
+## Vercel deployment review 2026-11-09
+
+PR 695 remains open at approved head
+`176fc7961781d622519597a4c8268b33d40d4514`, targeting `main` at
+`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`; GitHub currently reports it ready
+for review (`draft: false`) and mergeable. Its exact-head Required PR run
+`42561665578` passed.
+
+The repository has `frontend/vercel.json` with
+`git.deploymentEnabled: false`, added by commit
+`8780505c7b25128a438961dad769183aeb1b1e78`. The Vercel API confirms the
+project is linked but does not expose its Root Directory or effective Git
+deployment settings. Therefore the committed setting's applicability is not
+verified, and a merge must remain blocked until an authenticated administrator
+confirms the project root, Production Branch, automatic deployments, Ignored
+Build Step, and deploy hooks/callers. Missing recent production deployments
+are not proof that auto-deploy is disabled. The former Vercel/Render canary
+workflows are absent; the remaining opt-in test now requires explicitly
+configured trusted HTTPS endpoints. The active AWS production canary remains
+unchanged. A separate local Vercel-retirement branch contains the focused
+code/doc cleanup; its publication remains on hold until the live Vercel
+settings are verified.
+
+This is a metadata refresh only: PR #695's repository, number, target, base
+SHA, and head SHA are unchanged. The checkpoint keeps the merge task
+`awaiting_approval` with no recorded approval, emits no merge-authorization
+event, and leaves the overall workflow blocked.
+
 On session resume, load the checkpoint, independently re-fetch live PR heads,
 bases, checks, reviews, conflicts, protections, and side effects, then call
 `begin`. If a PR's approved head or target changed, its old authorization no
