@@ -74,6 +74,8 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /BACKEND_REQUIRED: \$\{\{ needs\.changes\.outputs\.backend \}\}/)
   assert.match(gate, /FRONTEND_REQUIRED: \$\{\{ needs\.changes\.outputs\.frontend \}\}/)
   assert.match(gate, /PLAYWRIGHT_REQUIRED: \$\{\{ needs\.changes\.outputs\.playwright \}\}/)
+  assert.match(gate, /DESKTOP_DIAGNOSTIC_REQUIRED: \$\{\{ needs\.changes\.outputs\.desktop_diagnostic \}\}/)
+  assert.match(gate, /AUTONOMY_REQUIRED: \$\{\{ needs\.changes\.outputs\.autonomy_tests \}\}/)
   assert.match(gate, /uses: actions\/checkout@v7[\s\S]*uses: actions\/setup-node@v7/)
   assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
 })
@@ -87,6 +89,10 @@ function successfulGateInputs(overrides = {}) {
     FRONTEND_REQUIRED: 'true',
     PLAYWRIGHT_RESULT: 'success',
     PLAYWRIGHT_REQUIRED: 'true',
+    DESKTOP_DIAGNOSTIC_RESULT: 'success',
+    DESKTOP_DIAGNOSTIC_REQUIRED: 'true',
+    AUTONOMY_RESULT: 'success',
+    AUTONOMY_REQUIRED: 'true',
     WORKFLOW_POLICY_RESULT: 'success',
     ...overrides,
   }
@@ -104,6 +110,8 @@ test('relevant conditional jobs cannot be skipped', () => {
     ['BACKEND_RESULT', 'BACKEND_REQUIRED'],
     ['FRONTEND_RESULT', 'FRONTEND_REQUIRED'],
     ['PLAYWRIGHT_RESULT', 'PLAYWRIGHT_REQUIRED'],
+    ['DESKTOP_DIAGNOSTIC_RESULT', 'DESKTOP_DIAGNOSTIC_REQUIRED'],
+    ['AUTONOMY_RESULT', 'AUTONOMY_REQUIRED'],
   ]) {
     assert.throws(
       () => verifyRequiredPrGate(successfulGateInputs({ [resultKey]: 'skipped' })),
@@ -119,28 +127,44 @@ test('non-relevant conditional jobs may be skipped', () => {
     BACKEND_REQUIRED: 'false',
     PLAYWRIGHT_RESULT: 'skipped',
     PLAYWRIGHT_REQUIRED: 'false',
+    DESKTOP_DIAGNOSTIC_RESULT: 'skipped',
+    DESKTOP_DIAGNOSTIC_REQUIRED: 'false',
+    AUTONOMY_RESULT: 'skipped',
+    AUTONOMY_REQUIRED: 'false',
   })))
 })
 
 test('missing, failed, and cancelled conditional jobs fail the gate', () => {
-  for (const result of [undefined, 'failure', 'cancelled']) {
-    assert.throws(
-      () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_RESULT: result })),
-      /did not succeed despite its change relevance/,
-      String(result),
-    )
+  for (const [resultKey] of [
+    ['BACKEND_RESULT'], ['FRONTEND_RESULT'], ['PLAYWRIGHT_RESULT'],
+    ['DESKTOP_DIAGNOSTIC_RESULT'], ['AUTONOMY_RESULT'],
+  ]) {
+    for (const result of [undefined, 'failure', 'cancelled']) {
+      assert.throws(
+        () => verifyRequiredPrGate(successfulGateInputs({ [resultKey]: result })),
+        /did not succeed despite its change relevance/,
+        `${resultKey}=${result}`,
+      )
+    }
   }
 })
 
 test('missing or invalid change-relevance outputs fail closed', () => {
-  assert.throws(
-    () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_REQUIRED: undefined })),
-    /relevance output must be true or false/,
-  )
-  assert.throws(
-    () => verifyRequiredPrGate(successfulGateInputs({ BACKEND_REQUIRED: 'yes' })),
-    /relevance output must be true or false/,
-  )
+  for (const requiredKey of [
+    'BACKEND_REQUIRED', 'FRONTEND_REQUIRED', 'PLAYWRIGHT_REQUIRED',
+    'DESKTOP_DIAGNOSTIC_REQUIRED', 'AUTONOMY_REQUIRED',
+  ]) {
+    assert.throws(
+      () => verifyRequiredPrGate(successfulGateInputs({ [requiredKey]: undefined })),
+      /relevance output must be true or false/,
+      requiredKey,
+    )
+    assert.throws(
+      () => verifyRequiredPrGate(successfulGateInputs({ [requiredKey]: 'yes' })),
+      /relevance output must be true or false/,
+      requiredKey,
+    )
+  }
 })
 
 test('Coordinator and CI assessors require actual event and check evidence', () => {
