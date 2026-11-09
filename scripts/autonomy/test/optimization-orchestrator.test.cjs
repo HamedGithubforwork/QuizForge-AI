@@ -1406,3 +1406,7 @@ test('autonomy bridge write permissions are scoped to jobs', async () => {
   assert.match(workflow, /queue-repeat-failure:[\s\S]*?\r?\n    permissions:\r?\n      issues: write/)
   assert.doesNotMatch(workflow, /pull-requests: write/)
 })
+
+// The Required PR CI workflow invokes this test file as its deterministic
+// autonomy suite; keep the supervised authorization regressions in that gate.
+require('./supervised-merge-policy.test.cjs')
