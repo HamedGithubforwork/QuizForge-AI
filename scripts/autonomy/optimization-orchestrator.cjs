@@ -7,6 +7,16 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const os = require('node:os')
+const {
+  CATEGORIES: MERGE_CATEGORIES,
+  EXCLUDED_RISKS,
+  OBJECTIVES: MERGE_OBJECTIVES,
+  MODES: MERGE_MODES,
+  POLICY_DIGEST: MERGE_POLICY_DIGEST,
+  evaluateSupervisedMerge,
+  validateEligibilityEvidence,
+  validateRunAuthorization,
+} = require('./supervised-merge-policy.cjs')
 
 const SCHEMA_VERSION = 1
 const MAX_CYCLES = 10
@@ -104,6 +114,8 @@ function createInitialState() {
         status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
         stopReason: null, finalReport: null, auditHistory: [],
       },
+      mergeMode: 'manual',
+      mergeAuthorization: null,
       events: [],
     },
   }
@@ -449,17 +461,255 @@ function validatePreparedPilot(prepared) {
 
 function validatePilotStartAuthorization(attestation, prepared) {
   if (!onlyKeys(attestation, [
-    'pilotId', 'maxCycles', 'approverIdentity', 'approvalEvidenceRef',
+    'pilotId', 'maxCycles', 'approverIdentity', 'approvalEvidenceRef', 'mergeMode', 'mergeAuthorization',
   ]) || attestation.pilotId !== prepared.pilotId || attestation.maxCycles !== prepared.maxCycles ||
       typeof attestation.approverIdentity !== 'string' || !IDENTITY_PATTERN.test(attestation.approverIdentity)) {
     throw new Error('Pilot start authorization must explicitly match the prepared pilot ID and cycle budget')
   }
+  const mergeMode = attestation.mergeMode ?? 'manual'
+  if (!MERGE_MODES.includes(mergeMode) || mergeMode === 'fully_autonomous') {
+    throw new Error('Fully Autonomous mode is future-only and cannot be activated')
+  }
   assertReference(attestation.approvalEvidenceRef)
-  return {
+  const normalized = {
     pilotId: attestation.pilotId,
     maxCycles: attestation.maxCycles,
     approverIdentity: attestation.approverIdentity,
     approvalEvidenceRef: attestation.approvalEvidenceRef,
+  }
+  if (mergeMode === 'supervised_autonomous') {
+    validateRunAuthorization(attestation.mergeAuthorization, {
+      runId: prepared.pilotId,
+      repository: attestation.mergeAuthorization?.repository,
+      maxCycles: prepared.maxCycles,
+    })
+    if (attestation.mergeAuthorization.authorizedBy !== attestation.approverIdentity) {
+      throw new Error('The Coordinator-verified start claim must match the run authorization identity')
+    }
+    normalized.mergeMode = mergeMode
+    normalized.mergeAuthorization = clone(attestation.mergeAuthorization)
+  } else if (attestation.mergeAuthorization !== undefined) {
+    throw new Error('Manual mode cannot carry a supervised merge authorization')
+  }
+  return normalized
+}
+
+function mergeEvidenceUrl(reference, repository) {
+  return typeof reference === 'string' && reference.length <= 320 &&
+    reference.startsWith(`https://github.com/${repository}/`) &&
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/(?:pull\/[1-9][0-9]*(?:\/files|\.diff)?|issues\/[1-9][0-9]*|commit\/[a-f0-9]{40}|actions\/runs\/[1-9][0-9]*|rulesets\/[0-9]+)$/.test(reference)
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+function digestCandidate(evidence, outcome, reason) {
+  return crypto.createHash('sha256').update(canonicalJson({ evidence, outcome, reason })).digest('hex')
+}
+
+function candidateEvidence(record) {
+  return Object.fromEntries([
+    'repository', 'runId', 'taskId', 'objective', 'policyDigest', 'prNumber', 'prUrl', 'headSha',
+    'baseSha', 'category', 'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef', 'riskFindings',
+    'resourceUsage', 'reviewer', 'qa', 'specialistAssessments', 'requiredCheck', 'reviews',
+    'protections', 'sideEffects', 'mergeManager',
+  ].map(key => [key, record[key]]))
+}
+
+function validateMergeDecisionRecord(record, eventPilotId, authorization, cyclesStarted, tasksSelected, selectedInRun) {
+  const keys = [
+    'authorizationId', 'policyVersion', 'policyDigest', 'repository', 'runId', 'taskId', 'objective', 'prNumber',
+    'prUrl', 'headSha', 'baseSha', 'category', 'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef',
+    'riskFindings', 'resourceUsage', 'outcome', 'reasonCode', 'decisionDigest', 'reviewer', 'qa', 'specialistAssessments',
+    'requiredCheck', 'reviews', 'protections', 'sideEffects', 'mergeManager', 'decidedAt', 'evidenceRefs',
+  ]
+  if (!onlyKeys(record, keys) || keys.some(key => !Object.hasOwn(record, key)) ||
+      !/^[a-z0-9][a-z0-9-]{2,63}$/.test(record.authorizationId ?? '') ||
+      record.policyVersion !== 'supervised-merge-v1' || record.policyDigest !== MERGE_POLICY_DIGEST ||
+      record.policyDigest !== authorization?.policyDigest || record.authorizationId !== authorization?.authorizationId ||
+      typeof record.repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(record.repository) ||
+      !/^[a-z0-9][a-z0-9-]{1,40}$/.test(record.runId ?? '') ||
+      record.runId !== eventPilotId ||
+      !/^[a-z0-9][a-z0-9-]{1,63}$/.test(record.taskId ?? '') ||
+      (record.prNumber !== null && (!Number.isInteger(record.prNumber) || record.prNumber < 1)) ||
+      (record.prNumber === null ? record.prUrl !== null : record.prUrl !== `https://github.com/${record.repository}/pull/${record.prNumber}`) ||
+      (record.headSha !== null && !/^[a-f0-9]{40}$/.test(record.headSha)) ||
+      (record.baseSha !== null && !/^[a-f0-9]{40}$/.test(record.baseSha)) ||
+      !['eligible', 'rejected'].includes(record.outcome) ||
+      !['eligible', 'manual_mode', 'fully_autonomous_disabled', 'authorization_expired',
+        'authorization_revoked', 'authorization_scope_mismatch', 'high_risk_change',
+        'protection_unverified', 'required_check_unverified', 'independent_assessment_missing',
+        'evidence_invalid', 'budget_exhausted'].includes(record.reasonCode) ||
+      typeof record.decidedAt !== 'string' || Number.isNaN(Date.parse(record.decidedAt)) ||
+      !/^[a-f0-9]{64}$/.test(record.decisionDigest ?? '') ||
+      !Array.isArray(record.riskFindings) || !Array.isArray(record.specialistAssessments) ||
+      !Array.isArray(record.evidenceRefs) || record.evidenceRefs.length > 24) {
+    throw new Error('Invalid supervised merge decision audit record')
+  }
+  if (record.decisionDigest !== digestCandidate(candidateEvidence(record), record.outcome, record.reasonCode)) {
+    throw new Error('Supervised merge decision digest does not match its persisted evidence')
+  }
+  if (record.resourceUsage !== null && (!onlyKeys(record.resourceUsage,
+    ['ciRunsUsed', 'localBenchmarkMinutesUsed', 'paidWorkflowRuns', 'evidenceRef']) ||
+      !Number.isSafeInteger(record.resourceUsage.ciRunsUsed) || record.resourceUsage.ciRunsUsed < 0 ||
+      !Number.isFinite(record.resourceUsage.localBenchmarkMinutesUsed) || record.resourceUsage.localBenchmarkMinutesUsed < 0 ||
+      !Number.isSafeInteger(record.resourceUsage.paidWorkflowRuns) || record.resourceUsage.paidWorkflowRuns < 0)) {
+    throw new Error('Invalid supervised merge resource usage record')
+  }
+  if (record.resourceUsage?.evidenceRef) assertReference(record.resourceUsage.evidenceRef)
+  if (record.diffEvidenceRef !== null && !mergeEvidenceUrl(record.diffEvidenceRef, record.repository)) {
+    throw new Error('Invalid final diff evidence reference')
+  }
+  if (record.impactEvidenceRef !== null) assertReference(record.impactEvidenceRef)
+  record.evidenceRefs.forEach(assertReference)
+  if (record.outcome === 'eligible' && (record.reasonCode !== 'eligible' ||
+      record.riskFindings.length !== 0 || record.reviewer?.passed !== true || record.qa?.passed !== true ||
+      record.requiredCheck?.conclusion !== 'success' || record.protections?.verified !== true ||
+      record.sideEffects?.unexpectedExternalSideEffects !== false || record.mergeManager?.passed !== true ||
+      !record.resourceUsage || record.resourceUsage.paidWorkflowRuns !== 0 ||
+      typeof record.category !== 'string' || !/^[a-z][a-z0-9_]{2,63}$/.test(record.category) ||
+      !/^[a-f0-9]{64}$/.test(record.diffSha256 ?? '') || !/^[a-f0-9]{40}$/.test(record.headSha ?? '') ||
+      !/^[a-f0-9]{40}$/.test(record.baseSha ?? ''))) {
+    throw new Error('Eligible merge audit lacks required independent evidence')
+  }
+  if (record.outcome === 'eligible') {
+    if (!selectedInRun) throw new Error('Eligible merge decisions must belong to a task selected in the authorized run')
+    const evidence = candidateEvidence(record)
+    validateEligibilityEvidence(evidence, {
+      authorization, pilotId: eventPilotId, maxCycles: authorization.maxCycles,
+      cyclesStarted, tasksSelected, now: new Date(record.decidedAt),
+    })
+  }
+}
+
+function validateMergeResultRecord(record) {
+  const keys = [
+    'authorizationId', 'decisionDigest', 'repository', 'runId', 'taskId', 'prNumber', 'headSha', 'baseSha',
+    'mergeCommitSha', 'mergeEvidenceRef', 'mergedAt', 'githubMessage',
+  ]
+  if (!onlyKeys(record, keys) || keys.some(key => !Object.hasOwn(record, key)) ||
+      !/^[a-z0-9][a-z0-9-]{2,63}$/.test(record.authorizationId ?? '') ||
+      typeof record.repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(record.repository) ||
+      !/^[a-z0-9][a-z0-9-]{1,40}$/.test(record.runId ?? '') ||
+      !/^[a-f0-9]{64}$/.test(record.decisionDigest ?? '') ||
+      !/^[a-z0-9][a-z0-9-]{1,63}$/.test(record.taskId ?? '') ||
+      !Number.isInteger(record.prNumber) || record.prNumber < 1 ||
+      !/^[a-f0-9]{40}$/.test(record.headSha ?? '') || !/^[a-f0-9]{40}$/.test(record.baseSha ?? '') ||
+      !/^[a-f0-9]{40}$/.test(record.mergeCommitSha ?? '') ||
+      record.mergeEvidenceRef !== `https://github.com/${record.repository}/commit/${record.mergeCommitSha}` ||
+      typeof record.mergedAt !== 'string' || Number.isNaN(Date.parse(record.mergedAt)) ||
+      typeof record.githubMessage !== 'string' || record.githubMessage.length < 1 || record.githubMessage.length > 160 ||
+      /[\r\n<>]/.test(record.githubMessage)) {
+    throw new Error('Invalid structured GitHub merge response record')
+  }
+}
+
+function sanitizeMergeDecisionRecord(state, input, result, decisionDigest) {
+  const authorization = state.checkpoint.mergeAuthorization
+  const repo = typeof input.repository === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.repository)
+    ? input.repository : authorization.repository
+  const number = Number.isInteger(input.prNumber) && input.prNumber > 0 ? input.prNumber : null
+  const safeRef = ref => mergeEvidenceUrl(ref, repo) ? ref : null
+  const assessment = value => ({
+    passed: typeof value?.passed === 'boolean' ? value.passed : null,
+    commitSha: /^[a-f0-9]{40}$/.test(value?.commitSha ?? '') ? value.commitSha : null,
+    evidenceRef: safeRef(value?.evidenceRef),
+  })
+  const specialistAssessments = Array.isArray(input.specialistAssessments)
+    ? input.specialistAssessments.filter(item => item && [
+      'security', 'ai_quality', 'performance', 'release_reliability', 'ui_ux', 'data_integrity',
+    ].includes(item.role)).slice(0, 6).map(item => ({
+      role: item.role,
+      status: ['passed', 'not_required'].includes(item.status) ? item.status : 'not_required',
+      commitSha: /^[a-f0-9]{40}$/.test(item.commitSha ?? '') ? item.commitSha : null,
+      evidenceRef: safeRef(item.evidenceRef),
+    })) : []
+  const check = input.requiredCheck
+  const reviews = input.reviews
+  const protections = input.protections
+  const sideEffects = input.sideEffects
+  const manager = input.mergeManager
+  const usage = input.resourceUsage
+  const usageRefIsSafe = (() => { try { assertReference(usage?.evidenceRef); return true } catch { return false } })()
+  const resourceUsage = usage && Number.isSafeInteger(usage.ciRunsUsed) && usage.ciRunsUsed >= 0 &&
+    Number.isFinite(usage.localBenchmarkMinutesUsed) && usage.localBenchmarkMinutesUsed >= 0 &&
+    Number.isSafeInteger(usage.paidWorkflowRuns) && usage.paidWorkflowRuns >= 0 && usageRefIsSafe
+    ? { ciRunsUsed: usage.ciRunsUsed, localBenchmarkMinutesUsed: usage.localBenchmarkMinutesUsed,
+      paidWorkflowRuns: usage.paidWorkflowRuns, evidenceRef: usage.evidenceRef }
+    : null
+  const refs = [input.diffEvidenceRef, input.impactEvidenceRef, input.reviewer?.evidenceRef, input.qa?.evidenceRef,
+    ...specialistAssessments.map(item => item.evidenceRef), resourceUsage?.evidenceRef, check?.runUrl, reviews?.evidenceRef,
+    protections?.evidenceRef, protections?.rulesetRef, sideEffects?.evidenceRef, manager?.evidenceRef]
+    .filter(ref => {
+      try { assertReference(ref); return true } catch { return false }
+    }).slice(0, 24)
+  const riskFindings = Array.isArray(input.riskFindings)
+    ? input.riskFindings.map(item => EXCLUDED_RISKS.includes(item) ? item : 'uncertain').slice(0, 24)
+    : []
+  return {
+    authorizationId: authorization.authorizationId,
+    policyVersion: authorization.policyVersion,
+    policyDigest: authorization.policyDigest,
+    repository: repo,
+    runId: state.checkpoint.pilotId,
+    taskId: input.taskId,
+    objective: MERGE_OBJECTIVES.includes(input.objective) ? input.objective : null,
+    prNumber: number,
+    prUrl: number === null ? null : `https://github.com/${repo}/pull/${number}`,
+    headSha: /^[a-f0-9]{40}$/.test(input.headSha ?? '') ? input.headSha : null,
+    baseSha: /^[a-f0-9]{40}$/.test(input.baseSha ?? '') ? input.baseSha : null,
+    category: MERGE_CATEGORIES.includes(input.category) ? input.category : null,
+    diffSha256: /^[a-f0-9]{64}$/.test(input.diffSha256 ?? '') ? input.diffSha256 : null,
+    diffEvidenceRef: safeRef(input.diffEvidenceRef),
+    impactEvidenceRef: safeRef(input.impactEvidenceRef),
+    riskFindings,
+    decisionDigest,
+    resourceUsage,
+    outcome: result.eligible ? 'eligible' : 'rejected',
+    reasonCode: result.reason,
+    reviewer: assessment(input.reviewer),
+    qa: assessment(input.qa),
+    specialistAssessments,
+    requiredCheck: check && typeof check === 'object' ? {
+      name: check.name === 'Required PR gate' ? check.name : null,
+      conclusion: ['success', 'failure', 'cancelled', 'skipped', 'pending'].includes(check.conclusion) ? check.conclusion : null,
+      headSha: /^[a-f0-9]{40}$/.test(check.headSha ?? '') ? check.headSha : null,
+      baseSha: /^[a-f0-9]{40}$/.test(check.baseSha ?? '') ? check.baseSha : null,
+      prNumber: Number.isInteger(check.prNumber) ? check.prNumber : null,
+      runUrl: safeRef(check.runUrl),
+    } : null,
+    reviews: reviews && typeof reviews === 'object' ? {
+      blocking: typeof reviews.blocking === 'boolean' ? reviews.blocking : null,
+      evidenceRef: safeRef(reviews.evidenceRef),
+    } : null,
+    protections: protections && typeof protections === 'object' ? {
+      verified: typeof protections.verified === 'boolean' ? protections.verified : null,
+      evidenceRef: safeRef(protections.evidenceRef),
+      rulesetRef: safeRef(protections.rulesetRef),
+    } : null,
+    sideEffects: sideEffects && typeof sideEffects === 'object' ? {
+      assessed: typeof sideEffects.assessed === 'boolean' ? sideEffects.assessed : null,
+      productionDeployment: typeof sideEffects.productionDeployment === 'boolean' ? sideEffects.productionDeployment : null,
+      cloudSpend: typeof sideEffects.cloudSpend === 'boolean' ? sideEffects.cloudSpend : null,
+      destructive: typeof sideEffects.destructive === 'boolean' ? sideEffects.destructive : null,
+      unexpectedExternalSideEffects: typeof sideEffects.unexpectedExternalSideEffects === 'boolean' ? sideEffects.unexpectedExternalSideEffects : null,
+      evidenceRef: safeRef(sideEffects.evidenceRef),
+    } : null,
+    mergeManager: manager && typeof manager === 'object' ? {
+      passed: typeof manager.passed === 'boolean' ? manager.passed : null,
+      headSha: /^[a-f0-9]{40}$/.test(manager.headSha ?? '') ? manager.headSha : null,
+      baseSha: /^[a-f0-9]{40}$/.test(manager.baseSha ?? '') ? manager.baseSha : null,
+      diffSha256: /^[a-f0-9]{64}$/.test(manager.diffSha256 ?? '') ? manager.diffSha256 : null,
+      diffInspected: typeof manager.diffInspected === 'boolean' ? manager.diffInspected : null,
+      evidenceRef: safeRef(manager.evidenceRef),
+    } : null,
+    decidedAt: now(),
+    evidenceRefs: refs,
   }
 }
 
@@ -512,11 +762,14 @@ function validateState(state) {
   checkpoint.pilotHistory ??= []
   checkpoint.archivedPilotHistory ??= []
   checkpoint.eventArchives ??= []
+  checkpoint.mergeMode ??= 'manual'
+  checkpoint.mergeAuthorization ??= null
   if (!Number.isSafeInteger(checkpoint.revision) || checkpoint.revision < 0 ||
       !onlyKeys(checkpoint, [
         'pilotId', 'maxCycles', 'cyclesStarted', 'cyclesValidated', 'revision',
         'selectedTaskId', 'previousTaskId', 'preparedPilot', 'pilotHistory',
-        'archivedPilotHistory', 'eventArchives', 'optimizationGate', 'events',
+        'archivedPilotHistory', 'eventArchives', 'optimizationGate', 'mergeMode',
+        'mergeAuthorization', 'events',
       ])) {
     throw new Error('Invalid optimization checkpoint revision or fields')
   }
@@ -532,6 +785,18 @@ function validateState(state) {
     validatePilotSummary(summary)
   }
   if (checkpoint.preparedPilot !== null) validatePreparedPilot(checkpoint.preparedPilot)
+  if (!MERGE_MODES.includes(checkpoint.mergeMode) || checkpoint.mergeMode === 'fully_autonomous' ||
+      (checkpoint.mergeMode === 'manual' && checkpoint.mergeAuthorization !== null) ||
+      (checkpoint.mergeMode === 'supervised_autonomous' && (!checkpoint.pilotId || !checkpoint.mergeAuthorization))) {
+    throw new Error('Invalid or inactive merge operating mode')
+  }
+  if (checkpoint.mergeAuthorization !== null) {
+    validateRunAuthorization(checkpoint.mergeAuthorization, {
+      runId: checkpoint.pilotId,
+      repository: checkpoint.mergeAuthorization.repository,
+      maxCycles: checkpoint.maxCycles,
+    })
+  }
   const seenPilotIds = new Set()
   for (const summary of [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]) {
     if (seenPilotIds.has(summary.pilotId)) throw new Error('Duplicate pilot history ID')
@@ -611,7 +876,8 @@ function validateState(state) {
     'tests_failed', 'recovery_diagnosed', 'recovery_attempted', 'recovery_recovered',
     'preservation_archived',
     'validated', 'rejected', 'blocked', 'new_evidence', 'approval_recorded', 'optimization_resumed',
-    'audit_completed', 'gate_stopped', 'stop_released',
+    'audit_completed', 'gate_stopped', 'stop_released', 'supervised_merge_revoked',
+    'supervised_merge_decision', 'supervised_merge_completed', 'supervised_task_limit_reached',
   ])
   const eventKeys = [
     'at', 'type', 'pilotId', 'maxCycles', 'taskId', 'cycle', 'domain', 'metric',
@@ -622,11 +888,16 @@ function validateState(state) {
     'auditId', 'auditEvidenceRefs', 'specialistAssessments', 'awaitingApprovalCount',
     'approverIdentity', 'approverRole', 'approvalEvidenceRef', 'authorizedScopeRef', 'scopeCommitSha',
     'remediationEvidenceRef', 'approvals', 'pilotStartAuthorization',
-    'archivedSnapshotCount',
+    'archivedSnapshotCount', 'mergeRecord',
   ]
   const allEvents = [...checkpoint.eventArchives.flat(), ...checkpoint.events]
+  const authorizationByPilot = new Map(allEvents.filter(event => event.type === 'pilot_started' &&
+    event.pilotStartAuthorization?.mergeAuthorization).map(event => [
+    event.pilotId, event.pilotStartAuthorization.mergeAuthorization,
+  ]))
   const preparedPilotIds = new Set(allEvents.filter(event => event.type === 'pilot_prepared').map(event => event.pilotId))
-  for (const event of allEvents) {
+  for (let eventIndex = 0; eventIndex < allEvents.length; eventIndex += 1) {
+    const event = allEvents[eventIndex]
     if (!onlyKeys(event, eventKeys) || !eventTypes.has(event.type) ||
         typeof event.at !== 'string' || Number.isNaN(Date.parse(event.at))) {
       throw new Error('Invalid checkpoint event')
@@ -647,6 +918,39 @@ function validateState(state) {
       validatePilotStartAuthorization(event.pilotStartAuthorization, {
         pilotId: event.pilotId, maxCycles: event.maxCycles,
       })
+    }
+    if (event.type === 'supervised_merge_revoked') {
+      if (!onlyKeys(event.mergeRecord, ['authorizationId', 'evidenceRef', 'revokedAt']) ||
+          !/^[a-z0-9][a-z0-9-]{2,63}$/.test(event.mergeRecord.authorizationId ?? '') ||
+          typeof event.mergeRecord.revokedAt !== 'string' || Number.isNaN(Date.parse(event.mergeRecord.revokedAt))) {
+        throw new Error('Invalid supervised merge revocation record')
+      }
+      assertReference(event.mergeRecord.evidenceRef)
+    } else if (event.type === 'supervised_merge_decision') {
+      const priorSelections = allEvents.slice(0, eventIndex).filter(candidate => candidate.type === 'selected' &&
+        candidate.pilotId === event.pilotId)
+      if (event.taskId !== event.mergeRecord?.taskId) throw new Error('Supervised decision event task must match its audit record')
+      const latestImplementation = allEvents.slice(0, eventIndex).findLast(candidate => candidate.type === 'implemented' &&
+        candidate.pilotId === event.pilotId && candidate.taskId === event.taskId)
+      if (event.mergeRecord?.outcome === 'eligible' && latestImplementation?.commitSha !== event.mergeRecord.headSha) {
+        throw new Error('Eligible merge decision must match the selected task implementation commit')
+      }
+      validateMergeDecisionRecord(event.mergeRecord, event.pilotId,
+        authorizationByPilot.get(event.pilotId), priorSelections.length,
+        new Set(priorSelections.map(candidate => candidate.taskId)).size,
+        priorSelections.some(candidate => candidate.taskId === event.taskId))
+    } else if (event.type === 'supervised_merge_completed') {
+      validateMergeResultRecord(event.mergeRecord)
+      if (event.taskId !== event.mergeRecord?.taskId) throw new Error('Supervised merge result event task must match its audit record')
+    } else if (event.type === 'supervised_task_limit_reached') {
+      if (!onlyKeys(event.mergeRecord, ['authorizationId', 'maxTasks', 'tasksSelected']) ||
+          !/^[a-z0-9][a-z0-9-]{2,63}$/.test(event.mergeRecord.authorizationId ?? '') ||
+          !Number.isInteger(event.mergeRecord.maxTasks) || event.mergeRecord.maxTasks < 1 ||
+          !Number.isInteger(event.mergeRecord.tasksSelected) || event.mergeRecord.tasksSelected !== event.mergeRecord.maxTasks) {
+        throw new Error('Invalid supervised task authorization limit record')
+      }
+    } else if (event.mergeRecord !== undefined) {
+      throw new Error('Merge audit record is only valid on supervised merge events')
     }
     if (event.type === 'pilot_started' && preparedPilotIds.has(event.pilotId) &&
         event.pilotStartAuthorization === undefined) {
@@ -744,6 +1048,41 @@ function validateState(state) {
     if (event.type !== 'stop_released' && event.approvals !== undefined) {
       throw new Error('Release approval set is only valid on stop-release events')
     }
+  }
+  const currentPilotStart = checkpoint.pilotId && allEvents.findLast(event =>
+    event.type === 'pilot_started' && event.pilotId === checkpoint.pilotId)
+  if (checkpoint.mergeMode === 'supervised_autonomous') {
+    const startedAuthorization = currentPilotStart?.pilotStartAuthorization?.mergeAuthorization
+    if (!startedAuthorization || startedAuthorization.authorizationId !== checkpoint.mergeAuthorization.authorizationId) {
+      throw new Error('Supervised merge authorization must be preserved by the active pilot start event')
+    }
+    const currentScope = { ...checkpoint.mergeAuthorization, status: 'active', revokedAt: null, revocationEvidenceRef: null }
+    if (JSON.stringify(currentScope) !== JSON.stringify(startedAuthorization)) {
+      throw new Error('Supervised merge authorization scope cannot be changed during a run')
+    }
+    const revocations = allEvents.filter(event => event.type === 'supervised_merge_revoked' &&
+      event.pilotId === checkpoint.pilotId && event.mergeRecord.authorizationId === checkpoint.mergeAuthorization.authorizationId)
+    if ((checkpoint.mergeAuthorization.status === 'revoked') !== (revocations.length === 1)) {
+      throw new Error('Supervised merge revocation state must match its append-only audit event')
+    }
+    if (revocations.length === 1 && (revocations[0].mergeRecord.revokedAt !== checkpoint.mergeAuthorization.revokedAt ||
+        revocations[0].mergeRecord.evidenceRef !== checkpoint.mergeAuthorization.revocationEvidenceRef)) {
+      throw new Error('Supervised merge revocation details must match the append-only audit event')
+    }
+    const decisions = allEvents.filter(event => event.type === 'supervised_merge_decision' &&
+      event.pilotId === checkpoint.pilotId && event.mergeRecord.authorizationId === checkpoint.mergeAuthorization.authorizationId)
+    const results = allEvents.filter(event => event.type === 'supervised_merge_completed' &&
+      event.pilotId === checkpoint.pilotId && event.mergeRecord.authorizationId === checkpoint.mergeAuthorization.authorizationId)
+    if (results.some(result => !decisions.some(decision => decision.mergeRecord.outcome === 'eligible' &&
+        decision.mergeRecord.decisionDigest === result.mergeRecord.decisionDigest &&
+        decision.mergeRecord.taskId === result.mergeRecord.taskId &&
+        decision.mergeRecord.prNumber === result.mergeRecord.prNumber &&
+        decision.mergeRecord.headSha === result.mergeRecord.headSha &&
+        decision.mergeRecord.baseSha === result.mergeRecord.baseSha))) {
+      throw new Error('A merge result must match a prior eligible decision for the same PR head and base')
+    }
+  } else if (checkpoint.mergeAuthorization !== null) {
+    throw new Error('Manual mode cannot retain supervised authorization')
   }
   const preservationArchiveEvents = allEvents.filter(event => event.type === 'preservation_archived')
   for (const task of state.tasks) {
@@ -1281,10 +1620,6 @@ function selectTask(state) {
   if (!state.checkpoint.pilotId) {
     throw new Error('Task selection requires an explicitly started pilot')
   }
-  if (state.checkpoint.cyclesStarted >= state.checkpoint.maxCycles) {
-    stopForBudget(state)
-    return null
-  }
   if (state.checkpoint.selectedTaskId) {
     const current = state.tasks.find(task => task.id === state.checkpoint.selectedTaskId)
     if (current && ['selected', 'baseline_established', 'implementing', 'implemented',
@@ -1292,6 +1627,23 @@ function selectTask(state) {
       return current
     }
     state.checkpoint.selectedTaskId = null
+  }
+  if (state.checkpoint.cyclesStarted >= state.checkpoint.maxCycles) {
+    stopForBudget(state)
+    return null
+  }
+  if (state.checkpoint.mergeMode === 'supervised_autonomous') {
+    const selected = [...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events]
+      .filter(event => event.type === 'selected' && event.pilotId === state.checkpoint.pilotId)
+    const tasksSelected = new Set(selected.map(event => event.taskId)).size
+    if (tasksSelected >= state.checkpoint.mergeAuthorization.maxTasks) {
+      stopForBudget(state)
+      appendEvent(state, { type: 'supervised_task_limit_reached', mergeRecord: {
+        authorizationId: state.checkpoint.mergeAuthorization.authorizationId,
+        maxTasks: state.checkpoint.mergeAuthorization.maxTasks, tasksSelected,
+      } })
+      return null
+    }
   }
   const task = selectNextTask(state, {
     excludeTaskIds: [],
@@ -2143,11 +2495,14 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES, pilotStartAuthori
       status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
       stopReason: null, finalReport: null, auditHistory: [],
     },
+    mergeMode: pilotStartAuthorization?.mergeMode ?? 'manual',
+    mergeAuthorization: pilotStartAuthorization?.mergeAuthorization
+      ? clone(pilotStartAuthorization.mergeAuthorization) : null,
     events: [],
   }
   appendEvent(state, {
     type: 'pilot_started', pilotId, maxCycles,
-    ...(pilotStartAuthorization ? { pilotStartAuthorization } : {}),
+    ...(pilotStartAuthorization ? { pilotStartAuthorization: clone(pilotStartAuthorization) } : {}),
   })
 }
 
@@ -2186,6 +2541,116 @@ function startPreparedPilot(state, attestation) {
     pilotId: prepared.pilotId, maxCycles: prepared.maxCycles, pilotStartAuthorization,
   })
   return { checkpoint: state.checkpoint, started: true, selectedTask: null }
+}
+
+function activeMergeEvents(state) {
+  return [...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events].filter(event => event.pilotId === state.checkpoint.pilotId &&
+    ['supervised_merge_decision', 'supervised_merge_completed', 'supervised_merge_revoked'].includes(event.type))
+}
+
+function revokeSupervisedMerges(state, evidenceRef) {
+  const authorization = state.checkpoint.mergeAuthorization
+  if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization) {
+    throw new Error('No supervised merge run is active')
+  }
+  if (authorization.status === 'revoked') throw new Error('Supervised merge authorization is already revoked')
+  assertReference(evidenceRef)
+  authorization.status = 'revoked'
+  authorization.revokedAt = now()
+  authorization.revocationEvidenceRef = evidenceRef
+  appendEvent(state, { type: 'supervised_merge_revoked', mergeRecord: {
+    authorizationId: authorization.authorizationId, evidenceRef, revokedAt: authorization.revokedAt,
+  } })
+  return { revoked: true, authorizationId: authorization.authorizationId, revokedAt: authorization.revokedAt }
+}
+
+function recordSupervisedMergeDecision(state, input) {
+  const authorization = state.checkpoint.mergeAuthorization
+  if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization) {
+    throw new Error('Supervised merge decisions require an explicitly authorized supervised run')
+  }
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Merge decision evidence must be a JSON object')
+  const task = state.tasks.find(item => item.id === input?.taskId)
+  if (!task) throw new Error('Decision must reference a real discovered task')
+  const events = activeMergeEvents(state)
+  const starts = [...state.checkpoint.eventArchives.flat(), ...state.checkpoint.events]
+    .filter(event => event.type === 'selected' && event.pilotId === state.checkpoint.pilotId)
+  const tasksSelected = new Set(starts.map(event => event.taskId)).size
+  const selectedInRun = starts.some(event => event.taskId === task.id)
+  const evidence = { ...input, repository: input.repository ?? authorization.repository,
+    runId: state.checkpoint.pilotId }
+  let result = ['quality_security_passed', 'validated'].includes(task.status) && selectedInRun
+    ? evaluateSupervisedMerge({
+      mode: state.checkpoint.mergeMode, authorization, evidence,
+      pilotId: state.checkpoint.pilotId, maxCycles: state.checkpoint.maxCycles,
+      cyclesStarted: state.checkpoint.cyclesStarted, tasksSelected,
+    })
+    : { eligible: false, reason: 'evidence_invalid', message: 'Task has not passed implementation, tests, Reviewer, QA, and quality/security gates' }
+  const previousUsage = events.filter(event => event.type === 'supervised_merge_decision' && event.mergeRecord.resourceUsage)
+    .at(-1)?.mergeRecord.resourceUsage
+  const usageGapRecorded = events.some(event => event.type === 'supervised_merge_decision' && !event.mergeRecord.resourceUsage)
+  const currentUsage = evidence.resourceUsage
+  if (usageGapRecorded) {
+    result = { eligible: false, reason: 'budget_exhausted', message: 'An earlier decision lacks resource-usage evidence; this run is fail-closed for further merges' }
+  } else if (previousUsage && (!currentUsage || currentUsage.ciRunsUsed < previousUsage.ciRunsUsed ||
+      currentUsage.localBenchmarkMinutesUsed < previousUsage.localBenchmarkMinutesUsed ||
+      currentUsage.paidWorkflowRuns < previousUsage.paidWorkflowRuns)) {
+    result = { eligible: false, reason: 'budget_exhausted', message: 'Cumulative run resource usage cannot decrease or be omitted' }
+  }
+  if (result.eligible && evidence.headSha !== task.implementation?.commitSha) {
+    result = { eligible: false, reason: 'evidence_invalid', message: 'Final PR head must equal the selected task implementation commit' }
+  }
+  const mergeRecord = sanitizeMergeDecisionRecord(state, evidence, result, null)
+  const decisionDigest = digestCandidate(candidateEvidence(mergeRecord), mergeRecord.outcome, mergeRecord.reasonCode)
+  if (events.some(event => event.type === 'supervised_merge_decision' && event.mergeRecord.decisionDigest === decisionDigest)) {
+    throw new Error('Exact duplicate supervised merge evidence cannot be retried')
+  }
+  mergeRecord.decisionDigest = decisionDigest
+  validateMergeDecisionRecord(mergeRecord, state.checkpoint.pilotId, authorization,
+    state.checkpoint.cyclesStarted, tasksSelected, selectedInRun)
+  appendEvent(state, { type: 'supervised_merge_decision', taskId: task.id, mergeRecord })
+  return { ...result, taskId: task.id, prNumber: mergeRecord.prNumber, decisionDigest, decisionRecorded: true }
+}
+
+function recordSupervisedMergeResult(state, input) {
+  const authorization = state.checkpoint.mergeAuthorization
+  if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization || authorization.status !== 'active') {
+    throw new Error('A currently authorized supervised run is required to record a merge response')
+  }
+  if (Date.parse(authorization.expiresAt) <= Date.now()) throw new Error('Supervised merge authorization has expired')
+  if (authorization.policyDigest !== MERGE_POLICY_DIGEST) throw new Error('Policy changed since authorization; merge is blocked')
+  const { taskId, prNumber, headSha, baseSha, decisionDigest, githubResponse } = input ?? {}
+  const decisions = activeMergeEvents(state).filter(event => event.type === 'supervised_merge_decision' &&
+    event.taskId === taskId && event.mergeRecord.prNumber === prNumber)
+  const latest = decisions.at(-1)
+  const prior = latest && latest.mergeRecord.outcome === 'eligible' &&
+    latest.mergeRecord.decisionDigest === decisionDigest && latest.mergeRecord.headSha === headSha &&
+    latest.mergeRecord.baseSha === baseSha ? latest : null
+  if (!prior) throw new Error('The latest decision for this task and PR must be eligible and match its evidence digest and exact head/base')
+  if (activeMergeEvents(state).some(event => event.type === 'supervised_merge_completed' &&
+      event.mergeRecord.decisionDigest === decisionDigest)) throw new Error('This eligible decision already has a recorded merge result')
+  if (!githubResponse || typeof githubResponse !== 'object' || Array.isArray(githubResponse) ||
+      githubResponse.merged !== true || githubResponse.number !== prNumber ||
+      githubResponse.headSha !== headSha || githubResponse.baseSha !== baseSha ||
+      !/^[a-f0-9]{40}$/.test(githubResponse.mergeCommitSha ?? '') ||
+      !Number.isFinite(Date.parse(githubResponse.mergedAt)) ||
+      typeof githubResponse.message !== 'string' || !githubResponse.message.trim()) {
+    throw new Error('A structured GitHub response confirming merged=true, PR, head, base, commit, and time is required')
+  }
+  const mergedAt = Date.parse(githubResponse.mergedAt)
+  if (mergedAt < Date.parse(prior.at) || mergedAt > Date.parse(authorization.expiresAt)) {
+    throw new Error('GitHub merge response time must fall after the eligible decision and before authorization expiry')
+  }
+  const mergeRecord = {
+    authorizationId: authorization.authorizationId, decisionDigest, repository: authorization.repository,
+    runId: state.checkpoint.pilotId, taskId, prNumber, headSha, baseSha,
+    mergeCommitSha: githubResponse.mergeCommitSha,
+    mergeEvidenceRef: `https://github.com/${authorization.repository}/commit/${githubResponse.mergeCommitSha}`,
+    mergedAt: githubResponse.mergedAt, githubMessage: githubResponse.message.trim().slice(0, 160),
+  }
+  validateMergeResultRecord(mergeRecord)
+  appendEvent(state, { type: 'supervised_merge_completed', taskId, mergeRecord })
+  return { recorded: true, mergeCommitSha: mergeRecord.mergeCommitSha }
 }
 
 function addTask(state, taskInput) {
@@ -2384,6 +2849,17 @@ async function cli(argv) {
     let authorization
     try { authorization = JSON.parse(args[0] ?? '') } catch { throw new Error('start-pilot requires a JSON authorization attestation') }
     result = startPreparedPilot(state, authorization)
+  } else if (command === 'revoke-supervised-merges') {
+    if (args.length !== 1) throw new Error('revoke-supervised-merges requires a GitHub evidence URL')
+    result = revokeSupervisedMerges(state, args[0])
+  } else if (command === 'record-supervised-merge') {
+    let evidence
+    try { evidence = JSON.parse(args[0] ?? '') } catch { throw new Error('record-supervised-merge requires one JSON evidence record') }
+    result = recordSupervisedMergeDecision(state, evidence)
+  } else if (command === 'record-supervised-merge-result') {
+    let response
+    try { response = JSON.parse(args[0] ?? '') } catch { throw new Error('record-supervised-merge-result requires one structured JSON GitHub response record') }
+    result = recordSupervisedMergeResult(state, response)
   } else if (command === 'add-task') {
     result = addTask(state, JSON.parse(args[0] ?? 'null'))
   } else if (command === 'baseline') {
@@ -2421,7 +2897,7 @@ async function cli(argv) {
     try { release = JSON.parse(args[0] ?? '') } catch { throw new Error('release-stop requires one JSON metadata argument') }
     result = releaseStopGate(state, release)
   } else {
-    throw new Error('Usage: init|status|begin|resume|new-cycle|prepare-pilot|start-pilot|add-task|baseline|implement|tests|diagnose-recovery|recovery-attempt|assess|benchmark|block|evidence|archive-preserved|approve|audit|release-stop [--state path]')
+    throw new Error('Usage: init|status|begin|resume|new-cycle|prepare-pilot|start-pilot|revoke-supervised-merges|record-supervised-merge|record-supervised-merge-result|add-task|baseline|implement|tests|diagnose-recovery|recovery-attempt|assess|benchmark|block|evidence|archive-preserved|approve|audit|release-stop [--state path]')
   }
   await saveState(filePath, state)
   return print(result)
@@ -2437,6 +2913,7 @@ if (require.main === module) {
 module.exports = {
   AUDIT_DIMENSIONS, AUDIT_ROLES, BLOCKERS, DEFAULT_STATE_PATH, DOMAINS, MAX_CYCLES, TASK_STATUSES,
   addTask, beginRun, blockTask, createInitialState, preparePilot, startPreparedPilot,
+  revokeSupervisedMerges, recordSupervisedMergeDecision, recordSupervisedMergeResult,
   recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordApproval, recordNewEvidence, recordOptimizationAudit, recordRecoveryAttempt, recordRecoveryDiagnosis,
   createPreservationArchive, resolvePreservationDeferral,
