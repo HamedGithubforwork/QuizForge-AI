@@ -13,12 +13,18 @@
 ## Verification
 
 - Focused tests and result:
-- Reviewer assessment and evidence:
-- QA assessment and evidence:
-- Quality assessment and evidence:
-- Security assessment and evidence:
+- Reviewer: actual agent task/thread reference, target commit SHA, completion state, assessment, output/evidence references:
+- QA: actual agent task/thread reference, target commit SHA, completion state, assessment, output/evidence references:
+- Quality: actual agent task/thread reference, target commit SHA, completion state, assessment, output/evidence references:
+- Security: actual agent task/thread reference, target commit SHA, completion state, assessment, output/evidence references:
+- Review findings (ID, specialist, severity, location, impact, status, resolution evidence):
 - Performance interpretation:
 - Regression check:
+
+Keep the invocation trace distinct from the assessment/checkpoint fields. A
+role marked passed without a completed invocation and output reference is
+pending. Do not claim specialist sign-off based only on a PR description or
+checkpoint assertion.
 
 ## Backlog status counts
 

@@ -1,6 +1,9 @@
 'use strict'
 
 const test = require('node:test')
+
+require('./review-cross-layer-limits.test.cjs')
+require('./checkpoint-history.test.cjs')
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const os = require('node:os')
@@ -14,6 +17,7 @@ const {
   recordNewEvidence, recordOptimizationAudit, recordTests, releaseStopGate, resume, saveState, selectNextTask,
   startNewCycle, selectTask, validateState, validateTask, preparePilot, startPreparedPilot, loadState,
   recordRecoveryDiagnosis, recordRecoveryAttempt, createPreservationArchive, resolvePreservationDeferral,
+  diagnosisCodeForFailureClassification, FAILURE_CLASSIFICATION_DIAGNOSIS_CODES,
 } = require('../optimization-orchestrator.cjs')
 
 function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, dependencies = [] } = {}) {
@@ -49,6 +53,25 @@ function approvalAttestation(approvalEvidenceRef = 'docs/ai-cost-controls.md') {
   }
 }
 
+function diagnose(state, id, payload) {
+  const taskRecord = state.tasks.find(item => item.id === id)
+  const caseNumber = (taskRecord?.recoveryHistory.length ?? 0) + 1
+  return recordRecoveryDiagnosis(state, id, {
+    ...payload,
+    investigatorInvocationRef: `test/investigator/${id}/${caseNumber}`,
+  })
+}
+
+function recover(state, id, payload) {
+  const taskRecord = state.tasks.find(item => item.id === id)
+  const caseNumber = taskRecord?.recoveryHistory.length ?? 1
+  const attemptNumber = (taskRecord?.recoveryHistory.at(-1)?.attempts.length ?? 0) + 1
+  return recordRecoveryAttempt(state, id, {
+    ...payload,
+    developerInvocationRef: `test/developer/${id}/${caseNumber}/${attemptNumber}`,
+  })
+}
+
 test('production API has no direct pilot creation and begin refuses an unprepared pilot', () => {
   assert.equal(optimizationOrchestrator.createPilot, undefined)
   const state = createInitialState()
@@ -65,7 +88,7 @@ test('production API has no direct pilot creation and begin refuses an unprepare
 })
 
 function blockWithDiagnosis(state, id, blockerCode, evidenceRef = 'docs/ai-cost-controls.md') {
-  return recordRecoveryDiagnosis(state, id, {
+  return diagnose(state, id, {
     diagnosisCode: 'evidence_insufficient',
     investigatorEvidenceRef: evidenceRef,
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -209,7 +232,7 @@ test('recovery records reject free-text diagnosis and solution fields', () => {
     blockerCode: 'tooling_unavailable',
     rationale: 'free-text rationale is not permitted',
   }), /allowlisted diagnosis/)
-  recordRecoveryDiagnosis(state, active.id, {
+  diagnose(state, active.id, {
     diagnosisCode: 'missing_dependency',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -228,6 +251,110 @@ test('recovery records reject free-text diagnosis and solution fields', () => {
   assert.equal(validateState(state), state)
 })
 
+test('new recovery cases require unique actual Investigator and Developer invocation references', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'recovery-provenance-pilot', maxCycles: 3 })
+  addTask(state, task('recovery-provenance-task'))
+  const active = beginRun(state).task
+  const diagnosis = {
+    diagnosisCode: 'missing_dependency',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  }
+  const beforeInvalidDiagnosis = JSON.stringify(state)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, diagnosis), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidDiagnosis)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    ...diagnosis, investigatorInvocationRef: '../invented-agent-run',
+  }), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidDiagnosis)
+
+  diagnose(state, active.id, diagnosis)
+  const attempt = {
+    strategy: 'dependency_repair',
+    evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10006',
+    result: 'failed',
+  }
+  const beforeInvalidAttempt = JSON.stringify(state)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, attempt), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidAttempt)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    ...attempt, developerInvocationRef: active.recoveryHistory[0].diagnosis.investigatorInvocationRef,
+  }), /new Developer invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidAttempt)
+
+  recover(state, active.id, attempt)
+  const afterAttempt = JSON.stringify(state)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    ...attempt,
+    strategy: 'alternative_tooling',
+    evidenceRef: 'backend/performance_metrics.py',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10007',
+    developerInvocationRef: active.recoveryHistory[0].attempts[0].developerInvocationRef,
+  }), /new Developer invocation reference/)
+  assert.equal(JSON.stringify(state), afterAttempt)
+
+  const legacy = structuredClone(state)
+  delete legacy.tasks[0].recoveryHistory[0].diagnosis.investigatorInvocationRef
+  delete legacy.tasks[0].recoveryHistory[0].attempts[0].developerInvocationRef
+  assert.equal(validateState(legacy), legacy,
+    'historical cases without invocation provenance remain readable without fabricated references')
+  assert.equal(active.recoveryHistory[0].diagnosis.investigatorInvocationRef, 'test/investigator/recovery-provenance-task/1')
+  assert.equal(active.recoveryHistory[0].attempts[0].developerInvocationRef, 'test/developer/recovery-provenance-task/1/1')
+  assert.equal(validateState(state), state)
+})
+
+test('failure classifications map only to existing diagnosis codes', () => {
+  assert.deepEqual(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, {
+    INTRODUCED_REGRESSION: 'other',
+    PREEXISTING_ON_BASE: 'other',
+    ENVIRONMENT_FAILURE: 'environment_incompatible',
+    INFRASTRUCTURE_FAILURE: 'upstream_unavailable',
+    INTERMITTENT_FAILURE: 'other',
+    EXTERNAL_DEPENDENCY: 'upstream_unavailable',
+    INSUFFICIENT_EVIDENCE: 'evidence_insufficient',
+  })
+  for (const [classification, diagnosisCode] of Object.entries(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES)) {
+    assert.equal(diagnosisCodeForFailureClassification(classification), diagnosisCode)
+    assert.ok(['missing_dependency', 'environment_incompatible', 'configuration_invalid',
+      'evidence_insufficient', 'upstream_unavailable', 'benchmark_over_budget',
+      'existing_change_conflict', 'other'].includes(diagnosisCode))
+  }
+  assert.throws(() => diagnosisCodeForFailureClassification('UNKNOWN_FAILURE'), /not allowlisted/)
+  assert.throws(() => diagnosisCodeForFailureClassification('toString'), /not allowlisted/)
+})
+
+test('external benchmark diagnosis requires an Investigator; automatic cost blocker does not fabricate one', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'benchmark-diagnosis-provenance', maxCycles: 2 })
+  addTask(state, { ...task('external-expensive-diagnosis', { impact: 5, effort: 1 }), benchmarkCost: 'local' })
+  const active = beginRun(state).task
+  const before = JSON.stringify(state)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'benchmark_over_budget',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: false,
+    blockerCode: 'benchmark_expensive',
+    nonRecoverableReasonCode: 'resource_unavailable',
+  }), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), before)
+
+  const automatic = createInitialState()
+  createPilot(automatic, { pilotId: 'automatic-benchmark-cost', maxCycles: 2 })
+  addTask(automatic, { ...task('automatic-expensive-task', { impact: 5, effort: 1 }), benchmarkCost: 'expensive' })
+  addTask(automatic, task('automatic-affordable-task', { domain: 'frontend', impact: 4, effort: 1 }))
+  assert.equal(beginRun(automatic).task.id, 'automatic-affordable-task')
+  const blocked = automatic.tasks.find(item => item.id === 'automatic-expensive-task')
+  assert.equal(blocked.recoveryHistory[0].diagnosis.diagnosisCode, 'benchmark_over_budget')
+  assert.equal(blocked.recoveryHistory[0].diagnosis.investigatorInvocationRef, undefined)
+  assert.equal(automatic.checkpoint.cyclesStarted, 2)
+  assert.equal(validateState(automatic), automatic)
+})
+
 test('successful blocker recovery verifies the original allowlisted check and preserves active work', () => {
   const state = createInitialState()
   createPilot(state, { pilotId: 'recovery-success-pilot', maxCycles: 2 })
@@ -236,14 +363,14 @@ test('successful blocker recovery verifies the original allowlisted check and pr
   recordBaseline(state, active.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
   recordImplementation(state, active.id, { branch: 'codex/recoverable-task', commitSha: 'a'.repeat(40) })
   recordTests(state, active.id, { passed: false, artifactRef: 'scripts/production/test_runtime.py' })
-  recordRecoveryDiagnosis(state, active.id, {
+  diagnose(state, active.id, {
     diagnosisCode: 'missing_dependency',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  const recovered = recordRecoveryAttempt(state, active.id, {
+  const recovered = recover(state, active.id, {
     strategy: 'dependency_repair',
     evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/10001',
@@ -269,7 +396,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
     addTask(state, task('recovery-blocked', { impact: 5 }))
     addTask(state, task('recovery-independent', { domain: 'frontend', impact: 4 }))
     const active = beginRun(state).task
-    recordRecoveryDiagnosis(state, active.id, {
+    diagnose(state, active.id, {
       diagnosisCode: 'environment_incompatible',
       investigatorEvidenceRef: 'docs/ai-cost-controls.md',
       originalCheckRef: 'scripts/production/test_runtime.py',
@@ -281,9 +408,9 @@ test('two distinct failed recovery attempts persist, block, and select independe
       evidenceRef: 'docs/autonomy/optimization-loop.md',
       verificationRef: 'https://github.com/example/repo/actions/runs/10002', result: 'failed',
     }
-    recordRecoveryAttempt(state, active.id, first)
-    assert.throws(() => recordRecoveryAttempt(state, active.id, first), /Repeated recovery strategy/)
-    assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    recover(state, active.id, first)
+    assert.throws(() => recover(state, active.id, first), /Repeated recovery strategy/)
+    assert.throws(() => recover(state, active.id, {
       ...first, strategy: 'alternative_tooling',
       evidenceRef: 'docs/autonomy/optimization-loop.md',
       verificationRef: 'https://github.com/example/repo/actions/runs/10003',
@@ -297,7 +424,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
       evidenceRef: 'backend/performance_metrics.py',
       verificationRef: 'https://github.com/example/repo/actions/runs/10004', result: 'failed',
     }
-    const outcome = recordRecoveryAttempt(reopened, active.id, second)
+    const outcome = recover(reopened, active.id, second)
     assert.equal(outcome.blocked.status, 'blocked')
     assert.equal(outcome.next.id, 'recovery-independent')
     assert.equal(reopened.tasks[0].recoveryHistory[0].attempts.length, 2)
@@ -312,7 +439,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
     assert.equal(reopened.tasks[0].evidenceRevision, 0)
     assert.equal(reopened.tasks[0].status, 'blocked')
     assert.equal(validateState(reopened), reopened)
-    assert.throws(() => recordRecoveryAttempt(reopened, active.id, second), /not the active checkpoint task/)
+    assert.throws(() => recover(reopened, active.id, second), /not the active checkpoint task/)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
@@ -324,18 +451,18 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
   addTask(state, task('recovery-history-task', { impact: 5 }))
   addTask(state, task('recovery-history-fallback', { domain: 'frontend', impact: 4 }))
   const firstTask = beginRun(state).task
-  recordRecoveryDiagnosis(state, firstTask.id, {
+  diagnose(state, firstTask.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/11001', result: 'failed',
   })
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'alternative_tooling', evidenceRef: 'backend/performance_metrics.py',
     verificationRef: 'https://github.com/example/repo/actions/runs/11002', result: 'failed',
   })
@@ -344,7 +471,7 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
   recordNewEvidence(state, firstTask.id, 'https://github.com/example/repo/actions/runs/11003')
   blockWithDiagnosis(state, 'recovery-history-fallback', 'unavailable_evidence')
   assert.equal(state.checkpoint.selectedTaskId, firstTask.id)
-  recordRecoveryDiagnosis(state, firstTask.id, {
+  diagnose(state, firstTask.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'https://github.com/example/repo/actions/runs/11003',
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -352,11 +479,11 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
     blockerCode: 'tooling_unavailable',
   })
 
-  assert.throws(() => recordRecoveryAttempt(state, firstTask.id, {
+  assert.throws(() => recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/11004', result: 'failed',
   }), /distinct evidence/)
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'scripts/autonomy/optimization-orchestrator.test.cjs',
     verificationRef: 'https://github.com/example/repo/actions/runs/11005', result: 'failed',
   })
@@ -710,6 +837,7 @@ test('recovery diagnosis and final failed attempt fail atomically when snapshot 
   assert.throws(() => recordRecoveryDiagnosis(nonrecoverable.state, nonrecoverable.active.id, {
     diagnosisCode: 'evidence_insufficient',
     investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    investigatorInvocationRef: 'test/investigator/recovery-atomic-diagnosis/1',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: false,
     blockerCode: 'unavailable_evidence',
@@ -718,19 +846,19 @@ test('recovery diagnosis and final failed attempt fail atomically when snapshot 
   assert.equal(JSON.stringify(nonrecoverable.state), beforeDiagnosis)
 
   const recoverable = makeStateWithFullHistory('recovery-atomic-attempt')
-  recordRecoveryDiagnosis(recoverable.state, recoverable.active.id, {
+  diagnose(recoverable.state, recoverable.active.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+  recover(recoverable.state, recoverable.active.id, {
     strategy: 'dependency_repair', evidenceRef: 'backend/performance_metrics.py',
     verificationRef: 'https://github.com/example/repo/actions/runs/12001', result: 'failed',
   })
   const beforeFinalAttempt = JSON.stringify(recoverable.state)
-  assert.throws(() => recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+  assert.throws(() => recover(recoverable.state, recoverable.active.id, {
     strategy: 'alternative_tooling', evidenceRef: 'scripts/autonomy/test/optimization-orchestrator.test.cjs',
     verificationRef: 'https://github.com/example/repo/actions/runs/12002', result: 'failed',
   }), /bounded work history is full/)
@@ -768,10 +896,22 @@ test('full validation lifecycle requires baseline, branch commit, tests, indepen
   recordBaseline(state, id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
   recordImplementation(state, id, { branch: 'codex/lifecycle-task', commitSha: 'a'.repeat(40) })
   recordTests(state, id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
-  recordAssessment(state, id, { role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
-  recordAssessment(state, id, { role: 'qa', passed: true, artifactRef: 'scripts/production/test_runtime.py' })
-  recordAssessment(state, id, { role: 'quality', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
-  recordAssessment(state, id, { role: 'security', passed: true, artifactRef: 'docs/ai-cost-controls.md' })
+  assert.throws(() => recordAssessment(state, id, {
+    role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md',
+  }), /actual agent invocation reference/)
+  assert.throws(() => recordAssessment(state, id, {
+    role: 'reviewer', passed: true, artifactRef: 'docs/ai-cost-controls.md',
+    invocationRef: '/root/test_reviewer_invocation', targetCommitSha: 'b'.repeat(40),
+  }), /exact implemented commit/)
+  for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+    recordAssessment(state, id, {
+      role,
+      passed: true,
+      artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'a'.repeat(40),
+    })
+  }
   const validated = recordBenchmark(state, id, {
     resultMetric: 8, artifactRef: 'docs/ai-cost-controls.md',
   })
@@ -780,7 +920,132 @@ test('full validation lifecycle requires baseline, branch commit, tests, indepen
   assert.equal(state.checkpoint.optimizationGate.status, 'STOPPED')
   assert.equal(state.checkpoint.optimizationGate.stopReason, 'budget')
   assert.equal(validateState(state), state)
+  const reviewerEvent = state.checkpoint.events.find(event => event.type === 'reviewer_passed')
+  assert.equal(reviewerEvent.invocationRef, '/root/test_reviewer_invocation')
+  assert.equal(reviewerEvent.assessmentCommitSha, 'a'.repeat(40))
+  const missingTrace = structuredClone(state)
+  delete missingTrace.tasks[0].assessments.reviewer.invocationRef
+  delete missingTrace.tasks[0].assessments.reviewer.targetCommitSha
+  assert.throws(() => validateState(missingTrace), /traceable Reviewer and QA invocations/)
+  const wrongCommitTrace = structuredClone(state)
+  wrongCommitTrace.tasks[0].assessments.reviewer.targetCommitSha = 'b'.repeat(40)
+  assert.throws(() => validateState(wrongCommitTrace), /traceable Reviewer and QA invocations/)
+
+  const legacyState = structuredClone(state)
+  legacyState.schemaVersion = 1
+  for (const assessment of Object.values(legacyState.tasks[0].assessments)) {
+    delete assessment.invocationRef
+    delete assessment.targetCommitSha
+  }
+  for (const event of legacyState.checkpoint.events) {
+    delete event.invocationRef
+    delete event.assessmentCommitSha
+  }
+  assert.equal(validateState(legacyState), legacyState)
+  assert.equal(legacyState.schemaVersion, 2)
+  assert.equal(legacyState.tasks[0].assessmentProvenanceLegacy, true)
+  assert.ok(Object.values(legacyState.tasks[0].assessments).every(item => !('invocationRef' in item)))
   assert.equal(startNewCycle(state).reason, 'cycle_limit_reached')
+})
+
+test('schema v1 mid-review checkpoints preserve old events but require fresh traceable reviews', () => {
+  for (const reviewStage of ['reviewed', 'qa_passed', 'quality_security_passed']) {
+    const state = createInitialState()
+    createPilot(state, { pilotId: `legacy-${reviewStage.replaceAll('_', '-')}`, maxCycles: 2 })
+    addTask(state, task('legacy-review-migration'))
+    const selected = beginRun(state).task
+    recordBaseline(state, selected.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+    recordImplementation(state, selected.id, { branch: 'codex/legacy-review-migration', commitSha: 'a'.repeat(40) })
+    recordTests(state, selected.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+
+    selected.status = reviewStage
+    selected.assessments = Object.fromEntries(['reviewer', 'qa', 'quality', 'security'].map(role => [role, {
+      passed: true,
+      evidenceRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+    }]))
+    for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+      state.checkpoint.events.push({
+        at: new Date().toISOString(),
+        type: `${role}_passed`,
+        taskId: selected.id,
+        evidenceRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      })
+    }
+    state.schemaVersion = 1
+
+    assert.equal(validateState(state), state)
+    assert.equal(state.schemaVersion, 2)
+    assert.equal(selected.status, 'tests_passed')
+    assert.deepEqual(selected.assessments, { reviewer: null, qa: null, quality: null, security: null })
+    assert.equal(selected.assessmentProvenanceLegacy, undefined)
+    assert.ok(state.checkpoint.events.some(event => event.type === 'reviewer_passed' &&
+      event.taskId === selected.id && event.invocationRef === undefined))
+  }
+
+  const malformed = createInitialState()
+  createPilot(malformed, { pilotId: 'legacy-malformed-assessment', maxCycles: 1 })
+  addTask(malformed, task('legacy-malformed-task'))
+  const taskRecord = beginRun(malformed).task
+  recordBaseline(malformed, taskRecord.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(malformed, taskRecord.id, { branch: 'codex/legacy-malformed-task', commitSha: 'c'.repeat(40) })
+  recordTests(malformed, taskRecord.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  taskRecord.assessments = 'malformed'
+  malformed.schemaVersion = 1
+  assert.throws(() => validateState(malformed), /Invalid assessment record/)
+  assert.equal(taskRecord.assessments, 'malformed', 'migration must not erase malformed checkpoint data')
+})
+
+test('schema v1 blocker and rejection migrations preserve their matching lifecycle snapshots', () => {
+  const blockedState = createInitialState()
+  createPilot(blockedState, { pilotId: 'legacy-blocked-assessments', maxCycles: 2 })
+  addTask(blockedState, task('legacy-blocked-task'))
+  const blocked = beginRun(blockedState).task
+  recordBaseline(blockedState, blocked.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(blockedState, blocked.id, { branch: 'codex/legacy-blocked-task', commitSha: 'a'.repeat(40) })
+  recordTests(blockedState, blocked.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  blocked.assessments.reviewer = { passed: true, evidenceRef: 'docs/ai-cost-controls.md' }
+  blockWithDiagnosis(blockedState, blocked.id, 'unavailable_evidence')
+  const preservedBlockerSnapshot = structuredClone(blocked.workPreserved)
+  blockedState.schemaVersion = 1
+
+  assert.equal(validateState(blockedState), blockedState)
+  assert.equal(blocked.status, 'blocked')
+  assert.deepEqual(blocked.assessments, preservedBlockerSnapshot.assessments)
+  assert.deepEqual(blocked.workPreserved.assessments, preservedBlockerSnapshot.assessments)
+
+  const rejectedState = createInitialState()
+  createPilot(rejectedState, { pilotId: 'legacy-rejected-assessments', maxCycles: 1 })
+  addTask(rejectedState, task('legacy-rejected-task'))
+  const rejected = beginRun(rejectedState).task
+  recordBaseline(rejectedState, rejected.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  recordImplementation(rejectedState, rejected.id, { branch: 'codex/legacy-rejected-task', commitSha: 'b'.repeat(40) })
+  recordTests(rejectedState, rejected.id, { passed: true, artifactRef: 'scripts/production/test_runtime.py' })
+  for (const role of ['reviewer', 'qa', 'quality', 'security']) {
+    recordAssessment(rejectedState, rejected.id, {
+      role,
+      passed: true,
+      artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'b'.repeat(40),
+    })
+  }
+  recordBenchmark(rejectedState, rejected.id, { resultMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
+  const rejectedRecord = structuredClone(rejected.validation)
+  rejectedState.schemaVersion = 1
+  for (const assessment of Object.values(rejected.assessments)) {
+    delete assessment.invocationRef
+    delete assessment.targetCommitSha
+  }
+  for (const event of rejectedState.checkpoint.events) {
+    delete event.invocationRef
+    delete event.assessmentCommitSha
+  }
+
+  assert.equal(validateState(rejectedState), rejectedState)
+  assert.equal(rejected.status, 'rejected')
+  assert.equal(rejected.validation.accepted, false)
+  assert.deepEqual(rejected.validation, rejectedRecord)
+  assert.ok(Object.values(rejected.assessments).every(assessment => assessment?.passed === true))
 })
 
 test('benchmark regression is derived from metric direction and rejects the task', () => {
@@ -795,6 +1060,8 @@ test('benchmark regression is derived from metric direction and rejects the task
     recordAssessment(state, id, {
       role, passed: true,
       artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+      invocationRef: `/root/test_${role}_invocation`,
+      targetCommitSha: 'b'.repeat(40),
     })
   }
   const rejected = recordBenchmark(state, id, {
@@ -879,6 +1146,7 @@ test('CLI persists a blocker fallback and resumes the same active task', async (
     const blocked = JSON.parse(run('diagnose-recovery', firstTask.id, JSON.stringify({
       diagnosisCode: 'existing_change_conflict',
       investigatorEvidenceRef: 'https://github.com/example/repo/pull/665',
+      investigatorInvocationRef: 'test/investigator/cli-blocked-task/1',
       originalCheckRef: 'scripts/production/test_runtime.py',
       recoverable: false,
       blockerCode: 'existing_pr',
@@ -1073,6 +1341,33 @@ test('exhaustion requires two clean audits, blockers remain blocked, and new wor
   assert.equal(selectNextTask(state).id, 'newly-actionable-task')
 })
 
+test('audit history accepts the 101st audit without losing the exhaustion evidence', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'audit-history-rollover-test', maxCycles: 10 })
+  const input = {
+    auditedDimensions: [...AUDIT_DIMENSIONS], evidenceRefs: ['docs/ai-cost-controls.md'],
+    specialistAssessments: AUDIT_ROLES.map(role => ({ role, finding: 'clear', evidenceRef: 'docs/ai-cost-controls.md' })),
+  }
+  let result
+  for (let index = 0; index < 101; index += 1) {
+    result = recordOptimizationAudit(state, { ...input, auditId: `audit-roll-${String(index).padStart(3, '0')}` })
+  }
+  assert.equal(result.auditHistory.length, 101)
+  assert.equal(result.status, 'OPTIMIZATION_EXHAUSTED')
+  assert.equal(result.finalReport.audits.length, 2)
+  assert.equal(state.checkpoint.events.filter(event => event.auditId).length, 101)
+  assert.equal(validateState(state), state)
+  assert.throws(() => recordOptimizationAudit(state, { ...input, auditId: 'audit-roll-100' }), /Duplicate audit ID/)
+})
+
+test('task capacity rejects before mutation and preserves the existing backlog', () => {
+  const state = createInitialState()
+  state.tasks = Array.from({ length: 1000 }, (_, index) => ({ id: `preserved-${index}` }))
+  const before = structuredClone(state.tasks)
+  assert.throws(() => addTask(state, task('over-capacity')), /Task capacity reached \(1000\)/)
+  assert.deepEqual(state.tasks, before)
+})
+
 test('reaching the cycle cap persists a budget stop rather than exhaustion', () => {
   const state = createInitialState()
   createPilot(state, { pilotId: 'cycle-budget-test', maxCycles: 1 })
@@ -1107,6 +1402,8 @@ test('reaching the cycle cap persists a budget stop rather than exhaustion', () 
         recordAssessment(finalState, active.id, {
           role, passed: true,
           artifactRef: role === 'qa' ? 'scripts/production/test_runtime.py' : 'docs/ai-cost-controls.md',
+          invocationRef: `/root/test_${role}_invocation`,
+          targetCommitSha: active.implementation.commitSha,
         })
       }
       const completed = recordBenchmark(finalState, active.id, {

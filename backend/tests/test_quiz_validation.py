@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from quiz_service import (
     Quiz,
     QuizQuestion,
@@ -110,6 +113,99 @@ def validate(
         requested_question_type=requested_type,
         page_count=page_count,
     )
+
+
+def numeric_question(
+    *,
+    correct_answer,
+    accepted_answers,
+    numeric_value,
+    numeric_tolerance,
+    numeric_unit,
+):
+    return QuizQuestion(
+        question_type="short_answer",
+        question="What is the measured numeric value?",
+        choices=[],
+        correct_index=-1,
+        correct_answer=correct_answer,
+        accepted_answers=accepted_answers,
+        grading=ShortAnswerGradingSpec(
+            grading_version=2,
+            grading_mode="numeric",
+            answer_groups=[],
+            required_group_count=0,
+            numeric_value=numeric_value,
+            numeric_tolerance=numeric_tolerance,
+            numeric_unit=numeric_unit,
+        ),
+        explanation="The source states the measured numeric value.",
+        source_pages=[1],
+    )
+
+
+NUMERIC_PARITY_CASES = json.loads(
+    (
+        Path(__file__).parents[2]
+        / "tests"
+        / "fixtures"
+        / "numeric-grading-parity.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+def test_numeric_rubric_matches_shared_learner_grading_cases():
+    for case in NUMERIC_PARITY_CASES:
+        value = case["numeric_value"]
+        unit = case["numeric_unit"]
+        target_answer = f"{value} {unit}".strip()
+        answer = case["answer"]
+        question = numeric_question(
+            correct_answer=target_answer,
+            accepted_answers=[target_answer, answer],
+            numeric_value=value,
+            numeric_tolerance=case["numeric_tolerance"],
+            numeric_unit=unit,
+        )
+
+        errors = validate(
+            [question],
+            requested_type="short_answer",
+        )
+        accepted_answer_errors = [
+            error
+            for error in errors
+            if (
+                "contains an accepted answer that does not satisfy its numeric rubric"
+                in error
+            )
+        ]
+
+        assert bool(accepted_answer_errors) is (
+            not case["accepted"]
+        ), case["name"]
+
+        candidate_question = numeric_question(
+            correct_answer=answer,
+            accepted_answers=[answer],
+            numeric_value=value,
+            numeric_tolerance=case["numeric_tolerance"],
+            numeric_unit=unit,
+        )
+        candidate_errors = validate(
+            [candidate_question],
+            requested_type="short_answer",
+        )
+        correct_answer_errors = [
+            error
+            for error in candidate_errors
+            if "correct_answer does not satisfy its numeric rubric"
+            in error
+        ]
+
+        assert bool(correct_answer_errors) is (
+            not case["accepted"]
+        ), case["name"]
 
 
 def test_valid_concept_rubric_passes():

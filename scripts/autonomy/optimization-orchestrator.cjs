@@ -7,9 +7,13 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const os = require('node:os')
+const checkpointHistory = require('./checkpoint-history-store.cjs')
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const MAX_CYCLES = 10
+// Keep the version-controlled backlog finite. Tasks are never discarded; reaching
+// this ceiling is an explicit operator-visible error before state mutation.
+const MAX_TASKS = 1000
 const MAX_EVENTS = 500
 const EVENT_ARCHIVE_CHUNK = 250
 const MAX_PILOT_SUMMARIES = 25
@@ -43,6 +47,15 @@ const RECOVERY_DIAGNOSIS_CODES = Object.freeze([
   'evidence_insufficient', 'upstream_unavailable', 'benchmark_over_budget',
   'existing_change_conflict', 'other',
 ])
+const FAILURE_CLASSIFICATION_DIAGNOSIS_CODES = Object.freeze({
+  INTRODUCED_REGRESSION: 'other',
+  PREEXISTING_ON_BASE: 'other',
+  ENVIRONMENT_FAILURE: 'environment_incompatible',
+  INFRASTRUCTURE_FAILURE: 'upstream_unavailable',
+  INTERMITTENT_FAILURE: 'other',
+  EXTERNAL_DEPENDENCY: 'upstream_unavailable',
+  INSUFFICIENT_EVIDENCE: 'evidence_insufficient',
+})
 const NON_RECOVERABLE_REASON_CODES = Object.freeze([
   'unsafe_operation', 'approval_required', 'resource_unavailable',
   'evidence_unavailable', 'external_dependency', 'other',
@@ -65,6 +78,7 @@ const AUDIT_ROLES = Object.freeze([
   'data_integrity_engineer',
 ])
 const IDENTITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9@._+-]{1,79}$/
+const INVOCATION_REFERENCE_PATTERN = /^\/?[A-Za-z0-9][A-Za-z0-9._:/-]{2,159}$/
 
 const DEFAULT_STATE_PATH = path.resolve(__dirname, '../../docs/autonomy/optimization-state.json')
 const REPOSITORY_ROOT = path.resolve(__dirname, '../..')
@@ -99,6 +113,8 @@ function createInitialState() {
       preparedPilot: null,
       pilotHistory: [],
       archivedPilotHistory: [],
+      historyArchives: [],
+      historyCapacity: null,
       eventArchives: [],
       optimizationGate: {
         status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
@@ -115,6 +131,43 @@ function assertReference(reference) {
     throw new Error('Invalid evidence reference; use an allowlisted GitHub URL or repository path')
   }
   return reference
+}
+
+function assertInvocationReference(reference) {
+  if (typeof reference !== 'string' || !INVOCATION_REFERENCE_PATTERN.test(reference) ||
+      reference.includes('..') || reference.includes('//') || /[\r\n]/.test(reference)) {
+    throw new Error('Invalid actual agent invocation reference')
+  }
+}
+
+function diagnosisCodeForFailureClassification(classification) {
+  if (!Object.hasOwn(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, classification)) {
+    throw new Error('Failure classification is not allowlisted')
+  }
+  const diagnosisCode = FAILURE_CLASSIFICATION_DIAGNOSIS_CODES[classification]
+  return diagnosisCode
+}
+
+function isValidAssessmentRecord(assessments) {
+  if (!assessments || typeof assessments !== 'object' || Array.isArray(assessments) ||
+      Object.keys(assessments).some(role => !ASSESSMENT_ROLES.includes(role))) return false
+  try {
+    for (const assessment of Object.values(assessments)) {
+      if (assessment === null) continue
+      const legacyKeys = ['passed', 'evidenceRef']
+      const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
+      if ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+          typeof assessment.passed !== 'boolean') return false
+      assertReference(assessment.evidenceRef)
+      if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+        assertInvocationReference(assessment.invocationRef)
+        if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) return false
+      }
+    }
+  } catch {
+    return false
+  }
+  return true
 }
 
 function validateTask(task) {
@@ -184,12 +237,25 @@ function validateTask(task) {
     for (const role of ASSESSMENT_ROLES) {
       const assessment = task.assessments[role]
       if (assessment !== undefined && assessment !== null) {
-        if (!onlyKeys(assessment, ['passed', 'evidenceRef']) || typeof assessment.passed !== 'boolean') {
+        const legacyKeys = ['passed', 'evidenceRef']
+        const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
+        if ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+            typeof assessment.passed !== 'boolean') {
           throw new Error('Invalid role assessment result')
         }
         assertReference(assessment.evidenceRef)
+        if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+          assertInvocationReference(assessment.invocationRef)
+          if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) {
+            throw new Error('Assessment invocation requires the exact target commit SHA')
+          }
+        }
       }
     }
+  }
+  if (task.assessmentProvenanceLegacy !== undefined &&
+      (task.assessmentProvenanceLegacy !== true || task.status !== 'validated')) {
+    throw new Error('Legacy assessment provenance is allowed only for previously validated records')
   }
   if (task.blocker !== undefined && task.blocker !== null) {
     if (!onlyKeys(task.blocker, ['code', 'evidenceRef', 'evidenceRevision', 'recordedAt']) ||
@@ -200,6 +266,7 @@ function validateTask(task) {
   }
   const recoveryHistory = task.recoveryHistory ?? []
   const recoveryReferences = new Set()
+  const recoveryInvocations = new Set()
   for (const recoveryCase of recoveryHistory) {
     validateRecoveryCase(task, recoveryCase)
     for (const reference of recoveryEvidenceReferences([recoveryCase])) {
@@ -207,6 +274,12 @@ function validateTask(task) {
         throw new Error('Recovery evidence references must be unique across the task history')
       }
       recoveryReferences.add(reference)
+    }
+    for (const reference of recoveryInvocationReferences([recoveryCase])) {
+      if (recoveryInvocations.has(reference)) {
+        throw new Error('Recovery agent invocation references must be unique across the task history')
+      }
+      recoveryInvocations.add(reference)
     }
   }
   if (task.validation !== undefined && task.validation !== null) {
@@ -300,6 +373,7 @@ function validateTask(task) {
     implementation: task.implementation ?? null,
     testResult: task.testResult ?? null,
     assessments: task.assessments ?? Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null])),
+    ...(task.assessmentProvenanceLegacy === true ? { assessmentProvenanceLegacy: true } : {}),
     validation: task.validation ?? null,
     blocker: task.blocker ?? null,
     workPreserved: task.workPreserved ?? null,
@@ -340,11 +414,22 @@ function validatePreservedSnapshot(snapshot) {
     throw new Error('Invalid preserved assessment or validation record')
   }
   for (const assessment of Object.values(snapshot.assessments)) {
+    const legacyKeys = ['passed', 'evidenceRef']
+    const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
     if (assessment !== null &&
-        (!onlyKeys(assessment, ['passed', 'evidenceRef']) || typeof assessment.passed !== 'boolean')) {
+        ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+          typeof assessment.passed !== 'boolean')) {
       throw new Error('Invalid preserved assessment or validation record')
     }
-    if (assessment !== null) assertReference(assessment.evidenceRef)
+    if (assessment !== null) {
+      assertReference(assessment.evidenceRef)
+      if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+        assertInvocationReference(assessment.invocationRef)
+        if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) {
+          throw new Error('Preserved assessment invocation requires the exact target commit SHA')
+        }
+      }
+    }
   }
   if (snapshot.validation !== null && snapshot.validation !== undefined) {
     const rejectedKeys = ['accepted', 'reasonCode', 'evidenceRef']
@@ -369,7 +454,7 @@ function validateRecoveryCase(task, recoveryCase) {
   if (!onlyKeys(recoveryCase, ['diagnosis', 'attempts', 'outcome']) ||
       !recoveryCase.diagnosis || !onlyKeys(recoveryCase.diagnosis, [
         'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
-        'blockerCode', 'nonRecoverableReasonCode', 'recordedAt',
+        'blockerCode', 'nonRecoverableReasonCode', 'recordedAt', 'investigatorInvocationRef',
       ]) || !RECOVERY_DIAGNOSIS_CODES.includes(recoveryCase.diagnosis.diagnosisCode) ||
       typeof recoveryCase.diagnosis.recoverable !== 'boolean' ||
       !BLOCKERS.includes(recoveryCase.diagnosis.blockerCode) ||
@@ -380,6 +465,9 @@ function validateRecoveryCase(task, recoveryCase) {
     throw new Error('Invalid recovery diagnosis record')
   }
   assertReference(recoveryCase.diagnosis.investigatorEvidenceRef)
+  if (recoveryCase.diagnosis.investigatorInvocationRef !== undefined) {
+    assertInvocationReference(recoveryCase.diagnosis.investigatorInvocationRef)
+  }
   assertReference(recoveryCase.diagnosis.originalCheckRef)
   if (![...task.testRefs, ...task.benchmarkRefs].includes(recoveryCase.diagnosis.originalCheckRef)) {
     throw new Error('Recovery diagnosis must name an allowlisted original check')
@@ -394,10 +482,15 @@ function validateRecoveryCase(task, recoveryCase) {
     throw new Error('Non-recoverable diagnoses require an allowlisted reason code and cannot have recovery attempts')
   }
   const strategies = new Set()
+  const caseInvocations = new Set()
+  if (recoveryCase.diagnosis.investigatorInvocationRef) {
+    caseInvocations.add(recoveryCase.diagnosis.investigatorInvocationRef)
+  }
   const attemptEvidence = new Set([recoveryCase.diagnosis.investigatorEvidenceRef])
   for (const attempt of recoveryCase.attempts) {
     if (!onlyKeys(attempt, [
       'strategy', 'evidenceRef', 'checkRef', 'verificationRef', 'result', 'recordedAt',
+      'developerInvocationRef',
     ]) || !RECOVERY_STRATEGIES.includes(attempt.strategy) ||
         !['passed', 'failed'].includes(attempt.result) ||
         typeof attempt.recordedAt !== 'string' || Number.isNaN(Date.parse(attempt.recordedAt)) ||
@@ -407,6 +500,13 @@ function validateRecoveryCase(task, recoveryCase) {
     assertReference(attempt.evidenceRef)
     assertReference(attempt.checkRef)
     assertReference(attempt.verificationRef)
+    if (attempt.developerInvocationRef !== undefined) {
+      assertInvocationReference(attempt.developerInvocationRef)
+      if (caseInvocations.has(attempt.developerInvocationRef)) {
+        throw new Error('Recovery attempts require a distinct Developer invocation')
+      }
+      caseInvocations.add(attempt.developerInvocationRef)
+    }
     if (attempt.evidenceRef === attempt.verificationRef || attemptEvidence.has(attempt.evidenceRef) ||
         attemptEvidence.has(attempt.verificationRef)) {
       throw new Error('Recovery attempts require distinct evidence and verification references')
@@ -436,6 +536,13 @@ function recoveryEvidenceReferences(recoveryHistory) {
     recoveryCase.diagnosis.investigatorEvidenceRef,
     ...recoveryCase.attempts.flatMap(attempt => [attempt.evidenceRef, attempt.verificationRef]),
   ]))
+}
+
+function recoveryInvocationReferences(recoveryHistory) {
+  return new Set(recoveryHistory.flatMap(recoveryCase => [
+    recoveryCase.diagnosis.investigatorInvocationRef,
+    ...recoveryCase.attempts.map(attempt => attempt.developerInvocationRef),
+  ]).filter(Boolean))
 }
 
 function validatePreparedPilot(prepared) {
@@ -493,10 +600,35 @@ function validatePilotSummary(summary) {
 }
 
 function validateState(state) {
+  if (Array.isArray(state?.tasks) && state.tasks.length > MAX_TASKS) {
+    throw new Error(`Task capacity exceeded (${MAX_TASKS}); preserve the complete backlog before continuing`)
+  }
+  if (state?.schemaVersion === 1 && Array.isArray(state.tasks)) {
+    // Preserve completed historical results without inventing invocation IDs.
+    // In-progress, untraceable reviews remain in the event history, but the
+    // task returns to tests_passed so reviewers must assess the current commit.
+    for (const task of state.tasks) {
+      if (!task || typeof task !== 'object' || Array.isArray(task)) continue
+      if (task.assessments !== undefined && !isValidAssessmentRecord(task.assessments)) continue
+      const hasUntraceableAssessment = Object.values(task.assessments ?? {})
+        .some(assessment => assessment && !assessment.invocationRef)
+      if (task.status === 'validated') {
+        task.assessmentProvenanceLegacy = true
+      } else if (hasUntraceableAssessment &&
+          ['reviewed', 'qa_passed', 'quality_security_passed'].includes(task.status)) {
+        task.status = 'tests_passed'
+        task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+        task.validation = null
+      } else if (hasUntraceableAssessment && !['blocked', 'rejected'].includes(task.status)) {
+        task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+      }
+    }
+    state.schemaVersion = SCHEMA_VERSION
+  }
   if (!state || state.schemaVersion !== SCHEMA_VERSION ||
       !Array.isArray(state.domains) || state.domains.length !== DOMAINS.length ||
       DOMAINS.some(domain => !state.domains.includes(domain)) ||
-      !Array.isArray(state.tasks) || !state.checkpoint ||
+      !Array.isArray(state.tasks) || state.tasks.length > MAX_TASKS || !state.checkpoint ||
       !Array.isArray(state.checkpoint.events) || state.checkpoint.events.length > MAX_EVENTS ||
       !Number.isInteger(state.checkpoint.maxCycles) || state.checkpoint.maxCycles < 1 ||
       state.checkpoint.maxCycles > MAX_CYCLES ||
@@ -511,12 +643,14 @@ function validateState(state) {
   checkpoint.preparedPilot ??= null
   checkpoint.pilotHistory ??= []
   checkpoint.archivedPilotHistory ??= []
+  checkpoint.historyArchives ??= []
+  checkpoint.historyCapacity ??= null
   checkpoint.eventArchives ??= []
   if (!Number.isSafeInteger(checkpoint.revision) || checkpoint.revision < 0 ||
       !onlyKeys(checkpoint, [
         'pilotId', 'maxCycles', 'cyclesStarted', 'cyclesValidated', 'revision',
         'selectedTaskId', 'previousTaskId', 'preparedPilot', 'pilotHistory',
-        'archivedPilotHistory', 'eventArchives', 'optimizationGate', 'events',
+        'archivedPilotHistory', 'eventArchives', 'historyArchives', 'historyCapacity', 'optimizationGate', 'events',
       ])) {
     throw new Error('Invalid optimization checkpoint revision or fields')
   }
@@ -525,8 +659,18 @@ function validateState(state) {
       checkpoint.archivedPilotHistory.some(chunk => !Array.isArray(chunk) ||
         chunk.length === 0 || chunk.length > PILOT_SUMMARY_ARCHIVE_CHUNK) ||
       !Array.isArray(checkpoint.eventArchives) ||
-      checkpoint.eventArchives.some(chunk => !Array.isArray(chunk) || chunk.length === 0 || chunk.length > MAX_EVENTS)) {
+      checkpoint.eventArchives.some(chunk => !Array.isArray(chunk) || chunk.length === 0 || chunk.length > MAX_EVENTS) ||
+      !Array.isArray(checkpoint.historyArchives) ||
+      checkpoint.historyArchives.length > checkpointHistory.MAX_ARCHIVE_FILES) {
     throw new Error('Invalid archived pilot or event history')
+  }
+  checkpointHistory.validateRefs(checkpoint.historyArchives)
+  if (checkpoint.historyCapacity !== null &&
+      (!onlyKeys(checkpoint.historyCapacity, ['status', 'reason', 'recordedAt']) ||
+       checkpoint.historyCapacity.status !== 'BLOCKED' || checkpoint.historyCapacity.reason !== 'history_capacity' ||
+       typeof checkpoint.historyCapacity.recordedAt !== 'string' ||
+       Number.isNaN(Date.parse(checkpoint.historyCapacity.recordedAt)))) {
+    throw new Error('Invalid durable history-capacity blocker record')
   }
   for (const summary of [...checkpoint.archivedPilotHistory.flat(), ...checkpoint.pilotHistory]) {
     validatePilotSummary(summary)
@@ -561,11 +705,12 @@ function validateState(state) {
       !Array.isArray(gate.lastAuditRefs) || gate.lastAuditRefs.length > 12 ||
       !Array.isArray(gate.lastAuditedDimensions) ||
       gate.lastAuditedDimensions.some(d => !AUDIT_DIMENSIONS.includes(d)) ||
-      !Array.isArray(gate.auditHistory) || gate.auditHistory.length > 100 ||
+      !Array.isArray(gate.auditHistory) ||
       (gate.status === 'OPTIMIZATION_EXHAUSTED' &&
        (gate.consecutiveCleanAudits < 2 || AUDIT_DIMENSIONS.some(d => !gate.lastAuditedDimensions.includes(d)))) ||
       (gate.status === 'STOPPED' && !['budget', 'security', 'correctness'].includes(gate.stopReason)) ||
-      (gate.status === 'BLOCKED' && gate.stopReason !== null && gate.stopReason !== 'approval') ||
+      (gate.status === 'BLOCKED' && gate.stopReason !== null &&
+       !['approval', 'history_capacity'].includes(gate.stopReason)) ||
       (gate.status !== 'STOPPED' && gate.status !== 'BLOCKED' && gate.stopReason !== null) ||
       (gate.status === 'OPTIMIZATION_EXHAUSTED' && !validFinalReport(gate.finalReport)) ||
       (gate.status !== 'OPTIMIZATION_EXHAUSTED' && gate.finalReport !== null)) {
@@ -615,7 +760,7 @@ function validateState(state) {
   ])
   const eventKeys = [
     'at', 'type', 'pilotId', 'maxCycles', 'taskId', 'cycle', 'domain', 'metric',
-    'evidenceRef', 'branch', 'commitSha', 'reasonCode', 'blockerCode',
+    'evidenceRef', 'branch', 'commitSha', 'invocationRef', 'assessmentCommitSha', 'reasonCode', 'blockerCode',
     'evidenceRevision', 'resultMetric', 'recoveryCaseIndex', 'recoveryStrategy', 'recoveryResult',
     'initialStatus',
     'auditStatus', 'consecutiveCleanAudits', 'actionableCount', 'blockedCount', 'auditedDimensions', 'specialistRoles',
@@ -676,6 +821,14 @@ function validateState(state) {
     if (event.domain && !DOMAINS.includes(event.domain)) throw new Error('Invalid domain in checkpoint event')
     if (event.blockerCode && !BLOCKERS.includes(event.blockerCode)) throw new Error('Invalid blocker in checkpoint event')
     if (event.evidenceRef) assertReference(event.evidenceRef)
+    if (event.invocationRef !== undefined || event.assessmentCommitSha !== undefined) {
+      assertInvocationReference(event.invocationRef)
+      if (!/^[a-f0-9]{40}$/.test(event.assessmentCommitSha ?? '') ||
+          !['reviewer_passed', 'qa_passed', 'quality_passed', 'security_passed',
+            'reviewer_rejected', 'qa_rejected', 'quality_rejected', 'security_rejected'].includes(event.type)) {
+        throw new Error('Assessment event invocation provenance is invalid')
+      }
+    }
     if (event.reviewerEvidenceRef) assertReference(event.reviewerEvidenceRef)
     if (event.qaEvidenceRef) assertReference(event.qaEvidenceRef)
     if (event.securityEvidenceRef) assertReference(event.securityEvidenceRef)
@@ -772,6 +925,7 @@ function validateState(state) {
     }
   }
   if (gate.status === 'OPTIMIZATION_EXHAUSTED' &&
+      JSON.stringify(gate.finalReport.audits) !== JSON.stringify(gate.auditHistory.slice(-2)) &&
       JSON.stringify(gate.finalReport.audits) !== JSON.stringify(gate.auditHistory)) {
     throw new Error('Exhaustion report does not preserve complete audit history')
   }
@@ -828,7 +982,13 @@ function validateState(state) {
   }
   if (gate.status === 'OPTIMIZATION_EXHAUSTED') {
     const expectedReport = buildFinalReport(state, [], gate.auditHistory.at(-1).specialistAssessments)
-    if (JSON.stringify(expectedReport) !== JSON.stringify(gate.finalReport)) {
+    const legacyFullReport = {
+      ...expectedReport,
+      auditEvidenceRefs: gate.auditHistory.flatMap(audit => audit.evidenceRefs),
+      audits: clone(gate.auditHistory),
+    }
+    if (JSON.stringify(expectedReport) !== JSON.stringify(gate.finalReport) &&
+        JSON.stringify(legacyFullReport) !== JSON.stringify(gate.finalReport)) {
       throw new Error('Exhaustion report does not match the persisted backlog and audit evidence')
     }
   }
@@ -863,9 +1023,21 @@ function validateLifecycle(task) {
       (task.assessments.reviewer?.passed !== true || task.assessments.qa?.passed !== true)) {
     throw new Error(`Task ${task.id} lifecycle lacks Reviewer and QA passes`)
   }
+  if (['reviewed', 'qa_passed', 'quality_security_passed', 'validated'].includes(task.status) &&
+      task.assessmentProvenanceLegacy !== true &&
+      ['reviewer', 'qa'].some(role => !task.assessments[role]?.invocationRef ||
+        task.assessments[role]?.targetCommitSha !== task.implementation.commitSha)) {
+    throw new Error(`Task ${task.id} lifecycle lacks traceable Reviewer and QA invocations for its implementation commit`)
+  }
   if (['quality_security_passed', 'validated'].includes(task.status) &&
       (task.assessments.quality?.passed !== true || task.assessments.security?.passed !== true)) {
     throw new Error(`Task ${task.id} lifecycle lacks quality and security passes`)
+  }
+  if (['quality_security_passed', 'validated'].includes(task.status) &&
+      task.assessmentProvenanceLegacy !== true &&
+      ['quality', 'security'].some(role => !task.assessments[role]?.invocationRef ||
+        task.assessments[role]?.targetCommitSha !== task.implementation.commitSha)) {
+    throw new Error(`Task ${task.id} lifecycle lacks traceable quality/security invocations for its implementation commit`)
   }
   if (task.status === 'validated') {
     const v = task.validation
@@ -1099,8 +1271,9 @@ function buildFinalReport(state, auditEvidenceRefs, specialistAssessments) {
     })),
     specialistFindings: specialistAssessments.map(item => ({ ...item })),
     auditDimensions: [...AUDIT_DIMENSIONS],
-    auditEvidenceRefs: state.checkpoint.optimizationGate.auditHistory.flatMap(audit => audit.evidenceRefs),
-    audits: clone(state.checkpoint.optimizationGate.auditHistory),
+    auditEvidenceRefs: state.checkpoint.optimizationGate.auditHistory.slice(-2)
+      .flatMap(audit => audit.evidenceRefs),
+    audits: clone(state.checkpoint.optimizationGate.auditHistory.slice(-2)),
     restartCriteria: ['new_actionable_task', 'distinct_blocker_evidence',
       'credible_specialist_improvement', 'required_approval', 'safe_scope_after_stop'],
   }
@@ -1160,7 +1333,6 @@ function recordOptimizationAudit(state, audit = {}) {
   validateSpecialistAssessments(specialistAssessments)
   const previousAudits = state.checkpoint.optimizationGate?.auditHistory ?? []
   if (previousAudits.some(item => item.auditId === auditId)) throw new Error(`Duplicate audit ID: ${auditId}`)
-  if (previousAudits.length >= 100) throw new Error('Audit history limit reached; archive checkpoint before continuing')
   if (state.checkpoint.optimizationGate?.status === 'STOPPED') {
     throw new Error('Stopped optimization gate requires an explicitly authorized release or new budgeted pilot')
   }
@@ -1315,7 +1487,7 @@ function selectTask(state) {
     if (!checkRef || !investigatorEvidenceRef) {
       throw new Error('Expensive benchmark task lacks evidence to record a safe blocker')
     }
-    recordRecoveryDiagnosis(state, task.id, {
+    recordSystemRecoveryDiagnosis(state, task.id, {
       diagnosisCode: 'benchmark_over_budget',
       investigatorEvidenceRef,
       originalCheckRef: checkRef,
@@ -1340,6 +1512,7 @@ function preserveAndResetStaleLifecycle(task) {
   task.implementation = null
   task.testResult = null
   task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+  delete task.assessmentProvenanceLegacy
   task.validation = null
 }
 
@@ -1492,7 +1665,7 @@ function recordTests(state, taskId, { passed, artifactRef }) {
   return task
 }
 
-function recordAssessment(state, taskId, { role, passed, artifactRef }) {
+function recordAssessment(state, taskId, { role, passed, artifactRef, invocationRef, targetCommitSha }) {
   const task = requireSelected(state, taskId)
   if (task.status !== 'tests_passed' && task.status !== 'reviewed' && task.status !== 'qa_passed') {
     throw new Error('Independent assessments require passing focused tests')
@@ -1501,7 +1674,14 @@ function recordAssessment(state, taskId, { role, passed, artifactRef }) {
     throw new Error('Assessment role/result is invalid')
   }
   assertReference(artifactRef)
-  task.assessments[role] = { passed, evidenceRef: artifactRef }
+  assertInvocationReference(invocationRef)
+  if (targetCommitSha !== task.implementation?.commitSha) {
+    throw new Error('Assessment invocation must identify the exact implemented commit')
+  }
+  delete task.assessmentProvenanceLegacy
+  task.assessments[role] = {
+    passed, evidenceRef: artifactRef, invocationRef, targetCommitSha,
+  }
   if (!passed) return rejectTask(state, taskId, `${role}_rejected`, artifactRef)
   if (task.assessments.reviewer?.passed && task.assessments.qa?.passed) task.status = 'reviewed'
   if (task.assessments.quality?.passed && task.assessments.security?.passed) {
@@ -1510,7 +1690,13 @@ function recordAssessment(state, taskId, { role, passed, artifactRef }) {
   } else if (task.assessments.reviewer?.passed && task.assessments.qa?.passed) {
     task.status = 'qa_passed'
   }
-  appendEvent(state, { type: `${role}_${passed ? 'passed' : 'rejected'}`, taskId, evidenceRef: artifactRef })
+  appendEvent(state, {
+    type: `${role}_${passed ? 'passed' : 'rejected'}`,
+    taskId,
+    evidenceRef: artifactRef,
+    invocationRef,
+    assessmentCommitSha: targetCommitSha,
+  })
   return task
 }
 
@@ -1591,14 +1777,34 @@ function blockTask(state, taskId, blockerCode, evidenceRef) {
 }
 
 function recordRecoveryDiagnosis(state, taskId, payload) {
+  return recordRecoveryDiagnosisWithOrigin(state, taskId, payload, false)
+}
+
+function recordSystemRecoveryDiagnosis(state, taskId, payload) {
+  return recordRecoveryDiagnosisWithOrigin(state, taskId, payload, true)
+}
+
+function recordRecoveryDiagnosisWithOrigin(state, taskId, payload, systemGenerated) {
   const task = requireSelected(state, taskId)
   const allowed = [
     'diagnosisCode', 'investigatorEvidenceRef', 'originalCheckRef', 'recoverable',
-    'blockerCode', 'nonRecoverableReasonCode',
+    'blockerCode', 'nonRecoverableReasonCode', 'investigatorInvocationRef',
   ]
   if (!onlyKeys(payload, allowed) || !RECOVERY_DIAGNOSIS_CODES.includes(payload.diagnosisCode) ||
       typeof payload.recoverable !== 'boolean' || !BLOCKERS.includes(payload.blockerCode)) {
     throw new Error('Investigator diagnosis requires allowlisted diagnosis, recoverability, and blocker codes')
+  }
+  const isAutomaticBenchmarkBlocker = systemGenerated &&
+    payload.diagnosisCode === 'benchmark_over_budget' && !payload.recoverable &&
+    payload.blockerCode === 'benchmark_expensive' &&
+    payload.nonRecoverableReasonCode === 'resource_unavailable'
+  if (systemGenerated && !isAutomaticBenchmarkBlocker) {
+    throw new Error('The orchestrator may only create its automatic benchmark-cost blocker')
+  }
+  if (!isAutomaticBenchmarkBlocker) {
+    assertInvocationReference(payload.investigatorInvocationRef)
+  } else if (payload.investigatorInvocationRef !== undefined) {
+    throw new Error('Automatic benchmark blockers do not claim an Investigator invocation')
   }
   assertReference(payload.investigatorEvidenceRef)
   assertReference(payload.originalCheckRef)
@@ -1620,6 +1826,10 @@ function recordRecoveryDiagnosis(state, taskId, payload) {
   if (recoveryEvidenceReferences(task.recoveryHistory).has(payload.investigatorEvidenceRef)) {
     throw new Error('Recovery diagnosis requires evidence not used in any prior recovery case')
   }
+  if (payload.investigatorInvocationRef &&
+      recoveryInvocationReferences(task.recoveryHistory).has(payload.investigatorInvocationRef)) {
+    throw new Error('Recovery diagnosis requires a new Investigator invocation reference')
+  }
   const addsEvidenceRef = !task.evidenceRefs.includes(payload.investigatorEvidenceRef)
   if (addsEvidenceRef && task.evidenceRefs.length >= 12) throw new Error('Task evidence reference limit reached')
   if (!payload.recoverable) mergeWorkPreserved(task, lifecycleSnapshot(task))
@@ -1628,6 +1838,8 @@ function recordRecoveryDiagnosis(state, taskId, payload) {
     diagnosis: {
       diagnosisCode: payload.diagnosisCode,
       investigatorEvidenceRef: payload.investigatorEvidenceRef,
+      ...(payload.investigatorInvocationRef
+        ? { investigatorInvocationRef: payload.investigatorInvocationRef } : {}),
       originalCheckRef: payload.originalCheckRef,
       recoverable: payload.recoverable,
       blockerCode: payload.blockerCode,
@@ -1652,11 +1864,12 @@ function recordRecoveryAttempt(state, taskId, payload) {
   if (!recoveryCase || recoveryCase.outcome !== 'in_progress' || !recoveryCase.diagnosis.recoverable) {
     throw new Error('An active, safely recoverable Investigator diagnosis is required')
   }
-  if (!onlyKeys(payload, ['strategy', 'evidenceRef', 'verificationRef', 'result']) ||
+  if (!onlyKeys(payload, ['strategy', 'evidenceRef', 'verificationRef', 'result', 'developerInvocationRef']) ||
       !RECOVERY_STRATEGIES.includes(payload.strategy) ||
       !['passed', 'failed'].includes(payload.result)) {
     throw new Error('Recovery attempt must use an allowlisted strategy and result')
   }
+  assertInvocationReference(payload.developerInvocationRef)
   if (recoveryCase.attempts.length >= MAX_RECOVERY_ATTEMPTS) {
     throw new Error('Recovery is limited to two distinct attempts')
   }
@@ -1670,10 +1883,14 @@ function recordRecoveryAttempt(state, taskId, payload) {
       payload.evidenceRef === payload.verificationRef) {
     throw new Error('Recovery attempt requires distinct evidence and verification references')
   }
+  if (recoveryInvocationReferences(task.recoveryHistory).has(payload.developerInvocationRef)) {
+    throw new Error('Recovery attempt requires a new Developer invocation reference')
+  }
   const willBlock = payload.result === 'failed' && recoveryCase.attempts.length + 1 === MAX_RECOVERY_ATTEMPTS
   if (willBlock) mergeWorkPreserved(task, lifecycleSnapshot(task))
   const attempt = {
     strategy: payload.strategy,
+    developerInvocationRef: payload.developerInvocationRef,
     evidenceRef: payload.evidenceRef,
     checkRef: recoveryCase.diagnosis.originalCheckRef,
     verificationRef: payload.verificationRef,
@@ -2139,6 +2356,8 @@ function createPilot(state, { pilotId, maxCycles = MAX_CYCLES, pilotStartAuthori
     pilotHistory: previousCheckpoint.pilotHistory,
     archivedPilotHistory: previousCheckpoint.archivedPilotHistory,
     eventArchives: previousCheckpoint.eventArchives,
+    historyArchives: previousCheckpoint.historyArchives ?? [],
+    historyCapacity: previousCheckpoint.historyCapacity ?? null,
     optimizationGate: previousCheckpoint.optimizationGate ?? {
       status: 'ACTIVE', consecutiveCleanAudits: 0, lastAuditRefs: [], lastAuditedDimensions: [],
       stopReason: null, finalReport: null, auditHistory: [],
@@ -2189,6 +2408,9 @@ function startPreparedPilot(state, attestation) {
 }
 
 function addTask(state, taskInput) {
+  if (state.tasks.length >= MAX_TASKS) {
+    throw new Error(`Task capacity reached (${MAX_TASKS}); preserve the existing backlog and review capacity before adding tasks`)
+  }
   if (taskInput?.initialStatus !== undefined) {
     throw new Error('Initial status is assigned by the orchestrator during task discovery')
   }
@@ -2237,12 +2459,16 @@ async function loadState(filePath = DEFAULT_STATE_PATH, repositoryRoot = REPOSIT
   const text = await fs.readFile(filePath, 'utf8')
   let state
   try { state = JSON.parse(text) } catch { throw new Error(`Invalid JSON in state file: ${filePath}`) }
+  if (state?.checkpoint) {
+    state.checkpoint.historyArchives ??= []
+    await checkpointHistory.hydrateHistory(state, repositoryRoot)
+  }
   validateState(state)
   await verifyPersistedPreservationArchives(state, repositoryRoot)
   return state
 }
 
-async function saveState(filePath, state) {
+async function saveState(filePath, state, repositoryRoot = REPOSITORY_ROOT) {
   validateState(state)
   const target = path.resolve(filePath)
   await fs.mkdir(path.dirname(target), { recursive: true })
@@ -2326,10 +2552,13 @@ async function saveState(filePath, state) {
     if (diskRevision !== state.checkpoint.revision) {
       throw new Error(`Stale checkpoint revision ${state.checkpoint.revision}; current revision is ${diskRevision}`)
     }
-    state.checkpoint.revision += 1
-    validateState(state)
-    await fs.writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+    const candidate = clone(state)
+    candidate.checkpoint.revision += 1
+    validateState(candidate)
+    const persisted = await checkpointHistory.prepareHistoryForPersistence(candidate, repositoryRoot)
+    await fs.writeFile(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
     await fs.rename(tempPath, target)
+    Object.assign(state, candidate)
   } finally {
     await fs.rm(tempPath, { force: true }).catch(() => {})
     await lock.close().catch(() => {})
@@ -2436,6 +2665,7 @@ if (require.main === module) {
 
 module.exports = {
   AUDIT_DIMENSIONS, AUDIT_ROLES, BLOCKERS, DEFAULT_STATE_PATH, DOMAINS, MAX_CYCLES, TASK_STATUSES,
+  FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, diagnosisCodeForFailureClassification,
   addTask, beginRun, blockTask, createInitialState, preparePilot, startPreparedPilot,
   recordAssessment, recordBaseline, recordBenchmark, recordImplementation,
   recordApproval, recordNewEvidence, recordOptimizationAudit, recordRecoveryAttempt, recordRecoveryDiagnosis,

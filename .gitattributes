@@ -1,0 +1,3 @@
+# SHA-256 archive references are over canonical UTF-8 JSON bytes. Keep exact LF
+# bytes in both Windows and Unix checkouts; Git EOL conversion would invalidate them.
+docs/autonomy/history-archives/*.json -text
