@@ -945,6 +945,23 @@ function validateState(state) {
     } else if (event.type === 'supervised_merge_completed') {
       validateMergeResultRecord(event.mergeRecord)
       if (event.taskId !== event.mergeRecord?.taskId) throw new Error('Supervised merge result event task must match its audit record')
+      const authorization = authorizationByPilot.get(event.pilotId)
+      const priorDecisions = allEvents.slice(0, eventIndex).filter(candidate =>
+        candidate.type === 'supervised_merge_decision' && candidate.pilotId === event.pilotId &&
+        candidate.taskId === event.taskId && candidate.mergeRecord.prNumber === event.mergeRecord.prNumber)
+      const latestDecision = priorDecisions.at(-1)
+      const revocation = allEvents.find(candidate => candidate.type === 'supervised_merge_revoked' &&
+        candidate.pilotId === event.pilotId && candidate.mergeRecord.authorizationId === event.mergeRecord.authorizationId)
+      const mergedAt = Date.parse(event.mergeRecord.mergedAt)
+      if (!authorization || authorization.authorizationId !== event.mergeRecord.authorizationId ||
+          !latestDecision || latestDecision.mergeRecord.outcome !== 'eligible' ||
+          latestDecision.mergeRecord.decisionDigest !== event.mergeRecord.decisionDigest ||
+          latestDecision.mergeRecord.headSha !== event.mergeRecord.headSha ||
+          latestDecision.mergeRecord.baseSha !== event.mergeRecord.baseSha ||
+          mergedAt <= Date.parse(latestDecision.at) || mergedAt > Date.parse(authorization.expiresAt) ||
+          mergedAt > Date.parse(event.at) || (revocation && mergedAt >= Date.parse(revocation.mergeRecord.revokedAt))) {
+        throw new Error('Historical merge result must follow its latest eligible decision and precede expiry, revocation, and checkpoint recording')
+      }
     } else if (event.type === 'supervised_task_limit_reached') {
       if (!onlyKeys(event.mergeRecord, ['authorizationId', 'maxTasks', 'tasksSelected']) ||
           !/^[a-z0-9][a-z0-9-]{2,63}$/.test(event.mergeRecord.authorizationId ?? '') ||
@@ -2551,7 +2568,7 @@ function activeMergeEvents(state) {
     ['supervised_merge_decision', 'supervised_merge_completed', 'supervised_merge_revoked'].includes(event.type))
 }
 
-function revokeSupervisedMerges(state, evidenceRef) {
+function revokeSupervisedMerges(state, evidenceRef, { currentTime = now() } = {}) {
   const authorization = state.checkpoint.mergeAuthorization
   if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization) {
     throw new Error('No supervised merge run is active')
@@ -2562,9 +2579,9 @@ function revokeSupervisedMerges(state, evidenceRef) {
     throw new Error('Revocation evidence must belong to the authorized repository')
   }
   authorization.status = 'revoked'
-  authorization.revokedAt = now()
+  authorization.revokedAt = new Date(currentTime).toISOString()
   authorization.revocationEvidenceRef = evidenceRef
-  appendEvent(state, { type: 'supervised_merge_revoked', mergeRecord: {
+  appendEvent(state, { at: authorization.revokedAt, type: 'supervised_merge_revoked', mergeRecord: {
     authorizationId: authorization.authorizationId, evidenceRef, revokedAt: authorization.revokedAt,
   } })
   return { revoked: true, authorizationId: authorization.authorizationId, revokedAt: authorization.revokedAt }
@@ -2618,12 +2635,11 @@ function recordSupervisedMergeDecision(state, input) {
   return { ...result, taskId: task.id, prNumber: mergeRecord.prNumber, decisionDigest, decisionRecorded: true }
 }
 
-function recordSupervisedMergeResult(state, input) {
+function recordSupervisedMergeResult(state, input, { currentTime = now() } = {}) {
   const authorization = state.checkpoint.mergeAuthorization
-  if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization || authorization.status !== 'active') {
-    throw new Error('A currently authorized supervised run is required to record a merge response')
+  if (state.checkpoint.mergeMode !== 'supervised_autonomous' || !authorization) {
+    throw new Error('A supervised run is required to record a merge response')
   }
-  if (Date.parse(authorization.expiresAt) <= Date.now()) throw new Error('Supervised merge authorization has expired')
   if (authorization.policyDigest !== MERGE_POLICY_DIGEST) throw new Error('Policy changed since authorization; merge is blocked')
   const { taskId, prNumber, headSha, baseSha, decisionDigest, githubResponse } = input ?? {}
   const decisions = activeMergeEvents(state).filter(event => event.type === 'supervised_merge_decision' &&
@@ -2644,8 +2660,10 @@ function recordSupervisedMergeResult(state, input) {
     throw new Error('A structured GitHub response confirming merged=true, PR, head, base, commit, and time is required')
   }
   const mergedAt = Date.parse(githubResponse.mergedAt)
-  if (mergedAt < Date.parse(prior.at) || mergedAt > Date.parse(authorization.expiresAt)) {
-    throw new Error('GitHub merge response time must fall after the eligible decision and before authorization expiry')
+  const revokedAt = authorization.status === 'revoked' ? Date.parse(authorization.revokedAt) : Infinity
+  if (mergedAt <= Date.parse(prior.at) || mergedAt > Date.parse(authorization.expiresAt) || mergedAt >= revokedAt ||
+      mergedAt > Date.parse(currentTime)) {
+    throw new Error('GitHub merge must have occurred after the eligible decision, before expiry/revocation, and no later than this recording time')
   }
   const mergeRecord = {
     authorizationId: authorization.authorizationId, decisionDigest, repository: authorization.repository,
@@ -2655,7 +2673,7 @@ function recordSupervisedMergeResult(state, input) {
     mergedAt: githubResponse.mergedAt, githubMessage: githubResponse.message.trim().slice(0, 160),
   }
   validateMergeResultRecord(mergeRecord)
-  appendEvent(state, { type: 'supervised_merge_completed', taskId, mergeRecord })
+  appendEvent(state, { at: new Date(currentTime).toISOString(), type: 'supervised_merge_completed', taskId, mergeRecord })
   return { recorded: true, mergeCommitSha: mergeRecord.mergeCommitSha }
 }
 

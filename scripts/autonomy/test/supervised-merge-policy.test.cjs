@@ -157,15 +157,16 @@ test('decision audit persists rejected evidence without fabricated PR/task place
   }
 })
 
-test('merge result requires a matching eligible decision and structured merged GitHub response', () => {
+test('merge result requires a matching eligible decision and structured merged GitHub response', async () => {
   const state = orchestrator.createInitialState()
   orchestrator.addTask(state, { id: 'task-ui-polish', domain: 'frontend', title: 'Polish a small UI detail',
     impact: 2, effort: 1, risk: 1, dependencies: [], evidenceRefs: ['docs/autonomy/supervised-merge.md'],
     testRefs: ['scripts/autonomy/test/supervised-merge-policy.test.cjs'], benchmarkRefs: [], benchmarkDirection: 'higher_is_better' })
   orchestrator.preparePilot(state, { pilotId: runId })
+  const scopedAuthorization = authorization({ expiresAt: new Date(Date.now() + 60_000).toISOString() })
   orchestrator.startPreparedPilot(state, { pilotId: runId, maxCycles: 10,
     approverIdentity: 'coordinator@example.test', approvalEvidenceRef: 'docs/autonomy/supervised-merge.md',
-    mergeMode: 'supervised_autonomous', mergeAuthorization: authorization() })
+    mergeMode: 'supervised_autonomous', mergeAuthorization: scopedAuthorization })
   const task = orchestrator.selectTask(state)
   orchestrator.recordBaseline(state, task.id, { baselineMetric: 1, artifactRef: 'docs/autonomy/supervised-merge.md' })
   orchestrator.recordImplementation(state, task.id, { branch: 'codex/supervised-task', commitSha: head })
@@ -220,14 +221,40 @@ test('merge result requires a matching eligible decision and structured merged G
     githubResponse: { merged: false, number: pr, headSha: head, baseSha: base,
       mergeCommitSha: 'd'.repeat(40), mergedAt: new Date().toISOString(), message: 'not merged' },
   }), /merged=true/)
+  const latestEligibleEvent = state.checkpoint.events.findLast(event => event.type === 'supervised_merge_decision' && event.mergeRecord.outcome === 'eligible')
+  const mergeAt = new Date(Date.parse(latestEligibleEvent.at) + 1000).toISOString()
+  const revokeAt = new Date(Date.parse(latestEligibleEvent.at) + 5000).toISOString()
+  assert.throws(() => orchestrator.recordSupervisedMergeResult(state, {
+    taskId: 'task-ui-polish', prNumber: pr, headSha: head, baseSha: base,
+    decisionDigest: finalDecision.decisionDigest,
+    githubResponse: { merged: true, number: pr, headSha: head, baseSha: base,
+      mergeCommitSha: 'd'.repeat(40), mergedAt: new Date(Date.parse(scopedAuthorization.expiresAt) + 1000).toISOString(), message: 'merged' },
+  }, { currentTime: new Date(Date.parse(scopedAuthorization.expiresAt) + 2000).toISOString() }), /before expiry/)
+  orchestrator.revokeSupervisedMerges(state, prRef, { currentTime: revokeAt })
+  assert.throws(() => orchestrator.recordSupervisedMergeResult(state, {
+    taskId: 'task-ui-polish', prNumber: pr, headSha: head, baseSha: base,
+    decisionDigest: finalDecision.decisionDigest,
+    githubResponse: { merged: true, number: pr, headSha: head, baseSha: base,
+      mergeCommitSha: 'd'.repeat(40), mergedAt: new Date(Date.parse(revokeAt) + 1000).toISOString(), message: 'merged' },
+  }, { currentTime: new Date(Date.parse(scopedAuthorization.expiresAt) + 1000).toISOString() }), /before expiry\/revocation/)
   const result = orchestrator.recordSupervisedMergeResult(state, {
     taskId: 'task-ui-polish', prNumber: pr, headSha: head, baseSha: base,
     decisionDigest: finalDecision.decisionDigest,
     githubResponse: { merged: true, number: pr, headSha: head, baseSha: base,
-      mergeCommitSha: 'd'.repeat(40), mergedAt: new Date().toISOString(), message: 'merged' },
-  })
+      mergeCommitSha: 'd'.repeat(40), mergedAt: mergeAt, message: 'merged' },
+  }, { currentTime: new Date(Date.parse(scopedAuthorization.expiresAt) + 1000).toISOString() })
   assert.equal(result.recorded, true)
   assert.equal(state.checkpoint.events.filter(event => event.type === 'supervised_merge_completed').length, 1)
+  assert.equal(orchestrator.validateState(state), state)
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quizforge-merge-result-'))
+  try {
+    const checkpoint = path.join(dir, 'checkpoint.json')
+    await orchestrator.saveState(checkpoint, state)
+    const reloaded = await orchestrator.loadState(checkpoint)
+    assert.equal(reloaded.checkpoint.events.filter(event => event.type === 'supervised_merge_completed').length, 1)
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true })
+  }
 })
 
 test('CLI persists supervised start, decision, status, and revocation on a disposable checkpoint', async () => {
@@ -256,7 +283,7 @@ test('CLI persists supervised start, decision, status, and revocation on a dispo
     assert.ok(status.checkpoint.events.some(event => event.type === 'supervised_merge_revoked'))
     const denied = spawnSync(process.execPath, [script, 'record-supervised-merge-result', '{}', '--state', stateFile], { encoding: 'utf8' })
     assert.notEqual(denied.status, 0)
-    assert.match(denied.stderr, /currently authorized supervised run/)
+    assert.match(denied.stderr, /latest decision|eligible decision/)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
