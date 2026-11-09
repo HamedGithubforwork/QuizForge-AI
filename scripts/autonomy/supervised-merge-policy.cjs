@@ -103,7 +103,7 @@ function validateRunAuthorization(authorization, { runId, repository, maxCycles,
 
 function validateEligibilityEvidence(evidence, { authorization, pilotId, maxCycles, cyclesStarted, tasksSelected, now = new Date() } = {}) {
   const keys = [
-    'repository', 'runId', 'taskId', 'objective', 'prNumber', 'prUrl', 'headSha', 'baseSha', 'category',
+    'repository', 'runId', 'taskId', 'objective', 'prNumber', 'prUrl', 'prCreatedAt', 'headSha', 'baseSha', 'category',
     'policyDigest',
     'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef', 'riskFindings', 'resourceUsage', 'reviewer', 'qa',
     'specialistAssessments', 'requiredCheck', 'reviews', 'protections', 'sideEffects', 'mergeManager',
@@ -116,6 +116,7 @@ function validateEligibilityEvidence(evidence, { authorization, pilotId, maxCycl
       !authorization.objectives.includes(evidence.objective) ||
       !Number.isInteger(evidence.prNumber) || evidence.prNumber < 1 ||
       evidence.prUrl !== `https://github.com/${evidence.repository}/pull/${evidence.prNumber}` ||
+      !isoDate(evidence.prCreatedAt) || Date.parse(evidence.prCreatedAt) < Date.parse(authorization.authorizedAt) ||
       !SHA.test(evidence.headSha ?? '') || !SHA.test(evidence.baseSha ?? '') ||
       !authorization.allowedCategories.includes(evidence.category) ||
       !SHA256.test(evidence.diffSha256 ?? '') || !Array.isArray(evidence.riskFindings) ||

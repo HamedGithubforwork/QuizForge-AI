@@ -514,7 +514,7 @@ function digestCandidate(evidence, outcome, reason) {
 
 function candidateEvidence(record) {
   return Object.fromEntries([
-    'repository', 'runId', 'taskId', 'objective', 'policyDigest', 'prNumber', 'prUrl', 'headSha',
+    'repository', 'runId', 'taskId', 'objective', 'policyDigest', 'prNumber', 'prUrl', 'prCreatedAt', 'headSha',
     'baseSha', 'category', 'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef', 'riskFindings',
     'resourceUsage', 'reviewer', 'qa', 'specialistAssessments', 'requiredCheck', 'reviews',
     'protections', 'sideEffects', 'mergeManager',
@@ -524,7 +524,7 @@ function candidateEvidence(record) {
 function validateMergeDecisionRecord(record, eventPilotId, authorization, cyclesStarted, tasksSelected, selectedInRun) {
   const keys = [
     'authorizationId', 'policyVersion', 'policyDigest', 'repository', 'runId', 'taskId', 'objective', 'prNumber',
-    'prUrl', 'headSha', 'baseSha', 'category', 'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef',
+    'prUrl', 'prCreatedAt', 'headSha', 'baseSha', 'category', 'diffSha256', 'diffEvidenceRef', 'impactEvidenceRef',
     'riskFindings', 'resourceUsage', 'outcome', 'reasonCode', 'decisionDigest', 'reviewer', 'qa', 'specialistAssessments',
     'requiredCheck', 'reviews', 'protections', 'sideEffects', 'mergeManager', 'decidedAt', 'evidenceRefs',
   ]
@@ -538,6 +538,7 @@ function validateMergeDecisionRecord(record, eventPilotId, authorization, cycles
       !/^[a-z0-9][a-z0-9-]{1,63}$/.test(record.taskId ?? '') ||
       (record.prNumber !== null && (!Number.isInteger(record.prNumber) || record.prNumber < 1)) ||
       (record.prNumber === null ? record.prUrl !== null : record.prUrl !== `https://github.com/${record.repository}/pull/${record.prNumber}`) ||
+      (record.prCreatedAt !== null && (typeof record.prCreatedAt !== 'string' || Number.isNaN(Date.parse(record.prCreatedAt)))) ||
       (record.headSha !== null && !/^[a-f0-9]{40}$/.test(record.headSha)) ||
       (record.baseSha !== null && !/^[a-f0-9]{40}$/.test(record.baseSha)) ||
       !['eligible', 'rejected'].includes(record.outcome) ||
@@ -661,6 +662,8 @@ function sanitizeMergeDecisionRecord(state, input, result, decisionDigest) {
     objective: MERGE_OBJECTIVES.includes(input.objective) ? input.objective : null,
     prNumber: number,
     prUrl: number === null ? null : `https://github.com/${repo}/pull/${number}`,
+    prCreatedAt: typeof input.prCreatedAt === 'string' && !Number.isNaN(Date.parse(input.prCreatedAt))
+      ? input.prCreatedAt : null,
     headSha: /^[a-f0-9]{40}$/.test(input.headSha ?? '') ? input.headSha : null,
     baseSha: /^[a-f0-9]{40}$/.test(input.baseSha ?? '') ? input.baseSha : null,
     category: MERGE_CATEGORIES.includes(input.category) ? input.category : null,
@@ -2555,6 +2558,9 @@ function revokeSupervisedMerges(state, evidenceRef) {
   }
   if (authorization.status === 'revoked') throw new Error('Supervised merge authorization is already revoked')
   assertReference(evidenceRef)
+  if (!evidenceRef.startsWith(`https://github.com/${authorization.repository}/`)) {
+    throw new Error('Revocation evidence must belong to the authorized repository')
+  }
   authorization.status = 'revoked'
   authorization.revokedAt = now()
   authorization.revocationEvidenceRef = evidenceRef
@@ -2579,13 +2585,13 @@ function recordSupervisedMergeDecision(state, input) {
   const selectedInRun = starts.some(event => event.taskId === task.id)
   const evidence = { ...input, repository: input.repository ?? authorization.repository,
     runId: state.checkpoint.pilotId }
-  let result = ['quality_security_passed', 'validated'].includes(task.status) && selectedInRun
+  let result = task.status === 'validated' && selectedInRun
     ? evaluateSupervisedMerge({
       mode: state.checkpoint.mergeMode, authorization, evidence,
       pilotId: state.checkpoint.pilotId, maxCycles: state.checkpoint.maxCycles,
       cyclesStarted: state.checkpoint.cyclesStarted, tasksSelected,
     })
-    : { eligible: false, reason: 'evidence_invalid', message: 'Task has not passed implementation, tests, Reviewer, QA, and quality/security gates' }
+    : { eligible: false, reason: 'evidence_invalid', message: 'Task must complete implementation, tests, Reviewer, QA, quality/security, and benchmark validation in this run' }
   const previousUsage = events.filter(event => event.type === 'supervised_merge_decision' && event.mergeRecord.resourceUsage)
     .at(-1)?.mergeRecord.resourceUsage
   const usageGapRecorded = events.some(event => event.type === 'supervised_merge_decision' && !event.mergeRecord.resourceUsage)

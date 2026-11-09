@@ -38,6 +38,7 @@ function evidence(overrides = {}) {
   return {
     repository, runId, taskId: 'task-ui-polish', objective: 'application_performance',
     policyDigest: policy.POLICY_DIGEST, prNumber: pr, prUrl: prRef,
+    prCreatedAt: new Date(now.getTime() - 30_000).toISOString(),
     headSha: head, baseSha: base, category: 'low_risk_ui', diffSha256: diff,
     diffEvidenceRef: `${prRef}/files`, impactEvidenceRef: prRef, riskFindings: [],
     resourceUsage: { ciRunsUsed: 1, localBenchmarkMinutesUsed: 0, paidWorkflowRuns: 0, evidenceRef: prRef },
@@ -93,13 +94,18 @@ test('eligibility binds scope, policy digest, exact CI, protections, side effect
   assert.deepEqual(policy.evaluateSupervisedMerge(args), { eligible: true, reason: 'eligible' })
   for (const bad of [
     { evidence: evidence({ requiredCheck: { ...evidence().requiredCheck, headSha: base } }) },
+    { evidence: evidence({ requiredCheck: { ...evidence().requiredCheck, baseSha: head } }) },
+    { evidence: evidence({ requiredCheck: { ...evidence().requiredCheck, prNumber: pr + 1 } }) },
     { evidence: evidence({ requiredCheck: { ...evidence().requiredCheck, conclusion: 'failure' } }) },
     { evidence: evidence({ protections: { verified: false, evidenceRef: prRef, rulesetRef: prRef } }) },
     { evidence: evidence({ sideEffects: { ...evidence().sideEffects, cloudSpend: true } }) },
     { evidence: evidence({ mergeManager: { ...evidence().mergeManager, diffInspected: false } }) },
     { evidence: evidence({ policyDigest: '0'.repeat(64) }) },
+    { evidence: evidence({ prCreatedAt: new Date(now.getTime() - 120_000).toISOString() }) },
     { authorization: authorization({ policyDigest: '0'.repeat(64) }) },
     { authorization: authorization({ status: 'revoked', revokedAt: now.toISOString(), revocationEvidenceRef: prRef }) },
+    { authorization: null },
+    { authorization: authorization({ runId: 'another-run' }) },
     { authorization: authorization({ expiresAt: new Date(now.getTime() - 1000).toISOString() }) },
     { evidence: evidence({ riskFindings: ['authentication'] }) },
     { evidence: evidence({ riskFindings: ['uncertain'] }) },
@@ -155,7 +161,7 @@ test('merge result requires a matching eligible decision and structured merged G
   const state = orchestrator.createInitialState()
   orchestrator.addTask(state, { id: 'task-ui-polish', domain: 'frontend', title: 'Polish a small UI detail',
     impact: 2, effort: 1, risk: 1, dependencies: [], evidenceRefs: ['docs/autonomy/supervised-merge.md'],
-    testRefs: ['scripts/autonomy/test/supervised-merge-policy.test.cjs'], benchmarkRefs: [] })
+    testRefs: ['scripts/autonomy/test/supervised-merge-policy.test.cjs'], benchmarkRefs: [], benchmarkDirection: 'higher_is_better' })
   orchestrator.preparePilot(state, { pilotId: runId })
   orchestrator.startPreparedPilot(state, { pilotId: runId, maxCycles: 10,
     approverIdentity: 'coordinator@example.test', approvalEvidenceRef: 'docs/autonomy/supervised-merge.md',
@@ -167,9 +173,11 @@ test('merge result requires a matching eligible decision and structured merged G
   for (const role of ['reviewer', 'qa', 'quality', 'security']) {
     orchestrator.recordAssessment(state, task.id, { role, passed: true, artifactRef: 'docs/autonomy/supervised-merge.md' })
   }
+  const validatedTask = orchestrator.recordBenchmark(state, task.id, { resultMetric: 2, artifactRef: 'docs/autonomy/supervised-merge.md' })
+  assert.equal(validatedTask.status, 'validated')
   const approvedEvidence = evidence({ taskId: task.id })
   const decision = orchestrator.recordSupervisedMergeDecision(state, approvedEvidence)
-  assert.equal(decision.eligible, true)
+  assert.equal(decision.eligible, true, JSON.stringify(decision))
   assert.throws(() => orchestrator.recordSupervisedMergeDecision(state, approvedEvidence), /Exact duplicate/)
   const refreshed = evidence({ taskId: task.id, resourceUsage: { ...approvedEvidence.resourceUsage, ciRunsUsed: 2 },
     requiredCheck: { ...approvedEvidence.requiredCheck, runUrl: `https://github.com/${repository}/actions/runs/987655` } })
