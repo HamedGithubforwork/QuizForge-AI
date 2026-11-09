@@ -159,3 +159,28 @@ test('Coordinator and CI assessors require actual event and check evidence', () 
     }
   }
 })
+
+test('Merge Manager requires fresh authenticated evidence when classic protection API is inaccessible', () => {
+  const contents = fs.readFileSync(path.join(repositoryRoot, '.codex/agents/merge-manager.toml'), 'utf8')
+  for (const requirement of [
+    /classic branch protection/i,
+    /returns 403/i,
+    /active rulesets/i,
+    /authenticated repository owner or administrator/i,
+    /current conversation/i,
+    /verified role/i,
+    /prior 7 calendar days/i,
+    /GitHub Settings → Branches/i,
+    /inspection date/i,
+    /exact repository and branch/i,
+    /settings are unchanged since inspection/i,
+    /screenshot alone/i,
+    /evidence is stale/i,
+    /conflicts with live rulesets/i,
+    /mark the gate UNVERIFIED and STOP/i,
+    /not permission to bypass or relax any protection/i,
+    /Never hardcode a past observation/i,
+  ]) {
+    assert.match(contents, requirement, `Merge Manager must include ${requirement}`)
+  }
+})
