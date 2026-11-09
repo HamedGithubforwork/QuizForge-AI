@@ -80,6 +80,26 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
 })
 
+test('integration coordinator source and tests trigger autonomy verification', () => {
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  const pushStart = workflow.indexOf('  push:')
+  const pullRequestStart = workflow.indexOf('  pull_request:', pushStart)
+  assert.notEqual(pushStart, -1, 'CI workflow must declare push')
+  assert.ok(pullRequestStart > pushStart, 'push filters must precede pull_request filters')
+  const pushBlock = workflow.slice(pushStart, pullRequestStart)
+  const coordinatorPaths = [
+    'scripts/autonomy/integration-coordinator.cjs',
+    'scripts/autonomy/test/integration-coordinator.test.cjs',
+  ]
+  for (const changedPath of coordinatorPaths) {
+    assert.ok(pushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`), `${changedPath} must trigger push CI`)
+  }
+  assert.ok(workflow.includes(`${coordinatorPaths[0]}|${coordinatorPaths[1]}`), 'both paths must mark autonomy tests relevant')
+  assert.match(workflow, /autonomy_tests=true/)
+  assert.match(workflow, /name: Optimization orchestrator tests/)
+  assert.match(workflow, /if: needs\.changes\.outputs\.autonomy_tests == 'true'/)
+})
+
 function successfulGateInputs(overrides = {}) {
   return {
     CHANGES_RESULT: 'success',
