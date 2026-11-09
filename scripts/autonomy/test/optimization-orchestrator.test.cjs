@@ -1435,7 +1435,7 @@ test('awaiting approval is held behind the blocked audit gate', () => {
   assert.equal(selectNextTask(state), null)
 })
 
-test('awaiting approval releases only with evidence and independent tasks can proceed', () => {
+test('awaiting approval releases only with evidence and independent tasks can proceed', async () => {
   const state = createInitialState()
   addTask(state, { ...task('approval-required-task'), status: 'awaiting_approval' })
   recordOptimizationAudit(state, {
@@ -1470,10 +1470,42 @@ test('awaiting approval releases only with evidence and independent tasks can pr
   recordOptimizationAudit(exhausted, { ...cleanAudit, auditId: 'audit-approval-clean-one' })
   recordOptimizationAudit(exhausted, { ...cleanAudit, auditId: 'audit-approval-clean-two' })
   addTask(exhausted, { ...task('approval-after-exhaustion'), status: 'awaiting_approval' })
-  assert.equal(exhausted.checkpoint.optimizationGate.status, 'OPTIMIZATION_EXHAUSTED')
+  assert.equal(exhausted.checkpoint.optimizationGate.status, 'BLOCKED')
+  assert.equal(exhausted.checkpoint.optimizationGate.stopReason, 'approval')
+  assert.equal(exhausted.checkpoint.optimizationGate.consecutiveCleanAudits, 0)
+  assert.equal(exhausted.checkpoint.optimizationGate.finalReport, null)
+  assert.deepEqual(exhausted.checkpoint.optimizationGate.auditHistory.map(audit => audit.auditId), [
+    'audit-approval-clean-one', 'audit-approval-clean-two',
+  ])
+  assert.equal(selectNextTask(exhausted), null)
+  assert.equal(validateState(exhausted), exhausted)
+  const approvalStatePath = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-awaiting-approval-')), 'state.json')
+  try {
+    await saveState(approvalStatePath, exhausted)
+    const reloaded = await loadState(approvalStatePath)
+    assert.equal(reloaded.checkpoint.optimizationGate.status, 'BLOCKED')
+    assert.equal(reloaded.checkpoint.optimizationGate.stopReason, 'approval')
+    assert.deepEqual(reloaded.checkpoint.optimizationGate.auditHistory.map(audit => audit.auditId), [
+      'audit-approval-clean-one', 'audit-approval-clean-two',
+    ])
+    assert.equal(selectNextTask(reloaded), null)
+    assert.throws(() => recordApproval(reloaded, 'approval-after-exhaustion',
+      approvalAttestation('unsafe://approval')), /allowlisted/)
+    assert.equal(validateState(reloaded), reloaded)
+    assert.equal(reloaded.checkpoint.optimizationGate.status, 'BLOCKED')
+    assert.equal(selectNextTask(reloaded), null)
+    recordApproval(reloaded, 'approval-after-exhaustion', approvalAttestation('https://github.com/example/repo/issues/22'))
+    assert.equal(reloaded.checkpoint.optimizationGate.status, 'ACTIVE')
+    assert.equal(selectNextTask(reloaded).id, 'approval-after-exhaustion')
+    assert.equal(validateState(reloaded), reloaded)
+  } finally {
+    await fs.rm(path.dirname(approvalStatePath), { recursive: true, force: true })
+  }
+  assert.equal(exhausted.tasks.find(item => item.id === 'approval-after-exhaustion').status, 'awaiting_approval')
   recordApproval(exhausted, 'approval-after-exhaustion', approvalAttestation('https://github.com/example/repo/issues/22'))
   assert.equal(exhausted.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(selectNextTask(exhausted).id, 'approval-after-exhaustion')
+  assert.equal(validateState(exhausted), exhausted)
 })
 
 test('unconfirmed specialist improvement remains blocked and new evidence clears an exhausted gate', () => {
