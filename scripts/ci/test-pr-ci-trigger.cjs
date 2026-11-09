@@ -162,6 +162,11 @@ test('Coordinator and CI assessors require actual event and check evidence', () 
 
 test('Merge Manager requires fresh authenticated evidence when classic protection API is inaccessible', () => {
   const contents = fs.readFileSync(path.join(repositoryRoot, '.codex/agents/merge-manager.toml'), 'utf8')
+  assert.match(contents, /user explicitly approves merging THIS specific repository and PR number/i)
+  assert.match(contents, /Record the approved PR\/head SHA/i)
+  assert.match(contents, /if the head, target branch, or relevant protection requirements change, require fresh explicit approval/i)
+  assert.match(contents, /all effective branch protections and rulesets respected/i)
+  assert.match(contents, /Never use admin\/bypass privileges/i)
   for (const requirement of [
     /classic branch protection/i,
     /returns 403/i,
