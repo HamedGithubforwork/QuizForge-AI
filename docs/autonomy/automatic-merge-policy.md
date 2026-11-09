@@ -80,19 +80,30 @@ merges after a Codex session ends. Adding a trusted background agent runner
 would be a separate high-risk infrastructure and permission change requiring
 explicit approval, threat review, and its own exact-head CI.
 
-The policy module is a pure checkpoint decision validator. It validates the
-shape, scope, and freshness of evidence references and role assessment records;
-it does not authenticate invocation IDs, retrieve GitHub data, establish that
-linked evidence is truthful, or call the GitHub merge API. A recorded
-`eligible` decision is therefore only a workflow candidate, never proof that
-the checks passed and never sufficient authority for a merge by itself. Before
-any GitHub mutation, the Merge Manager must independently retrieve and inspect
-the live PR, exact diff, check run, reviews, protections, and side effects
-through the connected GitHub account; if the live evidence cannot be obtained
-or differs from the recorded assessment, it must stop. The Coordinator must
+The policy module cannot authenticate invocation IDs, retrieve GitHub data,
+establish that linked evidence is truthful, or call the GitHub merge API. It
+therefore fails closed with `trusted_live_verification_unavailable` for every
+otherwise eligible candidate. Caller-supplied claims cannot make a candidate
+ready. The coordinator must not select or merge a candidate based on checkpoint
+evidence. This remains true even if the policy is later explicitly activated:
+activation alone does not supply a trusted verifier.
+
+Before an automatic merge can be considered, a separately reviewed runtime
+adapter must independently retrieve the live PR, complete diff, required
+checks, reviews, rulesets/protections, and mergeability; establish actual
+specialist invocations from trusted session evidence; assess merge-triggered
+side effects; and reject stale or conflicting state. The adapter must prove
+strict required-status-checks or an enforced merge queue to protect against
+the target-base advancing after assessment. The current main ruleset does not
+provide that guarantee, so candidate eligibility remains blocked even if
+caller-supplied protection fields claim otherwise. Do not add a forgeable
+boolean, invocation-ID format check, or checkpoint event as a substitute.
+
+Only after such a runtime boundary exists and passes independent review may the
+Merge Manager use GitHub's expected-head merge operation. The Coordinator must
 then verify the actual GitHub merge response and resulting commit before
-recording completion. The checkpoint remains an audit claim, not an
-authenticated source of GitHub truth.
+recording completion. Checkpoints remain audit records, not authenticated
+sources of GitHub truth.
 
 ## Activation checklist
 

@@ -78,7 +78,8 @@ function candidate(overrides = {}) {
       prNumber: 999, runUrl, completedAt: now.toISOString(), associatedPr: true,
     },
     reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: evidenceUrl },
-    protections: { verified: true, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl },
+    protections: { verified: true, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl,
+      strictRequiredStatusChecks: true, mergeQueueEnforced: false },
     sideEffects: {
       assessed: true, productionDeployment: false, deploymentTriggers: [], infrastructureMutation: false,
       cloudSpend: false, destructive: false,
@@ -131,9 +132,24 @@ test('existing and self-enabling PRs cannot enter a standing policy activated af
   assert.equal(policyApi.evaluateCandidate({ policy: enabled, evidence: selfEnabling, now }).reason, 'high_risk_or_uncertain_change')
 })
 
-test('a fresh low-risk PR passes only with exact independent assessments and safeguards', () => {
+test('valid-looking caller claims cannot pass without a trusted live verification provider', () => {
   assert.deepEqual(policyApi.evaluateCandidate({ policy: activePolicy(), evidence: candidate(), now }),
-    { eligible: true, reason: 'eligible' })
+    { eligible: false, reason: 'trusted_live_verification_unavailable' })
+})
+
+test('weak rulesets without strict status checks or an enforced merge queue are blocked', () => {
+  const enabled = activePolicy()
+  const weak = candidate({ protections: { ...candidate().protections,
+    strictRequiredStatusChecks: false, mergeQueueEnforced: false } })
+  assert.deepEqual(policyApi.evaluateCandidate({ policy: enabled, evidence: weak, now }),
+    { eligible: false, reason: 'base_race_guard_missing' })
+
+  // Even an affirmative merge-queue claim cannot make evidence trusted; it only
+  // satisfies the base-race precondition before the provider gate is applied.
+  const queued = candidate({ protections: { ...candidate().protections,
+    strictRequiredStatusChecks: false, mergeQueueEnforced: true } })
+  assert.deepEqual(policyApi.evaluateCandidate({ policy: enabled, evidence: queued, now }),
+    { eligible: false, reason: 'trusted_live_verification_unavailable' })
 })
 
 test('high-risk, policy, and uncertain changes are excluded even if other evidence passes', () => {
@@ -177,6 +193,8 @@ test('changed head, base, or final diff invalidates the candidate', () => {
     { currentBaseSha: 'e'.repeat(40) },
     { diffSha256: 'f'.repeat(64) },
   ]) assert.equal(policyApi.evaluateCandidate({ policy: enabled, evidence: candidate(update), now }).eligible, false)
+  assert.equal(policyApi.evaluateCandidate({ policy: enabled,
+    evidence: candidate({ currentBaseSha: 'e'.repeat(40) }), now }).reason, 'head_base_or_diff_changed')
 })
 
 test('missing, skipped, failed, stale, or unassociated Required PR checks block eligibility', () => {
@@ -194,6 +212,9 @@ test('missing, skipped, failed, stale, or unassociated Required PR checks block 
   const missing = candidate()
   delete missing.requiredCheck
   assert.equal(policyApi.evaluateCandidate({ policy: enabled, evidence: missing, now }).reason, 'evidence_missing_or_invalid')
+  assert.equal(policyApi.evaluateCandidate({ policy: enabled,
+    evidence: candidate({ requiredCheck: { ...candidate().requiredCheck, conclusion: 'failure' } }), now }).reason,
+  'required_check_unverified')
   assert.equal(policyApi.evaluateCandidate({ policy: enabled,
     evidence: candidate({ observedAt: '2026-11-10T11:54:59.000Z' }), now }).reason, 'live_evidence_stale')
 })
@@ -227,7 +248,8 @@ test('unresolved findings, unverified protections, effects, or failed Manager as
   const updates = [
     { reviews: { blocking: true, unresolvedMaterialConcern: false, evidenceRef: evidenceUrl } },
     { reviews: { blocking: false, unresolvedMaterialConcern: true, evidenceRef: evidenceUrl } },
-    { protections: { verified: false, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl } },
+    { protections: { verified: false, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl,
+      strictRequiredStatusChecks: true, mergeQueueEnforced: false } },
     { sideEffects: { ...candidate().sideEffects, productionDeployment: true } },
     { sideEffects: { ...candidate().sideEffects, deploymentTriggers: ['aws-integrated-staging.yml'] } },
     { sideEffects: { ...candidate().sideEffects, infrastructureMutation: true } },
@@ -235,6 +257,25 @@ test('unresolved findings, unverified protections, effects, or failed Manager as
     { mergeManager: { ...candidate().mergeManager, invocationId: '' } },
   ]
   for (const update of updates) assert.equal(policyApi.evaluateCandidate({ policy: enabled, evidence: candidate(update), now }).eligible, false)
+  assert.equal(policyApi.evaluateCandidate({ policy: enabled,
+    evidence: candidate({ sideEffects: { ...candidate().sideEffects, deploymentTriggers: ['deploy.yml'] } }), now }).reason,
+  'side_effect_risk_or_unknown')
+})
+
+test('forged but syntactically valid invocation IDs and asserted GitHub claims remain ineligible', () => {
+  const forged = candidate({
+    coordinator: { invocationId: 'invented-coordinator-999', headSha: head, evidenceRef: evidenceUrl },
+    developer: { invocationId: 'invented-developer-999', commitSha: head, evidenceRef: evidenceUrl },
+    reviewer: assessment('reviewer', { invocationId: 'invented-reviewer-999' }),
+    qa: assessment('qa', { invocationId: 'invented-qa-999' }),
+    security: assessment('security', { invocationId: 'invented-security-999' }),
+    mergeManager: { ...candidate().mergeManager, invocationId: 'invented-manager-999' },
+    requiredCheck: { ...candidate().requiredCheck, conclusion: 'success', associatedPr: true },
+    protections: { ...candidate().protections, strictRequiredStatusChecks: true },
+    sideEffects: { ...candidate().sideEffects, deploymentTriggers: [], productionDeployment: false },
+  })
+  assert.deepEqual(policyApi.evaluateCandidate({ policy: activePolicy(), evidence: forged, now }),
+    { eligible: false, reason: 'trusted_live_verification_unavailable' })
 })
 
 test('revoked and expired policy cannot authorize automatic merges', () => {

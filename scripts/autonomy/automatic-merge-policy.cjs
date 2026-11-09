@@ -28,7 +28,7 @@ const POLICY_MANIFEST = Object.freeze({
     'ci_gate', 'branch_protection', 'agent_permissions', 'merge_policy',
     'unexpected_external_side_effect', 'out_of_scope', 'uncertain',
   ],
-  semantics: 'explicit-post-merge-activation;future-prs-only;exact-head-base-diff;fresh-required-ci;verified-commit;reviewer-qa-security-manager;current-protections;no-deployment-trigger-or-infrastructure-change;no-effects;fail-closed',
+  semantics: 'explicit-post-merge-activation;future-prs-only;exact-head-base-diff;fresh-required-ci;verified-commit;reviewer-qa-security-manager;current-protections;strict-status-checks-or-enforced-merge-queue;trusted-live-provider-required;no-deployment-trigger-or-infrastructure-change;no-effects;fail-closed',
 })
 const POLICY_DIGEST = crypto.createHash('sha256').update(JSON.stringify(POLICY_MANIFEST)).digest('hex')
 const SHA = /^[a-f0-9]{40}$/
@@ -240,9 +240,16 @@ function evaluateCandidate({ policy, evidence, now = new Date() } = {}) {
     if (!exactKeys(evidence.reviews, ['blocking', 'unresolvedMaterialConcern', 'evidenceRef']) ||
         evidence.reviews.blocking !== false || evidence.reviews.unresolvedMaterialConcern !== false ||
         !evidenceRef(evidence.reviews.evidenceRef, repository)) return blocked('review_finding_unresolved')
-    if (!exactKeys(evidence.protections, ['verified', 'evidenceRef', 'rulesetRef']) ||
+    if (!exactKeys(evidence.protections, [
+      'verified', 'evidenceRef', 'rulesetRef', 'strictRequiredStatusChecks', 'mergeQueueEnforced',
+    ]) ||
         evidence.protections.verified !== true || !evidenceRef(evidence.protections.evidenceRef, repository) ||
-        !evidenceRef(evidence.protections.rulesetRef, repository)) return blocked('protections_unverified')
+        !evidenceRef(evidence.protections.rulesetRef, repository) ||
+        typeof evidence.protections.strictRequiredStatusChecks !== 'boolean' ||
+        typeof evidence.protections.mergeQueueEnforced !== 'boolean') return blocked('protections_unverified')
+    if (!evidence.protections.strictRequiredStatusChecks && !evidence.protections.mergeQueueEnforced) {
+      return blocked('base_race_guard_missing')
+    }
     if (!exactKeys(evidence.sideEffects, [
       'assessed', 'productionDeployment', 'deploymentTriggers', 'infrastructureMutation',
       'cloudSpend', 'destructive', 'unexpectedExternalSideEffects', 'evidenceRef',
@@ -265,7 +272,11 @@ function evaluateCandidate({ policy, evidence, now = new Date() } = {}) {
   } catch {
     return blocked('evidence_invalid')
   }
-  return { eligible: true, reason: 'eligible' }
+  // Invocation IDs and GitHub URLs in checkpoint evidence are caller-controlled
+  // claims. There is currently no trusted runtime adapter that independently
+  // verifies agent invocations and fetches live GitHub state. Never promote a
+  // candidate based only on syntactically valid assertions.
+  return blocked('trusted_live_verification_unavailable')
 }
 
 module.exports = {

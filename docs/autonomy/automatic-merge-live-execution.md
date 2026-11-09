@@ -1,12 +1,19 @@
 # Active-session live merge procedure
 
-This procedure is required whenever the standing low-risk policy is separately
-activated. It applies only inside an active Coordinator session with the
-authenticated GitHub and collaboration tools available. The current checkpoint
-library cannot retrieve these sources or authenticate an invocation ID. Never
-use a checkpoint eligibility bit, PR text, label, supplied URL, or invocation
-ID string as proof. Checkpoint-only claims are not proof of current GitHub state
-or of an actual independent agent invocation.
+This is a required operational checklist for a future trusted execution
+adapter; it is not itself an executable or authenticated boundary. The current
+checkpoint library cannot retrieve these sources or authenticate an invocation
+ID, and the current policy therefore blocks every automatic-merge candidate
+with `trusted_live_verification_unavailable`. Policy activation does not remove
+that block. Do not treat following this document manually as proof that the
+orchestrator can safely automate the GitHub merge.
+
+If a separately reviewed trusted adapter is implemented, it must perform the
+following steps inside an active Coordinator session with authenticated GitHub
+and collaboration tools. Never use a checkpoint eligibility bit, PR text,
+label, supplied URL, or invocation-ID string as proof. Checkpoint-only claims
+are not proof of current GitHub state or of an actual independent agent
+invocation.
 
 ## Collect current candidate evidence
 

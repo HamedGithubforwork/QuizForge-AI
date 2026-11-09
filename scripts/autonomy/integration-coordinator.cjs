@@ -763,7 +763,7 @@ function recordAutomaticMergeAssessment(state, taskId, evidence, { currentTime =
   }
   const next = advance(state)
   validateWorkflow(state)
-  return { ...result, taskId, decisionDigest, assessmentRecorded: true, ...next }
+  return { ...next, ...result, taskId, decisionDigest, assessmentRecorded: true }
 }
 
 function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse, postMergePullRequest, verifiedCommit } = {}, { currentTime = new Date() } = {}) {

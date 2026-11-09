@@ -815,7 +815,7 @@
   "automaticMergePolicy": {
     "status": "disabled",
     "version": "standing-low-risk-auto-merge-v1",
-    "digest": "2283b0fcab67c2cde9995a5fd16177a4208e82629fe5c74f58af3d7485109165",
+    "digest": "2f59f4a1a2bfb56ad87222881c99b8f2124fbc4be423cfaf3c790e564bb07ff4",
     "repository": "HamedGithubforwork/QuizForge-AI",
     "targetBranch": "main",
     "activatedAt": null,
