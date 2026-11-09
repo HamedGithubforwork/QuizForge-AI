@@ -30,94 +30,84 @@ checkpoint together with any code changes whose state must survive GitHub-based
 handoffs. Keep evidence in sanitized references and do not put prompts, model
 responses, secrets, or private user data in it.
 
-The current checkpoint records PR 678 as merged, PR 695 reconciliation and
-PR 698 review as completed with their recorded Actions-run evidence and result
-commits, and the dependency chain PR 690 → PR 691 → PRs 692 and 694. PR 698 is
-independent of PR 695. Each open PR has a separate merge task that remains
-`awaiting_approval`; all six merge tasks currently have no stored approval.
-Completing a review or reconciliation task alone never unlocks the next stack
-level. The recorded PR 695 reconciliation result is commit
-`176fc7961781d622519597a4c8268b33d40d4514`; PR 698 review result is
-`6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845`. The refreshed merge scopes record
-those heads against the current `main` SHA
-`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`. These are checkpoint snapshots,
-not substitutes for re-fetching live PR state before resuming or seeking
-approval.
+The current checkpoint is revision 14 and records PRs 678 and 695 as merged,
+with exact user authorization, PR head/base, merge commit, and post-merge CI
+evidence for #695. The Coordinator selected `pr-690-reconcile` immediately
+after recording the #695 merge. The remaining integration chain is PR 690 →
+PR 691 → PRs 692 and 694; PR 698 is independent of that stack. Unmerged PRs
+remain separately approval-gated. The #690 reconciliation is active; the other
+unmerged merge tasks remain `awaiting_approval`. Completing a review or
+reconciliation task alone never unlocks a merge. Checkpoint scopes are
+snapshots, not substitutes for re-fetching live PR state before resuming or
+seeking approval.
 
-Completed review tasks intentionally retain the PR metadata snapshot from
-when each evaluation began: PR 695 head `2e58e03cdf8e48a2025b307f696c359e3dad2d3d`
-and PR 698 head `e36eed8e453fd724557224353e2e7470184efbb0`. Their result
-commits and Actions-run evidence are recorded separately. The corresponding
-merge tasks contain the later refreshed heads (`176fc7961781d622519597a4c8268b33d40d4514`
-and `6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845`). Treat completed-task PR
-objects as historical evaluation snapshots; use the merge-task scope only as a
-checkpointed reference, and still refresh live GitHub state before approval or
-merge.
+Completed review tasks retain historical PR metadata from when those
+evaluations began. PR #695's reconciliation result was head
+`176fc7961781d622519597a4c8268b33d40d4514`, merged as
+`4213fe2b7160bdc2e12c5e9661611544e251ae48`. PR #698's recorded review result
+predates #695 and its current remote head is `25d21088b548411b3005d19f49cc382af8851658`;
+its old review and Actions evidence are not current readiness proof. The #698
+merge scope has been refreshed to the current main SHA and remote head, and
+GitHub currently reports it non-mergeable. Reconcile its branch/base and obtain
+a new exact-head Required PR gate before considering it ready.
 
-PR 698's Required PR run `42563047575` is recorded as attached to head
-`f955` (abbreviated here), but it ran against `main` before PR 695's
-workflow-policy changes landed. Therefore,
-that run did not exercise the unconditional CI trigger-policy job introduced
-by PR 695 and is insufficient for readiness after the CI policy changes.
-Integrate PR 695 first. Once it is on `main`, refresh PR 698 against the
-updated target and obtain a new Required PR gate on PR 698's exact current head,
-confirming that workflow-policy tests ran and succeeded before readiness or
-approval.
+PR 698's previously recorded Required PR runs predate PR 695's workflow-policy
+changes. PR 695 is now on `main`, so #698 must be reconciled against the new
+base, and its fresh exact-head Required PR gate must show the policy test
+passing before readiness or approval.
 
-The checkpoint retains PR 695's earlier API base report
-`aad0afeda769a6715f2ba8351294b61839ff5fe6` as historical metadata and records
-`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff` as the canonical target SHA from the
-live `main` branch used during scope refresh. The earlier mismatch is evidence
-history, not proof of current mergeability. The refreshed scope records the
-reconciliation result head, but approval is still absent. Re-fetch the PR,
-target branch, checks, reviews, protections, and mergeability before any
-readiness decision or merge.
+The checkpoint retains earlier PR base reports as historical evidence. Current
+`main` is `4213fe2b7160bdc2e12c5e9661611544e251ae48`. Re-fetch each PR, target
+branch, checks, reviews, protections, and mergeability before any readiness
+decision or merge.
 
-At checkpoint revision 9 the workflow is `blocked` with stop reason
-`no_actionable_task`: PR 695 and PR 698 review work is complete, while their
-merge tasks await explicit approval. PR 690 and later stack tasks cannot be
-selected until their predecessor merge is actually recorded as completed.
-This is an approval/dependency stop, not global completion. No approval is
-stored for any outstanding PR.
+At revision 14 the workflow is `active`, with `pr-690-reconcile` selected.
+After that task is recorded, downstream merge tasks will remain gated by
+separate, exact-scope approvals. This is an integration workflow, not a grant
+of standing merge permission.
 
-## Vercel deployment review 2026-11-09
+## PR 695 deployment and merge record — 2026-11-09
 
-PR 695 remains open at approved head
-`176fc7961781d622519597a4c8268b33d40d4514`, targeting `main` at
-`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`; GitHub currently reports it ready
-for review (`draft: false`) and mergeable. Its exact-head Required PR run
-`42561665578` passed.
-
-The repository has `frontend/vercel.json` with
-`git.deploymentEnabled: false`, added by commit
-`8780505c7b25128a438961dad769183aeb1b1e78`. The Vercel API confirms the
-project is linked but does not expose its Root Directory or effective Git
-deployment settings. Therefore the committed setting's applicability is not
-verified, and a merge must remain blocked until an authenticated administrator
-confirms the project root, Production Branch, automatic deployments, Ignored
-Build Step, and deploy hooks/callers. Missing recent production deployments
-are not proof that auto-deploy is disabled. The former Vercel/Render canary
-workflows are absent; the remaining opt-in test now requires explicitly
-configured trusted HTTPS endpoints. The active AWS production canary remains
-unchanged. A separate local Vercel-retirement branch contains the focused
-code/doc cleanup at local commit
+Before integration, the repository owner reported uninstalling the Vercel,
+Render, and Cursor GitHub Apps and confirmed the repository has no webhooks.
+The Render connection independently reported service `quizforge-ai-api` with
+`autoDeploy: no` and `autoDeployTrigger: off`. GitHub workflow inspection found
+no merge-triggered deploy workflow in the PR diff. The Vercel and repository
+webhook settings were owner-confirmed rather than independently read through
+the available GitHub API; no old Vercel account access was required. The
+former Vercel/Render canary workflows are absent; the remaining opt-in test
+requires explicitly configured trusted HTTPS endpoints. The active AWS
+production canary was not modified. A separate local Vercel-retirement branch
+contains the focused code/doc cleanup at local commit
 `dd63e0404864b965c9ce49dc093242a4fc19c284` (branch
 `codex/retire-vercel-canary-20261109`). It removes hardcoded legacy canary
 hosts, requires a trusted exact-host allowlist, and disables canary traces,
-screenshots, and video. Focused Playwright configuration tests pass 6/6 and
-the canary discovery command lists one test without contacting an endpoint.
-Reviewer, QA, and Security assessed that exact local commit; Security's
-remaining condition is that endpoint and allowlist values come from trusted
-operator-controlled configuration. The branch has not been pushed or opened
-as a PR; publication remains on hold until live Vercel settings are verified.
-PR #695's live API state is `draft: false`, while its current description still
-contains the stale claim that it remains a draft; reconcile the description
-before any readiness report.
+screenshots, and video. Focused Playwright configuration tests passed 6/6 and
+the canary discovery command listed one test without contacting an endpoint.
+That branch remains local and was not part of PR #695.
 
-This is a metadata refresh only: PR #695's repository, number, target, base
-SHA, and head SHA are unchanged. The checkpoint keeps the merge task
-`awaiting_approval` with no recorded approval, emits no merge-authorization
-event, and leaves the overall workflow blocked.
+PR #695's description was reconciled before merge to match its live
+`draft: false` state and exact-head CI evidence; unsupported claims of
+untraceable independent assessments were removed.
+
+### PR 695 merge authorization 2026-11-09
+
+The repository owner explicitly authorized merge of PR 695 at head
+`176fc7961781d622519597a4c8268b33d40d4514` to `main`, then at base
+`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`. This is a Coordinator
+transcription of user-provided authorization, not a GitHub review or signed
+approval record. Immediately before merge, GitHub reported the PR open,
+non-draft, mergeable, exact head/base unchanged, `Required PR gate` passing,
+and the active `Protect main` ruleset satisfied. GitHub merged PR #695 at
+`https://github.com/HamedGithubforwork/QuizForge-AI/commit/4213fe2b7160bdc2e12c5e9661611544e251ae48`.
+
+Post-merge Actions run
+`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42689434199`
+passed on that merge commit. It was the only workflow run observed for that
+SHA: CI passed; the autonomy bridge was skipped. No deployment workflow ran.
+The active integration checkpoint records the user authorization, merge SHA,
+post-merge run, and immediate continuation to PR #690. This approval is only
+for PR #695; every other PR remains unapproved for merge.
 
 On session resume, load the checkpoint, independently re-fetch live PR heads,
 bases, checks, reviews, conflicts, protections, and side effects, then call
