@@ -6,9 +6,12 @@ const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { spawnSync } = require('node:child_process')
+const automaticMerge = require('../automatic-merge-policy.cjs')
 const {
-  begin, blockTask, completeTask, createWorkflow, DEFAULT_CHECKPOINT, loadCheckpoint, recordApproval,
+  activateStandingAutoMergePolicy, begin, blockTask, completeAutomaticMerge, completeTask, createWorkflow, DEFAULT_CHECKPOINT, loadCheckpoint, recordApproval,
+  recordAutomaticMergeAssessment,
   refreshMergeScope, rejectTask, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
+  revokeStandingAutoMergePolicy,
 } = require('../integration-coordinator.cjs')
 
 const sha = 'a'.repeat(40)
@@ -20,6 +23,63 @@ const pr = {
 }
 const work = (id, priority = 1, dependencies = []) => ({ id, title: id, priority, dependencies })
 const merge = (id, dependencies = []) => ({ id, title: id, kind: 'merge', priority: 10, dependencies, pr })
+
+const autoMergeAt = new Date('2026-11-09T12:00:00.000Z')
+const autoMergeAtNext = new Date('2026-11-09T12:01:00.000Z')
+const autoHead = '1'.repeat(40)
+const autoBase = '2'.repeat(40)
+const autoDiff = '3'.repeat(64)
+const autoRepository = 'HamedGithubforwork/QuizForge-AI'
+const autoPrUrl = `https://github.com/${autoRepository}/pull/999`
+const autoEvidenceRef = autoPrUrl
+const autoRunRef = `https://github.com/${autoRepository}/actions/runs/99999`
+const autoRulesetRef = `https://github.com/${autoRepository}/rulesets/123`
+
+function autoPolicyAuthorization(overrides = {}) {
+  const implementationMergeSha = '4'.repeat(40)
+  return {
+    repository: autoRepository, targetBranch: 'main', version: automaticMerge.POLICY_VERSION,
+    digest: automaticMerge.POLICY_DIGEST, authorizedBy: 'QuizForgeOwner',
+    authorizedAt: autoMergeAt.toISOString(), expiresAt: '2026-12-01T12:00:00.000Z',
+    approvalEvidenceRef: autoPrUrl, implementationMergeSha,
+    implementationEvidenceRef: `https://github.com/${autoRepository}/commit/${implementationMergeSha}`,
+    ...overrides,
+  }
+}
+
+function autoAssessment(role, overrides = {}) {
+  return { passed: true, headSha: autoHead, invocationId: `${role}-session-20261109-1`, evidenceRef: autoEvidenceRef, ...overrides }
+}
+
+function autoCandidate(overrides = {}) {
+  return {
+    repository: autoRepository, targetBranch: 'main', prNumber: 999, prUrl: autoPrUrl,
+    prCreatedAt: '2026-11-09T12:00:30.000Z', category: 'low_risk_ui', riskFindings: [], changeFlags: [],
+    changedFiles: ['src/components/quiz/QuizCard.tsx'],
+    headSha: autoHead, baseSha: autoBase, currentHeadSha: autoHead, currentBaseSha: autoBase,
+    diffSha256: autoDiff, diffEvidenceRef: `${autoPrUrl}/files`, observedAt: autoMergeAtNext.toISOString(),
+    tests: { passed: true, headSha: autoHead, evidenceRef: autoEvidenceRef },
+    coordinator: { invocationId: 'coordinator-session-20261109-1', headSha: autoHead, evidenceRef: autoEvidenceRef },
+    developer: { invocationId: 'developer-session-20261109-1', commitSha: autoHead, evidenceRef: autoEvidenceRef },
+    reviewer: autoAssessment('reviewer'), qa: autoAssessment('qa'), security: autoAssessment('security'),
+    requiredCheck: { name: 'Required PR gate', conclusion: 'success', headSha: autoHead, baseSha: autoBase,
+      prNumber: 999, runUrl: autoRunRef, completedAt: autoMergeAtNext.toISOString(), associatedPr: true },
+    reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: autoEvidenceRef },
+    protections: { verified: true, evidenceRef: autoEvidenceRef, rulesetRef: autoRulesetRef },
+    sideEffects: { assessed: true, productionDeployment: false, cloudSpend: false,
+      destructive: false, unexpectedExternalSideEffects: false, evidenceRef: autoEvidenceRef },
+    mergeManager: { passed: true, headSha: autoHead, baseSha: autoBase, diffSha256: autoDiff,
+      diffInspected: true, riskClassification: 'low_risk', invocationId: 'merge-manager-session-20261109-1', evidenceRef: autoEvidenceRef },
+    ...overrides,
+  }
+}
+
+function autoMergeTask() {
+  return { ...merge('post-activation-ui-fix'), pr: {
+    repository: autoRepository, number: 999, baseRef: 'main', baseSha: autoBase,
+    headSha: autoHead, url: autoPrUrl,
+  } }
+}
 
 test('completing one task automatically selects the next eligible task in one bounded continuation', () => {
   const state = createWorkflow({ objectiveId: 'continue-integration', maxSelections: 4, tasks: [work('first', 10), work('second', 9)] })
@@ -78,6 +138,150 @@ test('merge approval is exact-scope and cannot be inferred from task readiness',
   assert.equal(state.tasks[0].status, 'awaiting_approval')
   assert.equal(state.tasks[0].approval, null)
 })
+
+test('standing automatic merge policy stays disabled until separately scoped activation', () => {
+  const state = createWorkflow({ objectiveId: 'auto-merge-disabled', tasks: [autoMergeTask()] })
+  assert.equal(state.automaticMergePolicy.status, 'disabled')
+  assert.deepEqual(state.automaticMergeEvents, [])
+  assert.equal(recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', autoCandidate(), {
+    currentTime: autoMergeAtNext,
+  }).reason, 'policy_disabled')
+  assert.equal(state.tasks[0].status, 'awaiting_approval')
+  assert.equal(state.automaticMergeEvents.length, 0)
+  assert.throws(() => activateStandingAutoMergePolicy(state, {
+    ...autoPolicyAuthorization(), implementationEvidenceRef: autoPrUrl,
+  }, { currentTime: autoMergeAt }), /explicit authorization/)
+  assert.equal(state.automaticMergePolicy.status, 'disabled')
+})
+
+test('automatic merge requires fresh independent evidence and records activation, decision, merge, and reload', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-automatic-merge-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'auto-merge-ledger', tasks: [autoMergeTask()] })
+    await saveCheckpoint(file, state)
+    await transitionAndSave(file, state, {
+      type: 'activate_auto_merge_policy',
+      payload: { authorization: autoPolicyAuthorization(), currentTime: autoMergeAt },
+    })
+    assert.equal(state.automaticMergePolicy.status, 'active')
+    assert.equal(state.automaticMergeEvents[0].type, 'policy_activated')
+
+    const assessment = await transitionAndSave(file, state, {
+      type: 'assess_auto_merge_candidate', taskId: 'post-activation-ui-fix',
+      payload: { evidence: autoCandidate(), currentTime: autoMergeAtNext },
+    })
+    assert.equal(assessment.eligible, true)
+    assert.equal(state.selectedTaskId, 'post-activation-ui-fix')
+    assert.equal(state.tasks[0].approval, null)
+    assert.ok(state.tasks[0].automaticMergeDecision)
+
+    const mergeCommit = '5'.repeat(40)
+    await transitionAndSave(file, state, {
+      type: 'complete_auto_merge', taskId: 'post-activation-ui-fix',
+      payload: {
+        decisionDigest: assessment.decisionDigest,
+        currentTime: new Date('2026-11-09T12:03:00.000Z'),
+        githubResponse: {
+          merged: true, number: 999, headSha: autoHead, baseSha: autoBase,
+          mergeCommitSha: mergeCommit, mergedAt: '2026-11-09T12:02:00.000Z',
+          message: 'Merged by the active low-risk policy',
+        },
+      },
+    })
+    assert.equal(state.tasks[0].status, 'completed')
+    assert.equal(state.tasks[0].result.mergeCommitSha, mergeCommit)
+    assert.ok(state.automaticMergeEvents.some(event => event.type === 'merge_completed' && event.mergeCommitSha === mergeCommit))
+    const reloaded = await loadCheckpoint(file)
+    assert.equal(reloaded.automaticMergePolicy.status, 'active')
+    assert.equal(reloaded.tasks[0].status, 'completed')
+    validateWorkflow(reloaded)
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('pre-activation and high-risk policy changes remain on the manual approval path', () => {
+  for (const evidence of [
+    autoCandidate({ prCreatedAt: '2026-11-08T23:59:00.000Z' }),
+    autoCandidate({ changeFlags: ['merge_policy'] }),
+  ]) {
+    const state = createWorkflow({ objectiveId: 'auto-merge-excluded', tasks: [autoMergeTask()] })
+    activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+    const result = recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', evidence, {
+      currentTime: autoMergeAtNext,
+    })
+    assert.equal(result.eligible, false)
+    assert.equal(state.tasks[0].status, 'awaiting_approval')
+    assert.equal(state.tasks[0].automaticMergeDecision, null)
+    assert.equal(state.status, 'blocked')
+  }
+})
+
+test('revocation invalidates selected automatic merge decisions and preserves a safe checkpoint', () => {
+  const state = createWorkflow({ objectiveId: 'auto-merge-revocation', tasks: [autoMergeTask()] })
+  activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+  const assessment = recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', autoCandidate(), {
+    currentTime: autoMergeAtNext,
+  })
+  assert.equal(assessment.eligible, true)
+  const outcome = revokeStandingAutoMergePolicy(state, autoPrUrl, {
+    currentTime: new Date('2026-11-09T12:01:30.000Z'),
+  })
+  assert.equal(outcome.revoked, true)
+  assert.equal(state.automaticMergePolicy.status, 'revoked')
+  assert.equal(state.tasks[0].automaticMergeDecision, null)
+  assert.equal(state.tasks[0].status, 'awaiting_approval')
+  assert.ok(state.automaticMergeEvents.some(event => event.type === 'candidate_invalidated'))
+  assert.equal(validateWorkflow(state), state)
+})
+
+test('automatic merge result rejects changed bases and assessments older than five minutes', () => {
+  const state = createWorkflow({ objectiveId: 'auto-merge-stale-result', tasks: [autoMergeTask()] })
+  activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+  const assessment = recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', autoCandidate(), {
+    currentTime: autoMergeAtNext,
+  })
+  assert.equal(assessment.eligible, true)
+  const response = {
+    merged: true, number: 999, headSha: autoHead, baseSha: autoBase,
+    mergeCommitSha: '6'.repeat(40), mergedAt: '2026-11-09T12:02:00.000Z', message: 'merged',
+  }
+  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
+    decisionDigest: assessment.decisionDigest,
+    githubResponse: { ...response, baseSha: '7'.repeat(40) },
+  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /exact structured GitHub response for this PR head and base/)
+  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
+    decisionDigest: assessment.decisionDigest,
+    githubResponse: { ...response, mergedAt: '2026-11-09T12:07:00.000Z' },
+  }, { currentTime: new Date('2026-11-09T12:08:00.000Z') }), /before policy expiry or revocation/)
+  assert.equal(state.tasks[0].status, 'running')
+  assert.equal(state.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
+})
+
+test('automatic-merge agent guidance keeps activation separate and all exact-head roles required', async () => {
+  const root = path.resolve(__dirname, '../../..')
+  const [agents, developer, reviewer, qa, security, manager, policyDoc] = await Promise.all([
+    fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/developer.toml'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/reviewer.toml'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/qa.toml'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/security-privacy-engineer.toml'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/merge-manager.toml'), 'utf8'),
+    fs.readFile(path.join(root, 'docs/autonomy/automatic-merge-policy.md'), 'utf8'),
+  ])
+  for (const text of [agents, manager, policyDoc]) assert.match(text, /disabled by default|disabled/i)
+  assert.match(agents, /created after the recorded activation time/)
+  assert.match(agents, /does not provide an always-on agent runner/)
+  assert.match(reviewer, /material finding remains unresolved/)
+  assert.match(qa, /exact current head/)
+  assert.match(security, /exact final diff/)
+  assert.match(manager, /not the policy-enabling PR or any PR created before activation/)
+  assert.match(developer, /do not classify your own change as low-risk or approve\/merge it/)
+})
+
+// Keep the pure eligibility matrix in the same deterministic CI job as this checkpoint suite.
+require('./automatic-merge-policy.test.cjs')
 
 test('a malformed ready merge task without approval cannot be selected', () => {
   const state = createWorkflow({ objectiveId: 'reject-unauthorized-merge', tasks: [merge('merge-678')] })
@@ -217,13 +421,21 @@ test('schema-v1 nonempty checkpoint migrates through save/reload without losing 
     await saveCheckpoint(file, state)
 
     const legacy = JSON.parse(await fs.readFile(file, 'utf8'))
-    for (const task of legacy.tasks) delete task.rejection
+    for (const task of legacy.tasks) {
+      delete task.rejection
+      delete task.automaticMergeDecision
+    }
+    delete legacy.automaticMergePolicy
+    delete legacy.automaticMergeEvents
     await fs.writeFile(file, `${JSON.stringify(legacy, null, 2)}\n`)
     const oldEventCount = legacy.events.length
     const migrated = await loadCheckpoint(file)
     assert.equal(migrated.tasks.length, 2)
     assert.equal(migrated.events.length, oldEventCount)
     assert.equal(migrated.tasks[0].rejection, null)
+    assert.equal(migrated.tasks[0].automaticMergeDecision, null)
+    assert.equal(migrated.automaticMergePolicy.status, 'disabled')
+    assert.deepEqual(migrated.automaticMergeEvents, [])
     assert.equal(migrated.tasks[0].approval.headSha, pr.headSha)
     assert.equal(migrated.tasks[0].approval.baseSha, pr.baseSha)
     assert.equal(migrated.status, 'active')
@@ -259,6 +471,8 @@ test('schema-v1 nonempty checkpoint migrates through save/reload without losing 
 test('version-controlled integration checkpoint loads verified PR states and dependency graph', async () => {
   const checkpoint = await loadCheckpoint(DEFAULT_CHECKPOINT)
   assert.equal(checkpoint.objectiveId, 'autonomous-integration')
+  assert.equal(checkpoint.automaticMergePolicy.status, 'disabled')
+  assert.deepEqual(checkpoint.automaticMergeEvents, [])
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').status, 'completed')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').pr.mergeCommitSha, '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').status, 'completed')

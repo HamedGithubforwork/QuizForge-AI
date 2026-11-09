@@ -5,6 +5,13 @@ repository/PR/head/base-specific approval remains required in Manual mode.
 `fully_autonomous` is reserved for future work and is rejected by the
 orchestrator.
 
+This document covers only the bounded pilot-scoped supervised mode. A separate
+standing low-risk policy is specified in
+`docs/autonomy/automatic-merge-policy.md`; it has its own explicit activation
+boundary, defaults disabled, and does not authorize the PR that implements it.
+Do not treat authorization for a bounded pilot or approval to merge the policy
+implementation as activation of that standing policy.
+
 ## Run scope
 
 Supervised mode can be enabled only when the Coordinator starts one prepared

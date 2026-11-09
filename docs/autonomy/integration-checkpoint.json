@@ -3,7 +3,7 @@
   "objectiveId": "autonomous-integration",
   "status": "blocked",
   "stopReason": "no_actionable_task",
-  "revision": 22,
+  "revision": 23,
   "maxSelections": 50,
   "selections": 4,
   "selectedTaskId": null,
@@ -38,7 +38,8 @@
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
         "mergeCommitSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff"
       },
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-695-reconcile",
@@ -76,7 +77,8 @@
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561665578",
         "commitSha": "176fc7961781d622519597a4c8268b33d40d4514"
       },
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-695-merge",
@@ -124,7 +126,8 @@
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/4213fe2b7160bdc2e12c5e9661611544e251ae48",
         "mergeCommitSha": "4213fe2b7160bdc2e12c5e9661611544e251ae48"
       },
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-698-review",
@@ -159,7 +162,8 @@
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561714261",
         "commitSha": "6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845"
       },
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-690-reconcile",
@@ -195,7 +199,8 @@
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221",
         "commitSha": "190f6d98ca59baedddf9e7242bb8c3e63de4ec38"
       },
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-691-reconcile",
@@ -226,7 +231,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-692-reconcile",
@@ -257,7 +263,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-694-reconcile",
@@ -288,7 +295,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-698-merge",
@@ -320,7 +328,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-690-merge",
@@ -352,7 +361,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-691-merge",
@@ -384,7 +394,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-692-merge",
@@ -416,7 +427,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     },
     {
       "id": "pr-694-merge",
@@ -448,7 +460,8 @@
       "blockerCode": null,
       "retryExhausted": false,
       "result": null,
-      "rejection": null
+      "rejection": null,
+      "automaticMergeDecision": null
     }
   ],
   "events": [
@@ -798,5 +811,21 @@
       "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221",
       "commitSha": "190f6d98ca59baedddf9e7242bb8c3e63de4ec38"
     }
-  ]
+  ],
+  "automaticMergePolicy": {
+    "status": "disabled",
+    "version": "standing-low-risk-auto-merge-v1",
+    "digest": "b59c19baeb19d332e2e7786da65d100b63e9f98e18ab14aa471b6905ad084a96",
+    "repository": "HamedGithubforwork/QuizForge-AI",
+    "targetBranch": "main",
+    "activatedAt": null,
+    "expiresAt": null,
+    "authorizedBy": null,
+    "approvalEvidenceRef": null,
+    "implementationMergeSha": null,
+    "implementationEvidenceRef": null,
+    "revokedAt": null,
+    "revocationEvidenceRef": null
+  },
+  "automaticMergeEvents": []
 }

@@ -6,6 +6,15 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const os = require('node:os')
+const {
+  POLICY_DIGEST: AUTO_MERGE_POLICY_DIGEST,
+  POLICY_MANIFEST: AUTO_MERGE_POLICY_MANIFEST,
+  activatePolicy: activateAutomaticMergePolicy,
+  defaultPolicy: defaultAutomaticMergePolicy,
+  evaluateCandidate: evaluateAutomaticMergeCandidate,
+  revokePolicy: revokeAutomaticMergePolicy,
+  validatePolicy: validateAutomaticMergePolicy,
+} = require('./automatic-merge-policy.cjs')
 
 const SCHEMA_VERSION = 1
 const MAX_TASKS = 100
@@ -27,11 +36,11 @@ const WORKFLOW_STATUSES = Object.freeze(['active', 'blocked', 'budget_reached', 
 const DEFAULT_CHECKPOINT = path.resolve(__dirname, '../../docs/autonomy/integration-checkpoint.json')
 const TASK_KEYS = new Set([
   'id', 'title', 'kind', 'priority', 'dependencies', 'candidateHeadSha', 'evidenceRefs',
-  'status', 'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
+  'status', 'pr', 'approval', 'automaticMergeDecision', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
 ])
 const TASK_REQUIRED_KEYS = Object.freeze([
   'id', 'title', 'kind', 'priority', 'dependencies', 'evidenceRefs', 'status',
-  'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
+  'pr', 'approval', 'automaticMergeDecision', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
 ])
 const EVIDENCE_URLS = Object.freeze([
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/,
@@ -48,6 +57,14 @@ const EVENT_FIELDS = Object.freeze({
   task_retry_authorized: ['sequence', 'type', 'taskId', 'evidenceRef'],
   merge_authorized: ['sequence', 'type', 'taskId', 'evidenceRef', 'headSha', 'baseSha'],
   merge_scope_changed: ['sequence', 'type', 'taskId', 'previous', 'current'],
+})
+
+const AUTO_MERGE_EVENT_FIELDS = Object.freeze({
+  policy_activated: ['sequence', 'type', 'at', 'policy'],
+  policy_revoked: ['sequence', 'type', 'at', 'policy'],
+  candidate_assessed: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'eligible', 'reason', 'repository', 'prNumber', 'headSha', 'baseSha', 'diffSha256', 'evidenceRef'],
+  candidate_invalidated: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'reason', 'evidenceRef'],
+  merge_completed: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'repository', 'prNumber', 'headSha', 'baseSha', 'mergeCommitSha', 'evidenceRef'],
 })
 
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
@@ -225,6 +242,7 @@ function normalizeTask(input) {
     status: kind === 'merge' ? 'awaiting_approval' : 'ready',
     pr: input.pr === undefined ? null : validatePr(input.pr),
     approval: null,
+    automaticMergeDecision: null,
     attempts: 0,
     evidenceRefs: [...evidenceRefs],
     blockerCode: null,
@@ -286,13 +304,138 @@ function createWorkflow({ objectiveId, maxSelections = 10, tasks = [] } = {}) {
     selectedTaskId: null,
     tasks: normalized,
     events: [],
+    automaticMergePolicy: defaultAutomaticMergePolicy(),
+    automaticMergeEvents: [],
+  }
+}
+
+function validateAutomaticMergeLedger(state, taskIds) {
+  validateAutomaticMergePolicy(state.automaticMergePolicy)
+  if (!Array.isArray(state.automaticMergeEvents) || state.automaticMergeEvents.length > MAX_EVENTS) {
+    throw new Error('Automatic-merge audit history is malformed or full')
+  }
+  let policy = defaultAutomaticMergePolicy()
+  const decisions = new Map()
+  for (let i = 0; i < state.automaticMergeEvents.length; i += 1) {
+    const item = state.automaticMergeEvents[i]
+    if (!item || typeof item !== 'object' || Array.isArray(item) || item.sequence !== i + 1 ||
+        !Object.hasOwn(AUTO_MERGE_EVENT_FIELDS, item.type) ||
+        Object.keys(item).some(key => !AUTO_MERGE_EVENT_FIELDS[item.type].includes(key)) ||
+        !AUTO_MERGE_EVENT_FIELDS[item.type].every(key => Object.hasOwn(item, key)) ||
+        !/^\d{4}-\d\d-\d\dT/.test(item.at ?? '') || Number.isNaN(Date.parse(item.at))) {
+      throw new Error('Malformed automatic-merge audit event')
+    }
+    if (item.type === 'policy_activated') {
+      const next = item.policy
+      if (!next || next.status !== 'active') throw new Error('Policy activation event must preserve the active policy')
+      const authorization = {
+        repository: next.repository, targetBranch: next.targetBranch, version: next.version,
+        digest: next.digest, authorizedBy: next.authorizedBy, authorizedAt: next.activatedAt,
+        expiresAt: next.expiresAt, approvalEvidenceRef: next.approvalEvidenceRef,
+        implementationMergeSha: next.implementationMergeSha,
+        implementationEvidenceRef: next.implementationEvidenceRef,
+      }
+      const activated = activateAutomaticMergePolicy({ policy, authorization, now: new Date(item.at) })
+      if (JSON.stringify(activated) !== JSON.stringify(next) || item.at !== activated.activatedAt) {
+        throw new Error('Policy activation history does not match its scoped authorization')
+      }
+      policy = activated
+    } else if (item.type === 'policy_revoked') {
+      const revoked = revokeAutomaticMergePolicy(policy, {
+        revokedAt: item.at, evidenceRef: item.policy?.revocationEvidenceRef,
+      })
+      if (JSON.stringify(revoked) !== JSON.stringify(item.policy)) {
+        throw new Error('Policy revocation history does not match the active policy')
+      }
+      policy = revoked
+    } else if (item.type === 'candidate_assessed') {
+      if (!taskIds.has(item.taskId) || !/^[a-f0-9]{64}$/.test(item.decisionDigest ?? '') ||
+          item.policyDigest !== AUTO_MERGE_POLICY_DIGEST || ![true, false].includes(item.eligible) ||
+          typeof item.reason !== 'string' || !/^[a-z0-9_]{2,64}$/.test(item.reason) ||
+          !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(item.repository ?? '') ||
+          !Number.isSafeInteger(item.prNumber) || item.prNumber < 1 ||
+          !/^[a-f0-9]{40}$/.test(item.headSha ?? '') || !/^[a-f0-9]{40}$/.test(item.baseSha ?? '') ||
+          !/^[a-f0-9]{64}$/.test(item.diffSha256 ?? '') ||
+          typeof item.evidenceRef !== 'string' || !item.evidenceRef.includes(`/pull/${item.prNumber}`)) {
+        throw new Error('Automatic-merge candidate audit event is malformed')
+      }
+      if (policy.status !== 'active' || item.policyDigest !== policy.digest ||
+          Date.parse(item.at) < Date.parse(policy.activatedAt) || Date.parse(item.at) >= Date.parse(policy.expiresAt)) {
+        throw new Error('Automatic-merge candidate decision lacks an active policy at assessment time')
+      }
+      if (decisions.has(item.decisionDigest)) throw new Error('Duplicate automatic-merge decision digest')
+      decisions.set(item.decisionDigest, item)
+    } else if (item.type === 'candidate_invalidated') {
+      const prior = decisions.get(item.decisionDigest)
+      if (!prior?.eligible || prior.taskId !== item.taskId || prior.policyDigest !== item.policyDigest ||
+          prior.completed || Date.parse(item.at) < Date.parse(prior.at) ||
+          !['policy_revoked', 'pr_scope_changed', 'evidence_refreshed'].includes(item.reason)) {
+        throw new Error('Automatic-merge invalidation must match a pending eligible candidate')
+      }
+      decisions.set(item.decisionDigest, { ...prior, invalidated: true })
+    } else if (item.type === 'merge_completed') {
+      const prior = decisions.get(item.decisionDigest)
+      if (!prior || !prior.eligible || prior.invalidated || prior.taskId !== item.taskId || prior.repository !== item.repository ||
+          prior.prNumber !== item.prNumber || prior.headSha !== item.headSha || prior.baseSha !== item.baseSha ||
+          prior.policyDigest !== item.policyDigest || Date.parse(item.at) <= Date.parse(prior.at) ||
+          !/^[a-f0-9]{40}$/.test(item.mergeCommitSha ?? '') ||
+          item.evidenceRef !== `https://github.com/${item.repository}/commit/${item.mergeCommitSha}`) {
+        throw new Error('Automatic-merge result must match a prior eligible exact-scope decision')
+      }
+      if (Date.parse(item.at) >= Date.parse(policy.revokedAt ?? policy.expiresAt)) {
+        throw new Error('Automatic-merge result occurred after policy revocation or expiry')
+      }
+      decisions.set(item.decisionDigest, { ...prior, completed: item })
+    }
+    if (item.taskId !== undefined && !taskIds.has(item.taskId)) throw new Error('Automatic-merge event references an unknown task')
+    if (item.evidenceRef !== undefined) assertEvidenceRef(item.evidenceRef, 'Automatic-merge evidence reference')
+  }
+  if (JSON.stringify(policy) !== JSON.stringify(state.automaticMergePolicy)) {
+    throw new Error('Current automatic-merge policy differs from its append-only activation history')
+  }
+  for (const assessment of state.automaticMergeEvents.filter(item => item.type === 'candidate_assessed' && item.eligible)) {
+    const task = state.tasks.find(item => item.id === assessment.taskId)
+    const assessed = decisions.get(assessment.decisionDigest)
+    if (!task?.automaticMergeDecision && !assessed?.invalidated) {
+      throw new Error('Eligible automatic-merge assessment must remain linked from its merge task')
+    }
+    if (task?.automaticMergeDecision && task.automaticMergeDecision.decisionDigest !== assessment.decisionDigest) {
+      throw new Error('Eligible automatic-merge assessment link does not match its task')
+    }
+  }
+  for (const task of state.tasks) {
+    const decision = task.automaticMergeDecision
+    if (decision === null) continue
+    if (task.kind !== 'merge' || task.approval !== null ||
+        !decision || typeof decision !== 'object' || Array.isArray(decision) ||
+        Object.keys(decision).some(key => !['decisionDigest', 'policyDigest', 'repository', 'prNumber', 'headSha', 'baseSha', 'diffSha256', 'evidenceRef'].includes(key)) ||
+        !['decisionDigest', 'policyDigest', 'repository', 'prNumber', 'headSha', 'baseSha', 'diffSha256', 'evidenceRef'].every(key => Object.hasOwn(decision, key))) {
+      throw new Error(`Automatic merge decision is malformed for ${task.id}`)
+    }
+    const recorded = decisions.get(decision.decisionDigest)
+    if (!recorded?.eligible || recorded.taskId !== task.id || recorded.policyDigest !== decision.policyDigest ||
+        recorded.repository !== task.pr.repository || recorded.prNumber !== task.pr.number ||
+        recorded.headSha !== task.pr.headSha || recorded.baseSha !== task.pr.baseSha ||
+        recorded.diffSha256 !== decision.diffSha256 || recorded.evidenceRef !== decision.evidenceRef ||
+        decision.repository !== task.pr.repository || decision.prNumber !== task.pr.number ||
+        decision.headSha !== task.pr.headSha || decision.baseSha !== task.pr.baseSha) {
+      throw new Error(`Automatic merge decision scope does not match task ${task.id}`)
+    }
+    if (task.status === 'completed' && (!recorded.completed || recorded.completed.mergeCommitSha !== task.result?.mergeCommitSha)) {
+      throw new Error(`Completed automatic merge ${task.id} lacks matching GitHub result evidence`)
+    }
   }
 }
 
 function validateWorkflow(state) {
+  if (state && typeof state === 'object' && state.schemaVersion === SCHEMA_VERSION) {
+    state.automaticMergePolicy ??= defaultAutomaticMergePolicy()
+    state.automaticMergeEvents ??= []
+    for (const task of state.tasks ?? []) if (task && !Object.hasOwn(task, 'automaticMergeDecision')) task.automaticMergeDecision = null
+  }
   const workflowKeys = new Set([
     'schemaVersion', 'objectiveId', 'status', 'stopReason', 'revision', 'maxSelections',
-    'selections', 'selectedTaskId', 'tasks', 'events',
+    'selections', 'selectedTaskId', 'tasks', 'events', 'automaticMergePolicy', 'automaticMergeEvents',
   ])
   if (!state || state.schemaVersion !== SCHEMA_VERSION ||
       Object.keys(state).some(key => !workflowKeys.has(key)) ||
@@ -301,7 +444,8 @@ function validateWorkflow(state) {
       state.maxSelections < 1 || state.maxSelections > MAX_SELECTIONS ||
       !Number.isInteger(state.selections) || state.selections < 0 || state.selections > state.maxSelections ||
       !Number.isSafeInteger(state.revision) || state.revision < 0 || !Array.isArray(state.tasks) ||
-      !Array.isArray(state.events) || state.events.length > MAX_EVENTS) throw new Error('Invalid integration checkpoint')
+      !Array.isArray(state.events) || state.events.length > MAX_EVENTS ||
+      !Array.isArray(state.automaticMergeEvents) || state.automaticMergeEvents.length > MAX_EVENTS) throw new Error('Invalid integration checkpoint')
   if (state.selectedTaskId !== null && !/^[a-z0-9][a-z0-9-]{1,79}$/.test(state.selectedTaskId ?? '')) {
     throw new Error('Invalid selected task ID')
   }
@@ -335,7 +479,7 @@ function validateWorkflow(state) {
     if (task.kind === 'merge' && task.status === 'awaiting_approval' && task.approval !== null) {
       throw new Error(`Awaiting-approval merge task ${task.id} cannot have an approval`)
     }
-    if (task.kind === 'merge' && ['ready', 'running', 'completed'].includes(task.status) && !task.approval) {
+    if (task.kind === 'merge' && ['ready', 'running', 'completed'].includes(task.status) && !task.approval && !task.automaticMergeDecision) {
       throw new Error(`Unauthorized merge task ${task.id} cannot be ${task.status}`)
     }
     if (task.approval && (task.approval.action !== 'merge' ||
@@ -345,6 +489,8 @@ function validateWorkflow(state) {
       throw new Error(`Merge authorization scope changed for ${task.id}`)
     }
     if (task.approval && task.kind !== 'merge') throw new Error('Only merge tasks can hold merge authorization')
+    if (task.automaticMergeDecision && task.kind !== 'merge') throw new Error('Only merge tasks can hold automatic-merge eligibility')
+    if (task.approval && task.automaticMergeDecision) throw new Error('A merge task cannot mix individual and automatic-policy authority')
     if (task.approval) {
       const approvalKeys = ['action', 'repository', 'prNumber', 'headSha', 'targetBranch', 'baseSha', 'approver', 'evidenceRef']
       if (Object.keys(task.approval).some(key => !approvalKeys.includes(key)) ||
@@ -407,6 +553,7 @@ function validateWorkflow(state) {
   for (let i = 0; i < state.events.length; i += 1) {
     validateEventRecord(state.events[i], i + 1, taskIds)
   }
+  validateAutomaticMergeLedger(state, taskIds)
   return state
 }
 
@@ -453,8 +600,13 @@ function completeTask(state, taskId, { evidenceRef, commitSha } = {}) {
   assertEvidenceRef(evidenceRef, 'Completion evidence reference')
   if (commitSha !== undefined && !/^[a-f0-9]{40}$/.test(commitSha)) throw new Error('Completion commit SHA must be 40 hexadecimal characters')
   if (task.kind === 'merge') {
-    if (!task.approval) throw new Error('Merge completion requires exact scoped user authorization')
+    if (!task.approval && !task.automaticMergeDecision) throw new Error('Merge completion requires exact scoped user authorization or active-policy eligibility')
     if (!/^[a-f0-9]{40}$/.test(commitSha ?? '')) throw new Error('Merge completion requires the resulting merge commit SHA')
+    if (task.automaticMergeDecision && !state.automaticMergeEvents.some(item => item.type === 'merge_completed' &&
+        item.taskId === task.id && item.decisionDigest === task.automaticMergeDecision.decisionDigest &&
+        item.mergeCommitSha === commitSha)) {
+      throw new Error('Automatic merge completion requires the matching recorded GitHub merge response')
+    }
     task.result = { evidenceRef, mergeCommitSha: commitSha }
   } else task.result = { evidenceRef, ...(commitSha ? { commitSha } : {}) }
   task.status = 'completed'; task.blockerCode = null; state.selectedTaskId = null
@@ -508,6 +660,145 @@ function retryTask(state, taskId, { evidenceRef } = {}) {
   return advance(state)
 }
 
+function appendAutomaticMergeEvent(state, type, data, at = new Date().toISOString()) {
+  if (state.automaticMergeEvents.length >= MAX_EVENTS) throw new Error('Automatic-merge history is full; preserve the checkpoint before continuing')
+  const item = { sequence: state.automaticMergeEvents.length + 1, type, at, ...clone(data) }
+  state.automaticMergeEvents.push(item)
+  return item
+}
+
+function invalidatePendingAutomaticMerge(state, task, reason, evidenceRef, at = new Date().toISOString()) {
+  const decision = task.automaticMergeDecision
+  if (!decision) return
+  appendAutomaticMergeEvent(state, 'candidate_invalidated', {
+    taskId: task.id, decisionDigest: decision.decisionDigest,
+    policyDigest: decision.policyDigest, reason,
+    evidenceRef: evidenceRef ?? task.pr.url,
+  }, at)
+}
+
+function activateStandingAutoMergePolicy(state, authorization, { currentTime = new Date() } = {}) {
+  validateWorkflow(state)
+  const next = activateAutomaticMergePolicy({
+    policy: state.automaticMergePolicy, authorization, now: currentTime,
+  })
+  state.automaticMergePolicy = clone(next)
+  appendAutomaticMergeEvent(state, 'policy_activated', { policy: clone(next) }, next.activatedAt)
+  validateWorkflow(state)
+  return { activated: true, policy: state.automaticMergePolicy }
+}
+
+function revokeStandingAutoMergePolicy(state, evidenceRef, { currentTime = new Date() } = {}) {
+  validateWorkflow(state)
+  const revokedAt = new Date(currentTime).toISOString()
+  const next = revokeAutomaticMergePolicy(state.automaticMergePolicy, { revokedAt, evidenceRef })
+  state.automaticMergePolicy = clone(next)
+  appendAutomaticMergeEvent(state, 'policy_revoked', { policy: clone(next) }, revokedAt)
+  for (const task of state.tasks) {
+    if (task.automaticMergeDecision && task.status !== 'completed') {
+      invalidatePendingAutomaticMerge(state, task, 'policy_revoked', evidenceRef, revokedAt)
+      if (state.selectedTaskId === task.id) state.selectedTaskId = null
+      task.automaticMergeDecision = null
+      task.status = 'awaiting_approval'
+    }
+  }
+  const continuation = advance(state)
+  validateWorkflow(state)
+  return { revoked: true, policy: state.automaticMergePolicy, ...continuation }
+}
+
+function recordAutomaticMergeAssessment(state, taskId, evidence, { currentTime = new Date() } = {}) {
+  validateWorkflow(state)
+  const task = findTask(state, taskId)
+  if (task.kind !== 'merge' || task.status !== 'awaiting_approval' || task.approval || task.automaticMergeDecision) {
+    throw new Error('Automatic eligibility may be assessed only for a pending, unapproved merge task')
+  }
+  const result = evaluateAutomaticMergeCandidate({ policy: state.automaticMergePolicy, evidence, now: currentTime })
+  if (!result.eligible && (state.automaticMergePolicy.status !== 'active' ||
+      Date.parse(new Date(currentTime).toISOString()) >= Date.parse(state.automaticMergePolicy.expiresAt))) {
+    return { ...result, taskId, assessmentRecorded: false }
+  }
+  const candidate = evidence && typeof evidence === 'object' && !Array.isArray(evidence) ? evidence : {}
+  const decisionDigest = crypto.createHash('sha256').update(JSON.stringify({
+    taskId, policyDigest: state.automaticMergePolicy.digest,
+    activatedAt: state.automaticMergePolicy.activatedAt, candidate,
+    eligible: result.eligible, reason: result.reason,
+  })).digest('hex')
+  if (state.automaticMergeEvents.some(item => item.type === 'candidate_assessed' && item.decisionDigest === decisionDigest)) {
+    throw new Error('Duplicate automatic-merge assessment evidence cannot be recorded')
+  }
+  const reportedDiff = candidate.diffSha256
+  const diffSha256 = /^[a-f0-9]{64}$/.test(reportedDiff ?? '')
+    ? reportedDiff : crypto.createHash('sha256').update(JSON.stringify(candidate)).digest('hex')
+  let evidenceRef = task.pr.url
+  try {
+    if (typeof candidate.mergeManager?.evidenceRef === 'string') {
+      assertEvidenceRef(candidate.mergeManager.evidenceRef, 'Merge Manager evidence reference')
+      evidenceRef = candidate.mergeManager.evidenceRef
+    }
+  } catch { /* preserve the PR reference for malformed candidate evidence */ }
+  const assessedAt = new Date(currentTime).toISOString()
+  appendAutomaticMergeEvent(state, 'candidate_assessed', {
+    taskId, decisionDigest, policyDigest: state.automaticMergePolicy.digest,
+    eligible: result.eligible, reason: result.reason,
+    repository: task.pr.repository, prNumber: task.pr.number,
+    headSha: task.pr.headSha, baseSha: task.pr.baseSha, diffSha256,
+    evidenceRef,
+  }, assessedAt)
+  if (result.eligible) {
+    task.automaticMergeDecision = {
+      decisionDigest, policyDigest: state.automaticMergePolicy.digest,
+      repository: task.pr.repository, prNumber: task.pr.number,
+      headSha: task.pr.headSha, baseSha: task.pr.baseSha, diffSha256,
+      evidenceRef,
+    }
+    task.status = 'ready'
+    state.status = 'active'; state.stopReason = null
+  }
+  const next = advance(state)
+  validateWorkflow(state)
+  return { ...result, taskId, decisionDigest, assessmentRecorded: true, ...next }
+}
+
+function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse } = {}, { currentTime = new Date() } = {}) {
+  validateWorkflow(state)
+  const task = selectedTask(state, taskId)
+  const decision = task.automaticMergeDecision
+  if (task.kind !== 'merge' || task.approval || !decision || decision.decisionDigest !== decisionDigest) {
+    throw new Error('Automatic merge result must match the selected task and its eligible decision')
+  }
+  const requiredKeys = ['merged', 'number', 'headSha', 'baseSha', 'mergeCommitSha', 'mergedAt', 'message']
+  if (!githubResponse || typeof githubResponse !== 'object' || Array.isArray(githubResponse) ||
+      Object.keys(githubResponse).some(key => !requiredKeys.includes(key)) ||
+      requiredKeys.some(key => !Object.hasOwn(githubResponse, key)) ||
+      githubResponse.merged !== true || githubResponse.number !== task.pr.number ||
+      githubResponse.headSha !== task.pr.headSha || githubResponse.baseSha !== task.pr.baseSha ||
+      !/^[a-f0-9]{40}$/.test(githubResponse.mergeCommitSha ?? '') ||
+      typeof githubResponse.message !== 'string' || !githubResponse.message.trim() ||
+      Number.isNaN(Date.parse(githubResponse.mergedAt)) || Date.parse(githubResponse.mergedAt) > Date.parse(new Date(currentTime).toISOString())) {
+    throw new Error('Automatic merge requires the exact structured GitHub response for this PR head and base')
+  }
+  const decisionEvent = state.automaticMergeEvents.find(item => item.type === 'candidate_assessed' &&
+    item.decisionDigest === decisionDigest && item.eligible === true)
+  if (!decisionEvent || Date.parse(githubResponse.mergedAt) <= Date.parse(decisionEvent.at) ||
+      Date.parse(githubResponse.mergedAt) - Date.parse(decisionEvent.at) > AUTO_MERGE_POLICY_MANIFEST.liveEvidenceMaxAgeMs ||
+      Date.parse(githubResponse.mergedAt) >= Date.parse(state.automaticMergePolicy.expiresAt) ||
+      (state.automaticMergePolicy.revokedAt && Date.parse(githubResponse.mergedAt) >= Date.parse(state.automaticMergePolicy.revokedAt))) {
+    throw new Error('Automatic merge must occur after an eligible decision and before policy expiry or revocation')
+  }
+  appendAutomaticMergeEvent(state, 'merge_completed', {
+    taskId, decisionDigest, policyDigest: decision.policyDigest,
+    repository: task.pr.repository, prNumber: task.pr.number,
+    headSha: task.pr.headSha, baseSha: task.pr.baseSha,
+    mergeCommitSha: githubResponse.mergeCommitSha,
+    evidenceRef: `https://github.com/${task.pr.repository}/commit/${githubResponse.mergeCommitSha}`,
+  }, new Date(githubResponse.mergedAt).toISOString())
+  return completeTask(state, taskId, {
+    evidenceRef: `https://github.com/${task.pr.repository}/commit/${githubResponse.mergeCommitSha}`,
+    commitSha: githubResponse.mergeCommitSha,
+  })
+}
+
 function recordApproval(state, taskId, authorization) {
   const task = findTask(state, taskId)
   if (task.kind !== 'merge' || task.status !== 'awaiting_approval' || task.approval) {
@@ -550,8 +841,10 @@ function refreshMergeScope(state, taskId, newPr) {
   }
   const previous = { ...task.pr, approvalEvidenceRef: task.approval?.evidenceRef ?? null }
   if (state.selectedTaskId === task.id) state.selectedTaskId = null
+  invalidatePendingAutomaticMerge(state, task, 'pr_scope_changed', refreshed.url)
   task.pr = refreshed
   task.approval = null
+  task.automaticMergeDecision = null
   task.status = 'awaiting_approval'
   task.blockerCode = null
   task.result = null
@@ -577,7 +870,12 @@ function migrateAdditiveSchemaV1Fields(state) {
   // Schema-v1 checkpoints created before rejection provenance was added remain
   // readable; the new field is additive and defaults to no rejection record.
   if (state?.schemaVersion === SCHEMA_VERSION && Array.isArray(state.tasks)) {
-    for (const task of state.tasks) if (task && !Object.hasOwn(task, 'rejection')) task.rejection = null
+    for (const task of state.tasks) {
+      if (task && !Object.hasOwn(task, 'rejection')) task.rejection = null
+      if (task && !Object.hasOwn(task, 'automaticMergeDecision')) task.automaticMergeDecision = null
+    }
+    if (state && !Object.hasOwn(state, 'automaticMergePolicy')) state.automaticMergePolicy = defaultAutomaticMergePolicy()
+    if (state && !Object.hasOwn(state, 'automaticMergeEvents')) state.automaticMergeEvents = []
   }
   return state
 }
@@ -701,6 +999,15 @@ async function transitionAndSave(file, state, transition) {
   let outcome
   const { type, taskId, payload, pr } = transition
   if (type === 'begin' && Object.keys(transition).every(key => key === 'type')) outcome = begin(candidate)
+  else if (type === 'activate_auto_merge_policy' && Object.keys(transition).every(key => ['type', 'payload'].includes(key))) {
+    outcome = activateStandingAutoMergePolicy(candidate, payload?.authorization, { currentTime: payload?.currentTime })
+  } else if (type === 'revoke_auto_merge_policy' && Object.keys(transition).every(key => ['type', 'payload'].includes(key))) {
+    outcome = revokeStandingAutoMergePolicy(candidate, payload?.evidenceRef, { currentTime: payload?.currentTime })
+  } else if (type === 'assess_auto_merge_candidate' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
+    outcome = recordAutomaticMergeAssessment(candidate, taskId, payload?.evidence, { currentTime: payload?.currentTime })
+  } else if (type === 'complete_auto_merge' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
+    outcome = completeAutomaticMerge(candidate, taskId, payload, { currentTime: payload?.currentTime })
+  }
   else if (type === 'complete' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
     outcome = completeTask(candidate, taskId, payload)
   } else if (type === 'block' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
@@ -723,5 +1030,7 @@ async function transitionAndSave(file, state, transition) {
 module.exports = {
   BLOCKER_CODES, DEFAULT_CHECKPOINT, MAX_ATTEMPTS, MAX_SELECTIONS, MAX_TASKS, REJECTION_CODES,
   advance, begin, blockTask, completeTask, createWorkflow, loadCheckpoint,
-  recordApproval, refreshMergeScope, rejectTask, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
+  activateStandingAutoMergePolicy, completeAutomaticMerge, recordApproval, recordAutomaticMergeAssessment,
+  refreshMergeScope, rejectTask, retryTask, revokeStandingAutoMergePolicy, saveCheckpoint,
+  transitionAndSave, validateWorkflow,
 }
