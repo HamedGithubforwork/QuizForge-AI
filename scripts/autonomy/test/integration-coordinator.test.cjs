@@ -8,7 +8,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const {
   begin, blockTask, completeTask, createWorkflow, DEFAULT_CHECKPOINT, loadCheckpoint, recordApproval,
-  refreshMergeScope, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
+  refreshMergeScope, rejectTask, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
 } = require('../integration-coordinator.cjs')
 
 const sha = 'a'.repeat(40)
@@ -202,6 +202,60 @@ test('checkpoint reload resumes selected work and preserves exact approval scope
   }
 })
 
+test('schema-v1 nonempty checkpoint migrates through save/reload without losing tasks, events, approval, or gate state', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-integration-v1-migration-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'schema-v1-migration', tasks: [
+      merge('legacy-merge'), work('legacy-dependent', 3, ['legacy-merge']),
+    ] })
+    recordApproval(state, 'legacy-merge', {
+      action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
+      targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
+      evidenceRef: 'docs/autonomy/integration-workflow.md#schema-v1-approval',
+    })
+    await saveCheckpoint(file, state)
+
+    const legacy = JSON.parse(await fs.readFile(file, 'utf8'))
+    for (const task of legacy.tasks) delete task.rejection
+    await fs.writeFile(file, `${JSON.stringify(legacy, null, 2)}\n`)
+    const oldEventCount = legacy.events.length
+    const migrated = await loadCheckpoint(file)
+    assert.equal(migrated.tasks.length, 2)
+    assert.equal(migrated.events.length, oldEventCount)
+    assert.equal(migrated.tasks[0].rejection, null)
+    assert.equal(migrated.tasks[0].approval.headSha, pr.headSha)
+    assert.equal(migrated.tasks[0].approval.baseSha, pr.baseSha)
+    assert.equal(migrated.status, 'active')
+    assert.equal(migrated.stopReason, null)
+    assert.equal(migrated.selectedTaskId, 'legacy-merge')
+
+    const next = await transitionAndSave(file, migrated, {
+      type: 'complete', taskId: 'legacy-merge',
+      payload: {
+        evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
+        commitSha: mergedSha,
+      },
+    })
+    assert.equal(next.task.id, 'legacy-dependent')
+    const reopened = await loadCheckpoint(file)
+    assert.equal(reopened.tasks.length, 2)
+    assert.equal(reopened.tasks[0].status, 'completed')
+    assert.equal(reopened.tasks[0].approval.headSha, pr.headSha)
+    assert.equal(reopened.tasks[0].result.mergeCommitSha, mergedSha)
+    assert.equal(reopened.tasks[1].status, 'running')
+    assert.equal(reopened.selectedTaskId, 'legacy-dependent')
+    assert.equal(reopened.status, 'active')
+    assert.equal(reopened.stopReason, null)
+    assert.ok(reopened.events.length > oldEventCount)
+    assert.ok(reopened.events.some(event => event.type === 'merge_authorized'))
+    assert.ok(reopened.events.some(event => event.type === 'task_completed'))
+    assert.ok(reopened.tasks.every(task => task.rejection === null))
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
 test('version-controlled integration checkpoint loads verified PR states and dependency graph', async () => {
   const checkpoint = await loadCheckpoint(DEFAULT_CHECKPOINT)
   assert.equal(checkpoint.objectiveId, 'autonomous-integration')
@@ -253,6 +307,43 @@ test('workflow terminates when every task is complete', () => {
   assert.equal(begin(state).reason, 'completed')
 })
 
+test('evidence-backed rejection preserves history, continues to another task, and can terminate', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-integration-reject-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'reject-and-continue', maxSelections: 3, tasks: [work('reject-one', 2), work('continue-two', 1)] })
+    await saveCheckpoint(file, state)
+    await transitionAndSave(file, state, { type: 'begin' })
+    const result = await transitionAndSave(file, state, {
+      type: 'reject', taskId: 'reject-one',
+      payload: { reasonCode: 'duplicate_work', evidenceRef: 'docs/autonomy/integration-workflow.md#duplicate' },
+    })
+    assert.equal(result.rejected.status, 'rejected')
+    assert.equal(result.task.id, 'continue-two')
+    const reopened = await loadCheckpoint(file)
+    assert.equal(reopened.selectedTaskId, 'continue-two')
+    assert.deepEqual(reopened.tasks.find(task => task.id === 'reject-one').rejection, {
+      reasonCode: 'duplicate_work', evidenceRef: 'docs/autonomy/integration-workflow.md#duplicate',
+    })
+    const nullRejectionRef = structuredClone(reopened)
+    nullRejectionRef.tasks.find(task => task.id === 'reject-one').rejection.evidenceRef = null
+    assert.throws(() => validateWorkflow(nullRejectionRef), /allowlisted/)
+    const droppedRejectionRef = structuredClone(reopened)
+    droppedRejectionRef.tasks.find(task => task.id === 'reject-one').evidenceRefs = []
+    assert.throws(() => validateWorkflow(droppedRejectionRef), /does not preserve its rejection evidence/)
+
+    const terminal = createWorkflow({ objectiveId: 'reject-final-task', tasks: [work('only-rejected')] })
+    begin(terminal)
+    rejectTask(terminal, 'only-rejected', {
+      reasonCode: 'scope_invalid', evidenceRef: 'docs/autonomy/integration-workflow.md#invalid-scope',
+    })
+    assert.equal(terminal.status, 'completed')
+    assert.equal(validateWorkflow(terminal).tasks[0].status, 'rejected')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
 test('objective completion takes precedence when the final task uses the last selection', () => {
   const state = createWorkflow({ objectiveId: 'finish-at-budget', maxSelections: 1, tasks: [work('only-task')] })
   begin(state)
@@ -299,6 +390,48 @@ test('evidence references remain intact and reject prose, absolute paths, traver
   const persisted = createWorkflow({ objectiveId: 'tampered-evidence', tasks: [work('one')] })
   persisted.tasks[0].evidenceRefs.push('leaked password')
   assert.throws(() => validateWorkflow(persisted), /allowlisted|path traversal/)
+})
+
+test('event schema validates every typed field and nested PR scope against tampering', async () => {
+  const checkpoint = await loadCheckpoint(DEFAULT_CHECKPOINT)
+  const tamper = change => {
+    const copy = structuredClone(checkpoint)
+    change(copy)
+    assert.throws(() => validateWorkflow(copy))
+  }
+  tamper(copy => { copy.events[0].headSha = 'not-a-sha' })
+  tamper(copy => { copy.events[0].targetBranch = '../main' })
+  tamper(copy => { copy.events[0].evidenceRef = null })
+  tamper(copy => { copy.events[1].attempt = 'one' })
+  tamper(copy => { copy.events[1].candidateHeadSha = 'short' })
+  tamper(copy => { copy.events[1].unexpected = 'ignored text' })
+
+  const add = (copy, event) => {
+    event.sequence = copy.events.length + 1
+    copy.events.push(event)
+  }
+  tamper(copy => add(copy, {
+    type: 'task_blocked', taskId: 'pr-695-reconcile', blockerCode: 'invented',
+    evidenceRef: 'docs/autonomy/integration-workflow.md#block', retryExhausted: false,
+  }))
+  tamper(copy => add(copy, {
+    type: 'task_completed', taskId: 'pr-695-reconcile', evidenceRef: 'docs/autonomy/integration-workflow.md#complete', commitSha: 'bad',
+  }))
+  tamper(copy => add(copy, {
+    type: 'merge_authorized', taskId: 'pr-695-merge', evidenceRef: 'docs/autonomy/integration-workflow.md#approve',
+    headSha: 'a'.repeat(40), baseSha: 'bad',
+  }))
+  tamper(copy => add(copy, {
+    type: 'task_retry_authorized', taskId: 'pr-695-reconcile', evidenceRef: null,
+  }))
+  tamper(copy => add(copy, {
+    type: 'task_rejected', taskId: 'pr-695-reconcile', reasonCode: 'other', evidenceRef: null,
+  }))
+  tamper(copy => add(copy, {
+    type: 'merge_scope_changed', taskId: 'pr-695-merge',
+    previous: { ...copy.tasks.find(task => task.id === 'pr-695-merge').pr, approvalEvidenceRef: null },
+    current: { ...copy.tasks.find(task => task.id === 'pr-695-merge').pr, baseRef: '../main' },
+  }))
 })
 
 test('merge tasks require exact canonical base SHA', () => {

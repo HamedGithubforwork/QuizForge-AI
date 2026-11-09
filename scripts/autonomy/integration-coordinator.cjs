@@ -17,6 +17,9 @@ const BLOCKER_CODES = Object.freeze([
   'approval_required', 'existing_pr', 'unavailable_evidence', 'tooling_unavailable',
   'external_dependency', 'environment_failure', 'other',
 ])
+const REJECTION_CODES = Object.freeze([
+  'no_measurable_improvement', 'regression', 'duplicate_work', 'superseded', 'scope_invalid', 'other',
+])
 const TASK_STATUSES = Object.freeze([
   'ready', 'awaiting_approval', 'running', 'completed', 'blocked', 'rejected',
 ])
@@ -24,11 +27,11 @@ const WORKFLOW_STATUSES = Object.freeze(['active', 'blocked', 'budget_reached', 
 const DEFAULT_CHECKPOINT = path.resolve(__dirname, '../../docs/autonomy/integration-checkpoint.json')
 const TASK_KEYS = new Set([
   'id', 'title', 'kind', 'priority', 'dependencies', 'candidateHeadSha', 'evidenceRefs',
-  'status', 'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result',
+  'status', 'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
 ])
 const TASK_REQUIRED_KEYS = Object.freeze([
   'id', 'title', 'kind', 'priority', 'dependencies', 'evidenceRefs', 'status',
-  'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result',
+  'pr', 'approval', 'attempts', 'blockerCode', 'retryExhausted', 'result', 'rejection',
 ])
 const EVIDENCE_URLS = Object.freeze([
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/,
@@ -36,6 +39,16 @@ const EVIDENCE_URLS = Object.freeze([
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/runs\/[1-9][0-9]*$/,
 ])
 const EVIDENCE_PATH = /^(?:docs|scripts|backend|frontend|desktop|\.github)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.(?:md|json|ya?ml|txt|cjs|mjs|js|ts|tsx|jsx|py|toml|csv|ps1|sh)(?:#[A-Za-z0-9_-]+)?$/i
+const EVENT_FIELDS = Object.freeze({
+  historical_merge_confirmed: ['sequence', 'type', 'taskId', 'evidenceRef', 'headSha', 'targetBranch'],
+  task_selected: ['sequence', 'type', 'taskId', 'attempt', 'selection', 'candidateHeadSha'],
+  task_completed: ['sequence', 'type', 'taskId', 'evidenceRef', 'commitSha'],
+  task_blocked: ['sequence', 'type', 'taskId', 'blockerCode', 'evidenceRef', 'retryExhausted'],
+  task_rejected: ['sequence', 'type', 'taskId', 'reasonCode', 'evidenceRef'],
+  task_retry_authorized: ['sequence', 'type', 'taskId', 'evidenceRef'],
+  merge_authorized: ['sequence', 'type', 'taskId', 'evidenceRef', 'headSha', 'baseSha'],
+  merge_scope_changed: ['sequence', 'type', 'taskId', 'previous', 'current'],
+})
 
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
 
@@ -44,6 +57,14 @@ function requireText(value, name, max = 240) {
     throw new Error(`${name} must be a nonempty trimmed string of at most ${max} characters`)
   }
   return value
+}
+
+function validateBranchRef(reference, name = 'Branch ref') {
+  if (typeof reference !== 'string' || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(reference) ||
+      reference.split('/').some(part => part === '.' || part === '..')) {
+    throw new Error(`${name} is malformed or contains path traversal`)
+  }
+  return reference
 }
 
 function assertEvidenceRef(reference, name = 'Evidence reference') {
@@ -86,7 +107,7 @@ function validatePr(pr) {
   if (Object.keys(pr).some(key => !prKeys.has(key))) throw new Error('PR scope contains unsupported fields')
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(pr.repository ?? '') ||
       !Number.isSafeInteger(pr.number) || pr.number < 1 ||
-      typeof pr.baseRef !== 'string' || !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(pr.baseRef) ||
+      typeof pr.baseRef !== 'string' ||
       (pr.baseSha !== undefined && !/^[a-f0-9]{40}$/.test(pr.baseSha)) ||
       (pr.reportedBaseSha !== undefined && !/^[a-f0-9]{40}$/.test(pr.reportedBaseSha)) ||
       (pr.liveTargetSha !== undefined && !/^[a-f0-9]{40}$/.test(pr.liveTargetSha)) ||
@@ -101,6 +122,7 @@ function validatePr(pr) {
       typeof pr.url !== 'string' || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*$/.test(pr.url)) {
     throw new Error('Merge task PR scope must include repository, number, base, exact head SHA, and PR URL')
   }
+  validateBranchRef(pr.baseRef, 'PR target branch')
   const urlMatch = pr.url.match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/([1-9][0-9]*)$/)
   if (urlMatch[1].toLowerCase() !== pr.repository.toLowerCase() || Number(urlMatch[2]) !== pr.number) {
     throw new Error('PR URL does not match the recorded repository and number')
@@ -117,6 +139,54 @@ function validatePr(pr) {
     ...(pr.checkedOn ? { checkedOn: pr.checkedOn } : {}),
     ...(pr.mergeCommitSha ? { mergeCommitSha: pr.mergeCommitSha } : {}),
   }
+}
+
+function validateEventRecord(item, sequence, taskIds) {
+  if (!item || typeof item !== 'object' || Array.isArray(item) || item.sequence !== sequence ||
+      typeof item.type !== 'string' || !Object.hasOwn(EVENT_FIELDS, item.type) ||
+      Object.keys(item).some(key => !EVENT_FIELDS[item.type].includes(key)) ||
+      item.taskId == null || !taskIds.has(item.taskId)) throw new Error('Malformed integration event record')
+  const required = {
+    historical_merge_confirmed: ['evidenceRef', 'headSha', 'targetBranch'],
+    task_selected: ['attempt', 'selection'],
+    task_completed: ['evidenceRef'],
+    task_blocked: ['blockerCode', 'evidenceRef', 'retryExhausted'],
+    task_rejected: ['reasonCode', 'evidenceRef'],
+    task_retry_authorized: ['evidenceRef'],
+    merge_authorized: ['evidenceRef', 'headSha', 'baseSha'],
+    merge_scope_changed: ['previous', 'current'],
+  }[item.type]
+  if (required.some(key => !Object.hasOwn(item, key))) throw new Error(`Event ${item.type} is missing required fields`)
+  if (required.includes('evidenceRef')) assertEvidenceRef(item.evidenceRef, `${item.type} evidence reference`)
+  if (['historical_merge_confirmed', 'merge_authorized'].includes(item.type) &&
+      !/^[a-f0-9]{40}$/.test(item.headSha)) throw new Error(`Event ${item.type} has malformed headSha`)
+  if (item.type === 'merge_authorized' && !/^[a-f0-9]{40}$/.test(item.baseSha)) {
+    throw new Error('Merge authorization event has malformed baseSha')
+  }
+  if (item.type === 'task_completed' && item.commitSha !== undefined && !/^[a-f0-9]{40}$/.test(item.commitSha)) {
+    throw new Error('Completion event has malformed commitSha')
+  }
+  if (item.type === 'task_selected' && (![item.attempt, item.selection].every(value => Number.isSafeInteger(value) && value >= 1) ||
+      (item.candidateHeadSha !== undefined && !/^[a-f0-9]{40}$/.test(item.candidateHeadSha)))) {
+    throw new Error('Task selection event has malformed counters or candidateHeadSha')
+  }
+  if (item.type === 'task_blocked' && (!BLOCKER_CODES.includes(item.blockerCode) || typeof item.retryExhausted !== 'boolean')) {
+    throw new Error('Blocker event has malformed blockerCode or retryExhausted')
+  }
+  if (item.type === 'task_rejected' && !REJECTION_CODES.includes(item.reasonCode)) {
+    throw new Error('Task rejection event has unsupported reasonCode')
+  }
+  if (item.type === 'historical_merge_confirmed') validateBranchRef(item.targetBranch, 'Historical target branch')
+  if (item.type === 'merge_scope_changed') {
+    const prior = item.previous
+    if (!prior || typeof prior !== 'object' || Array.isArray(prior)) throw new Error('Merge scope event has malformed previous PR scope')
+    const { approvalEvidenceRef, ...previousPr } = prior
+    if (approvalEvidenceRef !== null && approvalEvidenceRef !== undefined) assertEvidenceRef(approvalEvidenceRef)
+    validatePr(previousPr)
+    validatePr(item.current)
+  }
+  validateEvidenceTree(item)
+  return item
 }
 
 function normalizeTask(input) {
@@ -160,6 +230,7 @@ function normalizeTask(input) {
     blockerCode: null,
     retryExhausted: false,
     result: null,
+    rejection: null,
   }
 }
 
@@ -303,6 +374,17 @@ function validateWorkflow(state) {
         throw new Error(`Completed merge task ${task.id} lacks merge commit evidence`)
       }
     } else if (task.result !== null) throw new Error(`Incomplete task ${task.id} cannot contain completion result`)
+    if (task.status === 'rejected') {
+      if (!task.rejection || !REJECTION_CODES.includes(task.rejection.reasonCode) ||
+          Object.keys(task.rejection).some(key => !['reasonCode', 'evidenceRef'].includes(key))) {
+        throw new Error(`Rejected task ${task.id} lacks a valid rejection record`)
+      }
+      assertEvidenceRef(task.rejection.evidenceRef, `Task ${task.id} rejection evidence reference`)
+      if (!task.evidenceRefs.includes(task.rejection.evidenceRef)) {
+        throw new Error(`Rejected task ${task.id} does not preserve its rejection evidence reference`)
+      }
+      validateEvidenceTree(task.rejection)
+    } else if (task.rejection !== null) throw new Error(`Non-rejected task ${task.id} cannot contain a rejection record`)
   }
   if (recordedAttempts !== state.selections) throw new Error('Selection count does not match persisted task attempts')
   const unfinished = state.tasks.some(task => !['completed', 'rejected'].includes(task.status))
@@ -323,25 +405,16 @@ function validateWorkflow(state) {
   }
   if (state.status === 'active' && !unfinished) throw new Error('Active workflow cannot have only terminal tasks')
   for (let i = 0; i < state.events.length; i += 1) {
-    const item = state.events[i]
-    const eventKeys = [
-      'sequence', 'type', 'taskId', 'attempt', 'selection', 'evidenceRef', 'commitSha',
-      'blockerCode', 'retryExhausted', 'headSha', 'baseSha', 'targetBranch',
-      'previous', 'current', 'candidateHeadSha',
-    ]
-    if (!item || typeof item !== 'object' || Array.isArray(item) || item.sequence !== i + 1 ||
-        typeof item.type !== 'string' || !/^[a-z][a-z0-9_]{1,39}$/.test(item.type) ||
-        Object.keys(item).some(key => !eventKeys.includes(key)) ||
-        (item.taskId !== null && !taskIds.has(item.taskId))) throw new Error('Malformed integration event record')
-    validateEvidenceTree(item)
+    validateEventRecord(state.events[i], i + 1, taskIds)
   }
   return state
 }
 
 function event(state, type, taskId, data = {}) {
   if (state.events.length >= MAX_EVENTS) throw new Error('Integration event history is full; checkpoint requires archival')
-  validateEvidenceTree(data)
-  state.events.push({ sequence: state.events.length + 1, type, taskId: taskId ?? null, ...clone(data) })
+  const item = { sequence: state.events.length + 1, type, taskId, ...clone(data) }
+  validateEventRecord(item, item.sequence, new Set(state.tasks.map(task => task.id)))
+  state.events.push(item)
 }
 
 function advance(state) {
@@ -402,6 +475,24 @@ function blockTask(state, taskId, { blockerCode, evidenceRef } = {}) {
   task.retryExhausted = task.attempts >= MAX_ATTEMPTS; state.selectedTaskId = null
   event(state, 'task_blocked', task.id, { blockerCode, evidenceRef, retryExhausted: task.retryExhausted })
   return { blocked: task, ...advance(state) }
+}
+
+function rejectTask(state, taskId, { reasonCode, evidenceRef } = {}) {
+  const task = selectedTask(state, taskId)
+  if (!REJECTION_CODES.includes(reasonCode)) throw new Error('Rejection reasonCode is not allowlisted')
+  assertEvidenceRef(evidenceRef, 'Rejection evidence reference')
+  if (task.evidenceRefs.includes(evidenceRef)) throw new Error('Rejection evidence must be new for this task')
+  task.evidenceRefs.push(evidenceRef)
+  task.status = 'rejected'
+  task.blockerCode = null
+  task.retryExhausted = false
+  task.rejection = { reasonCode, evidenceRef }
+  state.selectedTaskId = null
+  event(state, 'task_rejected', task.id, { reasonCode, evidenceRef })
+  if (state.tasks.every(item => ['completed', 'rejected'].includes(item.status))) {
+    state.status = 'completed'; state.stopReason = 'objective_complete'
+  }
+  return { rejected: task, ...advance(state) }
 }
 
 function retryTask(state, taskId, { evidenceRef } = {}) {
@@ -482,8 +573,17 @@ function findTask(state, taskId) {
   return task
 }
 
+function migrateAdditiveSchemaV1Fields(state) {
+  // Schema-v1 checkpoints created before rejection provenance was added remain
+  // readable; the new field is additive and defaults to no rejection record.
+  if (state?.schemaVersion === SCHEMA_VERSION && Array.isArray(state.tasks)) {
+    for (const task of state.tasks) if (task && !Object.hasOwn(task, 'rejection')) task.rejection = null
+  }
+  return state
+}
+
 async function loadCheckpoint(file = DEFAULT_CHECKPOINT) {
-  const state = JSON.parse(await fs.readFile(file, 'utf8'))
+  const state = migrateAdditiveSchemaV1Fields(JSON.parse(await fs.readFile(file, 'utf8')))
   return validateWorkflow(state)
 }
 
@@ -570,7 +670,8 @@ async function saveCheckpoint(file, state) {
     ({ lockHandle, lockData } = await acquireCheckpointLock(lock, recovery))
     let diskRevision = 0
     try {
-      diskRevision = validateWorkflow(JSON.parse(await fs.readFile(file, 'utf8'))).revision
+      const diskState = migrateAdditiveSchemaV1Fields(JSON.parse(await fs.readFile(file, 'utf8')))
+      diskRevision = validateWorkflow(diskState).revision
     } catch (error) {
       if (error.code !== 'ENOENT') throw new Error('Cannot verify integration checkpoint revision; refusing to overwrite it')
     }
@@ -606,6 +707,8 @@ async function transitionAndSave(file, state, transition) {
     outcome = blockTask(candidate, taskId, payload)
   } else if (type === 'retry' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
     outcome = retryTask(candidate, taskId, payload)
+  } else if (type === 'reject' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
+    outcome = rejectTask(candidate, taskId, payload)
   } else if (type === 'approve_merge' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
     outcome = recordApproval(candidate, taskId, payload)
   } else if (type === 'refresh_merge_scope' && Object.keys(transition).every(key => ['type', 'taskId', 'pr'].includes(key))) {
@@ -618,7 +721,7 @@ async function transitionAndSave(file, state, transition) {
 }
 
 module.exports = {
-  BLOCKER_CODES, DEFAULT_CHECKPOINT, MAX_ATTEMPTS, MAX_SELECTIONS, MAX_TASKS,
+  BLOCKER_CODES, DEFAULT_CHECKPOINT, MAX_ATTEMPTS, MAX_SELECTIONS, MAX_TASKS, REJECTION_CODES,
   advance, begin, blockTask, completeTask, createWorkflow, loadCheckpoint,
-  recordApproval, refreshMergeScope, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
+  recordApproval, refreshMergeScope, rejectTask, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
 }
