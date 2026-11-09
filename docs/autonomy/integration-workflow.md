@@ -30,23 +30,35 @@ checkpoint together with any code changes whose state must survive GitHub-based
 handoffs. Keep evidence in sanitized references and do not put prompts, model
 responses, secrets, or private user data in it.
 
-The initial integration ledger in `integration-checkpoint.json` records PR 678
-as merged, the current local PR 695 reconciliation as active and unpublished,
-PR 698 as independent draft work, and the dependent chain PR 690 → PR 691 →
-PRs 692 and 694. Each open PR has a separate merge task that remains
-`awaiting_approval` until fresh exact-scope approval is recorded; completing a
-review task alone never unlocks the next stack level. Pending merge tasks have
-no stored approval. The checkpoint distinguishes PR 695's remote head from its
-local candidate commit. Refresh these refs from GitHub before resuming; never
-treat the initial snapshot as current after branches or PR states move.
+The current checkpoint records PR 678 as merged, PR 695 reconciliation and
+PR 698 review as completed with their recorded Actions-run evidence and result
+commits, and the dependency chain PR 690 → PR 691 → PRs 692 and 694. PR 698 is
+independent of PR 695. Each open PR has a separate merge task that remains
+`awaiting_approval`; all six merge tasks currently have no stored approval.
+Completing a review or reconciliation task alone never unlocks the next stack
+level. The recorded PR 695 reconciliation result is commit
+`176fc7961781d622519597a4c8268b33d40d4514`; PR 698 review result is
+`6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845`. The refreshed merge scopes record
+those heads against the current `main` SHA
+`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`. These are checkpoint snapshots,
+not substitutes for re-fetching live PR state before resuming or seeking
+approval.
 
-The November 9 snapshot records PR 695 as non-mergeable. The pull-request API
-reported base SHA `aad0afeda769a6715f2ba8351294b61839ff5fe6`, while the live
-`main` branch resolved to `46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`. The
-checkpoint stores the live target SHA as canonical `baseSha` and preserves the
-API value separately as `reportedBaseSha`; this discrepancy still requires a
-fresh API/branch check before readiness or merge. Re-fetch the PR and branch
-before any continuation that relies on its mergeability.
+The checkpoint retains PR 695's earlier API base report
+`aad0afeda769a6715f2ba8351294b61839ff5fe6` as historical metadata and records
+`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff` as the canonical target SHA from the
+live `main` branch used during scope refresh. The earlier mismatch is evidence
+history, not proof of current mergeability. The refreshed scope records the
+reconciliation result head, but approval is still absent. Re-fetch the PR,
+target branch, checks, reviews, protections, and mergeability before any
+readiness decision or merge.
+
+At checkpoint revision 9 the workflow is `blocked` with stop reason
+`no_actionable_task`: PR 695 and PR 698 review work is complete, while their
+merge tasks await explicit approval. PR 690 and later stack tasks cannot be
+selected until their predecessor merge is actually recorded as completed.
+This is an approval/dependency stop, not global completion. No approval is
+stored for any outstanding PR.
 
 On session resume, load the checkpoint, independently re-fetch live PR heads,
 bases, checks, reviews, conflicts, protections, and side effects, then call

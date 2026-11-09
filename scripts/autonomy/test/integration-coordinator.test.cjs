@@ -261,7 +261,7 @@ test('version-controlled integration checkpoint loads verified PR states and dep
   assert.equal(checkpoint.objectiveId, 'autonomous-integration')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').status, 'completed')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').pr.mergeCommitSha, '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff')
-  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').status, 'running')
+  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').status, 'completed')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').candidateHeadSha, 'b5b09c2c23dc99add09ef10804fc18bd73c94525')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').pr.headSha, '2e58e03cdf8e48a2025b307f696c359e3dad2d3d')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').pr.baseSha, '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff')
@@ -270,15 +270,29 @@ test('version-controlled integration checkpoint loads verified PR states and dep
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').pr.baseShaNote, 'api_base_differs_from_live_target_requires_refresh')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').pr.mergeable, false)
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').pr.checkedOn, '2026-11-09')
+  assert.deepEqual(checkpoint.tasks.find(task => task.id === 'pr-695-reconcile').result, {
+    evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561665578',
+    commitSha: '176fc7961781d622519597a4c8268b33d40d4514',
+  })
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-merge').status, 'awaiting_approval')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-merge').approval, null)
-  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-review').status, 'ready')
+  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-merge').pr.headSha, '176fc7961781d622519597a4c8268b33d40d4514')
+  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-695-merge').pr.baseSha, '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff')
+  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-review').status, 'completed')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-review').pr.headSha, 'e36eed8e453fd724557224353e2e7470184efbb0')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-review').pr.mergeable, true)
+  assert.deepEqual(checkpoint.tasks.find(task => task.id === 'pr-698-review').result, {
+    evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561714261',
+    commitSha: '6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845',
+  })
   assert.equal(checkpoint.maxSelections, 50)
   assert.ok(checkpoint.maxSelections >= 6 * 2 * 3) // six open PRs; review and merge steps; initial plus two retries
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-merge').status, 'awaiting_approval')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-merge').approval, null)
+  assert.equal(checkpoint.tasks.find(task => task.id === 'pr-698-merge').pr.headSha, '6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845')
+  assert.equal(checkpoint.status, 'blocked')
+  assert.equal(checkpoint.stopReason, 'no_actionable_task')
+  assert.equal(checkpoint.selectedTaskId, null)
   assert.deepEqual(checkpoint.tasks.find(task => task.id === 'pr-690-reconcile').dependencies, ['pr-695-merge'])
   assert.deepEqual(checkpoint.tasks.find(task => task.id === 'pr-690-merge').dependencies, ['pr-690-reconcile'])
   assert.deepEqual(checkpoint.tasks.find(task => task.id === 'pr-691-reconcile').dependencies, ['pr-690-merge'])
@@ -291,6 +305,8 @@ test('version-controlled integration checkpoint loads verified PR states and dep
     assert.equal(mergeTask.approval, null)
     assert.match(mergeTask.pr.baseSha, /^[a-f0-9]{40}$/)
   }
+  assert.equal(checkpoint.tasks.filter(task => task.kind === 'merge').length, 6)
+  assert.ok(checkpoint.tasks.filter(task => task.kind === 'merge').every(task => task.status === 'awaiting_approval' && task.approval === null))
   for (const number of [690, 691, 692, 694]) {
     assert.equal(checkpoint.tasks.find(task => task.pr?.number === number).pr.checkedOn, '2026-11-09')
     assert.equal(checkpoint.tasks.find(task => task.pr?.number === number).pr.mergeable, true)

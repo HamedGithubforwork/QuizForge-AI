@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "objectiveId": "autonomous-integration",
-  "status": "active",
-  "stopReason": null,
-  "revision": 5,
+  "status": "blocked",
+  "stopReason": "no_actionable_task",
+  "revision": 9,
   "maxSelections": 50,
-  "selections": 1,
-  "selectedTaskId": "pr-695-reconcile",
+  "selections": 2,
+  "selectedTaskId": null,
   "tasks": [
     {
       "id": "pr-678-complete",
@@ -37,7 +37,8 @@
       "result": {
         "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
         "mergeCommitSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff"
-      }
+      },
+      "rejection": null
     },
     {
       "id": "pr-695-reconcile",
@@ -51,7 +52,7 @@
       "evidenceRefs": [
         "https://github.com/HamedGithubforwork/QuizForge-AI/pull/695"
       ],
-      "status": "running",
+      "status": "completed",
       "pr": {
         "repository": "HamedGithubforwork/QuizForge-AI",
         "number": 695,
@@ -71,7 +72,11 @@
       "attempts": 1,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": {
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561665578",
+        "commitSha": "176fc7961781d622519597a4c8268b33d40d4514"
+      },
+      "rejection": null
     },
     {
       "id": "pr-695-merge",
@@ -89,22 +94,20 @@
         "repository": "HamedGithubforwork/QuizForge-AI",
         "number": 695,
         "baseRef": "main",
-        "headSha": "2e58e03cdf8e48a2025b307f696c359e3dad2d3d",
+        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "headSha": "176fc7961781d622519597a4c8268b33d40d4514",
         "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/695",
+        "mergeable": true,
         "state": "open",
         "draft": true,
-        "checkedOn": "2026-11-09",
-        "reportedBaseSha": "aad0afeda769a6715f2ba8351294b61839ff5fe6",
-        "liveTargetSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
-        "baseShaNote": "api_base_differs_from_live_target_requires_refresh",
-        "mergeable": false,
-        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff"
+        "checkedOn": "2026-11-08"
       },
       "approval": null,
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-698-review",
@@ -118,7 +121,7 @@
         "https://github.com/HamedGithubforwork/QuizForge-AI/pull/698",
         "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42548657329"
       ],
-      "status": "ready",
+      "status": "completed",
       "pr": {
         "repository": "HamedGithubforwork/QuizForge-AI",
         "number": 698,
@@ -132,10 +135,14 @@
         "mergeable": true
       },
       "approval": null,
-      "attempts": 0,
+      "attempts": 1,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": {
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561714261",
+        "commitSha": "6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845"
+      },
+      "rejection": null
     },
     {
       "id": "pr-690-reconcile",
@@ -165,7 +172,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-691-reconcile",
@@ -195,7 +203,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-692-reconcile",
@@ -225,7 +234,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-694-reconcile",
@@ -255,7 +265,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-698-merge",
@@ -274,18 +285,19 @@
         "number": 698,
         "baseRef": "main",
         "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
-        "headSha": "e36eed8e453fd724557224353e2e7470184efbb0",
+        "headSha": "6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845",
         "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/698",
+        "mergeable": true,
         "state": "open",
         "draft": true,
-        "checkedOn": "2026-11-09",
-        "mergeable": true
+        "checkedOn": "2026-11-08"
       },
       "approval": null,
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-690-merge",
@@ -315,7 +327,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-691-merge",
@@ -345,7 +358,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-692-merge",
@@ -375,7 +389,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     },
     {
       "id": "pr-694-merge",
@@ -405,7 +420,8 @@
       "attempts": 0,
       "blockerCode": null,
       "retryExhausted": false,
-      "result": null
+      "result": null,
+      "rejection": null
     }
   ],
   "events": [
@@ -424,6 +440,90 @@
       "attempt": 1,
       "selection": 1,
       "candidateHeadSha": "b5b09c2c23dc99add09ef10804fc18bd73c94525"
+    },
+    {
+      "sequence": 3,
+      "type": "task_completed",
+      "taskId": "pr-695-reconcile",
+      "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561665578",
+      "commitSha": "176fc7961781d622519597a4c8268b33d40d4514"
+    },
+    {
+      "sequence": 4,
+      "type": "task_selected",
+      "taskId": "pr-698-review",
+      "attempt": 1,
+      "selection": 2
+    },
+    {
+      "sequence": 5,
+      "type": "task_completed",
+      "taskId": "pr-698-review",
+      "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42561714261",
+      "commitSha": "6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845"
+    },
+    {
+      "sequence": 6,
+      "type": "merge_scope_changed",
+      "taskId": "pr-695-merge",
+      "previous": {
+        "repository": "HamedGithubforwork/QuizForge-AI",
+        "number": 695,
+        "baseRef": "main",
+        "headSha": "2e58e03cdf8e48a2025b307f696c359e3dad2d3d",
+        "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/695",
+        "state": "open",
+        "draft": true,
+        "checkedOn": "2026-11-09",
+        "reportedBaseSha": "aad0afeda769a6715f2ba8351294b61839ff5fe6",
+        "liveTargetSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "baseShaNote": "api_base_differs_from_live_target_requires_refresh",
+        "mergeable": false,
+        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "approvalEvidenceRef": null
+      },
+      "current": {
+        "repository": "HamedGithubforwork/QuizForge-AI",
+        "number": 695,
+        "baseRef": "main",
+        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "headSha": "176fc7961781d622519597a4c8268b33d40d4514",
+        "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/695",
+        "mergeable": true,
+        "state": "open",
+        "draft": true,
+        "checkedOn": "2026-11-08"
+      }
+    },
+    {
+      "sequence": 7,
+      "type": "merge_scope_changed",
+      "taskId": "pr-698-merge",
+      "previous": {
+        "repository": "HamedGithubforwork/QuizForge-AI",
+        "number": 698,
+        "baseRef": "main",
+        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "headSha": "e36eed8e453fd724557224353e2e7470184efbb0",
+        "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/698",
+        "state": "open",
+        "draft": true,
+        "checkedOn": "2026-11-09",
+        "mergeable": true,
+        "approvalEvidenceRef": null
+      },
+      "current": {
+        "repository": "HamedGithubforwork/QuizForge-AI",
+        "number": 698,
+        "baseRef": "main",
+        "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+        "headSha": "6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845",
+        "url": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/698",
+        "mergeable": true,
+        "state": "open",
+        "draft": true,
+        "checkedOn": "2026-11-08"
+      }
     }
   ]
 }
