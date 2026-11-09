@@ -80,7 +80,8 @@ function candidate(overrides = {}) {
     reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: evidenceUrl },
     protections: { verified: true, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl },
     sideEffects: {
-      assessed: true, productionDeployment: false, cloudSpend: false, destructive: false,
+      assessed: true, productionDeployment: false, deploymentTriggers: [], infrastructureMutation: false,
+      cloudSpend: false, destructive: false,
       unexpectedExternalSideEffects: false, evidenceRef: evidenceUrl,
     },
     mergeManager: {
@@ -228,6 +229,8 @@ test('unresolved findings, unverified protections, effects, or failed Manager as
     { reviews: { blocking: false, unresolvedMaterialConcern: true, evidenceRef: evidenceUrl } },
     { protections: { verified: false, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl } },
     { sideEffects: { ...candidate().sideEffects, productionDeployment: true } },
+    { sideEffects: { ...candidate().sideEffects, deploymentTriggers: ['aws-integrated-staging.yml'] } },
+    { sideEffects: { ...candidate().sideEffects, infrastructureMutation: true } },
     { mergeManager: { ...candidate().mergeManager, riskClassification: 'uncertain' } },
     { mergeManager: { ...candidate().mergeManager, invocationId: '' } },
   ]

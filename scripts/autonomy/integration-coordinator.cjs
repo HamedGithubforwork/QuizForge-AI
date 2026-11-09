@@ -64,7 +64,7 @@ const AUTO_MERGE_EVENT_FIELDS = Object.freeze({
   policy_revoked: ['sequence', 'type', 'at', 'policy'],
   candidate_assessed: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'eligible', 'reason', 'repository', 'prNumber', 'headSha', 'baseSha', 'diffSha256', 'evidenceRef'],
   candidate_invalidated: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'reason', 'evidenceRef'],
-  merge_completed: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'repository', 'prNumber', 'headSha', 'baseSha', 'mergeCommitSha', 'evidenceRef'],
+  merge_completed: ['sequence', 'type', 'at', 'taskId', 'decisionDigest', 'policyDigest', 'repository', 'prNumber', 'headSha', 'baseSha', 'mergeCommitSha', 'evidenceRef', 'commitVerificationRef', 'verifiedAt'],
 })
 
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
@@ -379,7 +379,11 @@ function validateAutomaticMergeLedger(state, taskIds) {
           prior.prNumber !== item.prNumber || prior.headSha !== item.headSha || prior.baseSha !== item.baseSha ||
           prior.policyDigest !== item.policyDigest || Date.parse(item.at) <= Date.parse(prior.at) ||
           !/^[a-f0-9]{40}$/.test(item.mergeCommitSha ?? '') ||
-          item.evidenceRef !== `https://github.com/${item.repository}/commit/${item.mergeCommitSha}`) {
+          item.evidenceRef !== `https://github.com/${item.repository}/commit/${item.mergeCommitSha}` ||
+          item.commitVerificationRef !== item.evidenceRef ||
+          !/^\d{4}-\d\d-\d\dT/.test(item.verifiedAt ?? '') || Number.isNaN(Date.parse(item.verifiedAt)) ||
+          Date.parse(item.verifiedAt) < Date.parse(item.at) ||
+          Date.parse(item.verifiedAt) - Date.parse(item.at) > AUTO_MERGE_POLICY_MANIFEST.liveEvidenceMaxAgeMs) {
         throw new Error('Automatic-merge result must match a prior eligible exact-scope decision')
       }
       if (Date.parse(item.at) >= Date.parse(policy.revokedAt ?? policy.expiresAt)) {
@@ -421,7 +425,8 @@ function validateAutomaticMergeLedger(state, taskIds) {
         decision.headSha !== task.pr.headSha || decision.baseSha !== task.pr.baseSha) {
       throw new Error(`Automatic merge decision scope does not match task ${task.id}`)
     }
-    if (task.status === 'completed' && (!recorded.completed || recorded.completed.mergeCommitSha !== task.result?.mergeCommitSha)) {
+    if (task.status === 'completed' && (!recorded.completed || recorded.completed.mergeCommitSha !== task.result?.mergeCommitSha ||
+        recorded.completed.commitVerificationRef !== task.result?.commitVerificationRef)) {
       throw new Error(`Completed automatic merge ${task.id} lacks matching GitHub result evidence`)
     }
   }
@@ -510,7 +515,7 @@ function validateWorkflow(state) {
       if (!task.result || typeof task.result !== 'object' || !task.result.evidenceRef) {
         throw new Error(`Completed task ${task.id} lacks completion evidence`)
       }
-      const resultKeys = ['evidenceRef', 'commitSha', 'mergeCommitSha']
+      const resultKeys = ['evidenceRef', 'commitSha', 'mergeCommitSha', 'commitVerificationRef']
       if (Object.keys(task.result).some(key => !resultKeys.includes(key))) throw new Error(`Completed task ${task.id} has unsupported result fields`)
       validateEvidenceTree(task.result)
       if (task.result.commitSha !== undefined && !/^[a-f0-9]{40}$/.test(task.result.commitSha)) {
@@ -519,6 +524,7 @@ function validateWorkflow(state) {
       if (task.kind === 'merge' && !/^[a-f0-9]{40}$/.test(task.result.mergeCommitSha ?? '')) {
         throw new Error(`Completed merge task ${task.id} lacks merge commit evidence`)
       }
+      if (task.result.commitVerificationRef !== undefined) assertEvidenceRef(task.result.commitVerificationRef, 'Verified merge commit reference')
     } else if (task.result !== null) throw new Error(`Incomplete task ${task.id} cannot contain completion result`)
     if (task.status === 'rejected') {
       if (!task.rejection || !REJECTION_CODES.includes(task.rejection.reasonCode) ||
@@ -595,7 +601,7 @@ function begin(state) {
   return advance(state)
 }
 
-function completeTask(state, taskId, { evidenceRef, commitSha } = {}) {
+function completeTask(state, taskId, { evidenceRef, commitSha, commitVerificationRef } = {}) {
   const task = selectedTask(state, taskId)
   assertEvidenceRef(evidenceRef, 'Completion evidence reference')
   if (commitSha !== undefined && !/^[a-f0-9]{40}$/.test(commitSha)) throw new Error('Completion commit SHA must be 40 hexadecimal characters')
@@ -604,10 +610,10 @@ function completeTask(state, taskId, { evidenceRef, commitSha } = {}) {
     if (!/^[a-f0-9]{40}$/.test(commitSha ?? '')) throw new Error('Merge completion requires the resulting merge commit SHA')
     if (task.automaticMergeDecision && !state.automaticMergeEvents.some(item => item.type === 'merge_completed' &&
         item.taskId === task.id && item.decisionDigest === task.automaticMergeDecision.decisionDigest &&
-        item.mergeCommitSha === commitSha)) {
+        item.mergeCommitSha === commitSha && item.commitVerificationRef === commitVerificationRef)) {
       throw new Error('Automatic merge completion requires the matching recorded GitHub merge response')
     }
-    task.result = { evidenceRef, mergeCommitSha: commitSha }
+    task.result = { evidenceRef, mergeCommitSha: commitSha, ...(commitVerificationRef ? { commitVerificationRef } : {}) }
   } else task.result = { evidenceRef, ...(commitSha ? { commitSha } : {}) }
   task.status = 'completed'; task.blockerCode = null; state.selectedTaskId = null
   event(state, 'task_completed', task.id, { evidenceRef, ...(commitSha ? { commitSha } : {}) })
@@ -760,42 +766,66 @@ function recordAutomaticMergeAssessment(state, taskId, evidence, { currentTime =
   return { ...result, taskId, decisionDigest, assessmentRecorded: true, ...next }
 }
 
-function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse } = {}, { currentTime = new Date() } = {}) {
+function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse, postMergePullRequest, verifiedCommit } = {}, { currentTime = new Date() } = {}) {
   validateWorkflow(state)
   const task = selectedTask(state, taskId)
   const decision = task.automaticMergeDecision
   if (task.kind !== 'merge' || task.approval || !decision || decision.decisionDigest !== decisionDigest) {
     throw new Error('Automatic merge result must match the selected task and its eligible decision')
   }
-  const requiredKeys = ['merged', 'number', 'headSha', 'baseSha', 'mergeCommitSha', 'mergedAt', 'message']
+  const requiredKeys = ['merged', 'sha', 'message']
   if (!githubResponse || typeof githubResponse !== 'object' || Array.isArray(githubResponse) ||
       Object.keys(githubResponse).some(key => !requiredKeys.includes(key)) ||
       requiredKeys.some(key => !Object.hasOwn(githubResponse, key)) ||
-      githubResponse.merged !== true || githubResponse.number !== task.pr.number ||
-      githubResponse.headSha !== task.pr.headSha || githubResponse.baseSha !== task.pr.baseSha ||
-      !/^[a-f0-9]{40}$/.test(githubResponse.mergeCommitSha ?? '') ||
-      typeof githubResponse.message !== 'string' || !githubResponse.message.trim() ||
-      Number.isNaN(Date.parse(githubResponse.mergedAt)) || Date.parse(githubResponse.mergedAt) > Date.parse(new Date(currentTime).toISOString())) {
-    throw new Error('Automatic merge requires the exact structured GitHub response for this PR head and base')
+      githubResponse.merged !== true || !/^[a-f0-9]{40}$/.test(githubResponse.sha ?? '') ||
+      typeof githubResponse.message !== 'string' || !githubResponse.message.trim()) {
+    throw new Error('Automatic merge requires the exact successful GitHub merge response')
+  }
+  const postKeys = ['number', 'state', 'merged', 'headSha', 'baseRef', 'mergeCommitSha', 'mergedAt', 'url']
+  if (!postMergePullRequest || typeof postMergePullRequest !== 'object' || Array.isArray(postMergePullRequest) ||
+      Object.keys(postMergePullRequest).some(key => !postKeys.includes(key)) ||
+      postKeys.some(key => !Object.hasOwn(postMergePullRequest, key)) ||
+      postMergePullRequest.number !== task.pr.number || postMergePullRequest.state !== 'closed' ||
+      postMergePullRequest.merged !== true || postMergePullRequest.headSha !== task.pr.headSha ||
+      postMergePullRequest.baseRef !== task.pr.baseRef || postMergePullRequest.mergeCommitSha !== githubResponse.sha ||
+      postMergePullRequest.url !== task.pr.url || Number.isNaN(Date.parse(postMergePullRequest.mergedAt)) ||
+      Date.parse(postMergePullRequest.mergedAt) > Date.parse(new Date(currentTime).toISOString())) {
+    throw new Error('Automatic merge requires a freshly fetched merged PR matching the exact head and target')
+  }
+  const commitKeys = ['sha', 'parents', 'verifiedAt', 'evidenceRef']
+  if (!verifiedCommit || typeof verifiedCommit !== 'object' || Array.isArray(verifiedCommit) ||
+      Object.keys(verifiedCommit).some(key => !commitKeys.includes(key)) ||
+      commitKeys.some(key => !Object.hasOwn(verifiedCommit, key)) ||
+      verifiedCommit.sha !== githubResponse.sha || !Array.isArray(verifiedCommit.parents) ||
+      verifiedCommit.parents.length < 1 || verifiedCommit.parents.some(parent => !/^[a-f0-9]{40}$/.test(parent)) ||
+      !/^\d{4}-\d\d-\d\dT/.test(verifiedCommit.verifiedAt ?? '') ||
+      Number.isNaN(Date.parse(verifiedCommit.verifiedAt)) ||
+      Date.parse(verifiedCommit.verifiedAt) < Date.parse(postMergePullRequest.mergedAt) ||
+      Date.parse(verifiedCommit.verifiedAt) - Date.parse(postMergePullRequest.mergedAt) > AUTO_MERGE_POLICY_MANIFEST.liveEvidenceMaxAgeMs ||
+      verifiedCommit.evidenceRef !== `https://github.com/${task.pr.repository}/commit/${githubResponse.sha}`) {
+    throw new Error('Automatic merge requires a fresh GitHub fetch confirming the merge commit')
   }
   const decisionEvent = state.automaticMergeEvents.find(item => item.type === 'candidate_assessed' &&
     item.decisionDigest === decisionDigest && item.eligible === true)
-  if (!decisionEvent || Date.parse(githubResponse.mergedAt) <= Date.parse(decisionEvent.at) ||
-      Date.parse(githubResponse.mergedAt) - Date.parse(decisionEvent.at) > AUTO_MERGE_POLICY_MANIFEST.liveEvidenceMaxAgeMs ||
-      Date.parse(githubResponse.mergedAt) >= Date.parse(state.automaticMergePolicy.expiresAt) ||
-      (state.automaticMergePolicy.revokedAt && Date.parse(githubResponse.mergedAt) >= Date.parse(state.automaticMergePolicy.revokedAt))) {
+  if (!decisionEvent || Date.parse(postMergePullRequest.mergedAt) <= Date.parse(decisionEvent.at) ||
+      Date.parse(postMergePullRequest.mergedAt) - Date.parse(decisionEvent.at) > AUTO_MERGE_POLICY_MANIFEST.liveEvidenceMaxAgeMs ||
+      Date.parse(postMergePullRequest.mergedAt) >= Date.parse(state.automaticMergePolicy.expiresAt) ||
+      (state.automaticMergePolicy.revokedAt && Date.parse(postMergePullRequest.mergedAt) >= Date.parse(state.automaticMergePolicy.revokedAt))) {
     throw new Error('Automatic merge must occur after an eligible decision and before policy expiry or revocation')
   }
   appendAutomaticMergeEvent(state, 'merge_completed', {
     taskId, decisionDigest, policyDigest: decision.policyDigest,
     repository: task.pr.repository, prNumber: task.pr.number,
     headSha: task.pr.headSha, baseSha: task.pr.baseSha,
-    mergeCommitSha: githubResponse.mergeCommitSha,
-    evidenceRef: `https://github.com/${task.pr.repository}/commit/${githubResponse.mergeCommitSha}`,
-  }, new Date(githubResponse.mergedAt).toISOString())
+    mergeCommitSha: githubResponse.sha,
+    evidenceRef: verifiedCommit.evidenceRef,
+    commitVerificationRef: verifiedCommit.evidenceRef,
+    verifiedAt: new Date(verifiedCommit.verifiedAt).toISOString(),
+  }, new Date(postMergePullRequest.mergedAt).toISOString())
   return completeTask(state, taskId, {
-    evidenceRef: `https://github.com/${task.pr.repository}/commit/${githubResponse.mergeCommitSha}`,
-    commitSha: githubResponse.mergeCommitSha,
+    evidenceRef: verifiedCommit.evidenceRef,
+    commitSha: githubResponse.sha,
+    commitVerificationRef: verifiedCommit.evidenceRef,
   })
 }
 

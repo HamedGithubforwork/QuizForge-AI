@@ -66,7 +66,7 @@ function autoCandidate(overrides = {}) {
       prNumber: 999, runUrl: autoRunRef, completedAt: autoMergeAtNext.toISOString(), associatedPr: true },
     reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: autoEvidenceRef },
     protections: { verified: true, evidenceRef: autoEvidenceRef, rulesetRef: autoRulesetRef },
-    sideEffects: { assessed: true, productionDeployment: false, cloudSpend: false,
+    sideEffects: { assessed: true, productionDeployment: false, deploymentTriggers: [], infrastructureMutation: false, cloudSpend: false,
       destructive: false, unexpectedExternalSideEffects: false, evidenceRef: autoEvidenceRef },
     mergeManager: { passed: true, headSha: autoHead, baseSha: autoBase, diffSha256: autoDiff,
       diffInspected: true, riskClassification: 'low_risk', invocationId: 'merge-manager-session-20261109-1', evidenceRef: autoEvidenceRef },
@@ -183,15 +183,23 @@ test('automatic merge requires fresh independent evidence and records activation
         decisionDigest: assessment.decisionDigest,
         currentTime: new Date('2026-11-09T12:03:00.000Z'),
         githubResponse: {
-          merged: true, number: 999, headSha: autoHead, baseSha: autoBase,
-          mergeCommitSha: mergeCommit, mergedAt: '2026-11-09T12:02:00.000Z',
+          merged: true, sha: mergeCommit,
           message: 'Merged by the active low-risk policy',
+        },
+        postMergePullRequest: {
+          number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
+          mergeCommitSha: mergeCommit, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
+        },
+        verifiedCommit: {
+          sha: mergeCommit, parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
+          evidenceRef: `https://github.com/${autoRepository}/commit/${mergeCommit}`,
         },
       },
     })
     assert.equal(state.tasks[0].status, 'completed')
     assert.equal(state.tasks[0].result.mergeCommitSha, mergeCommit)
-    assert.ok(state.automaticMergeEvents.some(event => event.type === 'merge_completed' && event.mergeCommitSha === mergeCommit))
+    assert.ok(state.automaticMergeEvents.some(event => event.type === 'merge_completed' &&
+      event.mergeCommitSha === mergeCommit && event.commitVerificationRef === `https://github.com/${autoRepository}/commit/${mergeCommit}`))
     const reloaded = await loadCheckpoint(file)
     assert.equal(reloaded.automaticMergePolicy.status, 'active')
     assert.equal(reloaded.tasks[0].status, 'completed')
@@ -244,31 +252,86 @@ test('automatic merge result rejects changed bases and assessments older than fi
   })
   assert.equal(assessment.eligible, true)
   const response = {
-    merged: true, number: 999, headSha: autoHead, baseSha: autoBase,
-    mergeCommitSha: '6'.repeat(40), mergedAt: '2026-11-09T12:02:00.000Z', message: 'merged',
+    merged: true, sha: '6'.repeat(40), message: 'merged',
   }
   assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
     decisionDigest: assessment.decisionDigest,
-    githubResponse: { ...response, baseSha: '7'.repeat(40) },
-  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /exact structured GitHub response for this PR head and base/)
+    githubResponse: response,
+    postMergePullRequest: {
+      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
+      mergeCommitSha: response.sha, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
+    },
+    verifiedCommit: {
+      sha: '7'.repeat(40), parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
+      evidenceRef: `https://github.com/${autoRepository}/commit/${response.sha}`,
+    },
+  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
   assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
     decisionDigest: assessment.decisionDigest,
-    githubResponse: { ...response, mergedAt: '2026-11-09T12:07:00.000Z' },
+    githubResponse: response,
+    postMergePullRequest: {
+      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
+      mergeCommitSha: response.sha, mergedAt: '2026-11-09T12:07:00.000Z', url: autoPrUrl,
+    },
+    verifiedCommit: {
+      sha: response.sha, parents: [autoBase], verifiedAt: '2026-11-09T12:07:30.000Z',
+      evidenceRef: `https://github.com/${autoRepository}/commit/${response.sha}`,
+    },
   }, { currentTime: new Date('2026-11-09T12:08:00.000Z') }), /before policy expiry or revocation/)
   assert.equal(state.tasks[0].status, 'running')
   assert.equal(state.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
 })
 
+test('automatic merge completion requires a fresh post-merge PR and matching fetched commit', () => {
+  const state = createWorkflow({ objectiveId: 'auto-merge-verified-result', tasks: [autoMergeTask()] })
+  activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+  const assessment = recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', autoCandidate(), {
+    currentTime: autoMergeAtNext,
+  })
+  const mergeCommitSha = '8'.repeat(40)
+  const completion = {
+    decisionDigest: assessment.decisionDigest,
+    githubResponse: { merged: true, sha: mergeCommitSha, message: 'merged' },
+    postMergePullRequest: {
+      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
+      mergeCommitSha, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
+    },
+    verifiedCommit: {
+      sha: mergeCommitSha, parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
+      evidenceRef: `https://github.com/${autoRepository}/commit/${mergeCommitSha}`,
+    },
+  }
+  for (const postMergePullRequest of [
+    { ...completion.postMergePullRequest, headSha: '9'.repeat(40) },
+    { ...completion.postMergePullRequest, baseRef: 'release' },
+    { ...completion.postMergePullRequest, mergeCommitSha: 'a'.repeat(40) },
+  ]) {
+    assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
+      ...completion, postMergePullRequest,
+    }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /freshly fetched merged PR matching the exact head and target/)
+  }
+  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
+    ...completion, verifiedCommit: { ...completion.verifiedCommit, verifiedAt: '2026-11-09T12:08:00.000Z' },
+  }, { currentTime: new Date('2026-11-09T12:09:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
+  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
+    ...completion, verifiedCommit: undefined,
+  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
+  assert.equal(state.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
+  assert.equal(state.tasks[0].status, 'running')
+})
+
 test('automatic-merge agent guidance keeps activation separate and all exact-head roles required', async () => {
   const root = path.resolve(__dirname, '../../..')
-  const [agents, developer, reviewer, qa, security, manager, policyDoc] = await Promise.all([
+  const [agents, developer, reviewer, qa, security, manager, release, policyDoc, liveProtocol] = await Promise.all([
     fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/developer.toml'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/reviewer.toml'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/qa.toml'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/security-privacy-engineer.toml'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/merge-manager.toml'), 'utf8'),
+    fs.readFile(path.join(root, '.codex/agents/release-reliability-engineer.toml'), 'utf8'),
     fs.readFile(path.join(root, 'docs/autonomy/automatic-merge-policy.md'), 'utf8'),
+    fs.readFile(path.join(root, 'docs/autonomy/automatic-merge-live-execution.md'), 'utf8'),
   ])
   for (const text of [agents, manager, policyDoc]) assert.match(text, /disabled by default|disabled/i)
   assert.match(agents, /created after the recorded activation time/)
@@ -277,6 +340,20 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
   assert.match(qa, /exact current head/)
   assert.match(security, /exact final diff/)
   assert.match(manager, /not the policy-enabling PR or any PR created before activation/)
+  assert.match(liveProtocol, /github_merge_pull_request.*expected_head_sha/s)
+  for (const text of [agents, reviewer, qa, security, manager, liveProtocol]) {
+    assert.match(text, /active collaboration-tool record/)
+    assert.match(text, /checkpoint.*(?:proof|not sufficient|audit claim)/i)
+  }
+  assert.match(release, /invocation-ID strings are claims, not independent evidence/)
+  for (const tool of [
+    'github_fetch_pr', 'github_list_pr_changed_filenames', 'github_fetch_pr_patch',
+    'read_pull_request_check_diagnostics', 'github_list_pull_request_reviews',
+    'github_list_pull_request_review_threads', 'github_fetch', 'expected_head_sha',
+  ]) assert.match(liveProtocol, new RegExp(tool.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.match(liveProtocol, /deployment/)
+  assert.match(liveProtocol, /cloud spend/)
+  assert.match(liveProtocol, /infrastructure/)
   assert.match(developer, /do not classify your own change as low-risk or approve\/merge it/)
 })
 

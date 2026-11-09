@@ -57,6 +57,10 @@ revocation. If head, base, policy digest, findings, protections, or side effects
 changed—or evidence is older than five minutes—stop and repeat the relevant
 verification. The GitHub merge call must use the expected head SHA. Never
 bypass branch protection, use admin privileges, or enable GitHub auto-merge.
+The recorded side-effect assessment must include all merge-to-main workflow
+triggers and explicitly show no deployment trigger, infrastructure mutation,
+cloud spend, or destructive operation; missing or unknown trigger analysis
+blocks eligibility.
 
 Only the Merge Manager performs the normal GitHub merge after every gate passes.
 The Coordinator verifies GitHub's response, merge commit, and post-merge CI,
