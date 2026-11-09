@@ -30,19 +30,29 @@ checkpoint together with any code changes whose state must survive GitHub-based
 handoffs. Keep evidence in sanitized references and do not put prompts, model
 responses, secrets, or private user data in it.
 
-The current checkpoint is revision 14 and records PRs 678 and 695 as merged,
+The current checkpoint is revision 16 and records PRs 678 and 695 as merged,
 with exact user authorization, PR head/base, merge commit, and post-merge CI
 evidence for #695. The Coordinator selected `pr-690-reconcile` immediately
 after recording the #695 merge. The remaining integration chain is PR 690 →
 PR 691 → PRs 692 and 694; PR 698 is independent of that stack. Unmerged PRs
-remain separately approval-gated. The #690 reconciliation is active; the other
-unmerged merge tasks remain `awaiting_approval`. Completing a review or
+remain separately approval-gated. The #690 reconciliation is active; its live
+scope was refreshed to head `190f6d98ca59baedddf9e7242bb8c3e63de4ec38` on
+`main` at base `4213fe2b7160bdc2e12c5e9661611544e251ae48`, with GitHub
+reporting it open, draft, and mergeable. Exact-head Required PR CI run
+`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221`
+passed; mutation run
+`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660174`
+was skipped. The #690 merge task remains `awaiting_approval`, with no merge
+authorization recorded. The other unmerged merge tasks remain `awaiting_approval`. Completing a review or
 reconciliation task alone never unlocks a merge. Checkpoint scopes are
 snapshots, not substitutes for re-fetching live PR state before resuming or
 seeking approval.
 
 Completed review tasks retain historical PR metadata from when those
-evaluations began. PR #695's reconciliation result was head
+evaluations began. The active `pr-690-reconcile` task and the separate #690
+merge scope were refreshed from live GitHub on 2026-11-09. Re-fetch both before
+resuming; saved scopes never replace live inspection. The merge task remains
+`awaiting_approval`. PR #695's reconciliation result was head
 `176fc7961781d622519597a4c8268b33d40d4514`, merged as
 `4213fe2b7160bdc2e12c5e9661611544e251ae48`. PR #698's recorded review result
 predates #695 and its current remote head is `25d21088b548411b3005d19f49cc382af8851658`;
@@ -54,14 +64,19 @@ a new exact-head Required PR gate before considering it ready.
 PR 698's previously recorded Required PR runs predate PR 695's workflow-policy
 changes. PR 695 is now on `main`, so #698 must be reconciled against the new
 base, and its fresh exact-head Required PR gate must show the policy test
-passing before readiness or approval.
+passing before readiness or approval. This candidate changes the Required PR
+workflow to run `integration-coordinator.test.cjs` whenever autonomy tests are
+relevant. A local regression assertion requires that command to include both
+the orchestrator and coordinator suites. The correction becomes active only
+after this candidate is integrated. Exact-head GitHub CI on the reconciled #698
+candidate is still required.
 
 The checkpoint retains earlier PR base reports as historical evidence. Current
 `main` is `4213fe2b7160bdc2e12c5e9661611544e251ae48`. Re-fetch each PR, target
 branch, checks, reviews, protections, and mergeability before any readiness
 decision or merge.
 
-At revision 14 the workflow is `active`, with `pr-690-reconcile` selected.
+At revision 16 the workflow is `active`, with `pr-690-reconcile` selected.
 After that task is recorded, downstream merge tasks will remain gated by
 separate, exact-scope approvals. This is an integration workflow, not a grant
 of standing merge permission.
@@ -93,18 +108,20 @@ untraceable independent assessments were removed.
 ### PR 695 merge authorization 2026-11-09
 
 The repository owner explicitly authorized merge of PR 695 at head
-`176fc7961781d622519597a4c8268b33d40d4514` to `main`, then at base
-`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff`. This is a Coordinator
-transcription of user-provided authorization, not a GitHub review or signed
-approval record. Immediately before merge, GitHub reported the PR open,
+`176fc7961781d622519597a4c8268b33d40d4514` to `main`. The Coordinator
+independently observed and bound the then-current base SHA
+`46f3412f673b0522cc1dfce2769e7e8d7d9d6aff` in its exact-scope checkpoint;
+that base SHA was not part of the user's authorization text. This is a
+Coordinator transcription of user-provided authorization, not a GitHub review
+or signed approval record. Immediately before merge, GitHub reported the PR open,
 non-draft, mergeable, exact head/base unchanged, `Required PR gate` passing,
 and the active `Protect main` ruleset satisfied. GitHub merged PR #695 at
 `https://github.com/HamedGithubforwork/QuizForge-AI/commit/4213fe2b7160bdc2e12c5e9661611544e251ae48`.
 
 Post-merge Actions run
 `https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42689434199`
-passed on that merge commit. It was the only workflow run observed for that
-SHA: CI passed; the autonomy bridge was skipped. No deployment workflow ran.
+passed on that merge commit. Observed run results were: CI succeeded and the
+autonomy bridge was skipped. No deployment workflow ran.
 The active integration checkpoint records the user authorization, merge SHA,
 post-merge run, and immediate continuation to PR #690. This approval is only
 for PR #695; every other PR remains unapproved for merge.

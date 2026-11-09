@@ -98,6 +98,11 @@ test('integration coordinator source and tests trigger autonomy verification', (
   assert.match(workflow, /autonomy_tests=true/)
   assert.match(workflow, /name: Optimization orchestrator tests/)
   assert.match(workflow, /if: needs\.changes\.outputs\.autonomy_tests == 'true'/)
+  const autonomyJobStart = workflow.indexOf('  autonomy-tests:')
+  const requiredGateStart = workflow.indexOf('  required-pr-gate:', autonomyJobStart)
+  const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
+  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs/,
+    'autonomy CI must execute the integration coordinator regression suite when classified relevant')
 })
 
 function successfulGateInputs(overrides = {}) {
