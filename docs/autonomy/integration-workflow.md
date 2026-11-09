@@ -44,6 +44,16 @@ those heads against the current `main` SHA
 not substitutes for re-fetching live PR state before resuming or seeking
 approval.
 
+Completed review tasks intentionally retain the PR metadata snapshot from
+when each evaluation began: PR 695 head `2e58e03cdf8e48a2025b307f696c359e3dad2d3d`
+and PR 698 head `e36eed8e453fd724557224353e2e7470184efbb0`. Their result
+commits and Actions-run evidence are recorded separately. The corresponding
+merge tasks contain the later refreshed heads (`176fc7961781d622519597a4c8268b33d40d4514`
+and `6add3dac88d211f5bdc127bd8c1a1ea7c4a3d845`). Treat completed-task PR
+objects as historical evaluation snapshots; use the merge-task scope only as a
+checkpointed reference, and still refresh live GitHub state before approval or
+merge.
+
 The checkpoint retains PR 695's earlier API base report
 `aad0afeda769a6715f2ba8351294b61839ff5fe6` as historical metadata and records
 `46f3412f673b0522cc1dfce2769e7e8d7d9d6aff` as the canonical target SHA from the
