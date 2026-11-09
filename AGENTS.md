@@ -117,6 +117,7 @@ reports do not add selections or completed cycles. Preserve prior pilot
 checkpoints and never restart indefinitely.
 
 ## PR integration and merge authorization
+- Before recommending a CI verification procedure, inspect the exact workflow revision GitHub will use. Record the PR number, current base/head refs and SHAs, trigger event and activity types, branch/path/label filters, and downstream `workflow_run` or `pull_request_target` behavior. A base retarget emits an `edited` PR event; do not assume it triggers CI. Do not use `workflow_dispatch` as a substitute for a PR-associated required check. A procedure is not verified until an actual completed Actions run is associated with the intended PR and current check context. After restoring/changing a stacked base, re-fetch the checks and confirm the Required PR gate remains visible and applicable. Static workflow inspection or a local policy test alone is not evidence that GitHub executed the workflow.
 
 - Default to read-only PR review. The Merge Manager must identify the exact repository, PR number, current head SHA, and intended destination; independently inspect current GitHub evidence and report blockers or unverifiable checks. Do not edit PRs, comment, trigger workflows, or merge during read-only tests.
 - The user must explicitly approve the merge of the **specific repository and PR number** before any merge action. Approval to inspect, implement, push, or open a PR is **not** approval to merge. Require fresh approval if the approved head SHA or target branch changes.
