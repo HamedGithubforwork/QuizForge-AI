@@ -7,6 +7,8 @@ const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const { spawnSync } = require('node:child_process')
+// Keep integration-continuation regressions in the normal autonomy test entrypoint.
+require('./integration-coordinator.test.cjs')
 const optimizationOrchestrator = require('../optimization-orchestrator.cjs')
 const {
   AUDIT_DIMENSIONS, AUDIT_ROLES, addTask, beginRun, blockTask, createInitialState,
