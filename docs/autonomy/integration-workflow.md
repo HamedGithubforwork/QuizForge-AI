@@ -100,8 +100,19 @@ are not proof that auto-deploy is disabled. The former Vercel/Render canary
 workflows are absent; the remaining opt-in test now requires explicitly
 configured trusted HTTPS endpoints. The active AWS production canary remains
 unchanged. A separate local Vercel-retirement branch contains the focused
-code/doc cleanup; its publication remains on hold until the live Vercel
-settings are verified.
+code/doc cleanup at local commit
+`dd63e0404864b965c9ce49dc093242a4fc19c284` (branch
+`codex/retire-vercel-canary-20261109`). It removes hardcoded legacy canary
+hosts, requires a trusted exact-host allowlist, and disables canary traces,
+screenshots, and video. Focused Playwright configuration tests pass 6/6 and
+the canary discovery command lists one test without contacting an endpoint.
+Reviewer, QA, and Security assessed that exact local commit; Security's
+remaining condition is that endpoint and allowlist values come from trusted
+operator-controlled configuration. The branch has not been pushed or opened
+as a PR; publication remains on hold until live Vercel settings are verified.
+PR #695's live API state is `draft: false`, while its current description still
+contains the stale claim that it remains a draft; reconcile the description
+before any readiness report.
 
 This is a metadata refresh only: PR #695's repository, number, target, base
 SHA, and head SHA are unchanged. The checkpoint keeps the merge task
