@@ -30,57 +30,21 @@ checkpoint together with any code changes whose state must survive GitHub-based
 handoffs. Keep evidence in sanitized references and do not put prompts, model
 responses, secrets, or private user data in it.
 
-The current checkpoint is revision 16 and records PRs 678 and 695 as merged,
-with exact user authorization, PR head/base, merge commit, and post-merge CI
-evidence for #695. The Coordinator selected `pr-690-reconcile` immediately
-after recording the #695 merge. The remaining integration chain is PR 690 →
-PR 691 → PRs 692 and 694; PR 698 is independent of that stack. Unmerged PRs
-remain separately approval-gated. The #690 reconciliation is active; its live
-scope was refreshed to head `190f6d98ca59baedddf9e7242bb8c3e63de4ec38` on
-`main` at base `4213fe2b7160bdc2e12c5e9661611544e251ae48`, with GitHub
-reporting it open, draft, and mergeable. Exact-head Required PR CI run
-`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221`
-passed; mutation run
-`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660174`
-was skipped. The #690 merge task remains `awaiting_approval`, with no merge
-authorization recorded. The other unmerged merge tasks remain `awaiting_approval`. Completing a review or
-reconciliation task alone never unlocks a merge. Checkpoint scopes are
-snapshots, not substitutes for re-fetching live PR state before resuming or
-seeking approval.
+The current checkpoint is revision 22. It records PRs 678 and 695 as merged, including #695's exact user authorization, merge commit, and post-merge CI. After #695 merged, the Coordinator selected and completed `pr-690-reconcile` using the current PR head and exact-head Required PR gate. It then stopped with `blocked/no_actionable_task` because PR #690's merge still awaits explicit, PR-specific authorization. This is an approval boundary, not optimization exhaustion or a failed test.
 
-Completed review tasks retain historical PR metadata from when those
-evaluations began. The active `pr-690-reconcile` task and the separate #690
-merge scope were refreshed from live GitHub on 2026-11-09. Re-fetch both before
-resuming; saved scopes never replace live inspection. The merge task remains
-`awaiting_approval`. PR #695's reconciliation result was head
-`176fc7961781d622519597a4c8268b33d40d4514`, merged as
-`4213fe2b7160bdc2e12c5e9661611544e251ae48`. PR #698's recorded review result
-predates #695 and its current remote head is `25d21088b548411b3005d19f49cc382af8851658`;
-its old review and Actions evidence are not current readiness proof. The #698
-merge scope has been refreshed to the current main SHA and remote head, and
-GitHub currently reports it non-mergeable. Reconcile its branch/base and obtain
-a new exact-head Required PR gate before considering it ready.
+The prepared dependency order is PR 690 → PR 691 → PRs 692 and 694; PR 698 is independent. Current recorded scopes and PR-associated Required PR gates are:
 
-PR 698's previously recorded Required PR runs predate PR 695's workflow-policy
-changes. PR 695 is now on `main`, so #698 must be reconciled against the new
-base, and its fresh exact-head Required PR gate must show the policy test
-passing before readiness or approval. This candidate changes the Required PR
-workflow to run `integration-coordinator.test.cjs` whenever autonomy tests are
-relevant. A local regression assertion requires that command to include both
-the orchestrator and coordinator suites. The correction becomes active only
-after this candidate is integrated. Exact-head GitHub CI on the reconciled #698
-candidate is still required.
+- PR #690: head `190f6d98ca59baedddf9e7242bb8c3e63de4ec38`, target `main` at `4213fe2b7160bdc2e12c5e9661611544e251ae48`, gate run [42692660221](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221) passed.
+- PR #691: head `baddbbc98c5a14bc14f664a01f2d79390e9d70c9`, target PR #690's branch at `190f6d98ca59baedddf9e7242bb8c3e63de4ec38`, gate run [42695584837](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42695584837) passed.
+- PR #692: head `8dda007e79afe77dc77a5c186e6e16ab1fa1cc6b`, target PR #691's branch at `baddbbc98c5a14bc14f664a01f2d79390e9d70c9`, gate run [42697462238](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42697462238) passed.
+- PR #694: head `03eb7c038c972fb49909019d846c02a69767b18f`, target PR #691's branch at `baddbbc98c5a14bc14f664a01f2d79390e9d70c9`, gate run [42698118455](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42698118455) passed.
+- PR #698: head `ee9e6d2fd10f29f41ac255016358595a215d3a61`, target `main` at `4213fe2b7160bdc2e12c5e9661611544e251ae48`, gate run [42694126716](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42694126716) passed.
 
-The checkpoint retains earlier PR base reports as historical evidence. Current
-`main` is `4213fe2b7160bdc2e12c5e9661611544e251ae48`. Re-fetch each PR, target
-branch, checks, reviews, protections, and mergeability before any readiness
-decision or merge.
+Every unmerged PR remains draft or unapproved in the checkpoint, with null merge authorization. Exact-head CI is not formal GitHub review. The current #691 branch merge is conflict-free; #692 preserves numeric grading, and #694 preserves recovery safeguards. The #698 candidate includes a fix to run both autonomy suites when relevant; it becomes active only after integration. PR #692 also triggered Lightsail validation-only and a local Docker image build; the release build and ECR push jobs were skipped, and no deployment or image publication occurred. Mutation runs for these PRs were skipped.
 
-At revision 16 the workflow is `active`, with `pr-690-reconcile` selected.
-After that task is recorded, downstream merge tasks will remain gated by
-separate, exact-scope approvals. This is an integration workflow, not a grant
-of standing merge permission.
+Checkpoint scopes are snapshots, not a substitute for re-fetching live PR state. Before any merge, re-check the current PR, base/head, exact required check association, formal review requirements, conflicts, rulesets, and side effects. Completing reconciliation never unlocks a merge. The current blocker is specific: explicit merge authorization for PR #690 at its exact current head/target is required to proceed with the dependency chain. No other PR is authorized for merge.
 
+The checkpoint retains earlier PR base reports and events as historical evidence. Current `main` is `4213fe2b7160bdc2e12c5e9661611544e251ae48`. The workflow is `blocked` with `stopReason: no_actionable_task`; all remaining unmerged merge tasks remain `awaiting_approval`. It is not complete or exhausted. This workflow is not a grant of standing merge permission.
 ## PR 695 deployment and merge record — 2026-11-09
 
 Before integration, the repository owner reported uninstalling the Vercel,
