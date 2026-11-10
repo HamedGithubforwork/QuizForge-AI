@@ -469,6 +469,18 @@ function validateWorkflow(state) {
   }
   validateTasks(state.tasks)
   const taskIds = new Set(state.tasks.map(task => task.id))
+  if (!TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) {
+    for (const task of state.tasks) {
+      if (!isMergeCompletionClaim(state, task) || !['ready', 'running'].includes(task.status)) continue
+      // Approval and selection fields are checkpoint claims. Without an
+      // authenticated host verifier, the coordinator must not start a merge
+      // action itself. Keep the claim/evidence for audit while blocking it.
+      task.status = 'blocked'
+      task.blockerCode = 'unavailable_evidence'
+      task.retryExhausted = task.attempts >= MAX_ATTEMPTS
+      if (state.selectedTaskId === task.id) state.selectedTaskId = null
+    }
+  }
   const trustedCompleted = trustedCompletedTaskIds(state)
   const selectedCandidate = state.selectedTaskId ? state.tasks.find(task => task.id === state.selectedTaskId) : null
   if (selectedCandidate && !dependenciesSatisfied(selectedCandidate, trustedCompleted)) {
@@ -479,7 +491,7 @@ function validateWorkflow(state) {
     state.selectedTaskId = null
   }
   if (state.status === 'completed' && state.tasks.some(task =>
-    task.status === 'completed' && !trustedCompleted.has(task.id))) {
+    task.status !== 'rejected' && !trustedCompleted.has(task.id))) {
     // Recompute this derived workflow status from dependencies instead of
     // trusting a checkpoint's terminal marker.
     state.status = 'active'
@@ -922,7 +934,8 @@ function recordApproval(state, taskId, authorization) {
   event(state, 'merge_authorized', task.id, {
     evidenceRef: authorization.evidenceRef, headSha: authorization.headSha, baseSha: authorization.baseSha,
   })
-  return advance(state)
+  const next = advance(state)
+  return next
 }
 
 function refreshMergeScope(state, taskId, newPr) {

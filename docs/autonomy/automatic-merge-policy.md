@@ -103,14 +103,15 @@ orchestrator.
 This fail-closed automatic path does not make the whole checkpoint ledger
 authentic. While no trusted provider exists, fabricated eligible automatic
 decision/completion records are rejected and `complete_auto_merge` is
-unavailable. Identifiable manual merge completion claims and their descendants
-also do not satisfy dependencies or mark the workflow terminal; unrelated
-work can continue. These records remain audit data, not proof of owner
-authorization or a GitHub merge. Before relying on any manual merge, the active
-Merge Manager must re-fetch GitHub and confirm the actual merged PR, exact
-approved head, target, and merge commit, and verify the original approval in
-the active conversation. Recheck after handoffs; stop when either source is
-unavailable.
+unavailable. Pending merge tasks are not selectable by the Coordinator, even
+when checkpoint approval fields appear valid. Identifiable manual merge
+completion claims and their descendants also do not satisfy dependencies or
+mark the workflow terminal; unrelated work can continue. These records remain
+audit data, not proof of owner authorization or a GitHub merge. Before relying
+on any manual merge, the active Merge Manager must re-fetch GitHub and confirm
+the actual merged PR, exact approved head, target, and merge commit, and verify
+the original approval in the active conversation. Recheck after handoffs; stop
+when either source is unavailable.
 
 A complete checkpoint rewrite that erases merge markers and changes the task
 graph cannot be recognized as a merge history without an authenticated

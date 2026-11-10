@@ -89,12 +89,13 @@ There is no host-merge completion transition. The coordinator rejects
 eligible/completed automatic-merge ledger claims while the trusted provider is
 unavailable, and its `complete_auto_merge` transition is disabled. This is
 not full checkpoint authenticity. Without a trusted GitHub verification
-provider, merge-shaped tasks do not satisfy dependencies or count toward
-workflow completion, even when the checkpoint contains approval, merged
-status, a matching SHA, or a completion event. Descendants of those tasks are
-also excluded. The records remain for audit, and independent tasks can
-proceed. `completeTask` cannot turn caller-supplied merge fields into trusted
-dependency completion.
+provider, pending merge-shaped tasks cannot be selected by the coordinator;
+caller-provided approval fields remain audit claims. Merge-shaped completion
+records do not satisfy dependencies or count toward workflow completion, even
+when the checkpoint contains approval, merged status, a matching SHA, or a
+completion event. Descendants of those tasks are also excluded. The records
+remain for audit, and independent tasks can proceed. `completeTask` cannot
+turn caller-supplied merge fields into trusted dependency completion.
 
 A whole-checkpoint rewrite that removes all merge markers and changes the task
 graph can hide the original merge relationship. The current code has no

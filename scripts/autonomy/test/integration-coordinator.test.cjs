@@ -300,7 +300,7 @@ test('revocation preserves the manual approval path when automatic eligibility i
   assert.equal(validateWorkflow(state), state)
 })
 
-test('complete_auto_merge rejects caller-supplied host objects and leaves manual task and dependents unchanged', async () => {
+test('complete_auto_merge rejects caller-supplied host objects and cannot start from fabricated approval', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-auto-merge-alias-'))
   const file = path.join(temp, 'integration.json')
   try {
@@ -312,7 +312,11 @@ test('complete_auto_merge rejects caller-supplied host objects and leaves manual
       targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
       evidenceRef: 'docs/autonomy/integration-workflow.md#user-approval',
     })
-    assert.equal(begin(state).task.id, 'merge-parent')
+    const beginResult = begin(state)
+    assert.equal(beginResult.task, null)
+    assert.equal(beginResult.reason, 'blocked')
+    assert.equal(state.tasks[0].status, 'blocked')
+    assert.equal(state.selectedTaskId, null)
     await saveCheckpoint(file, state)
     const before = JSON.stringify(state)
     await assert.rejects(transitionAndSave(file, state, {
@@ -332,9 +336,9 @@ test('complete_auto_merge rejects caller-supplied host objects and leaves manual
     }), /Unsupported or malformed integration transition/)
     assert.equal(JSON.stringify(state), before)
     const reloaded = await loadCheckpoint(file)
-    assert.equal(reloaded.tasks[0].status, 'running')
+    assert.equal(reloaded.tasks[0].status, 'blocked')
     assert.equal(reloaded.tasks[1].status, 'ready')
-    assert.equal(reloaded.selectedTaskId, 'merge-parent')
+    assert.equal(reloaded.selectedTaskId, null)
     assert.equal(reloaded.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
@@ -393,14 +397,81 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
 // Keep the pure eligibility matrix in the same deterministic CI job as this checkpoint suite.
 require('./automatic-merge-policy.test.cjs')
 
-test('a malformed ready merge task without approval cannot be selected', () => {
+test('a ready merge task without approval is quarantined rather than selected', () => {
   const state = createWorkflow({ objectiveId: 'reject-unauthorized-merge', tasks: [merge('merge-678')] })
   state.tasks[0].status = 'ready'
-  assert.throws(() => validateWorkflow(state), /Unauthorized merge task .* cannot be ready/)
-  assert.throws(() => begin(state), /Unauthorized merge task .* cannot be ready/)
+  assert.equal(validateWorkflow(state), state)
+  const result = begin(state)
+  assert.equal(result.task, null)
+  assert.equal(result.reason, 'blocked')
+  assert.equal(state.tasks[0].status, 'blocked')
+  assert.equal(state.selectedTaskId, null)
 })
 
-test('a changed PR head invalidates prior approval and returns the task to approval wait', () => {
+test('transitioned fabricated approval is audit-only; only independent work can start', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-approval-transition-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'forged-approval-transition', tasks: [
+      merge('merge-parent'), work('merge-dependent', 8, ['merge-parent']), work('independent-task', 1),
+    ] })
+    await saveCheckpoint(file, state)
+    const outcome = await transitionAndSave(file, state, {
+      type: 'approve_merge', taskId: 'merge-parent', payload: {
+        action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
+        targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner', evidenceRef: pr.url,
+      },
+    })
+    assert.equal(outcome.task.id, 'independent-task')
+    assert.equal(state.tasks[0].status, 'blocked')
+    assert.equal(state.tasks[0].approval.headSha, pr.headSha)
+    assert.equal(state.tasks[1].status, 'ready')
+
+    const resumed = await loadCheckpoint(file)
+    const next = begin(resumed)
+    assert.equal(next.task.id, 'independent-task')
+    assert.equal(next.reason, 'active_task')
+    assert.equal(resumed.tasks[0].status, 'blocked')
+    assert.equal(resumed.selectedTaskId, 'independent-task')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('restored running merge task with fabricated approval is blocked before resume', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-running-forged-merge-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'running-forged-merge', tasks: [
+      merge('merge-parent'), work('merge-dependent', 8, ['merge-parent']), work('independent-task', 1),
+    ] })
+    state.tasks[0].status = 'running'
+    state.tasks[0].attempts = 1
+    state.tasks[0].approval = {
+      action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
+      targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner', evidenceRef: pr.url,
+    }
+    state.selectedTaskId = 'merge-parent'
+    state.selections = 1
+    state.events = [
+      { sequence: 1, type: 'merge_authorized', taskId: 'merge-parent', evidenceRef: pr.url,
+        headSha: pr.headSha, baseSha: pr.baseSha },
+      { sequence: 2, type: 'task_selected', taskId: 'merge-parent', attempt: 1, selection: 1 },
+    ]
+    await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`)
+
+    const resumed = await loadCheckpoint(file)
+    assert.equal(resumed.tasks[0].status, 'blocked')
+    assert.equal(resumed.tasks[0].blockerCode, 'unavailable_evidence')
+    assert.equal(resumed.selectedTaskId, null)
+    assert.equal(begin(resumed).task.id, 'independent-task')
+    assert.equal(resumed.tasks[1].status, 'ready')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('a changed PR head invalidates prior approval while independent work advances', () => {
   const state = createWorkflow({ objectiveId: 'changed-pr-head', tasks: [merge('merge-678'), work('independent')] })
   recordApproval(state, 'merge-678', {
     action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
@@ -412,9 +483,8 @@ test('a changed PR head invalidates prior approval and returns the task to appro
   assert.equal(result.task.id, 'independent')
   assert.equal(state.tasks[0].status, 'awaiting_approval')
   assert.equal(state.tasks[0].approval, null)
-  assert.equal(state.events.at(-2).type, 'merge_scope_changed')
-  assert.equal(state.events.at(-2).previous.headSha, sha)
-  assert.equal(state.events.at(-2).current.headSha, updatedPr.headSha)
+  assert.equal(state.events.some(item => item.type === 'merge_scope_changed' && item.previous.headSha === sha &&
+    item.current.headSha === updatedPr.headSha), true)
 })
 
 test('a changed target base SHA invalidates prior approval and remains approval-gated', () => {
@@ -455,13 +525,25 @@ test('manual completion audit claim cannot release transitive dependencies while
     targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
     evidenceRef: 'docs/autonomy/integration-workflow.md#user-approval',
   }
-  assert.equal(recordApproval(state, 'merge-base', approval).task.id, 'merge-base')
-  const result = completeTask(state, 'merge-base', {
+  const approvalResult = recordApproval(state, 'merge-base', approval)
+  assert.equal(approvalResult.task.id, 'independent')
+  assert.equal(state.tasks[0].status, 'blocked')
+  assert.throws(() => completeTask(state, 'merge-base', {
     evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
     commitSha: mergedSha,
-  })
+  }), /Task is not the active selected task/)
+  // A direct checkpoint edit can still claim completion; it remains audit data.
+  const mergeTask = state.tasks[0]
+  mergeTask.status = 'completed'
+  mergeTask.blockerCode = null
+  mergeTask.retryExhausted = false
+  mergeTask.result = {
+    evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
+    mergeCommitSha: mergedSha,
+  }
+  const result = begin(state)
   assert.equal(result.task.id, 'independent')
-  assert.equal(result.reason, 'selected')
+  assert.equal(result.reason, 'active_task')
   assert.equal(state.status, 'active')
   assert.equal(state.tasks[0].status, 'completed')
   assert.equal(state.tasks[1].status, 'ready')
@@ -486,14 +568,9 @@ test('review completion alone cannot unlock the next stack level', () => {
     targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
     evidenceRef: 'docs/autonomy/integration-workflow.md#merge-approval',
   })
-  assert.equal(authorized.task.id, 'merge-parent')
-  const merged = completeTask(state, 'merge-parent', {
-    evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
-    commitSha: mergedSha,
-  })
-  assert.equal(merged.task, null)
-  assert.equal(merged.reason, 'blocked')
-  assert.equal(state.tasks.find(task => task.id === 'merge-parent').status, 'completed')
+  assert.equal(authorized.task, null)
+  assert.equal(authorized.reason, 'blocked')
+  assert.equal(state.tasks.find(task => task.id === 'merge-parent').status, 'blocked')
   assert.equal(state.tasks.find(task => task.id === 'review-child').status, 'ready')
 })
 
@@ -510,22 +587,26 @@ test('checkpoint reload preserves manual completion as audit but does not resume
     await saveCheckpoint(file, state)
     const reopened = await loadCheckpoint(file)
     assert.equal(reopened.revision, 1)
-    assert.equal(reopened.selectedTaskId, 'merge-678')
-    assert.equal(begin(reopened).task.id, 'merge-678')
+    assert.equal(reopened.selectedTaskId, null)
+    const result = begin(reopened)
+    assert.equal(result.task, null)
+    assert.equal(result.reason, 'blocked')
+    assert.equal(reopened.tasks[0].status, 'blocked')
     assert.equal(reopened.tasks[0].approval.headSha, sha)
     assert.equal(reopened.tasks[0].pr.baseSha, pr.baseSha)
 
-    completeTask(reopened, 'merge-678', {
+    assert.throws(() => completeTask(reopened, 'merge-678', {
       evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
       commitSha: mergedSha,
-    })
+    }), /Task is not the active selected task/)
     await saveCheckpoint(file, reopened)
     const nextSession = await loadCheckpoint(file)
-    const result = begin(nextSession)
-    assert.equal(result.task, null)
-    assert.equal(result.reason, 'blocked')
+    const resumedResult = begin(nextSession)
+    assert.equal(resumedResult.task, null)
+    assert.equal(resumedResult.reason, 'blocked')
     assert.equal(nextSession.status, 'blocked')
-    assert.equal(nextSession.tasks[0].status, 'completed')
+    assert.equal(nextSession.tasks[0].status, 'blocked')
+    assert.equal(nextSession.tasks[0].result, null)
     assert.equal(nextSession.tasks[1].status, 'ready')
     assert.equal(nextSession.selectedTaskId, null)
     assert.equal(nextSession.tasks[0].approval.targetBranch, 'main')
@@ -725,31 +806,25 @@ test('schema-v1 nonempty checkpoint migrates through save/reload without losing 
     assert.deepEqual(migrated.automaticMergeEvents, [])
     assert.equal(migrated.tasks[0].approval.headSha, pr.headSha)
     assert.equal(migrated.tasks[0].approval.baseSha, pr.baseSha)
-    assert.equal(migrated.status, 'active')
-    assert.equal(migrated.stopReason, null)
-    assert.equal(migrated.selectedTaskId, 'legacy-merge')
+    assert.equal(migrated.status, 'blocked')
+    assert.equal(migrated.stopReason, 'no_actionable_task')
+    assert.equal(migrated.selectedTaskId, null)
 
-    const next = await transitionAndSave(file, migrated, {
-      type: 'complete', taskId: 'legacy-merge',
-      payload: {
-        evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
-        commitSha: mergedSha,
-      },
-    })
+    const next = await transitionAndSave(file, migrated, { type: 'begin' })
     assert.equal(next.task, null)
     assert.equal(next.reason, 'blocked')
     const reopened = await loadCheckpoint(file)
     assert.equal(reopened.tasks.length, 2)
-    assert.equal(reopened.tasks[0].status, 'completed')
+    assert.equal(reopened.tasks[0].status, 'blocked')
+    assert.equal(reopened.tasks[0].result, null)
     assert.equal(reopened.tasks[0].approval.headSha, pr.headSha)
-    assert.equal(reopened.tasks[0].result.mergeCommitSha, mergedSha)
     assert.equal(reopened.tasks[1].status, 'ready')
     assert.equal(reopened.selectedTaskId, null)
     assert.equal(reopened.status, 'blocked')
     assert.equal(reopened.stopReason, 'no_actionable_task')
-    assert.ok(reopened.events.length > oldEventCount)
+    assert.equal(reopened.events.length, oldEventCount)
     assert.ok(reopened.events.some(event => event.type === 'merge_authorized'))
-    assert.ok(reopened.events.some(event => event.type === 'task_completed'))
+    assert.ok(!reopened.events.some(event => event.type === 'task_completed'))
     assert.ok(reopened.tasks.every(task => task.rejection === null))
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
@@ -926,14 +1001,16 @@ test('objective completion takes precedence when the final task uses the last se
   assert.equal(validateWorkflow(state).stopReason, 'objective_complete')
 })
 
-test('strict checkpoint validation rejects malformed task states and inconsistent counters', () => {
+test('checkpoint validation reconciles false terminal markers and rejects malformed states/counters', () => {
   const unknownKind = createWorkflow({ objectiveId: 'unknown-task-kind', tasks: [work('one')] })
   unknownKind.tasks[0].kind = 'shell'
   assert.throws(() => validateWorkflow(unknownKind), /Malformed integration task record/)
 
   const unfinished = createWorkflow({ objectiveId: 'unfinished-completed', tasks: [work('one'), work('two')] })
   unfinished.status = 'completed'; unfinished.stopReason = 'objective_complete'
-  assert.throws(() => validateWorkflow(unfinished), /Completed workflow contains unfinished tasks/)
+  assert.equal(validateWorkflow(unfinished), unfinished)
+  assert.equal(unfinished.status, 'active')
+  assert.equal(unfinished.stopReason, null)
 
   const earlyBudget = createWorkflow({ objectiveId: 'early-budget', maxSelections: 3, tasks: [work('one')] })
   earlyBudget.status = 'budget_reached'; earlyBudget.stopReason = 'selection_budget'
