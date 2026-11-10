@@ -125,28 +125,67 @@ pull-request trigger.
 
 Local validation on Node `v24.16.0`: diagnostic script and test syntax checks
 passed; four focused sanitizer/summary tests passed; `git diff --check` passed.
-A local YAML parser is unavailable on this host. The manual dispatch was
-attempted once with:
+A local YAML parser was unavailable on this host; the workflow was validated
+with `actionlint 1.7.12` on Windows ARM64. The first manual dispatch attempt,
+before the workflow reached `main`, returned **HTTP 404: workflow not found on
+the default branch**. After infrastructure PR #676 merged to `main` as
+`aad0afeda769a6715f2ba8351294b61839ff5fe6`, one manual dispatch succeeded.
 
-```text
-gh workflow run .github/workflows/local-ai-targeted-practice-diagnostic.yml --ref workflow/diagnostic-first-local-qwen-20261104 -f source_branch=perf/local-practice-minimal-replacement-batch-20261103
-```
+## Diagnostic run — PR #665 targeted recovery
 
-GitHub returned **HTTP 404: workflow not found on the default branch**. No run
-was created. The workflow and diagnostic code are in PR #675, but the workflow
-cannot be dispatched until its definition exists on the default branch. The
-repository restriction against merging PRs prevents resolving that prerequisite
-in this task. No full product-acceptance or model-comparison workflow was used
-as a substitute. AI Quality independently confirmed the fixed synthetic
-oracle is suitable for fixture diagnostics only, the production semantic
-validator remains the actual quality gate, and the report does not persist
-raw content. No diagnostic results exist, so no root cause or quality result
-is claimed.
+Run `42046508800` completed successfully on hosted `windows-2025`, x64 CPU,
+using the pinned Qwen3-4B Q4_K_M model and verified llama.cpp runtime. The
+diagnostic app source was PR #665 branch
+`perf/local-practice-minimal-replacement-batch-20261103` at exact SHA
+`85518cf6240836448ef331260d16ba2401d7bfa7`. It executed one warm-up quiz and
+one `selected_pages_targeted_practice` quiz.
 
-**Current blocker and next action:** wait until the manual workflow is present
-on the default branch; then run the single targeted diagnostic against PR #665's
-allowlisted branch and record the returned source SHA. Do not propose a code
-optimization until that evidence identifies a safe, distinct cause.
+The targeted generation took **124.389 s** and passed the strict synthetic
+semantic oracle, produced **5 questions / 5 distinct wordings**, and avoided
+both prior questions. This establishes success only for this run and fixture.
+The earlier run `41878992364` on the same source SHA took **244.047 s** and
+failed with `candidate_pool_exhausted`; the timing difference is run
+variability, not a demonstrated optimization. The diagnostic did not reproduce
+that failure. Its 3-day artifact expired before this report update, so the
+available results below were recovered from the retained numeric-only Actions
+log.
+
+| Call | Phase | Elapsed interval | Inference | Prefill | Decode | Prompt / completion tokens |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 1 | Primary generation | 22.539 s | 16.751 s | 15.326 s | 1.412 s | 1,347 / 18 |
+| 2 | Weak-area recovery | 48.382 s | 48.380 s | 6.199 s | 42.146 s | 604 / 549 |
+| 3 | Targeted retry | 24.717 s | 24.714 s | 8.573 s | 16.097 s | 1,644 / 184 |
+| 4 | Targeted retry | 24.857 s | 24.854 s | 8.985 s | 15.856 s | 1,726 / 177 |
+| 5 | Semantic distinctness review | 3.891 s | 3.891 s | 3.491 s | 0.357 s | 355 / 6 |
+
+The fifth inference had no generation-response callback because it is the
+stack's separate semantic duplicate review, not an untracked generation retry.
+Investigator matched its short request and response to
+`reviewQuizDistinctness`; it must remain enabled. The primary call was
+prefill-heavy, while weak-area recovery was decode-heavy. The latter is a
+plausible cost center, but this single successful sample does not justify
+shortening or skipping it.
+
+The only captured validation category was `insufficient_source` on the primary
+attempt. `responseCategoryCounts` contained `other: 9`, which is an
+unclassified diagnostic bucket, not evidence of quality failure or success for
+those candidates. Investigator found that `candidate_pool_exhausted` is thrown
+with numeric `filterStats`, but the final recovery callback in the #665 source
+omits `error.details`; this explains why the earlier failed run has no rejection
+counts. The exact candidate rejection cause remains unknown.
+
+Investigator, Performance Engineer, and AI Quality independently reviewed the
+run. AI Quality confirmed the five-question result passed the fixture's
+grounding, uniqueness, and prior-question checks; this does not generalize to
+natural notes or verify answer-grading quality. All three recommended no Qwen
+behavior change from this evidence. No optimization cycle was completed.
+
+**Next action:** if follow-up work is authorized, first add a nonbehavioral,
+unit-tested path to expose only bounded `filterStats` on terminal
+`candidate_pool_exhausted`, and improve the diagnostic mapping so `other` is
+not mistaken for a specific rejection. Do not rerun Qwen under this one-run
+diagnostic allowance. Consider a behavior optimization only after the rejection
+cause is understood and a comparable validation budget is authorized.
 
 ## Evidence links
 
@@ -155,3 +194,5 @@ optimization until that evidence identifies a safe, distinct cause.
 - PR #665: https://github.com/HamedGithubforwork/QuizForge-AI/pull/665
 - PR #666: https://github.com/HamedGithubforwork/QuizForge-AI/pull/666
 - Diagnostic-first workflow PR #675: https://github.com/HamedGithubforwork/QuizForge-AI/pull/675
+- Main-available diagnostic infrastructure PR #676: https://github.com/HamedGithubforwork/QuizForge-AI/pull/676
+- Targeted diagnostic run: https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42046508800
