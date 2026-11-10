@@ -1,0 +1,86 @@
+name: Local AI targeted-practice diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: 'Application branch to diagnose; choose a known Local AI development head'
+        type: choice
+        options:
+          - diagnostic/targeted-practice-stage-timing-20261103
+          - perf/local-practice-minimal-replacement-batch-20261103
+        default: perf/local-practice-minimal-replacement-batch-20261103
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-ai-targeted-practice-diagnostic-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  targeted-practice:
+    name: One synthetic targeted-practice diagnostic (Windows x64 CPU)
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - name: Check out diagnostic tools
+        uses: actions/checkout@v7
+        with:
+          path: diagnostic-tools
+          persist-credentials: false
+      - name: Check out selected application source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.source_branch }}
+          path: app
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Restore verified pinned Qwen model cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: false
+      - name: Verify pinned model SHA-256
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
+          node app/desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          exit $LASTEXITCODE
+      - name: Download, verify, and stage pinned llama.cpp runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
+          if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
+          Expand-Archive "$env:RUNNER_TEMP/runtime.zip" "$env:RUNNER_TEMP/runtime-full"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/llama" -Force | Out-Null
+          node app/desktop/scripts/stage-local-runtime.cjs "$env:RUNNER_TEMP/runtime-full" "$env:RUNNER_TEMP/llama"
+          exit $LASTEXITCODE
+      - name: Record exact diagnostic source commit
+        shell: pwsh
+        run: |
+          $sha = git -C app rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$') { throw 'Cannot identify diagnostic source commit' }
+          "QFN_DIAGNOSTIC_SOURCE_SHA=$sha" >> $env:GITHUB_ENV
+          "QFN_DIAGNOSTIC_SOURCE_REF=${{ inputs.source_branch }}" >> $env:GITHUB_ENV
+      - name: Run one selected-pages targeted-practice diagnostic
+        shell: pwsh
+        run: |
+          node diagnostic-tools/desktop/scripts/diagnose-targeted-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-targeted-practice-diagnostic.json" app
+          exit $LASTEXITCODE
+      - name: Upload numeric synthetic diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-targeted-practice-diagnostic
+          path: ${{ runner.temp }}/local-ai-targeted-practice-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 6
