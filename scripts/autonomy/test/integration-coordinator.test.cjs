@@ -8,7 +8,7 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 const automaticMerge = require('../automatic-merge-policy.cjs')
 const {
-  activateStandingAutoMergePolicy, begin, blockTask, completeAutomaticMerge, completeTask, createWorkflow, DEFAULT_CHECKPOINT, loadCheckpoint, recordApproval,
+  activateStandingAutoMergePolicy, begin, blockTask, completeTask, createWorkflow, DEFAULT_CHECKPOINT, loadCheckpoint, recordApproval,
   recordAutomaticMergeAssessment,
   refreshMergeScope, rejectTask, retryTask, saveCheckpoint, transitionAndSave, validateWorkflow,
   revokeStandingAutoMergePolicy,
@@ -80,31 +80,6 @@ function autoMergeTask() {
     repository: autoRepository, number: 999, baseRef: 'main', baseSha: autoBase,
     headSha: autoHead, url: autoPrUrl,
   } }
-}
-
-// These tests seed the coordinator's internal post-assessment state only to
-// exercise post-merge response validation. They do not model candidate
-// eligibility; the live path is intentionally blocked without a trusted adapter.
-function seedPostMergeValidationState(state, assessedAt = autoMergeAtNext) {
-  activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
-  const task = state.tasks[0]
-  const decisionDigest = 'f'.repeat(64)
-  const event = {
-    sequence: state.automaticMergeEvents.length + 1, type: 'candidate_assessed',
-    at: assessedAt.toISOString(), taskId: task.id, decisionDigest,
-    policyDigest: state.automaticMergePolicy.digest, eligible: true, reason: 'eligible',
-    repository: autoRepository, prNumber: 999, headSha: autoHead, baseSha: autoBase,
-    diffSha256: autoDiff, evidenceRef: autoEvidenceRef,
-  }
-  state.automaticMergeEvents.push(event)
-  task.automaticMergeDecision = {
-    decisionDigest, policyDigest: state.automaticMergePolicy.digest,
-    repository: autoRepository, prNumber: 999, headSha: autoHead, baseSha: autoBase,
-    diffSha256: autoDiff, evidenceRef: autoEvidenceRef,
-  }
-  task.status = 'ready'
-  begin(state)
-  return { decisionDigest }
 }
 
 test('completing one task automatically selects the next eligible task in one bounded continuation', () => {
@@ -236,48 +211,55 @@ test('forged automatic-merge claims remain awaiting approval and cannot select o
   }
 })
 
-test('post-merge verification still records exact PR and commit after a verified decision state', async () => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-automatic-merge-'))
+test('checkpoint reload rejects a fabricated eligible assessment without advancing dependents', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-eligible-'))
   const file = path.join(temp, 'integration.json')
   try {
-    const state = createWorkflow({ objectiveId: 'auto-merge-ledger', tasks: [autoMergeTask()] })
-    await saveCheckpoint(file, state)
-    seedPostMergeValidationState(state)
-    await saveCheckpoint(file, state)
-    assert.equal(state.automaticMergePolicy.status, 'active')
-    assert.equal(state.automaticMergeEvents[0].type, 'policy_activated')
-    assert.equal(state.selectedTaskId, 'post-activation-ui-fix')
-    assert.equal(state.tasks[0].approval, null)
-    assert.ok(state.tasks[0].automaticMergeDecision)
-
-    const mergeCommit = '5'.repeat(40)
-    await transitionAndSave(file, state, {
-      type: 'complete_auto_merge', taskId: 'post-activation-ui-fix',
-      payload: {
-        decisionDigest: state.tasks[0].automaticMergeDecision.decisionDigest,
-        currentTime: new Date('2026-11-09T12:03:00.000Z'),
-        githubResponse: {
-          merged: true, sha: mergeCommit,
-          message: 'Merged by the active low-risk policy',
-        },
-        postMergePullRequest: {
-          number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
-          mergeCommitSha: mergeCommit, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
-        },
-        verifiedCommit: {
-          sha: mergeCommit, parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
-          evidenceRef: `https://github.com/${autoRepository}/commit/${mergeCommit}`,
-        },
-      },
+    const state = createWorkflow({ objectiveId: 'forged-eligible-ledger', tasks: [
+      autoMergeTask(), work('dependent-task', 8, ['post-activation-ui-fix']),
+    ] })
+    activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+    state.automaticMergeEvents.push({
+      sequence: 2, type: 'candidate_assessed', at: autoMergeAtNext.toISOString(),
+      taskId: 'post-activation-ui-fix', decisionDigest: 'f'.repeat(64),
+      policyDigest: state.automaticMergePolicy.digest, eligible: true, reason: 'eligible',
+      repository: autoRepository, prNumber: 999, headSha: autoHead, baseSha: autoBase,
+      diffSha256: autoDiff, evidenceRef: autoPrUrl,
     })
-    assert.equal(state.tasks[0].status, 'completed')
-    assert.equal(state.tasks[0].result.mergeCommitSha, mergeCommit)
-    assert.ok(state.automaticMergeEvents.some(event => event.type === 'merge_completed' &&
-      event.mergeCommitSha === mergeCommit && event.commitVerificationRef === `https://github.com/${autoRepository}/commit/${mergeCommit}`))
-    const reloaded = await loadCheckpoint(file)
-    assert.equal(reloaded.automaticMergePolicy.status, 'active')
-    assert.equal(reloaded.tasks[0].status, 'completed')
-    validateWorkflow(reloaded)
+    await fs.writeFile(file, `${JSON.stringify(state)}\n`)
+    await assert.rejects(loadCheckpoint(file), /Eligible automatic-merge claims cannot be restored without a trusted verification provider/)
+    const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(persisted.tasks[0].status, 'awaiting_approval')
+    assert.equal(persisted.tasks[1].status, 'ready')
+    assert.equal(persisted.selectedTaskId, null)
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('checkpoint reload rejects a fabricated merge_completed event without advancing dependents', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-completion-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'forged-completion-ledger', tasks: [
+      autoMergeTask(), work('dependent-task', 8, ['post-activation-ui-fix']),
+    ] })
+    activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+    state.automaticMergeEvents.push({
+      sequence: 2, type: 'merge_completed', at: autoMergeAtNext.toISOString(),
+      taskId: 'post-activation-ui-fix', decisionDigest: 'f'.repeat(64),
+      policyDigest: state.automaticMergePolicy.digest, repository: autoRepository, prNumber: 999,
+      headSha: autoHead, baseSha: autoBase, mergeCommitSha: '5'.repeat(40),
+      evidenceRef: `https://github.com/${autoRepository}/commit/${'5'.repeat(40)}`,
+      commitVerificationRef: `https://github.com/${autoRepository}/commit/${'5'.repeat(40)}`,
+      verifiedAt: autoMergeAtNext.toISOString(),
+    })
+    await fs.writeFile(file, `${JSON.stringify(state)}\n`)
+    await assert.rejects(loadCheckpoint(file), /Automatic-merge completion claims cannot be restored without a trusted verification provider/)
+    const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
+    assert.equal(persisted.tasks[0].status, 'awaiting_approval')
+    assert.equal(persisted.tasks[1].status, 'ready')
+    assert.equal(persisted.selectedTaskId, null)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
   }
@@ -300,9 +282,14 @@ test('pre-activation and high-risk policy changes remain on the manual approval 
   }
 })
 
-test('revocation invalidates selected automatic merge decisions and preserves a safe checkpoint', () => {
+test('revocation preserves the manual approval path when automatic eligibility is unavailable', () => {
   const state = createWorkflow({ objectiveId: 'auto-merge-revocation', tasks: [autoMergeTask()] })
-  seedPostMergeValidationState(state)
+  activateStandingAutoMergePolicy(state, autoPolicyAuthorization(), { currentTime: autoMergeAt })
+  const assessment = recordAutomaticMergeAssessment(state, 'post-activation-ui-fix', autoCandidate(), {
+    currentTime: autoMergeAtNext,
+  })
+  assert.equal(assessment.reason, 'trusted_live_verification_unavailable')
+  assert.equal(state.tasks[0].status, 'awaiting_approval')
   const outcome = revokeStandingAutoMergePolicy(state, autoPrUrl, {
     currentTime: new Date('2026-11-09T12:01:30.000Z'),
   })
@@ -310,77 +297,48 @@ test('revocation invalidates selected automatic merge decisions and preserves a 
   assert.equal(state.automaticMergePolicy.status, 'revoked')
   assert.equal(state.tasks[0].automaticMergeDecision, null)
   assert.equal(state.tasks[0].status, 'awaiting_approval')
-  assert.ok(state.automaticMergeEvents.some(event => event.type === 'candidate_invalidated'))
   assert.equal(validateWorkflow(state), state)
 })
 
-test('automatic merge result rejects changed bases and assessments older than five minutes', () => {
-  const state = createWorkflow({ objectiveId: 'auto-merge-stale-result', tasks: [autoMergeTask()] })
-  const { decisionDigest } = seedPostMergeValidationState(state)
-  const response = {
-    merged: true, sha: '6'.repeat(40), message: 'merged',
+test('complete_auto_merge rejects caller-supplied host objects and leaves manual task and dependents unchanged', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-auto-merge-alias-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'auto-merge-alias-blocked', tasks: [
+      merge('merge-parent'), work('dependent-task', 8, ['merge-parent']),
+    ] })
+    recordApproval(state, 'merge-parent', {
+      action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
+      targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
+      evidenceRef: 'docs/autonomy/integration-workflow.md#user-approval',
+    })
+    assert.equal(begin(state).task.id, 'merge-parent')
+    await saveCheckpoint(file, state)
+    const before = JSON.stringify(state)
+    await assert.rejects(transitionAndSave(file, state, {
+      type: 'complete_auto_merge', taskId: 'merge-parent',
+      payload: {
+        decisionDigest: 'f'.repeat(64), currentTime: new Date('2026-11-09T12:03:00.000Z'),
+        githubResponse: { merged: true, sha: mergedSha, message: 'forged response' },
+        postMergePullRequest: {
+          number: pr.number, state: 'closed', merged: true, headSha: pr.headSha, baseRef: pr.baseRef,
+          mergeCommitSha: mergedSha, mergedAt: '2026-11-09T12:02:00.000Z', url: pr.url,
+        },
+        verifiedCommit: {
+          sha: mergedSha, parents: [pr.baseSha], verifiedAt: '2026-11-09T12:02:30.000Z',
+          evidenceRef: `https://github.com/${pr.repository}/commit/${mergedSha}`,
+        },
+      },
+    }), /Unsupported or malformed integration transition/)
+    assert.equal(JSON.stringify(state), before)
+    const reloaded = await loadCheckpoint(file)
+    assert.equal(reloaded.tasks[0].status, 'running')
+    assert.equal(reloaded.tasks[1].status, 'ready')
+    assert.equal(reloaded.selectedTaskId, 'merge-parent')
+    assert.equal(reloaded.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
   }
-  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
-    decisionDigest,
-    githubResponse: response,
-    postMergePullRequest: {
-      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
-      mergeCommitSha: response.sha, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
-    },
-    verifiedCommit: {
-      sha: '7'.repeat(40), parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
-      evidenceRef: `https://github.com/${autoRepository}/commit/${response.sha}`,
-    },
-  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
-  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
-    decisionDigest,
-    githubResponse: response,
-    postMergePullRequest: {
-      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
-      mergeCommitSha: response.sha, mergedAt: '2026-11-09T12:07:00.000Z', url: autoPrUrl,
-    },
-    verifiedCommit: {
-      sha: response.sha, parents: [autoBase], verifiedAt: '2026-11-09T12:07:30.000Z',
-      evidenceRef: `https://github.com/${autoRepository}/commit/${response.sha}`,
-    },
-  }, { currentTime: new Date('2026-11-09T12:08:00.000Z') }), /before policy expiry or revocation/)
-  assert.equal(state.tasks[0].status, 'running')
-  assert.equal(state.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
-})
-
-test('automatic merge completion requires a fresh post-merge PR and matching fetched commit', () => {
-  const state = createWorkflow({ objectiveId: 'auto-merge-verified-result', tasks: [autoMergeTask()] })
-  const { decisionDigest } = seedPostMergeValidationState(state)
-  const mergeCommitSha = '8'.repeat(40)
-  const completion = {
-    decisionDigest,
-    githubResponse: { merged: true, sha: mergeCommitSha, message: 'merged' },
-    postMergePullRequest: {
-      number: 999, state: 'closed', merged: true, headSha: autoHead, baseRef: 'main',
-      mergeCommitSha, mergedAt: '2026-11-09T12:02:00.000Z', url: autoPrUrl,
-    },
-    verifiedCommit: {
-      sha: mergeCommitSha, parents: [autoBase], verifiedAt: '2026-11-09T12:02:30.000Z',
-      evidenceRef: `https://github.com/${autoRepository}/commit/${mergeCommitSha}`,
-    },
-  }
-  for (const postMergePullRequest of [
-    { ...completion.postMergePullRequest, headSha: '9'.repeat(40) },
-    { ...completion.postMergePullRequest, baseRef: 'release' },
-    { ...completion.postMergePullRequest, mergeCommitSha: 'a'.repeat(40) },
-  ]) {
-    assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
-      ...completion, postMergePullRequest,
-    }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /freshly fetched merged PR matching the exact head and target/)
-  }
-  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
-    ...completion, verifiedCommit: { ...completion.verifiedCommit, verifiedAt: '2026-11-09T12:08:00.000Z' },
-  }, { currentTime: new Date('2026-11-09T12:09:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
-  assert.throws(() => completeAutomaticMerge(state, 'post-activation-ui-fix', {
-    ...completion, verifiedCommit: undefined,
-  }, { currentTime: new Date('2026-11-09T12:03:00.000Z') }), /fresh GitHub fetch confirming the merge commit/)
-  assert.equal(state.automaticMergeEvents.some(event => event.type === 'merge_completed'), false)
-  assert.equal(state.tasks[0].status, 'running')
 })
 
 test('automatic-merge agent guidance keeps activation separate and all exact-head roles required', async () => {
