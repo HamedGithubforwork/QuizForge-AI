@@ -85,13 +85,25 @@ provide a verifiable host-to-policy boundary and a protected merge-queue or
 equivalent atomic target guard, with corresponding `merge_group` checks and
 independent review. Those changes require separate authorization.
 
-There is no host-merge completion transition. A forged or stale checkpoint
-claim must not complete a merge task or release dependent tasks. After a
-future separately authorized manual merge, the Coordinator must verify the
-merged PR and commit directly from GitHub before applying the ordinary
-manual-authorization completion transition. If that verification cannot be
-repeated after a session handoff, stop and reconcile the checkpoint rather
-than trust a stored claim.
+There is no host-merge completion transition. The coordinator rejects
+eligible/completed automatic-merge ledger claims while the trusted provider is
+unavailable, and its `complete_auto_merge` transition is disabled. This is
+not a general checkpoint authenticity boundary. The JavaScript coordinator
+still accepts structurally valid manual approval/completion claims and its
+dependency scheduler can advance from a manually completed merge task. A
+crafted checkpoint can therefore mislead task ordering without causing a
+GitHub merge itself. No checkpoint state, audit event, user-name string, or
+prior run's continuation record authenticates a human approval or remote merge.
+
+After a separately authorized manual merge, the active Coordinator/Merge
+Manager must fetch GitHub directly and verify the actual merged PR, recorded
+merge commit, exact approved head, and intended target before relying on the
+completion or proceeding with any dependent task. Repeat that check after a
+session handoff. If host evidence or the original approval is unavailable,
+block the dependent task and reconcile the checkpoint. This is a host
+procedure, not an enforced code-level verifier. Automatic merging remains
+blocked until an authenticated host-to-policy boundary and an atomic target
+guard are implemented and independently tested.
 
 ## Stacked PR verification
 

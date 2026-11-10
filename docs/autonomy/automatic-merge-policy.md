@@ -100,6 +100,19 @@ that result. A read-only host review is possible; standing-policy merge
 execution is not currently authorized or operational through the repository
 orchestrator.
 
+This fail-closed automatic path does not make the whole checkpoint ledger
+authentic. While no trusted provider exists, fabricated eligible automatic
+decision/completion records are rejected and `complete_auto_merge` is
+unavailable. Manual approval and merge-completion fields remain caller-supplied
+claims; the JavaScript scheduler can release dependents from a structurally
+completed manual merge task. They are not proof of owner authorization or a
+GitHub merge. Before any dependent work uses such a record, the active
+Merge Manager must re-fetch GitHub and confirm the actual merged PR, exact
+approved head, target, and merge commit, and verify the original approval in
+the active conversation. Recheck after session handoffs; stop when either
+source is unavailable. This procedural check is not authenticated by code and
+does not make automatic merging operational.
+
 The live `Protect main` ruleset (ID `21886458`, checked 2026-11-09) is active
 for the default branch. Its required status checks rule names `Required PR
 gate` (integration ID `15368`), has
