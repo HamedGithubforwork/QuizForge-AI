@@ -1,17 +1,22 @@
-# Active-session automatic-merge procedure
+# Active-session live-verification procedure
 
-This procedure is executed by the active Codex Coordinator and Merge Manager
-using connected host tools. Repository JavaScript cannot invoke GitHub or
-collaboration tools and does not authenticate their results. There is no
-always-on runner. The checkpoint is a versioned audit/continuation record, not
-proof of current GitHub state, specialist invocation, policy activation, or
-merge authority. Only the authenticated live host-tool observations in the
-active session can satisfy the operational merge gates; checkpoint payload
-validation does not establish that those observations occurred.
+The active Codex Coordinator and Merge Manager can use connected host tools to
+read GitHub and launch real specialist subagents. Repository JavaScript cannot
+invoke those tools or authenticate their results; no durable host-call or
+cross-session invocation attestation is available. The policy evaluator
+therefore continues to return `trusted_live_verification_unavailable` for
+otherwise-valid candidates. This procedure supports read-only assessment only.
+It does not authorize an automatic merge or replace the fail-closed evaluator.
+There is no always-on runner. A checkpoint is an audit/continuation record,
+not proof of GitHub state, specialist invocation, policy activation, or merge
+authority.
 
-Automatic merging remains disabled unless the owner separately activates the
-integrated standing policy. PR #698 and every PR that existed before activation
-are excluded. This document does not activate the policy or authorize a merge.
+Automatic merging must remain blocked until a reviewed trusted provider is
+integrated and the policy evaluator can accept its authenticated evidence. A
+checkpoint activation claim or Manager host-tool access alone cannot override
+the current blocked evaluator result. PR #698 is excluded from any policy it
+enables. Manual merges remain subject to separate, exact PR/head/base
+authorization.
 
 ## Candidate verification
 
@@ -52,33 +57,41 @@ are excluded. This document does not activate the policy or authorize a merge.
    findings. On strict `main` checks, a stacked PR must be based on the latest
    target and its checks must apply to that base/head. Merge dependency stacks
    bottom-up and re-run required CI when advancing a dependent branch.
-6. If all evidence passes and the standing policy is independently verified
-   active, the Merge Manager immediately repeats the live PR, diff, check,
-   review, protection, and side-effect reads. No checkpoint value substitutes
-   for this final live read. If any relevant value changed, re-assess and obtain
-   fresh specialist reports before proceeding.
+6. The Merge Manager must also evaluate the candidate with the repository
+   policy evaluator. If it returns `trusted_live_verification_unavailable`,
+   stop. Do not bypass this result by directly calling the GitHub merge tool,
+   even if all checklist fields or a checkpoint claim say `eligible`.
 
-## Merge and post-merge continuation
+## Current merge-execution status
 
-Only the Merge Manager may initiate an eligible merge. Call the connected
-`github_merge_pull_request` tool directly with `expected_head_sha` equal to the immediately
-re-fetched head. Use the permitted merge method and no bypass or auto-merge
-option. A changed head, conflict, denied permission, unsuccessful response, or
-ambiguous result stops the task; never retry around a failed safeguard.
+The GitHub connector exposes `github_merge_pull_request` with
+`expected_head_sha`; that parameter guards the PR head only. It does not bind
+the target branch name or expected base SHA. Strict required status checks
+ensure an up-to-date topic branch for a PR targeting protected `main`, so a
+main advance makes old checks inapplicable until the branch is updated. They
+do not atomically prevent a concurrent retarget to an unprotected branch
+between preflight and the merge request. The current ruleset has no merge
+queue, and the workflows are not configured for `merge_group`. No currently
+verified atomic target/base guard closes that race.
 
-After success, independently fetch the PR and returned commit. Confirm the PR
-number, exact merged head, target, closed/merged state, merge timestamp and
-merge SHA; call `github_fetch_commit` with that returned SHA and confirm the
-commit object matches. Then the Coordinator
-may call `record_host_merge_completion` to append the observed result, save and
-reload the checkpoint, and continue to the next eligible task.
+Because live host calls cannot be authenticated to repository code, the local
+policy evaluator is fail-closed, the target ref cannot be atomically bound by
+the available merge call, and a matching post-merge checkpoint transition
+cannot prove that the merge occurred, **do not execute standing-policy
+merges**. The connected GitHub tools have demonstrated live reads and actual
+specialist invocations in an active session, but no production merge was
+performed to demonstrate execution. A future complete implementation must
+provide a verifiable host-to-policy boundary and a protected merge-queue or
+equivalent atomic target guard, with corresponding `merge_group` checks and
+independent review. Those changes require separate authorization.
 
-That checkpoint transition validates the shape and scope of a claimed
-post-merge response and supports audit/continuation only. It cannot call GitHub,
-authorize, initiate, retry, or authenticate a merge. A checkpoint loaded in a
-later session is not evidence that the merge happened; re-fetch GitHub before
-any decision that depends on the recorded result. Never synthesize missing tool
-responses, specialist results, or commit evidence.
+There is no host-merge completion transition. A forged or stale checkpoint
+claim must not complete a merge task or release dependent tasks. After a
+future separately authorized manual merge, the Coordinator must verify the
+merged PR and commit directly from GitHub before applying the ordinary
+manual-authorization completion transition. If that verification cannot be
+repeated after a session handoff, stop and reconcile the checkpoint rather
+than trust a stored claim.
 
 ## Stacked PR verification
 
@@ -90,6 +103,7 @@ that a prior green run remains applicable after a base change. Merge queue
 verification is not used unless the active ruleset requires it and the current
 workflows explicitly handle the `merge_group` event.
 
-The active policy remains off until separate owner activation after manual
-integration and validation. No PR can activate the policy through its own
-checkpoint or merge result.
+The policy remains disabled. Separate integration and activation approvals do
+not make automatic merging operational until the trusted provider and atomic
+target guard above are independently verified. No PR can activate the policy
+through its own checkpoint or merge result.

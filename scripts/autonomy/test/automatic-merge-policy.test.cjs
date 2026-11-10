@@ -150,6 +150,11 @@ test('weak rulesets without strict status checks or an enforced merge queue are 
     strictRequiredStatusChecks: false, mergeQueueEnforced: true } })
   assert.deepEqual(policyApi.evaluateCandidate({ policy: enabled, evidence: queued, now }),
     { eligible: false, reason: 'trusted_live_verification_unavailable' })
+
+  const strictChecks = candidate({ protections: { ...candidate().protections,
+    strictRequiredStatusChecks: true, mergeQueueEnforced: false } })
+  assert.deepEqual(policyApi.evaluateCandidate({ policy: enabled, evidence: strictChecks, now }),
+    { eligible: false, reason: 'trusted_live_verification_unavailable' })
 })
 
 test('high-risk, policy, and uncertain changes are excluded even if other evidence passes', () => {
@@ -195,6 +200,8 @@ test('changed head, base, or final diff invalidates the candidate', () => {
   ]) assert.equal(policyApi.evaluateCandidate({ policy: enabled, evidence: candidate(update), now }).eligible, false)
   assert.equal(policyApi.evaluateCandidate({ policy: enabled,
     evidence: candidate({ currentBaseSha: 'e'.repeat(40) }), now }).reason, 'head_base_or_diff_changed')
+  assert.equal(policyApi.evaluateCandidate({ policy: enabled,
+    evidence: candidate({ targetBranch: 'release' }), now }).reason, 'scope_mismatch')
 })
 
 test('missing, skipped, failed, stale, or unassociated Required PR checks block eligibility', () => {

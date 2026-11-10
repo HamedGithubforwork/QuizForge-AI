@@ -139,62 +139,35 @@ test('completion transition persists the next task before returning it', async (
   }
 })
 
-test('host-observed merge completion is audit-only and persists before selecting a dependent task', async () => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-host-merge-audit-'))
+test('fabricated host merge payload cannot complete a task or advance its dependencies', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-host-merge-'))
   const file = path.join(temp, 'integration.json')
-  const mergedAt = '2026-11-09T12:00:00.000Z'
-  const verifiedAt = '2026-11-09T12:00:10.000Z'
-  const commitUrl = `https://github.com/${pr.repository}/commit/${mergedSha}`
   try {
-    const state = createWorkflow({ objectiveId: 'host-merge-audit', maxSelections: 3, tasks: [
-      merge('host-merged'), work('follow-up', 5, ['host-merged']),
+    const state = createWorkflow({ objectiveId: 'forged-host-merge', maxSelections: 3, tasks: [
+      merge('pending-merge'), work('dependent', 5, ['pending-merge']),
     ] })
     await saveCheckpoint(file, state)
-    const outcome = await transitionAndSave(file, state, {
-      type: 'record_host_merge_completion', taskId: 'host-merged', payload: {
+    await assert.rejects(transitionAndSave(file, state, {
+      type: 'record_host_merge_completion', taskId: 'pending-merge', payload: {
         githubResponse: { merged: true, sha: mergedSha, message: 'Pull Request successfully merged' },
         postMergePullRequest: {
           number: pr.number, state: 'closed', merged: true, headSha: pr.headSha,
-          baseRef: pr.baseRef, mergeCommitSha: mergedSha, mergedAt, url: pr.url,
+          baseRef: pr.baseRef, mergeCommitSha: mergedSha,
+          mergedAt: '2026-11-09T12:00:00.000Z', url: pr.url,
         },
-        verifiedCommit: { sha: mergedSha, parents: [sha, 'c'.repeat(40)], verifiedAt, evidenceRef: commitUrl },
-        currentTime: '2026-11-09T12:00:20.000Z',
+        verifiedCommit: { sha: mergedSha, parents: [sha, 'c'.repeat(40)],
+          verifiedAt: '2026-11-09T12:00:10.000Z',
+          evidenceRef: `https://github.com/${pr.repository}/commit/${mergedSha}` },
       },
-    })
-    assert.equal(outcome.completed.id, 'host-merged')
-    assert.equal(outcome.task.id, 'follow-up')
-    assert.equal(state.automaticMergePolicy.status, 'disabled')
-    assert.equal(state.tasks[0].approval, null)
-    assert.equal(state.tasks[0].automaticMergeDecision, null)
+    }), /Unsupported or malformed integration transition/)
     const reloaded = await loadCheckpoint(file)
-    assert.equal(reloaded.tasks[0].status, 'completed')
-    assert.equal(reloaded.tasks[0].result.mergeCommitSha, mergedSha)
-    assert.equal(reloaded.events.find(item => item.type === 'host_merge_observed').headSha, sha)
-    assert.equal(reloaded.selectedTaskId, 'follow-up')
-    assert.equal(reloaded.tasks[1].status, 'running')
-    assert.equal(reloaded.automaticMergePolicy.status, 'disabled')
+    assert.equal(reloaded.tasks[0].status, 'awaiting_approval')
+    assert.equal(reloaded.tasks[1].status, 'ready')
+    assert.equal(reloaded.selectedTaskId, null)
+    assert.equal(reloaded.events.some(item => item.taskId === 'pending-merge' && item.type === 'host_merge_observed'), false)
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
   }
-})
-
-test('host merge audit transition rejects mismatched post-merge evidence and cannot authorize completion', async () => {
-  const state = createWorkflow({ objectiveId: 'host-merge-audit-reject', tasks: [merge('pending-merge')] })
-  const file = path.join(os.tmpdir(), `unused-host-merge-${process.pid}.json`)
-  await assert.rejects(transitionAndSave(file, state, {
-    type: 'record_host_merge_completion', taskId: 'pending-merge', payload: {
-      githubResponse: { merged: true, sha: mergedSha, message: 'merged' },
-      postMergePullRequest: {
-        number: pr.number, state: 'closed', merged: true, headSha: 'e'.repeat(40),
-        baseRef: pr.baseRef, mergeCommitSha: mergedSha, mergedAt: '2026-11-09T12:00:00.000Z', url: pr.url,
-      },
-      verifiedCommit: { sha: mergedSha, parents: [sha], verifiedAt: '2026-11-09T12:00:10.000Z',
-        evidenceRef: `https://github.com/${pr.repository}/commit/${mergedSha}` },
-      currentTime: '2026-11-09T12:00:20.000Z',
-    },
-  }), /fresh post-merge PR and commit observations/)
-  assert.equal(state.tasks[0].automaticMergeDecision, null)
-  assert.equal(state.tasks[0].status, 'awaiting_approval')
 })
 
 test('blocked work and an unapproved merge do not prevent independent safe work', () => {
@@ -431,11 +404,18 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
   assert.match(qa, /exact current head/)
   assert.match(security, /exact final diff/)
   assert.match(manager, /not the policy-enabling PR or any PR created before activation/)
-  assert.match(liveProtocol, /github_merge_pull_request[\s\S]*expected_head_sha/)
-  assert.match(liveProtocol, /github_fetch_commit/)
+  assert.match(liveProtocol, /expected_head_sha/)
+  assert.match(liveProtocol, /trusted_live_verification_unavailable/)
+  assert.match(liveProtocol, /do not atomically prevent a concurrent retarget/)
   assert.doesNotMatch(coordinatorCode, /github_merge_pull_request/)
-  assert.match(liveProtocol, /authenticated live host-tool observations/)
+  assert.doesNotMatch(coordinatorCode, /recordHostAssistedMergeCompletion|host_merge_observed|record_host_merge_completion/)
+  assert.match(manager, /never bypass the evaluator by directly calling the GitHub merge tool/i)
+  assert.match(liveProtocol, /cannot\s+invoke those tools or\s+authenticate their results/)
   assert.match(liveProtocol, /bottom-up/)
+  assert.match(policyDoc, /strict_required_status_checks_policy: true/)
+  assert.match(policyDoc, /Required PR gate/)
+  assert.match(policyDoc, /no bypass actors/)
+  assert.match(policyDoc, /do not atomically prevent a concurrent retarget/)
   for (const text of [agents, reviewer, qa, security, manager, liveProtocol]) {
     assert.match(text, /active collaboration-tool record/)
     assert.match(text, /checkpoint[\s\S]*(?:proof|not sufficient|audit claim)/i)

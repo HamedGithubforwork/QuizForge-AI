@@ -57,7 +57,6 @@ const EVENT_FIELDS = Object.freeze({
   task_retry_authorized: ['sequence', 'type', 'taskId', 'evidenceRef'],
   merge_authorized: ['sequence', 'type', 'taskId', 'evidenceRef', 'headSha', 'baseSha'],
   merge_scope_changed: ['sequence', 'type', 'taskId', 'previous', 'current'],
-  host_merge_observed: ['sequence', 'type', 'taskId', 'repository', 'prNumber', 'headSha', 'baseSha', 'targetBranch', 'mergeCommitSha', 'evidenceRef', 'verifiedAt'],
 })
 
 const AUTO_MERGE_EVENT_FIELDS = Object.freeze({
@@ -173,7 +172,6 @@ function validateEventRecord(item, sequence, taskIds) {
     task_retry_authorized: ['evidenceRef'],
     merge_authorized: ['evidenceRef', 'headSha', 'baseSha'],
     merge_scope_changed: ['previous', 'current'],
-    host_merge_observed: ['repository', 'prNumber', 'headSha', 'baseSha', 'targetBranch', 'mergeCommitSha', 'evidenceRef', 'verifiedAt'],
   }[item.type]
   if (required.some(key => !Object.hasOwn(item, key))) throw new Error(`Event ${item.type} is missing required fields`)
   if (required.includes('evidenceRef')) assertEvidenceRef(item.evidenceRef, `${item.type} evidence reference`)
@@ -196,16 +194,6 @@ function validateEventRecord(item, sequence, taskIds) {
     throw new Error('Task rejection event has unsupported reasonCode')
   }
   if (item.type === 'historical_merge_confirmed') validateBranchRef(item.targetBranch, 'Historical target branch')
-  if (item.type === 'host_merge_observed') {
-    if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(item.repository ?? '') ||
-        !Number.isSafeInteger(item.prNumber) || item.prNumber < 1 ||
-        !['headSha', 'baseSha', 'mergeCommitSha'].every(key => /^[a-f0-9]{40}$/.test(item[key] ?? '')) ||
-        !/^\d{4}-\d\d-\d\dT/.test(item.verifiedAt ?? '') || Number.isNaN(Date.parse(item.verifiedAt)) ||
-        item.evidenceRef !== `https://github.com/${item.repository}/commit/${item.mergeCommitSha}`) {
-      throw new Error('Host-observed merge audit event is malformed')
-    }
-    validateBranchRef(item.targetBranch, 'Host-observed merge target')
-  }
   if (item.type === 'merge_scope_changed') {
     const prior = item.previous
     if (!prior || typeof prior !== 'object' || Array.isArray(prior)) throw new Error('Merge scope event has malformed previous PR scope')
@@ -501,10 +489,6 @@ function validateWorkflow(state) {
     if (task.kind === 'merge' && ['ready', 'running'].includes(task.status) && !task.approval && !task.automaticMergeDecision) {
       throw new Error(`Unauthorized merge task ${task.id} cannot be ${task.status}`)
     }
-    if (task.kind === 'merge' && task.status === 'completed' && !task.approval && !task.automaticMergeDecision &&
-        !state.events.some(item => item.type === 'host_merge_observed' && item.taskId === task.id && item.mergeCommitSha === task.result?.mergeCommitSha)) {
-      throw new Error(`Completed host-assisted merge ${task.id} lacks a matching audit event`)
-    }
     if (task.approval && (task.approval.action !== 'merge' ||
         task.approval.repository !== task.pr.repository || task.approval.prNumber !== task.pr.number ||
         task.approval.headSha !== task.pr.headSha || task.approval.targetBranch !== task.pr.baseRef ||
@@ -576,14 +560,6 @@ function validateWorkflow(state) {
   if (state.status === 'active' && !unfinished) throw new Error('Active workflow cannot have only terminal tasks')
   for (let i = 0; i < state.events.length; i += 1) {
     validateEventRecord(state.events[i], i + 1, taskIds)
-    if (state.events[i].type === 'host_merge_observed') {
-      const item = state.events[i]
-      const task = state.tasks.find(candidate => candidate.id === item.taskId)
-      if (task.kind !== 'merge' || task.pr.repository !== item.repository || task.pr.number !== item.prNumber ||
-          task.pr.headSha !== item.headSha || task.pr.baseSha !== item.baseSha || task.pr.baseRef !== item.targetBranch) {
-        throw new Error('Host-observed merge scope does not match its task')
-      }
-    }
   }
   validateAutomaticMergeLedger(state, taskIds)
   return state
@@ -855,54 +831,6 @@ function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse,
   })
 }
 
-// Audit-only: this stores a host-observed result after GitHub reports success.
-// The checkpoint and this transition cannot authenticate MCP provenance and
-// MUST NOT be used to authorize, initiate, or retry a merge.
-function recordHostAssistedMergeCompletion(state, taskId, { githubResponse, postMergePullRequest, verifiedCommit } = {}, { currentTime = new Date() } = {}) {
-  validateWorkflow(state)
-  const task = findTask(state, taskId)
-  if (task.kind !== 'merge' || task.status !== 'awaiting_approval' || task.approval || task.automaticMergeDecision) {
-    throw new Error('Host-assisted completion is limited to a pending merge audit record and grants no merge authority')
-  }
-  const responseKeys = ['merged', 'sha', 'message']
-  if (!githubResponse || typeof githubResponse !== 'object' || Array.isArray(githubResponse) ||
-      Object.keys(githubResponse).some(key => !responseKeys.includes(key)) ||
-      responseKeys.some(key => !Object.hasOwn(githubResponse, key)) || githubResponse.merged !== true || !/^[a-f0-9]{40}$/.test(githubResponse.sha ?? '') ||
-      typeof githubResponse.message !== 'string' || !githubResponse.message.trim() ||
-      !postMergePullRequest || typeof postMergePullRequest !== 'object' || Array.isArray(postMergePullRequest) ||
-      Object.keys(postMergePullRequest).some(key => !['number', 'state', 'merged', 'headSha', 'baseRef', 'mergeCommitSha', 'mergedAt', 'url'].includes(key)) ||
-      !verifiedCommit || typeof verifiedCommit !== 'object' || Array.isArray(verifiedCommit) ||
-      Object.keys(verifiedCommit).some(key => !['sha', 'parents', 'verifiedAt', 'evidenceRef'].includes(key))) {
-    throw new Error('Host-assisted completion requires a successful GitHub merge response')
-  }
-  const mergedAt = Date.parse(postMergePullRequest?.mergedAt)
-  const verifiedAt = Date.parse(verifiedCommit?.verifiedAt)
-  const now = Date.parse(new Date(currentTime).toISOString())
-  if (postMergePullRequest?.number !== task.pr.number || postMergePullRequest?.state !== 'closed' ||
-      postMergePullRequest?.merged !== true || postMergePullRequest?.headSha !== task.pr.headSha ||
-      postMergePullRequest?.baseRef !== task.pr.baseRef || postMergePullRequest?.mergeCommitSha !== githubResponse.sha ||
-      postMergePullRequest?.url !== task.pr.url || Number.isNaN(mergedAt) || mergedAt > now ||
-      verifiedCommit?.sha !== githubResponse.sha || !Array.isArray(verifiedCommit?.parents) ||
-      verifiedCommit.parents.length < 1 || verifiedCommit.parents.some(parent => !/^[a-f0-9]{40}$/.test(parent)) ||
-      Number.isNaN(verifiedAt) || verifiedAt < mergedAt || verifiedAt > now || now - verifiedAt > 5 * 60 * 1000 ||
-      verifiedCommit.evidenceRef !== `https://github.com/${task.pr.repository}/commit/${githubResponse.sha}`) {
-    throw new Error('Host-assisted completion requires fresh post-merge PR and commit observations matching the task')
-  }
-  const evidenceRef = verifiedCommit.evidenceRef
-  event(state, 'host_merge_observed', task.id, {
-    repository: task.pr.repository, prNumber: task.pr.number, headSha: task.pr.headSha,
-    baseSha: task.pr.baseSha, targetBranch: task.pr.baseRef, mergeCommitSha: githubResponse.sha,
-    evidenceRef, verifiedAt: new Date(verifiedAt).toISOString(),
-  })
-  task.result = { evidenceRef, mergeCommitSha: githubResponse.sha, commitVerificationRef: evidenceRef }
-  task.status = 'completed'; task.blockerCode = null; state.selectedTaskId = null
-  event(state, 'task_completed', task.id, { evidenceRef, commitSha: githubResponse.sha })
-  if (state.tasks.every(item => ['completed', 'rejected'].includes(item.status))) {
-    state.status = 'completed'; state.stopReason = 'objective_complete'
-  }
-  return { completed: task, ...advance(state) }
-}
-
 function recordApproval(state, taskId, authorization) {
   const task = findTask(state, taskId)
   if (task.kind !== 'merge' || task.status !== 'awaiting_approval' || task.approval) {
@@ -1111,8 +1039,6 @@ async function transitionAndSave(file, state, transition) {
     outcome = recordAutomaticMergeAssessment(candidate, taskId, payload?.evidence, { currentTime: payload?.currentTime })
   } else if (type === 'complete_auto_merge' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
     outcome = completeAutomaticMerge(candidate, taskId, payload, { currentTime: payload?.currentTime })
-  } else if (type === 'record_host_merge_completion' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
-    outcome = recordHostAssistedMergeCompletion(candidate, taskId, payload, { currentTime: payload?.currentTime })
   }
   else if (type === 'complete' && Object.keys(transition).every(key => ['type', 'taskId', 'payload'].includes(key))) {
     outcome = completeTask(candidate, taskId, payload)
@@ -1136,7 +1062,7 @@ async function transitionAndSave(file, state, transition) {
 module.exports = {
   BLOCKER_CODES, DEFAULT_CHECKPOINT, MAX_ATTEMPTS, MAX_SELECTIONS, MAX_TASKS, REJECTION_CODES,
   advance, begin, blockTask, completeTask, createWorkflow, loadCheckpoint,
-  activateStandingAutoMergePolicy, completeAutomaticMerge, recordHostAssistedMergeCompletion, recordApproval, recordAutomaticMergeAssessment,
+  activateStandingAutoMergePolicy, completeAutomaticMerge, recordApproval, recordAutomaticMergeAssessment,
   refreshMergeScope, rejectTask, retryTask, revokeStandingAutoMergePolicy, saveCheckpoint,
   transitionAndSave, validateWorkflow,
 }

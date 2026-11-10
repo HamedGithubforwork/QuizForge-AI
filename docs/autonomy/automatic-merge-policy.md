@@ -36,27 +36,33 @@ it low risk.
 
 ## Required work for every candidate
 
-The Coordinator runs the normal development sequence autonomously. The
-Developer implements; Reviewer independently inspects the exact final diff and
-reports findings; QA independently runs the relevant tests; Security
-independently assesses the exact diff and risk; and the Merge Manager performs
-the final read-only readiness and risk-classification review. A role may not
-claim another role's work. The Coordinator and Developer record their actual
-invocation identifiers and evidence; the Developer's commit must equal the
-candidate PR head. Reviewer, QA, Security, and Merge Manager assessments must
-identify their actual invocation, evidence, and exact PR head SHA. Any unresolved material finding,
-missing evidence, test failure, or uncertain risk classification blocks.
+The Coordinator runs the normal development sequence. The Developer
+implements; Reviewer inspects the exact final diff; QA independently runs the
+relevant tests; Security independently assesses the diff and risk; and the
+Merge Manager performs the final independent review. The Merge Manager cannot
+authenticate invocations in the Coordinator's sibling collaboration tree, so
+it must originate fresh Reviewer, QA, Security, and applicable specialist
+assessments in its own visible collaboration tree. It must inspect the actual
+completed invocations and exact-head results, not checkpoint IDs or forwarded
+claims. The Developer's published commit must equal the fetched PR head. Any
+unresolved material finding, missing invocation/evidence, test failure, or
+uncertain risk blocks.
 
-Before the Merge Manager's merge action, re-fetch the open, non-draft PR, target
+Before a Merge Manager merge action, re-fetch the open, non-draft PR, target
 `main`, exact head and current `main` SHA, complete diff, mergeability, formal
 reviews, and current rulesets/protections. Verify a successful PR-associated
-Required PR gate for the exact head and base, successful exact-head Reviewer,
-QA, and Security assessments, and absence of deployment, cloud-spend,
+Required PR gate for the exact head and current base, successful exact-head
+Reviewer, QA, and Security assessments, and absence of deployment, cloud-spend,
 destructive, or other unexpected side effects. Re-evaluate policy expiry and
-revocation. If head, base, policy digest, findings, protections, or side effects
-changed—or evidence is older than five minutes—stop and repeat the relevant
-verification. The GitHub merge call must use the expected head SHA. Never
-bypass branch protection, use admin privileges, or enable GitHub auto-merge.
+revocation. If head, base, target branch, policy digest, findings, protections,
+or side effects changed—or evidence is older than five minutes—stop and repeat
+the relevant verification. GitHub's `expected_head_sha` protects the PR head
+only; it is not an atomic compare-and-swap for the base SHA or target branch.
+Strict required checks protect an up-to-date `main` target from a stale-base
+merge, but they do not atomically prevent a concurrent retarget to a branch
+outside the ruleset. Do not claim the head guard alone closes either race.
+Never bypass branch protection, use admin privileges, or enable GitHub
+auto-merge.
 The recorded side-effect assessment must include all merge-to-main workflow
 triggers and explicitly show no deployment trigger, infrastructure mutation,
 cloud spend, or destructive operation; missing or unknown trigger analysis
@@ -80,30 +86,45 @@ merges after a Codex session ends. Adding a trusted background agent runner
 would be a separate high-risk infrastructure and permission change requiring
 explicit approval, threat review, and its own exact-head CI.
 
-The policy module cannot authenticate invocation IDs, retrieve GitHub data,
-establish that linked evidence is truthful, or call the GitHub merge API. It
-therefore fails closed with `trusted_live_verification_unavailable` for every
-otherwise eligible candidate. Caller-supplied claims cannot make a candidate
-ready. The coordinator must not select or merge a candidate based on checkpoint
-evidence. This remains true even if the policy is later explicitly activated:
-activation alone does not supply a trusted verifier.
+The current active-session Codex host exposes authenticated GitHub reads,
+actual collaboration subagent invocations, and a GitHub merge operation with
+an expected-head parameter. A Merge Manager can inspect its own active agent
+tree; it cannot authenticate sibling invocations from the Coordinator's tree.
+Those host observations are visible to the agent using the tools, but the
+repository JavaScript evaluator cannot retrieve or authenticate them, and
+there is no durable attestation that a later session can verify. The local
+policy evaluator therefore fails closed with
+`trusted_live_verification_unavailable` for every otherwise eligible
+candidate. No active-session instruction or checkpoint field may override
+that result. A read-only host review is possible; standing-policy merge
+execution is not currently authorized or operational through the repository
+orchestrator.
 
-Before an automatic merge can be considered, a separately reviewed runtime
-adapter must independently retrieve the live PR, complete diff, required
-checks, reviews, rulesets/protections, and mergeability; establish actual
-specialist invocations from trusted session evidence; assess merge-triggered
-side effects; and reject stale or conflicting state. The adapter must prove
-strict required-status-checks or an enforced merge queue to protect against
-the target-base advancing after assessment. The current main ruleset does not
-provide that guarantee, so candidate eligibility remains blocked even if
-caller-supplied protection fields claim otherwise. Do not add a forgeable
-boolean, invocation-ID format check, or checkpoint event as a substitute.
+The live `Protect main` ruleset (ID `21886458`, checked 2026-11-09) is active
+for the default branch. Its required status checks rule names `Required PR
+gate` (integration ID `15368`), has
+`strict_required_status_checks_policy: true`, and has no bypass actors; the
+connected API reported `current_user_can_bypass: never`. Re-fetch these live
+settings for every candidate. Strict checks therefore do provide the
+up-to-date-base safeguard for PRs targeting `main`; the previous statement
+that the current ruleset lacked this guarantee was stale. The ruleset does not
+configure a merge queue. The PR merge tool's `expected_head_sha` parameter
+guards only the PR head, not the target ref. A concurrent retarget can race
+the preflight because the API has no expected-base/target parameter. Thus the
+current host path cannot prove a complete atomic merge boundary even apart
+from its lack of code-authenticated evidence. Do not perform a standing
+automatic merge while either limitation remains. Do not enable a merge queue
+or change rulesets as a workaround without separate authorization and CI
+support for `merge_group`.
 
-Only after such a runtime boundary exists and passes independent review may the
-Merge Manager use GitHub's expected-head merge operation. The Coordinator must
-then verify the actual GitHub merge response and resulting commit before
-recording completion. Checkpoints remain audit records, not authenticated
-sources of GitHub truth.
+Before standing automatic merging may be considered, a separately reviewed
+runtime boundary must authenticate live GitHub state and actual specialist
+invocations, bind the verified target/base to the execution, reject stale or
+conflicting state, and provide a safe response to target-ref changes. It must
+also pass independent security/reliability review and exact-head CI. Until
+then, the policy evaluator's blocked outcome is authoritative. The Manager
+must not bypass it by directly calling GitHub. An ordinary manually approved
+PR merge remains governed by the separate exact-scope Manual procedure.
 
 ## Activation checklist
 
@@ -111,10 +132,13 @@ sources of GitHub truth.
    target authorization; the policy is disabled during that merge.
 2. Verify exact-head and post-merge Required PR CI and that `main` contains the
    reviewed policy digest.
-3. Obtain a separate, explicit repository-owner activation authorization for
+3. Implement and independently verify a trusted live-verification and
+   target-binding mechanism; the current host-only path is insufficient and
+   candidate decisions must continue to fail closed until it exists.
+4. Obtain a separate, explicit repository-owner activation authorization for
    `HamedGithubforwork/QuizForge-AI`, target `main`, this policy version and
    digest, and an expiry no more than 90 days away. Do not infer activation
    from approval to merge the implementation.
-4. Record activation and later revocation in the durable integration
+5. Record activation and later revocation in the durable integration
    checkpoint. Verify the current live repository state before any candidate
    merge; a checkpoint is an audit record, not GitHub evidence.
