@@ -445,8 +445,11 @@ test('a changed target branch invalidates prior approval', () => {
   assert.equal(state.tasks[0].pr.baseRef, 'release')
 })
 
-test('approved dependency merge causes downstream work to be reconsidered automatically', () => {
-  const state = createWorkflow({ objectiveId: 'dependency-resume', tasks: [merge('merge-base'), work('dependent', 8, ['merge-base'])] })
+test('manual completion audit claim cannot release transitive dependencies while independent work advances', () => {
+  const state = createWorkflow({ objectiveId: 'dependency-resume', tasks: [
+    merge('merge-base'), work('dependent', 8, ['merge-base']),
+    work('grandchild', 7, ['dependent']), work('independent', 1),
+  ] })
   const approval = {
     action: 'merge', repository: pr.repository, prNumber: pr.number, headSha: pr.headSha,
     targetBranch: pr.baseRef, baseSha: pr.baseSha, approver: 'repository-owner',
@@ -457,7 +460,13 @@ test('approved dependency merge causes downstream work to be reconsidered automa
     evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
     commitSha: mergedSha,
   })
-  assert.equal(result.task.id, 'dependent')
+  assert.equal(result.task.id, 'independent')
+  assert.equal(result.reason, 'selected')
+  assert.equal(state.status, 'active')
+  assert.equal(state.tasks[0].status, 'completed')
+  assert.equal(state.tasks[1].status, 'ready')
+  assert.equal(state.tasks[2].status, 'ready')
+  assert.equal(state.selectedTaskId, 'independent')
   assert.deepEqual(state.tasks.find(task => task.id === 'dependent').dependencies, ['merge-base'])
 })
 
@@ -482,10 +491,13 @@ test('review completion alone cannot unlock the next stack level', () => {
     evidenceRef: 'https://github.com/HamedGithubforwork/QuizForge-AI/commit/' + mergedSha,
     commitSha: mergedSha,
   })
-  assert.equal(merged.task.id, 'review-child')
+  assert.equal(merged.task, null)
+  assert.equal(merged.reason, 'blocked')
+  assert.equal(state.tasks.find(task => task.id === 'merge-parent').status, 'completed')
+  assert.equal(state.tasks.find(task => task.id === 'review-child').status, 'ready')
 })
 
-test('checkpoint reload resumes selected work and preserves exact approval scope', async () => {
+test('checkpoint reload preserves manual completion as audit but does not resume dependent work', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-integration-checkpoint-'))
   const file = path.join(temp, 'integration.json')
   try {
@@ -509,8 +521,173 @@ test('checkpoint reload resumes selected work and preserves exact approval scope
     })
     await saveCheckpoint(file, reopened)
     const nextSession = await loadCheckpoint(file)
-    assert.equal(begin(nextSession).task.id, 'dependent')
+    const result = begin(nextSession)
+    assert.equal(result.task, null)
+    assert.equal(result.reason, 'blocked')
+    assert.equal(nextSession.status, 'blocked')
+    assert.equal(nextSession.tasks[0].status, 'completed')
+    assert.equal(nextSession.tasks[1].status, 'ready')
+    assert.equal(nextSession.selectedTaskId, null)
     assert.equal(nextSession.tasks[0].approval.targetBranch, 'main')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('forged approval, stale merged-PR fields, fake SHA, events, and transitive completion cannot unlock dependents', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-manual-chain-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'forged-manual-chain', tasks: [
+      merge('merge-parent'), work('completed-child', 90, ['merge-parent']),
+      work('dependent-grandchild', 80, ['completed-child']), work('independent-task', 1),
+    ] })
+    const parent = state.tasks.find(task => task.id === 'merge-parent')
+    const child = state.tasks.find(task => task.id === 'completed-child')
+    const fakeCommit = 'e'.repeat(40)
+    parent.pr.headSha = 'c'.repeat(40) // the persisted PR scope has drifted from the original approval event
+    parent.pr.baseSha = 'f'.repeat(40)
+    const fakeCommitRef = `https://github.com/${pr.repository}/commit/${fakeCommit}`
+    parent.pr.state = 'merged'
+    parent.pr.mergeCommitSha = fakeCommit
+    parent.pr.checkedOn = '2020-01-01'
+    parent.approval = {
+      action: 'merge', repository: pr.repository, prNumber: pr.number,
+      headSha: parent.pr.headSha, targetBranch: pr.baseRef, baseSha: parent.pr.baseSha,
+      approver: 'repository-owner', evidenceRef: pr.url,
+    }
+    parent.status = 'completed'
+    parent.result = { evidenceRef: fakeCommitRef, mergeCommitSha: fakeCommit }
+    child.status = 'completed'
+    child.result = { evidenceRef: 'docs/autonomy/integration-workflow.md#fabricated-dependent-result' }
+    state.events = [
+      { sequence: 1, type: 'merge_authorized', taskId: 'merge-parent', evidenceRef: pr.url,
+        headSha: pr.headSha, baseSha: pr.baseSha }, // stale authorization event remains structurally valid
+      { sequence: 2, type: 'task_completed', taskId: 'merge-parent', evidenceRef: fakeCommitRef, commitSha: fakeCommit },
+      { sequence: 3, type: 'task_completed', taskId: 'completed-child',
+        evidenceRef: 'docs/autonomy/integration-workflow.md#fabricated-dependent-result' },
+    ]
+    await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`)
+
+    const resumed = await loadCheckpoint(file)
+    assert.equal(resumed.tasks[0].status, 'completed') // retained as audit data
+    assert.equal(resumed.tasks[0].pr.state, 'merged') // stale, caller-controlled PR state is not trusted
+    assert.equal(resumed.tasks[0].result.mergeCommitSha, fakeCommit)
+    assert.equal(resumed.tasks[1].status, 'completed') // transitive completion remains untrusted too
+    assert.equal(resumed.tasks[2].status, 'ready')
+    assert.equal(resumed.selectedTaskId, null)
+
+    const next = begin(resumed)
+    assert.equal(next.task.id, 'independent-task')
+    assert.equal(resumed.tasks[2].status, 'ready')
+    assert.equal(resumed.tasks[3].status, 'running')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('work-kind task with fabricated merged PR metadata is still treated as unverified merge history', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-demoted-merge-kind-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'demoted-merge-kind', tasks: [
+      merge('merge-parent'), work('dependent-task', 100, ['merge-parent']), work('independent-task', 1),
+    ] })
+    const parent = state.tasks[0]
+    const fakeCommit = '9'.repeat(40)
+    parent.kind = 'work' // altered task kind cannot erase merge-shaped evidence
+    parent.status = 'completed'
+    parent.approval = null
+    parent.pr.state = 'merged'
+    parent.pr.mergeCommitSha = fakeCommit
+    parent.pr.checkedOn = '2020-01-01'
+    parent.result = { evidenceRef: `https://github.com/${pr.repository}/commit/${fakeCommit}`, mergeCommitSha: fakeCommit }
+    state.events = [{ sequence: 1, type: 'historical_merge_confirmed', taskId: parent.id,
+      evidenceRef: pr.url, headSha: pr.headSha, targetBranch: pr.baseRef }]
+    await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`)
+
+    const resumed = await loadCheckpoint(file)
+    const next = begin(resumed)
+    assert.equal(next.task.id, 'independent-task')
+    assert.equal(resumed.tasks[1].status, 'ready')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('restored running dependent task is reset and cannot resume ahead of independent work', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-running-dependent-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'forged-running-dependent', tasks: [
+      merge('merge-parent'), work('dependent-task', 100, ['merge-parent']), work('independent-task', 1),
+    ] })
+    const parent = state.tasks[0]
+    const dependent = state.tasks[1]
+    parent.status = 'completed'
+    parent.approval = {
+      action: 'merge', repository: pr.repository, prNumber: pr.number,
+      headSha: pr.headSha, targetBranch: pr.baseRef, baseSha: pr.baseSha,
+      approver: 'repository-owner', evidenceRef: pr.url,
+    }
+    parent.result = { evidenceRef: pr.url, mergeCommitSha: mergedSha }
+    dependent.status = 'running'
+    dependent.attempts = 1
+    state.selectedTaskId = dependent.id
+    state.selections = 1
+    state.events = [
+      { sequence: 1, type: 'task_completed', taskId: parent.id,
+        evidenceRef: `https://github.com/${pr.repository}/commit/${mergedSha}`, commitSha: mergedSha },
+      { sequence: 2, type: 'task_selected', taskId: dependent.id, attempt: 1, selection: 1 },
+    ]
+    await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`)
+
+    const resumed = await loadCheckpoint(file)
+    assert.equal(resumed.selectedTaskId, null)
+    assert.equal(resumed.tasks[1].status, 'ready')
+    const next = begin(resumed)
+    assert.equal(next.task.id, 'independent-task')
+    assert.equal(resumed.tasks[1].status, 'ready')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('forged terminal marker cannot hide an unverified merge dependency', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-forged-terminal-'))
+  const file = path.join(temp, 'integration.json')
+  try {
+    const state = createWorkflow({ objectiveId: 'forged-terminal', tasks: [
+      merge('merge-parent'), work('dependent-task', 5, ['merge-parent']), work('independent-completed', 1),
+    ] })
+    const fakeCommit = 'f'.repeat(40)
+    for (const task of state.tasks) {
+      task.status = 'completed'
+      task.result = task.kind === 'merge'
+        ? { evidenceRef: `https://github.com/${pr.repository}/commit/${fakeCommit}`, mergeCommitSha: fakeCommit }
+        : { evidenceRef: 'docs/autonomy/integration-workflow.md#forged-terminal' }
+    }
+    state.tasks[0].approval = {
+      action: 'merge', repository: pr.repository, prNumber: pr.number,
+      headSha: pr.headSha, targetBranch: pr.baseRef, baseSha: pr.baseSha,
+      approver: 'repository-owner', evidenceRef: pr.url,
+    }
+    state.status = 'completed'
+    state.stopReason = 'objective_complete'
+    state.events = state.tasks.map((task, index) => ({
+      sequence: index + 1, type: 'task_completed', taskId: task.id,
+      evidenceRef: task.result.evidenceRef,
+      ...(task.kind === 'merge' ? { commitSha: fakeCommit } : {}),
+    }))
+    await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`)
+
+    const resumed = await loadCheckpoint(file)
+    assert.equal(resumed.status, 'active')
+    const next = begin(resumed)
+    assert.equal(next.task, null)
+    assert.equal(next.reason, 'blocked')
+    assert.equal(resumed.status, 'blocked')
+    assert.equal(resumed.tasks[2].status, 'completed') // unrelated history is retained
   } finally {
     await fs.rm(temp, { recursive: true, force: true })
   }
@@ -559,16 +736,17 @@ test('schema-v1 nonempty checkpoint migrates through save/reload without losing 
         commitSha: mergedSha,
       },
     })
-    assert.equal(next.task.id, 'legacy-dependent')
+    assert.equal(next.task, null)
+    assert.equal(next.reason, 'blocked')
     const reopened = await loadCheckpoint(file)
     assert.equal(reopened.tasks.length, 2)
     assert.equal(reopened.tasks[0].status, 'completed')
     assert.equal(reopened.tasks[0].approval.headSha, pr.headSha)
     assert.equal(reopened.tasks[0].result.mergeCommitSha, mergedSha)
-    assert.equal(reopened.tasks[1].status, 'running')
-    assert.equal(reopened.selectedTaskId, 'legacy-dependent')
-    assert.equal(reopened.status, 'active')
-    assert.equal(reopened.stopReason, null)
+    assert.equal(reopened.tasks[1].status, 'ready')
+    assert.equal(reopened.selectedTaskId, null)
+    assert.equal(reopened.status, 'blocked')
+    assert.equal(reopened.stopReason, 'no_actionable_task')
     assert.ok(reopened.events.length > oldEventCount)
     assert.ok(reopened.events.some(event => event.type === 'merge_authorized'))
     assert.ok(reopened.events.some(event => event.type === 'task_completed'))

@@ -22,7 +22,7 @@ const MAX_SELECTIONS = 50
 const MAX_ATTEMPTS = 3 // one initial attempt plus at most two retries
 const MAX_EVENTS = 1000
 // Repository code has no authenticated host-tool/provider boundary yet.
-const TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE = false
+const TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE = false
 const MALFORMED_LOCK_RECOVERY_MS = 24 * 60 * 60 * 1000
 const BLOCKER_CODES = Object.freeze([
   'approval_required', 'existing_pr', 'unavailable_evidence', 'tooling_unavailable',
@@ -361,7 +361,7 @@ function validateAutomaticMergeLedger(state, taskIds) {
           typeof item.evidenceRef !== 'string' || !item.evidenceRef.includes(`/pull/${item.prNumber}`)) {
         throw new Error('Automatic-merge candidate audit event is malformed')
       }
-      if (item.eligible && !TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE) {
+      if (item.eligible && !TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) {
         throw new Error('Eligible automatic-merge claims cannot be restored without a trusted verification provider')
       }
       if (policy.status !== 'active' || item.policyDigest !== policy.digest ||
@@ -379,7 +379,7 @@ function validateAutomaticMergeLedger(state, taskIds) {
       }
       decisions.set(item.decisionDigest, { ...prior, invalidated: true })
     } else if (item.type === 'merge_completed') {
-      if (!TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE) {
+      if (!TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) {
         throw new Error('Automatic-merge completion claims cannot be restored without a trusted verification provider')
       }
       const prior = decisions.get(item.decisionDigest)
@@ -418,7 +418,7 @@ function validateAutomaticMergeLedger(state, taskIds) {
   for (const task of state.tasks) {
     const decision = task.automaticMergeDecision
     if (decision === null) continue
-    if (!TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE) {
+    if (!TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) {
       throw new Error(`Automatic-merge decision claims cannot be restored for ${task.id} without a trusted verification provider`)
     }
     if (task.kind !== 'merge' || task.approval !== null ||
@@ -469,6 +469,28 @@ function validateWorkflow(state) {
   }
   validateTasks(state.tasks)
   const taskIds = new Set(state.tasks.map(task => task.id))
+  const trustedCompleted = trustedCompletedTaskIds(state)
+  const selectedCandidate = state.selectedTaskId ? state.tasks.find(task => task.id === state.selectedTaskId) : null
+  if (selectedCandidate && !dependenciesSatisfied(selectedCandidate, trustedCompleted)) {
+    // A restored running task whose merge dependency is unverified was only a
+    // continuation claim. Return it to the ready queue without losing its audit
+    // history; advance() will leave it blocked while unrelated work can proceed.
+    selectedCandidate.status = 'ready'
+    state.selectedTaskId = null
+  }
+  if (state.status === 'completed' && state.tasks.some(task =>
+    task.status === 'completed' && !trustedCompleted.has(task.id))) {
+    // Recompute this derived workflow status from dependencies instead of
+    // trusting a checkpoint's terminal marker.
+    state.status = 'active'
+    state.stopReason = null
+  }
+  if (state.status === 'blocked' && state.tasks.some(task =>
+    task.status === 'ready' && dependenciesSatisfied(task, trustedCompleted))) {
+    // A stale/forged derived stop marker must not strand independent ready work.
+    state.status = 'active'
+    state.stopReason = null
+  }
   const allowedStopReason = { active: null, blocked: 'no_actionable_task', budget_reached: 'selection_budget', completed: 'objective_complete' }
   if (state.stopReason !== allowedStopReason[state.status]) throw new Error('Workflow status and stop reason are inconsistent')
   const selected = state.selectedTaskId ? state.tasks.find(task => task.id === state.selectedTaskId) : null
@@ -552,7 +574,7 @@ function validateWorkflow(state) {
     } else if (task.rejection !== null) throw new Error(`Non-rejected task ${task.id} cannot contain a rejection record`)
   }
   if (recordedAttempts !== state.selections) throw new Error('Selection count does not match persisted task attempts')
-  const unfinished = state.tasks.some(task => !['completed', 'rejected'].includes(task.status))
+  const unfinished = state.tasks.some(task => task.status !== 'rejected' && !trustedCompleted.has(task.id))
   if (state.status === 'completed' && unfinished) throw new Error('Completed workflow contains unfinished tasks')
   if (state.status === 'completed' && state.selectedTaskId) throw new Error('Completed workflow cannot have a selected task')
   if (state.status === 'completed' && state.stopReason !== 'objective_complete') throw new Error('Completed workflow has an invalid stop reason')
@@ -562,11 +584,8 @@ function validateWorkflow(state) {
   if (state.status === 'blocked' && (!unfinished || state.selectedTaskId)) {
     throw new Error('Blocked workflow must preserve unfinished work without a selected task')
   }
-  if (state.status === 'blocked') {
-    const completed = new Set(state.tasks.filter(task => task.status === 'completed').map(task => task.id))
-    if (state.tasks.some(task => task.status === 'ready' && task.dependencies.every(id => completed.has(id)))) {
-      throw new Error('Blocked workflow contains eligible work')
-    }
+  if (state.status === 'blocked' && state.tasks.some(task => task.status === 'ready' && dependenciesSatisfied(task, trustedCompleted))) {
+    throw new Error('Blocked workflow contains eligible work')
   }
   if (state.status === 'active' && !unfinished) throw new Error('Active workflow cannot have only terminal tasks')
   for (let i = 0; i < state.events.length; i += 1) {
@@ -574,6 +593,38 @@ function validateWorkflow(state) {
   }
   validateAutomaticMergeLedger(state, taskIds)
   return state
+}
+
+function trustedCompletedTaskIds(state) {
+  const tasksById = new Map(state.tasks.map(task => [task.id, task]))
+  const completed = new Set()
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const task of state.tasks) {
+      if (task.status !== 'completed' || completed.has(task.id)) continue
+      // Manual merge completion remains a checkpoint claim until a trusted
+      // host provider exists. Do not count it, or any task downstream from it,
+      // as a satisfied dependency.
+      if (isMergeCompletionClaim(state, task) && !TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) continue
+      if (task.dependencies.every(id => completed.has(id) && tasksById.has(id))) {
+        completed.add(task.id)
+        changed = true
+      }
+    }
+  }
+  return completed
+}
+
+function isMergeCompletionClaim(state, task) {
+  return task.kind === 'merge' ||
+    task.pr?.state === 'merged' || Boolean(task.pr?.mergeCommitSha) ||
+    Boolean(task.result?.mergeCommitSha) ||
+    state.events.some(item => item.type === 'historical_merge_confirmed' && item.taskId === task.id)
+}
+
+function dependenciesSatisfied(task, trustedCompleted) {
+  return task.dependencies.every(id => trustedCompleted.has(id))
 }
 
 function event(state, type, taskId, data = {}) {
@@ -586,7 +637,8 @@ function event(state, type, taskId, data = {}) {
 function advance(state) {
   validateWorkflow(state)
   if (state.selectedTaskId) return { task: state.tasks.find(task => task.id === state.selectedTaskId), reason: 'active_task' }
-  const terminal = state.tasks.every(task => ['completed', 'rejected'].includes(task.status))
+  const completed = trustedCompletedTaskIds(state)
+  const terminal = state.tasks.every(task => task.status === 'rejected' || completed.has(task.id))
   if (terminal) {
     state.status = 'completed'; state.stopReason = 'objective_complete'
     return { task: null, reason: 'completed' }
@@ -595,8 +647,7 @@ function advance(state) {
     state.status = 'budget_reached'; state.stopReason = 'selection_budget'
     return { task: null, reason: 'budget_reached' }
   }
-  const completed = new Set(state.tasks.filter(task => task.status === 'completed').map(task => task.id))
-  const next = state.tasks.filter(task => task.status === 'ready' && task.dependencies.every(id => completed.has(id)))
+  const next = state.tasks.filter(task => task.status === 'ready' && dependenciesSatisfied(task, completed))
     .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))[0]
   if (next) {
     next.status = 'running'; next.attempts += 1; state.selectedTaskId = next.id
@@ -610,6 +661,7 @@ function advance(state) {
 }
 
 function begin(state) {
+  validateWorkflow(state)
   if (state.status === 'budget_reached' || state.status === 'completed') return { task: null, reason: state.status }
   return advance(state)
 }
@@ -728,7 +780,7 @@ function recordAutomaticMergeAssessment(state, taskId, evidence, { currentTime =
     throw new Error('Automatic eligibility may be assessed only for a pending, unapproved merge task')
   }
   const evaluated = evaluateAutomaticMergeCandidate({ policy: state.automaticMergePolicy, evidence, now: currentTime })
-  const result = !TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE && evaluated.eligible
+  const result = !TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE && evaluated.eligible
     ? { eligible: false, reason: 'trusted_live_verification_unavailable' }
     : evaluated
   if (!result.eligible && (state.automaticMergePolicy.status !== 'active' ||
@@ -778,7 +830,7 @@ function recordAutomaticMergeAssessment(state, taskId, evidence, { currentTime =
 }
 
 function completeAutomaticMerge(state, taskId, { decisionDigest, githubResponse, postMergePullRequest, verifiedCommit } = {}, { currentTime = new Date() } = {}) {
-  if (!TRUSTED_AUTOMATIC_MERGE_PROVIDER_AVAILABLE) {
+  if (!TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) {
     throw new Error('Automatic merge completion is disabled without a trusted verification provider')
   }
   validateWorkflow(state)

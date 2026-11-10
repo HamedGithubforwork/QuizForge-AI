@@ -103,15 +103,21 @@ orchestrator.
 This fail-closed automatic path does not make the whole checkpoint ledger
 authentic. While no trusted provider exists, fabricated eligible automatic
 decision/completion records are rejected and `complete_auto_merge` is
-unavailable. Manual approval and merge-completion fields remain caller-supplied
-claims; the JavaScript scheduler can release dependents from a structurally
-completed manual merge task. They are not proof of owner authorization or a
-GitHub merge. Before any dependent work uses such a record, the active
+unavailable. Identifiable manual merge completion claims and their descendants
+also do not satisfy dependencies or mark the workflow terminal; unrelated
+work can continue. These records remain audit data, not proof of owner
+authorization or a GitHub merge. Before relying on any manual merge, the active
 Merge Manager must re-fetch GitHub and confirm the actual merged PR, exact
 approved head, target, and merge commit, and verify the original approval in
-the active conversation. Recheck after session handoffs; stop when either
-source is unavailable. This procedural check is not authenticated by code and
-does not make automatic merging operational.
+the active conversation. Recheck after handoffs; stop when either source is
+unavailable.
+
+A complete checkpoint rewrite that erases merge markers and changes the task
+graph cannot be recognized as a merge history without an authenticated
+canonical task manifest or trusted host verifier. The current architecture
+does not provide either. The scheduler must not be described as an
+authenticated continuation boundary, and automatic merging must remain
+disabled.
 
 The live `Protect main` ruleset (ID `21886458`, checked 2026-11-09) is active
 for the default branch. Its required status checks rule names `Required PR

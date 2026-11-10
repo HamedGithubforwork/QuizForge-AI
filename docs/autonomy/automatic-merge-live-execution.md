@@ -88,22 +88,23 @@ independent review. Those changes require separate authorization.
 There is no host-merge completion transition. The coordinator rejects
 eligible/completed automatic-merge ledger claims while the trusted provider is
 unavailable, and its `complete_auto_merge` transition is disabled. This is
-not a general checkpoint authenticity boundary. The JavaScript coordinator
-still accepts structurally valid manual approval/completion claims and its
-dependency scheduler can advance from a manually completed merge task. A
-crafted checkpoint can therefore mislead task ordering without causing a
-GitHub merge itself. No checkpoint state, audit event, user-name string, or
-prior run's continuation record authenticates a human approval or remote merge.
+not full checkpoint authenticity. Without a trusted GitHub verification
+provider, merge-shaped tasks do not satisfy dependencies or count toward
+workflow completion, even when the checkpoint contains approval, merged
+status, a matching SHA, or a completion event. Descendants of those tasks are
+also excluded. The records remain for audit, and independent tasks can
+proceed. `completeTask` cannot turn caller-supplied merge fields into trusted
+dependency completion.
 
-After a separately authorized manual merge, the active Coordinator/Merge
-Manager must fetch GitHub directly and verify the actual merged PR, recorded
-merge commit, exact approved head, and intended target before relying on the
-completion or proceeding with any dependent task. Repeat that check after a
-session handoff. If host evidence or the original approval is unavailable,
-block the dependent task and reconcile the checkpoint. This is a host
-procedure, not an enforced code-level verifier. Automatic merging remains
-blocked until an authenticated host-to-policy boundary and an atomic target
-guard are implemented and independently tested.
+A whole-checkpoint rewrite that removes all merge markers and changes the task
+graph can hide the original merge relationship. The current code has no
+authenticated canonical task manifest or host verifier to detect that attack.
+After any separately authorized manual merge, the active Coordinator/Merge
+Manager must still fetch GitHub directly and verify the actual merged PR,
+original exact-scope approval, exact approved head and target, and merge commit
+before relying on it. Repeat after handoff; otherwise block the dependency
+chain. Automatic merging remains blocked until an authenticated host-to-policy
+boundary and an atomic target guard are implemented and independently tested.
 
 ## Stacked PR verification
 
