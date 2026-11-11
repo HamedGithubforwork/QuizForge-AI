@@ -53,6 +53,15 @@ merge-commit parents, plus ancestry on current `main`; it rechecks `main` and
 the ruleset before returning. No token, caller-supplied provider, checkpoint
 flag, or GitHub write is used.
 
+The runtime has no authenticated GitHub credential or connected-tool bridge.
+If GitHub's public API omits ruleset bypass-actor data, the verifier fails
+closed rather than assuming an empty bypass list. On November 11, 2026, the
+connected GitHub read showed the active ruleset with no bypass actors, while
+the unauthenticated API response available to repository JavaScript omitted
+that field. A trusted host/API capability is therefore still required for
+live reconciliation on this runtime, in addition to the canonical graph being
+present on protected `main`.
+
 For the `autonomous-integration` objective, ordinary checkpoint loading,
 `begin`/`advance`, or non-trusted transitions cannot use completion statuses
 to release dependencies. The trusted path binds its ephemeral evidence to a

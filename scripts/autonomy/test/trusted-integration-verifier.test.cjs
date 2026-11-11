@@ -47,12 +47,13 @@ function pr(number, headSha, baseSha, mergeSha) {
 }
 
 function fixtureApi({ graphText, failPr = new Set(), moveMain = false, badRuleset = false, badAncestry = false,
-  missingManifest = false, apiOutage = false, badPrScope = false, badParent = false,
+  missingManifest = false, apiOutage = false, missingBypassActors = false, badPrScope = false, badParent = false,
   integrationId = 15368, onRequest } = {}) {
   const canonicalGraph = graphText ?? require(graphPath)
   const text = typeof canonicalGraph === 'string' ? canonicalGraph : `${JSON.stringify(canonicalGraph, null, 2)}\n`
   const protectedRuleset = ruleset()
   if (badRuleset) protectedRuleset.bypass_actors = [{ actor_id: 1, bypass_mode: 'always' }]
+  if (missingBypassActors) delete protectedRuleset.bypass_actors
   if (integrationId === null) delete protectedRuleset.rules[0].parameters.required_status_checks[0].integration_id
   else protectedRuleset.rules[0].parameters.required_status_checks[0].integration_id = integrationId
   const calls = []
@@ -460,6 +461,7 @@ test('missing main manifest, API outage, ruleset bypass, moving main, and bad an
     ['manifest absent on main', { missingManifest: true }],
     ['API outage or rate limit', { apiOutage: true }],
     ['ruleset bypass configured', { badRuleset: true }],
+    ['ruleset bypass actors unavailable', { missingBypassActors: true }],
     ['required check integration ID missing', { integrationId: null }],
     ['required check integration ID changed', { integrationId: 1 }],
     ['main moves during verification', { moveMain: true }],
