@@ -122,7 +122,7 @@ test('mocked GitHub API merge facts unlock the historical dependency chain witho
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
-test('fresh session resume repeats live verification instead of trusting prior in-memory state', async () => {
+test('fresh session resume repeats mocked GitHub API verification instead of trusting prior in-memory state', async () => {
   const temp = await tempCheckpoint()
   const api = fixtureApi()
   try {
