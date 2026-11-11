@@ -100,7 +100,7 @@ async function tempCheckpoint() {
   return { dir, file }
 }
 
-test('live protected GitHub merge facts unlock the real historical dependency chain without persisting trust claims', async () => {
+test('mocked GitHub API merge facts unlock the historical dependency chain without persisting trust claims', async () => {
   const temp = await tempCheckpoint()
   const original = await fs.readFile(DEFAULT_CHECKPOINT)
   const api = fixtureApi()
@@ -191,6 +191,18 @@ test('canonical graph rejects a merge task relabelled as work or scoped to anoth
       } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
     })
   }
+})
+
+test('canonical graph rejects dependency cycles', async () => {
+  const temp = await tempCheckpoint()
+  const checkpoint = await loadCheckpoint(temp.file)
+  const graph = JSON.parse(await fs.readFile(graphPath, 'utf8'))
+  graph.tasks.find(item => item.id === 'pr-678-complete').dependencies = ['pr-695-merge']
+  const api = fixtureApi({ graphText: graph })
+  try {
+    const { verifyTrustedHistoricalMerges } = require('../trusted-integration-verifier.cjs')
+    await assert.rejects(verifyTrustedHistoricalMerges(checkpoint), /dependency cycle/)
+  } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
 test('canonical historical merge cannot be reassigned to a mismatched task node', async t => {

@@ -65,6 +65,18 @@ function assertManifest(manifest) {
   if (manifest.tasks.some(task => task.dependencies.some(id => !ids.has(id)))) {
     throw new Error('Canonical integration graph has a missing dependency')
   }
+  const visiting = new Set()
+  const visited = new Set()
+  function visit(taskId) {
+    if (visiting.has(taskId)) throw new Error('Canonical integration graph contains a dependency cycle')
+    if (visited.has(taskId)) return
+    visiting.add(taskId)
+    for (const dependencyId of tasksById.get(taskId).dependencies) visit(dependencyId)
+    visiting.delete(taskId)
+    visited.add(taskId)
+  }
+  for (const taskId of ids) visit(taskId)
+
   const merges = new Set()
   const mergedPrNumbers = new Set()
   for (const merge of manifest.historicalMerges) {
