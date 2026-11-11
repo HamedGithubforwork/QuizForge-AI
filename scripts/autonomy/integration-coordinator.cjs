@@ -1276,12 +1276,13 @@ async function transitionAndSaveWithTrustedGitHub(file, state, transition) {
   }
   const stateFingerprint = priorContext.fingerprint
   const trustedMergeIds = new Set(await verifyTrustedHistoricalMerges(state))
+  const persistedAfterVerification = await persistedWorkflowFingerprint(file)
   assertTrustedStateNotCompromised(state)
   if (workflowFingerprint(transition) !== transitionFingerprint) {
     throw new Error('Coordinator transition changed during trusted GitHub verification')
   }
   if (workflowFingerprint(state) !== stateFingerprint ||
-      await persistedWorkflowFingerprint(file) !== expectedDiskFingerprint) {
+      persistedAfterVerification !== expectedDiskFingerprint) {
     verifiedHistoricalMerges.delete(state)
     compromisedTrustedStates.add(state)
     throw new Error('Checkpoint or in-memory state changed during trusted GitHub verification')

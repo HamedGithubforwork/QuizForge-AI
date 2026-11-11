@@ -382,6 +382,39 @@ test('trusted transition aborts when the caller changes the operation during Git
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
+test('trusted transition rechecks its operation after the final checkpoint read await', async () => {
+  const temp = await tempCheckpoint()
+  const api = fixtureApi()
+  let transition
+  const originalReadFile = fs.readFile
+  let checkpointReads = 0
+  try {
+    const resumed = await resumeWithTrustedGitHub(temp.file)
+    const before = await originalReadFile(temp.file)
+    transition = {
+      type: 'complete', taskId: 'pr-695-reconcile',
+      payload: { evidenceRef: 'docs/autonomy/integration-workflow.md' },
+    }
+    fs.readFile = async (file, ...args) => {
+      const result = await originalReadFile(file, ...args)
+      if (path.resolve(String(file)) === path.resolve(temp.file)) {
+        checkpointReads += 1
+        if (checkpointReads === 2) transition.taskId = 'pr-698-review'
+      }
+      return result
+    }
+    const { transitionAndSaveWithTrustedGitHub } = require('../integration-coordinator.cjs')
+    await assert.rejects(transitionAndSaveWithTrustedGitHub(temp.file, resumed.state, transition),
+      /transition changed during trusted GitHub verification/)
+    assert.deepEqual(await originalReadFile(temp.file), before)
+    assert.equal(resumed.state.selectedTaskId, 'pr-695-reconcile')
+  } finally {
+    fs.readFile = originalReadFile
+    api.restore()
+    await fs.rm(temp.dir, { recursive: true, force: true })
+  }
+})
+
 test('resume refuses to overwrite a checkpoint replaced during GitHub verification', async () => {
   const temp = await tempCheckpoint()
   let changed = false
