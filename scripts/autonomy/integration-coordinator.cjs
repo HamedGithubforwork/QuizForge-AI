@@ -6,6 +6,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const crypto = require('node:crypto')
 const os = require('node:os')
+const { types: utilTypes } = require('node:util')
 const {
   POLICY_DIGEST: AUTO_MERGE_POLICY_DIGEST,
   POLICY_MANIFEST: AUTO_MERGE_POLICY_MANIFEST,
@@ -15,14 +16,18 @@ const {
   revokePolicy: revokeAutomaticMergePolicy,
   validatePolicy: validateAutomaticMergePolicy,
 } = require('./automatic-merge-policy.cjs')
+const { verifyTrustedHistoricalMerges } = require('./trusted-integration-verifier.cjs')
 
 const SCHEMA_VERSION = 1
 const MAX_TASKS = 100
 const MAX_SELECTIONS = 50
 const MAX_ATTEMPTS = 3 // one initial attempt plus at most two retries
 const MAX_EVENTS = 1000
-// Repository code has no authenticated host-tool/provider boundary yet.
+// No trusted provider exists for policy authorization or actual merge execution.
 const TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE = false
+const verifiedHistoricalMerges = new WeakMap()
+const trustedTransitionInProgress = new WeakSet()
+const compromisedTrustedStates = new WeakSet()
 const MALFORMED_LOCK_RECOVERY_MS = 24 * 60 * 60 * 1000
 const BLOCKER_CODES = Object.freeze([
   'approval_required', 'existing_pr', 'unavailable_evidence', 'tooling_unavailable',
@@ -70,6 +75,68 @@ const AUTO_MERGE_EVENT_FIELDS = Object.freeze({
 })
 
 function clone(value) { return JSON.parse(JSON.stringify(value)) }
+
+function workflowFingerprint(state) {
+  const seen = new WeakSet()
+  function encode(value) {
+    if (value === null) return 'null'
+    if (typeof value === 'string') return `string:${JSON.stringify(value)}`
+    if (typeof value === 'boolean') return `boolean:${value}`
+    if (typeof value === 'number') return `number:${Number.isNaN(value) ? 'NaN' : Object.is(value, -0) ? '-0' : String(value)}`
+    if (typeof value !== 'object') throw new Error('Trusted checkpoint contains a non-data value')
+    if (utilTypes.isProxy(value)) throw new Error('Trusted checkpoint contains a Proxy')
+    if (seen.has(value)) throw new Error('Trusted checkpoint contains a cycle')
+    seen.add(value)
+    const array = Array.isArray(value)
+    const prototype = Object.getPrototypeOf(value)
+    if ((array && prototype !== Array.prototype) || (!array && prototype !== Object.prototype && prototype !== null)) {
+      throw new Error('Trusted checkpoint contains an unsupported object prototype')
+    }
+    const keys = Reflect.ownKeys(value).filter(key => !(array && key === 'length'))
+    if (keys.some(key => typeof key !== 'string')) throw new Error('Trusted checkpoint contains a symbol key')
+    const fields = keys.sort().map(key => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+        throw new Error('Trusted checkpoint contains a hidden or accessor property')
+      }
+      return `${JSON.stringify(key)}:${encode(descriptor.value)}`
+    })
+    seen.delete(value)
+    return `${array ? 'array' : 'object'}:{${fields.join(',')}}`
+  }
+  return crypto.createHash('sha256').update(encode(state)).digest('hex')
+}
+
+async function persistedWorkflowFingerprint(file) {
+  const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
+  return workflowFingerprint(persisted)
+}
+
+function trustedContextForUnmodifiedState(state) {
+  if (trustedTransitionInProgress.has(state)) return verifiedHistoricalMerges.get(state)
+  const context = verifiedHistoricalMerges.get(state)
+  if (context) {
+    let current
+    try { current = workflowFingerprint(state) } catch { current = null }
+    if (context.fingerprint !== current) {
+      verifiedHistoricalMerges.delete(state)
+      compromisedTrustedStates.add(state)
+      return undefined
+    }
+  }
+  return context
+}
+
+function assertTrustedStateNotCompromised(state) {
+  trustedContextForUnmodifiedState(state)
+  if (compromisedTrustedStates.has(state)) {
+    throw new Error('Trusted checkpoint state changed after verification; resume again from the persisted checkpoint')
+  }
+}
+
+function rememberTrustedState(state, taskIds) {
+  verifiedHistoricalMerges.set(state, { taskIds, fingerprint: workflowFingerprint(state) })
+}
 
 function requireText(value, name, max = 240) {
   if (typeof value !== 'string' || value.length < 1 || value.length > max || value.trim() !== value) {
@@ -444,6 +511,7 @@ function validateAutomaticMergeLedger(state, taskIds) {
 }
 
 function validateWorkflow(state) {
+  trustedContextForUnmodifiedState(state)
   if (state && typeof state === 'object' && state.schemaVersion === SCHEMA_VERSION) {
     state.automaticMergePolicy ??= defaultAutomaticMergePolicy()
     state.automaticMergeEvents ??= []
@@ -609,16 +677,32 @@ function validateWorkflow(state) {
 
 function trustedCompletedTaskIds(state) {
   const tasksById = new Map(state.tasks.map(task => [task.id, task]))
+  const trustedContext = trustedContextForUnmodifiedState(state)
+  const liveVerified = trustedContext?.taskIds ?? new Set()
   const completed = new Set()
   let changed = true
   while (changed) {
     changed = false
     for (const task of state.tasks) {
-      if (task.status !== 'completed' || completed.has(task.id)) continue
-      // Manual merge completion remains a checkpoint claim until a trusted
-      // host provider exists. Do not count it, or any task downstream from it,
-      // as a satisfied dependency.
-      if (isMergeCompletionClaim(state, task) && !TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE) continue
+      const isLiveVerifiedMerge = liveVerified.has(task.id)
+      if ((task.status !== 'completed' && !isLiveVerifiedMerge) || completed.has(task.id)) continue
+      // The integration checkpoint is an editable handoff ledger. Without a
+      // private fresh-verification context, none of its completion statuses
+      // can release dependencies, including claims relabelled as ordinary work.
+      if (state.objectiveId === 'autonomous-integration' && !trustedContext && !isLiveVerifiedMerge) continue
+      // A current authenticated GitHub merge is itself the terminal fact for
+      // that canonical merge node. Its predecessor checkpoint work remains
+      // an audit claim and may be re-selected, but cannot negate the observed
+      // exact-scope merge or keep its downstream chain permanently stranded.
+      if (isLiveVerifiedMerge) {
+        completed.add(task.id)
+        changed = true
+        continue
+      }
+      // Manual merge completion remains a checkpoint claim unless this
+      // reconciliation call placed the task in the private live-verification
+      // set. Do not count it, or dependent tasks, from editable records alone.
+      if (isMergeCompletionClaim(state, task) && !isLiveVerifiedMerge) continue
       if (task.dependencies.every(id => completed.has(id) && tasksById.has(id))) {
         completed.add(task.id)
         changed = true
@@ -647,6 +731,21 @@ function event(state, type, taskId, data = {}) {
 }
 
 function advance(state) {
+  assertTrustedStateNotCompromised(state)
+  const context = trustedContextForUnmodifiedState(state)
+  if (context) trustedTransitionInProgress.add(state)
+  try {
+    const outcome = advanceWithCurrentTrust(state)
+    return outcome
+  } finally {
+    if (context) {
+      trustedTransitionInProgress.delete(state)
+      if (verifiedHistoricalMerges.get(state) === context) context.fingerprint = workflowFingerprint(state)
+    }
+  }
+}
+
+function advanceWithCurrentTrust(state) {
   validateWorkflow(state)
   if (state.selectedTaskId) return { task: state.tasks.find(task => task.id === state.selectedTaskId), reason: 'active_task' }
   const completed = trustedCompletedTaskIds(state)
@@ -673,9 +772,61 @@ function advance(state) {
 }
 
 function begin(state) {
-  validateWorkflow(state)
-  if (state.status === 'budget_reached' || state.status === 'completed') return { task: null, reason: state.status }
-  return advance(state)
+  assertTrustedStateNotCompromised(state)
+  const context = trustedContextForUnmodifiedState(state)
+  if (context) trustedTransitionInProgress.add(state)
+  try {
+    validateWorkflow(state)
+    if (state.status === 'budget_reached' || state.status === 'completed') return { task: null, reason: state.status }
+    return advance(state)
+  } finally {
+    if (context) {
+      trustedTransitionInProgress.delete(state)
+      if (verifiedHistoricalMerges.get(state) === context) context.fingerprint = workflowFingerprint(state)
+    }
+  }
+}
+
+function resetUnverifiedWorkCompletions(state, trustedMergeIds) {
+  for (const task of state.tasks) {
+    if (task.status !== 'completed' || trustedMergeIds.has(task.id) || isMergeCompletionClaim(state, task)) continue
+    // A completed work status in the editable checkpoint is only an audit
+    // claim. Re-run it from the canonical graph after restoring verified PR
+    // merge dependencies; retain its task_completed event history.
+    task.status = 'ready'
+    task.blockerCode = null
+    task.retryExhausted = false
+    task.result = null
+    task.rejection = null
+  }
+  if (state.status === 'completed' && state.tasks.some(task => task.status !== 'rejected' && !trustedMergeIds.has(task.id))) {
+    state.status = 'active'
+    state.stopReason = null
+  }
+}
+
+async function resumeWithTrustedGitHub(file = DEFAULT_CHECKPOINT) {
+  const expectedDiskFingerprint = await persistedWorkflowFingerprint(file)
+  const state = await loadCheckpoint(file)
+  const stateFingerprint = workflowFingerprint(state)
+  const trustedMergeIds = new Set(await verifyTrustedHistoricalMerges(state))
+  if (workflowFingerprint(state) !== stateFingerprint ||
+      await persistedWorkflowFingerprint(file) !== expectedDiskFingerprint) {
+    throw new Error('Checkpoint changed while trusted GitHub verification was in progress')
+  }
+  resetUnverifiedWorkCompletions(state, trustedMergeIds)
+  rememberTrustedState(state, trustedMergeIds)
+  trustedTransitionInProgress.add(state)
+  try {
+    const outcome = begin(state)
+    trustedTransitionInProgress.add(state)
+    await saveCheckpoint(file, state, expectedDiskFingerprint)
+    return { state, ...outcome }
+  } finally {
+    trustedTransitionInProgress.delete(state)
+    const context = verifiedHistoricalMerges.get(state)
+    if (context) context.fingerprint = workflowFingerprint(state)
+  }
 }
 
 function completeTask(state, taskId, { evidenceRef, commitSha, commitVerificationRef } = {}) {
@@ -1065,7 +1216,7 @@ async function acquireCheckpointLock(lockPath, recoveryPath) {
   return { lockHandle, lockData }
 }
 
-async function saveCheckpoint(file, state) {
+async function saveCheckpoint(file, state, expectedDiskFingerprint) {
   file = path.resolve(file ?? DEFAULT_CHECKPOINT)
   validateWorkflow(state)
   await fs.mkdir(path.dirname(file), { recursive: true })
@@ -1077,9 +1228,15 @@ async function saveCheckpoint(file, state) {
     ({ lockHandle, lockData } = await acquireCheckpointLock(lock, recovery))
     let diskRevision = 0
     try {
-      const diskState = migrateAdditiveSchemaV1Fields(JSON.parse(await fs.readFile(file, 'utf8')))
+      const rawDiskState = JSON.parse(await fs.readFile(file, 'utf8'))
+      if (expectedDiskFingerprint !== undefined && workflowFingerprint(rawDiskState) !== expectedDiskFingerprint) {
+        throw new Error('Trusted checkpoint changed while the transition was in progress')
+      }
+      const diskState = migrateAdditiveSchemaV1Fields(rawDiskState)
       diskRevision = validateWorkflow(diskState).revision
     } catch (error) {
+      if (error.message === 'Trusted checkpoint changed while the transition was in progress') throw error
+      if (expectedDiskFingerprint !== undefined) throw new Error('Trusted checkpoint is missing or cannot be verified under lock')
       if (error.code !== 'ENOENT') throw new Error('Cannot verify integration checkpoint revision; refusing to overwrite it')
     }
     if (diskRevision !== state.revision) throw new Error(`Stale integration checkpoint revision ${state.revision}; current revision is ${diskRevision}`)
@@ -1101,10 +1258,47 @@ async function saveCheckpoint(file, state) {
 }
 
 async function transitionAndSave(file, state, transition) {
+  return transitionAndSaveUsingTrust(file, state, transition, new Set())
+}
+
+async function transitionAndSaveWithTrustedGitHub(file, state, transition) {
+  assertTrustedStateNotCompromised(state)
+  const priorContext = trustedContextForUnmodifiedState(state)
+  if (!priorContext) throw new Error('Trusted transition requires an unmodified state from trusted resume')
+  const transitionFingerprint = workflowFingerprint(transition)
+  file = file ?? DEFAULT_CHECKPOINT
+  let expectedDiskFingerprint
+  try { expectedDiskFingerprint = await persistedWorkflowFingerprint(file) }
+  catch { throw new Error('Trusted transition requires the matching persisted checkpoint') }
+  if (expectedDiskFingerprint !== priorContext.fingerprint) {
+    verifiedHistoricalMerges.delete(state)
+    throw new Error('Trusted transition checkpoint changed after verification')
+  }
+  const stateFingerprint = priorContext.fingerprint
+  const trustedMergeIds = new Set(await verifyTrustedHistoricalMerges(state))
+  assertTrustedStateNotCompromised(state)
+  if (workflowFingerprint(transition) !== transitionFingerprint) {
+    throw new Error('Coordinator transition changed during trusted GitHub verification')
+  }
+  if (workflowFingerprint(state) !== stateFingerprint ||
+      await persistedWorkflowFingerprint(file) !== expectedDiskFingerprint) {
+    verifiedHistoricalMerges.delete(state)
+    compromisedTrustedStates.add(state)
+    throw new Error('Checkpoint or in-memory state changed during trusted GitHub verification')
+  }
+  return transitionAndSaveUsingTrust(file, state, transition, trustedMergeIds, true, expectedDiskFingerprint)
+}
+
+async function transitionAndSaveUsingTrust(file, state, transition, trustedMergeIds,
+  hasTrustedContext = false, expectedDiskFingerprint) {
   if (!transition || typeof transition !== 'object' || Array.isArray(transition)) {
     throw new Error('Transition must be a structured allowlisted operation')
   }
   const candidate = clone(state)
+  if (hasTrustedContext) {
+    rememberTrustedState(candidate, trustedMergeIds)
+    trustedTransitionInProgress.add(candidate)
+  }
   let outcome
   const { type, taskId, payload, pr } = transition
   if (type === 'begin' && Object.keys(transition).every(key => key === 'type')) outcome = begin(candidate)
@@ -1128,9 +1322,16 @@ async function transitionAndSave(file, state, transition) {
     outcome = refreshMergeScope(candidate, taskId, pr)
   } else throw new Error('Unsupported or malformed integration transition')
 
-  await saveCheckpoint(file, candidate)
-  Object.assign(state, candidate)
-  return outcome
+  try {
+    if (hasTrustedContext) trustedTransitionInProgress.add(candidate)
+    await saveCheckpoint(file, candidate, expectedDiskFingerprint)
+    Object.assign(state, candidate)
+    if (hasTrustedContext) rememberTrustedState(state, trustedMergeIds)
+    return outcome
+  } finally {
+    trustedTransitionInProgress.delete(candidate)
+    verifiedHistoricalMerges.delete(candidate)
+  }
 }
 
 module.exports = {
@@ -1138,5 +1339,5 @@ module.exports = {
   advance, begin, blockTask, completeTask, createWorkflow, loadCheckpoint,
   activateStandingAutoMergePolicy, completeAutomaticMerge, recordApproval, recordAutomaticMergeAssessment,
   refreshMergeScope, rejectTask, retryTask, revokeStandingAutoMergePolicy, saveCheckpoint,
-  transitionAndSave, validateWorkflow,
+  resumeWithTrustedGitHub, transitionAndSave, transitionAndSaveWithTrustedGitHub, validateWorkflow,
 }

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "repository": "HamedGithubforwork/QuizForge-AI",
+  "defaultBranch": "main",
+  "objectiveId": "autonomous-integration",
+  "tasks": [
+    { "id": "pr-678-complete", "kind": "work", "dependencies": [], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 678, "baseRef": "main" } },
+    { "id": "pr-695-reconcile", "kind": "work", "dependencies": ["pr-678-complete"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 695, "baseRef": "main" } },
+    { "id": "pr-695-merge", "kind": "merge", "dependencies": ["pr-695-reconcile"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 695, "baseRef": "main" } },
+    { "id": "pr-698-review", "kind": "work", "dependencies": ["pr-678-complete"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 698, "baseRef": "main" } },
+    { "id": "pr-690-reconcile", "kind": "work", "dependencies": ["pr-695-merge"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 690, "baseRef": "main" } },
+    { "id": "pr-691-reconcile", "kind": "work", "dependencies": ["pr-690-merge"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 691, "baseRef": "codex/agent-review-quality-followup-20261107" } },
+    { "id": "pr-692-reconcile", "kind": "work", "dependencies": ["pr-691-merge"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 692, "baseRef": "codex/optimization-checkpoint-archives-20261108" } },
+    { "id": "pr-694-reconcile", "kind": "work", "dependencies": ["pr-691-merge"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 694, "baseRef": "codex/optimization-checkpoint-archives-20261108" } },
+    { "id": "pr-698-merge", "kind": "merge", "dependencies": ["pr-698-review"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 698, "baseRef": "main" } },
+    { "id": "pr-690-merge", "kind": "merge", "dependencies": ["pr-690-reconcile"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 690, "baseRef": "main" } },
+    { "id": "pr-691-merge", "kind": "merge", "dependencies": ["pr-691-reconcile"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 691, "baseRef": "codex/agent-review-quality-followup-20261107" } },
+    { "id": "pr-692-merge", "kind": "merge", "dependencies": ["pr-692-reconcile"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 692, "baseRef": "codex/optimization-checkpoint-archives-20261108" } },
+    { "id": "pr-694-merge", "kind": "merge", "dependencies": ["pr-694-reconcile"], "pr": { "repository": "HamedGithubforwork/QuizForge-AI", "number": 694, "baseRef": "codex/optimization-checkpoint-archives-20261108" } }
+  ],
+  "historicalMerges": [
+    {
+      "taskId": "pr-678-complete",
+      "prNumber": 678,
+      "headSha": "def1a9eb7a382df53246943fb4235d6407aff4b6",
+      "targetBranch": "main",
+      "baseSha": "aad0afeda769a6715f2ba8351294b61839ff5fe6",
+      "mergeCommitSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff"
+    },
+    {
+      "taskId": "pr-695-merge",
+      "prNumber": 695,
+      "headSha": "176fc7961781d622519597a4c8268b33d40d4514",
+      "targetBranch": "main",
+      "baseSha": "46f3412f673b0522cc1dfce2769e7e8d7d9d6aff",
+      "mergeCommitSha": "4213fe2b7160bdc2e12c5e9661611544e251ae48"
+    }
+  ]
+}

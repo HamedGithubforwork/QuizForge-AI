@@ -34,6 +34,48 @@ The committed integration checkpoint remains revision 24 and is a historical han
 
 The prepared dependency order is PR 690 → PR 691 → PRs 692 and 694; PR 698 is independent. The PR scopes below are historical snapshots, not current readiness evidence.
 
+### Historical merge reconciliation trust boundary
+
+`integration-checkpoint.json` is an editable handoff/audit record. Its task
+statuses, approval objects, event history, merge SHAs, URLs, or hashes never
+prove that GitHub merged a PR and cannot independently release dependent
+work. The Coordinator's only repository-code path that can count historical
+merge dependencies is `resumeWithTrustedGitHub` or
+`transitionAndSaveWithTrustedGitHub`; each call recomputes evidence through a
+fixed, read-only GitHub REST provider. It requires a protected `main` ref, the
+active strict `Required PR gate` ruleset with no bypass actors, and the
+`Required PR gate` context from GitHub Actions integration ID `15368`, plus the
+canonical task graph fetched by exact blob from that same protected `main`
+revision. It compares task IDs, dependency edges, kinds, and PR repository,
+number, and target branch against that graph. It then checks each historical
+PR's repository, number, target, exact head, merged state, merge SHA and
+merge-commit parents, plus ancestry on current `main`; it rechecks `main` and
+the ruleset before returning. No token, caller-supplied provider, checkpoint
+flag, or GitHub write is used.
+
+For the `autonomous-integration` objective, ordinary checkpoint loading,
+`begin`/`advance`, or non-trusted transitions cannot use completion statuses
+to release dependencies. The trusted path binds its ephemeral evidence to a
+data-only fingerprint of the returned workflow; changed state, accessors,
+serialization hooks, proxies, or an edited persisted checkpoint invalidate
+it. It also snapshots the transition operation before network reads and
+rechecks both state and checkpoint before saving under the checkpoint lock. A
+new trusted resume is required before proceeding.
+
+The canonical graph added with this change is not authoritative while it exists
+only on a feature branch. Until the same manifest is committed to protected
+`main`, trusted resume must stop before changing the checkpoint or selecting
+dependent work. A failed observation for one historical PR leaves that merge
+and its descendants untrusted; independently ready work may continue after
+the graph and protection scope have been authenticated. Every new session and
+every trusted transition must fetch again; trust is in-memory only and bound
+to an unchanged state snapshot. Mutating a returned state invalidates it and
+requires a fresh resume from the persisted checkpoint. This bounded verifier
+authenticates historical merge facts for dependency
+continuation. It does not authenticate user approvals, specialist invocation
+claims, candidate checks, or any automatic merge decision, and it has no
+merge endpoint. Automatic merging remains disabled.
+
 - PR #690: head `190f6d98ca59baedddf9e7242bb8c3e63de4ec38`, target `main` at `4213fe2b7160bdc2e12c5e9661611544e251ae48`, gate run [42692660221](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42692660221) passed.
 - PR #691: head `baddbbc98c5a14bc14f664a01f2d79390e9d70c9`, target PR #690's branch at `190f6d98ca59baedddf9e7242bb8c3e63de4ec38`, gate run [42695584837](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42695584837) passed.
 - PR #692: head `8dda007e79afe77dc77a5c186e6e16ab1fa1cc6b`, target PR #691's branch at `baddbbc98c5a14bc14f664a01f2d79390e9d70c9`, gate run [42697462238](https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42697462238) passed.
