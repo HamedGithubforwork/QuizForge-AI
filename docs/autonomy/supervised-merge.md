@@ -39,6 +39,56 @@ Merge Manager must independently fetch and verify all live GitHub evidence
 before it uses a GitHub mutation tool. Never treat checkpoint contents as
 external proof.
 
+## Authenticated local protection preflight
+
+For a supervised **manual** preflight on the Windows development machine, use
+the read-only GitHub CLI helper when `gh` is installed and authenticated:
+
+```powershell
+node scripts/autonomy/github-manual-preflight.cjs
+```
+
+The helper is fixed to `HamedGithubforwork/QuizForge-AI` and `main`; alternate
+repository or branch arguments are rejected before API calls. It reads the
+authenticated account and repository permission, confirms the repository and
+branch, fetches classic protection, effective branch rules, and each applicable
+active ruleset, then repeats the scoped reads to detect observations that
+change during the preflight. It performs GET requests only. Do not pass tokens,
+copy credentials into arguments, or include CLI authentication output in a
+checkpoint or report. It is intentionally Windows-only and returns
+`UNVERIFIED` on other platforms instead of trusting a `PATH`-resolved CLI.
+
+Interpret its result only as a time-stamped local observation:
+
+- `VERIFIED` means the helper authenticated the expected account and admin
+  permission and obtained consistent live protection data for the exact
+  repository, branch, and revision. It is not a PR readiness verdict, merge
+  approval, or authorization.
+- A classic-protection HTTP 404 means “no classic rule applies” only after the
+  helper has separately confirmed the repository, `main`, and authorized
+  account. HTTP 403 means permission denied, never absence.
+- Authentication errors, missing `gh`, rate limits, API outages, malformed or
+  inconsistent responses, unrecognized protections, or mismatched required
+  checks produce `UNVERIFIED` or `BLOCKED`; stop. Never silently reuse an older
+  successful observation.
+
+After a `VERIFIED` result, the Merge Manager still independently checks the
+current PR identity/state, exact head and base, mergeability, complete diff,
+formal reviews and unresolved findings, exact-head required CI, and workflow,
+deployment, infrastructure, and spending effects. Repeat the protection
+preflight and all live PR reads immediately before any separately authorized
+manual merge. Compare the new `snapshotSha256` with the snapshot used for the
+assessment; if it differs, or any PR evidence changes, invalidate the earlier
+assessment and re-fetch/review all affected evidence. A matching digest is
+still only a comparison of local observations, not a merge authorization or
+atomic guard. When local CLI access is unavailable, use only the
+existing narrowly scoped, recent authenticated-administrator evidence fallback
+for manual assessment, with its source, date, actor/role, scope, and limitations
+recorded. This CLI output is not an authenticated provider for repository
+JavaScript and must never be supplied as evidence to make the automatic-merge
+policy eligible. `trusted_live_verification_unavailable` remains a hard stop
+for automatic merging.
+
 The valid run removes only the repeated per-PR approval prompt for a candidate
 that passes every supervised eligibility check. It does not waive normal
 checks, reviews, protections, side-effect checks, or the immediate pre-merge

@@ -92,6 +92,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/integration-coordinator.test.cjs',
     'scripts/autonomy/trusted-integration-verifier.cjs',
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
+    'scripts/autonomy/github-manual-preflight.cjs',
+    'scripts/autonomy/test/github-manual-preflight.test.cjs',
     'docs/autonomy/integration-task-graph.json',
   ]
   for (const changedPath of coordinatorPaths) {
@@ -115,6 +117,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
   assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
     'autonomy CI must execute the trusted integration verifier regression suite when classified relevant')
+  assert.match(autonomyJob, /scripts\/autonomy\/test\/github-manual-preflight\.test\.cjs/,
+    'autonomy CI must execute the authenticated manual preflight regression suite when classified relevant')
 })
 
 function successfulGateInputs(overrides = {}) {
@@ -239,14 +243,27 @@ test('Merge Manager requires fresh authenticated evidence when classic protectio
     /GitHub Settings → Branches/i,
     /inspection date/i,
     /exact repository and branch/i,
-    /settings are unchanged since inspection/i,
+    /confirm the inspected settings remain unchanged/i,
     /screenshot alone/i,
     /evidence is stale/i,
-    /conflicts with live rulesets/i,
-    /mark the gate UNVERIFIED and STOP/i,
-    /not permission to bypass or relax any protection/i,
+    /conflicts? with live rulesets/i,
+    /UNVERIFIED and STOP/i,
+    /never bypasses or relaxes protections/i,
     /Never hardcode a past observation/i,
+    /node scripts\/autonomy\/github-manual-preflight\.cjs/,
+    /HTTP 403 is permission denied, not absence/,
+    /does not alter or feed the automatic-merge evaluator/,
   ]) {
     assert.match(contents, requirement, `Merge Manager must include ${requirement}`)
   }
+})
+
+test('supervised manual CLI preflight is time-scoped and separate from automatic eligibility', () => {
+  const runbook = fs.readFileSync(path.join(repositoryRoot, 'docs/autonomy/supervised-merge.md'), 'utf8')
+  assert.match(runbook, /Authenticated local protection preflight/)
+  assert.match(runbook, /intentionally Windows-only/)
+  assert.match(runbook, /repeats[\s\S]*scoped reads[\s\S]*detect observations that[\s\S]*change/)
+  assert.match(runbook, /Never silently reuse an older\s+successful observation/)
+  assert.match(runbook, /not an authenticated provider for repository\s+JavaScript/)
+  assert.match(runbook, /`trusted_live_verification_unavailable` remains a hard stop/)
 })
