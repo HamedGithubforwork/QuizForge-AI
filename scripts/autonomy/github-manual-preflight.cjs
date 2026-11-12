@@ -89,7 +89,7 @@ function parseGhResult(result) {
 function resolveGh({ platform = process.platform, env = process.env, exists = require('node:fs').existsSync } = {}) {
   if (platform !== 'win32') return null
   const programFiles = env.ProgramW6432 || env.ProgramFiles || 'C:\\Program Files'
-  const installed = require('node:path').join(programFiles, 'GitHub CLI', 'gh.exe')
+  const installed = require('node:path').win32.join(programFiles, 'GitHub CLI', 'gh.exe')
   // Prefer the standard official Winget location over a PATH-resolved
   // executable, which could shadow the authenticated CLI with a shim.
   if (exists(installed)) return installed
