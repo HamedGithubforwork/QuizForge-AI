@@ -7,9 +7,11 @@ const crypto = require('node:crypto')
 const REPOSITORY = 'HamedGithubforwork/QuizForge-AI'
 const DEFAULT_BRANCH = 'main'
 const MANIFEST_PATH = 'docs/autonomy/integration-task-graph.json'
-const RULESET_ID = 21886458
-const REQUIRED_CHECK = 'Required PR gate'
-const REQUIRED_CHECK_INTEGRATION_ID = 15368
+// Process-rooted identity for the graph introduced by the manually approved
+// PR #699 merge. This is deliberately not read from the graph/checkpoint.
+// Updating it requires a separately reviewed, explicitly authorized main PR.
+const CANONICAL_GRAPH_APPROVAL_COMMIT = '662926ac46d2b1fbb2433f2405c299e08583ac44'
+const CANONICAL_GRAPH_SHA256 = '4967b276a409a5f7836a6901af575f4e6d7fb1a9d7bf7f3c07c790008259b800'
 const API_ROOT = `https://api.github.com/repos/${REPOSITORY}`
 const SHA1 = /^[a-f0-9]{40}$/
 
@@ -25,22 +27,11 @@ async function getJson(url) {
     redirect: 'error',
     signal: AbortSignal.timeout(8000),
   })
-  if (!response.ok) throw new Error(`Trusted GitHub read failed (${response.status})`)
-  return response.json()
-}
-
-function assertRuleset(ruleset) {
-  const checks = ruleset?.rules?.find(rule => rule.type === 'required_status_checks')?.parameters
-  const protections = ruleset?.rules?.find(rule => rule.type === 'pull_request')?.parameters
-  const check = checks?.required_status_checks?.find(item => item.context === REQUIRED_CHECK)
-  if (ruleset?.id !== RULESET_ID || ruleset.enforcement !== 'active' ||
-      !ruleset.conditions?.ref_name?.include?.includes('~DEFAULT_BRANCH') ||
-      !checks?.strict_required_status_checks_policy || !check ||
-      check.integration_id !== REQUIRED_CHECK_INTEGRATION_ID ||
-      !Array.isArray(ruleset.bypass_actors) || ruleset.bypass_actors.length !== 0 ||
-      protections?.required_approving_review_count !== 0) {
-    throw new Error('Protected main ruleset no longer matches the trusted source policy')
+  if (!response.ok) {
+    const apiPath = new URL(url).pathname
+    throw new Error(`Trusted GitHub read failed (${response.status}) at ${apiPath}`)
   }
+  return response.json()
 }
 
 function assertManifest(manifest) {
@@ -119,10 +110,32 @@ function assertCheckpointGraph(state, manifest) {
   }
 }
 
-function assertGitBlobSha(content, expectedSha) {
-  const bytes = Buffer.from(content, 'utf8')
+function assertGitBlobSha(bytes, expectedSha) {
   const actual = crypto.createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
   if (!SHA1.test(expectedSha ?? '') || actual !== expectedSha) throw new Error('Canonical graph Git blob integrity check failed')
+}
+
+function assertCanonicalGraphSha256(bytes) {
+  const actual = crypto.createHash('sha256').update(bytes).digest('hex')
+  if (actual !== CANONICAL_GRAPH_SHA256) {
+    throw new Error('Canonical task graph does not match the pinned graph identity')
+  }
+  return actual
+}
+
+async function readPinnedGraphAt(ref) {
+  const file = await getJson(`${API_ROOT}/contents/${MANIFEST_PATH}?ref=${encodeURIComponent(ref)}`)
+  if (file?.type !== 'file' || file.path !== MANIFEST_PATH || file.encoding !== 'base64' ||
+      typeof file.content !== 'string') throw new Error('Canonical graph is unavailable on protected main')
+  const bytes = Buffer.from(file.content.replace(/\s/g, ''), 'base64')
+  // Validate exact GitHub blob bytes. Do not hash a Windows checkout, whose
+  // CRLF conversion gives it different bytes from the committed graph.
+  assertGitBlobSha(bytes, file.sha)
+  const graphSha256 = assertCanonicalGraphSha256(bytes)
+  const content = bytes.toString('utf8')
+  let manifest
+  try { manifest = JSON.parse(content) } catch { throw new Error('Canonical graph JSON is invalid') }
+  return { bytes, graphSha256, manifest: assertManifest(manifest) }
 }
 
 async function readCanonicalGraph() {
@@ -132,20 +145,21 @@ async function readCanonicalGraph() {
     throw new Error('GitHub did not confirm a protected main revision')
   }
 
-  const rulesets = await getJson(`${API_ROOT}/rulesets`)
-  const listed = Array.isArray(rulesets) && rulesets.find(item => item.id === RULESET_ID)
-  if (!listed) throw new Error('Protect main ruleset is unavailable')
-  const ruleset = await getJson(`${API_ROOT}/rulesets/${RULESET_ID}`)
-  assertRuleset(ruleset)
+  const approvedGraphAncestry = await getJson(
+    `${API_ROOT}/compare/${CANONICAL_GRAPH_APPROVAL_COMMIT}...${mainSha}`)
+  if (!['ahead', 'identical'].includes(approvedGraphAncestry?.status) ||
+      approvedGraphAncestry.behind_by !== 0) {
+    throw new Error('Protected main does not contain the approved canonical graph source commit')
+  }
 
-  const file = await getJson(`${API_ROOT}/contents/${MANIFEST_PATH}?ref=${mainSha}`)
-  if (file?.type !== 'file' || file.path !== MANIFEST_PATH || file.encoding !== 'base64' ||
-      typeof file.content !== 'string') throw new Error('Canonical graph is unavailable on protected main')
-  const content = Buffer.from(file.content.replace(/\s/g, ''), 'base64').toString('utf8')
-  assertGitBlobSha(content, file.sha)
-  let manifest
-  try { manifest = JSON.parse(content) } catch { throw new Error('Canonical graph JSON is invalid') }
-  return { mainSha, ruleset, manifest: assertManifest(manifest) }
+  const [approvedGraph, mainGraph] = await Promise.all([
+    readPinnedGraphAt(CANONICAL_GRAPH_APPROVAL_COMMIT),
+    readPinnedGraphAt(mainSha),
+  ])
+  if (approvedGraph.graphSha256 !== mainGraph.graphSha256 || !approvedGraph.bytes.equals(mainGraph.bytes)) {
+    throw new Error('Canonical graph bytes changed from the approved source commit')
+  }
+  return { mainSha, manifest: mainGraph.manifest }
 }
 
 async function verifyHistoricalMerge(expected, mainSha) {
@@ -171,7 +185,7 @@ async function verifyHistoricalMerge(expected, mainSha) {
 }
 
 async function verifyTrustedHistoricalMerges(state) {
-  const { mainSha, ruleset, manifest } = await readCanonicalGraph()
+  const { mainSha, manifest } = await readCanonicalGraph()
   assertCheckpointGraph(state, manifest)
   const trustedTaskIds = []
   for (const merge of manifest.historicalMerges) {
@@ -185,17 +199,13 @@ async function verifyTrustedHistoricalMerges(state) {
     }
   }
 
-  // Reject a moving target or changed protection/evidence while the read set
-  // was being collected. The caller invokes this again for every persisted
-  // transition and every session resume.
-  const [finalBranch, finalRuleset] = await Promise.all([
-    getJson(`${API_ROOT}/branches/${DEFAULT_BRANCH}`),
-    getJson(`${API_ROOT}/rulesets/${RULESET_ID}`),
-  ])
-  assertRuleset(finalRuleset)
-  if (finalBranch?.protected !== true || finalBranch?.commit?.sha !== mainSha ||
-      JSON.stringify(finalRuleset) !== JSON.stringify(ruleset)) {
-    throw new Error('Trusted GitHub scope changed during reconciliation')
+  // Recheck the main target after collecting PR evidence. The caller invokes
+  // this provider again on every persisted transition and every session
+  // resume; current bypass-actor state is intentionally outside this
+  // historical-only proof and remains required for any future merge gate.
+  const finalBranch = await getJson(`${API_ROOT}/branches/${DEFAULT_BRANCH}`)
+  if (finalBranch?.protected !== true || finalBranch?.commit?.sha !== mainSha) {
+    throw new Error('Protected main changed during historical merge reconciliation')
   }
   return Object.freeze(trustedTaskIds)
 }

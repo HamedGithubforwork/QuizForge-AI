@@ -3,38 +3,26 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
+const fsSync = require('node:fs')
 const fs = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 const { DEFAULT_CHECKPOINT, loadCheckpoint, resumeWithTrustedGitHub } = require('../integration-coordinator.cjs')
 
 const repository = 'HamedGithubforwork/QuizForge-AI'
-const mainSha = '4213fe2b7160bdc2e12c5e9661611544e251ae48'
+const mainSha = '8bf9ba6ac8aaf151982d91589ed6d765e97445ea'
+const canonicalGraphApprovalCommit = '662926ac46d2b1fbb2433f2405c299e08583ac44'
 const merge678 = '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff'
 const head678 = 'def1a9eb7a382df53246943fb4235d6407aff4b6'
 const base678 = 'aad0afeda769a6715f2ba8351294b61839ff5fe6'
-const merge695 = mainSha
+const merge695 = '4213fe2b7160bdc2e12c5e9661611544e251ae48'
 const head695 = '176fc7961781d622519597a4c8268b33d40d4514'
 const base695 = merge678
 const graphPath = path.join(__dirname, '..', '..', '..', 'docs', 'autonomy', 'integration-task-graph.json')
+const canonicalGraphText = fsSync.readFileSync(graphPath, "utf8").split("\r\n").join("\n")
 
 function sha1Blob(text) {
   return crypto.createHash('sha1').update(`blob ${Buffer.byteLength(text)}\0`).update(text).digest('hex')
-}
-
-function ruleset() {
-  return {
-    id: 21886458, enforcement: 'active',
-    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-    bypass_actors: [],
-    rules: [
-      { type: 'required_status_checks', parameters: {
-        strict_required_status_checks_policy: true,
-        required_status_checks: [{ context: 'Required PR gate', integration_id: 15368 }],
-      } },
-      { type: 'pull_request', parameters: { required_approving_review_count: 0 } },
-    ],
-  }
 }
 
 function pr(number, headSha, baseSha, mergeSha) {
@@ -46,16 +34,11 @@ function pr(number, headSha, baseSha, mergeSha) {
   }
 }
 
-function fixtureApi({ graphText, failPr = new Set(), moveMain = false, badRuleset = false, badAncestry = false,
-  missingManifest = false, apiOutage = false, missingBypassActors = false, badPrScope = false, badParent = false,
-  integrationId = 15368, onRequest } = {}) {
-  const canonicalGraph = graphText ?? require(graphPath)
-  const text = typeof canonicalGraph === 'string' ? canonicalGraph : `${JSON.stringify(canonicalGraph, null, 2)}\n`
-  const protectedRuleset = ruleset()
-  if (badRuleset) protectedRuleset.bypass_actors = [{ actor_id: 1, bypass_mode: 'always' }]
-  if (missingBypassActors) delete protectedRuleset.bypass_actors
-  if (integrationId === null) delete protectedRuleset.rules[0].parameters.required_status_checks[0].integration_id
-  else protectedRuleset.rules[0].parameters.required_status_checks[0].integration_id = integrationId
+function fixtureApi({ graphText, failPr = new Set(), moveMain = false, badAncestry = false,
+  missingManifest = false, apiOutage = false, badPrScope = false, badParent = false,
+  badGraphAncestry = false, onRequest } = {}) {
+  const text = graphText === undefined ? canonicalGraphText :
+    typeof graphText === 'string' ? graphText : JSON.stringify(graphText, null, 2) + '\n'
   const calls = []
   const originalFetch = global.fetch
   global.fetch = async url => {
@@ -67,9 +50,7 @@ function fixtureApi({ graphText, failPr = new Set(), moveMain = false, badRulese
     if (route === '/branches/main') {
       const number = calls.filter(item => item.includes('/branches/main')).length
       body = { protected: true, commit: { sha: moveMain && number > 1 ? 'c'.repeat(40) : mainSha } }
-    } else if (route === '/rulesets') body = [{ id: 21886458 }]
-    else if (route === '/rulesets/21886458') body = protectedRuleset
-    else if (route.startsWith('/contents/') && missingManifest) {
+    } else if (route.startsWith('/contents/') && missingManifest) {
       return { ok: false, status: 404, json: async () => ({}) }
     }
     else if (route.startsWith('/contents/')) body = {
@@ -86,7 +67,10 @@ function fixtureApi({ graphText, failPr = new Set(), moveMain = false, badRulese
       if (badPrScope) body.head.sha = 'c'.repeat(40)
     } else if (route === `/commits/${merge678}`) body = { sha: merge678, parents: [{ sha: base678 }, { sha: badParent ? 'c'.repeat(40) : head678 }] }
     else if (route === `/commits/${merge695}`) body = { sha: merge695, parents: [{ sha: base695 }, { sha: badParent ? 'c'.repeat(40) : head695 }] }
-    else if (route.startsWith('/compare/')) body = { status: badAncestry ? 'diverged' : 'ahead', behind_by: 0 }
+    else if (route.startsWith('/compare/')) {
+      const isGraphAncestry = route.includes('662926ac46d2b1fbb2433f2405c299e08583ac44')
+      body = { status: (isGraphAncestry ? badGraphAncestry : badAncestry) ? 'diverged' : 'ahead', behind_by: 0 }
+    }
     else throw new Error(`Unexpected GitHub request ${route}`)
     return { ok: true, status: 200, json: async () => body }
   }
@@ -111,11 +95,16 @@ test('mocked GitHub API merge facts unlock the historical dependency chain witho
     assert.equal(result.reason, 'selected')
     assert.equal(result.state.tasks.find(item => item.id === 'pr-678-complete').status, 'completed')
     assert.equal(result.state.tasks.find(item => item.id === 'pr-695-merge').status, 'completed')
+    assert.equal(result.state.automaticMergePolicy.status, 'disabled')
+    assert.equal(api.calls.some(url => url.includes('/rulesets/')), false,
+      'read-only history reconciliation does not inspect bypass actors or use merge-protection evidence')
     const after = JSON.parse(await fs.readFile(temp.file, 'utf8'))
     assert.equal(JSON.stringify(after).includes('verifiedHistoricalMerges'), false)
     assert.equal(JSON.stringify(after).includes('trustedMergeIds'), false)
     assert.deepEqual(await fs.readFile(DEFAULT_CHECKPOINT), original)
+    assert.ok(api.calls.some(url => url.includes(`/contents/docs/autonomy/integration-task-graph.json?ref=${canonicalGraphApprovalCommit}`)))
     assert.ok(api.calls.some(url => url.includes(`/contents/docs/autonomy/integration-task-graph.json?ref=${mainSha}`)))
+    assert.ok(api.calls.some(url => url.includes(`/compare/${canonicalGraphApprovalCommit}...${mainSha}`)))
     assert.ok(api.calls.some(url => url.endsWith('/pulls/678')))
     assert.ok(api.calls.some(url => url.endsWith('/pulls/695')))
     assert.notDeepEqual(before, await fs.readFile(temp.file))
@@ -201,7 +190,7 @@ test('canonical graph rejects dependency cycles', async () => {
   const api = fixtureApi({ graphText: graph })
   try {
     const { verifyTrustedHistoricalMerges } = require('../trusted-integration-verifier.cjs')
-    await assert.rejects(verifyTrustedHistoricalMerges(checkpoint), /dependency cycle/)
+    await assert.rejects(verifyTrustedHistoricalMerges(checkpoint), /pinned graph identity/)
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
@@ -218,7 +207,7 @@ test('canonical historical merge cannot be reassigned to a mismatched task node'
       const api = fixtureApi({ graphText: graph })
       try {
         const { verifyTrustedHistoricalMerges } = require('../trusted-integration-verifier.cjs')
-        await assert.rejects(verifyTrustedHistoricalMerges(checkpoint), /historical merge does not match its task/)
+        await assert.rejects(verifyTrustedHistoricalMerges(checkpoint), /pinned graph identity/)
       } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
     })
   }
@@ -468,14 +457,11 @@ test('an unmodified trusted session preserves verified merge dependencies throug
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
-test('missing main manifest, API outage, ruleset bypass, moving main, and bad ancestry fail closed', async t => {
+test('missing main manifest, API outage or rate limit, moving main, and bad ancestry fail closed', async t => {
   const scenarios = [
     ['manifest absent on main', { missingManifest: true }],
+    ['approved graph source ancestry fails', { badGraphAncestry: true }],
     ['API outage or rate limit', { apiOutage: true }],
-    ['ruleset bypass configured', { badRuleset: true }],
-    ['ruleset bypass actors unavailable', { missingBypassActors: true }],
-    ['required check integration ID missing', { integrationId: null }],
-    ['required check integration ID changed', { integrationId: 1 }],
     ['main moves during verification', { moveMain: true }],
     ['merge ancestry fails', { badAncestry: true }],
     ['changed PR head scope', { badPrScope: true }],
@@ -492,37 +478,47 @@ test('missing main manifest, API outage, ruleset bypass, moving main, and bad an
           assert.notEqual(result.task?.id, 'pr-695-reconcile')
           assert.equal(result.state.automaticMergePolicy.status, 'disabled')
         } else {
-          await assert.rejects(resumeWithTrustedGitHub(temp.file))
+          if (label === 'approved graph source ancestry fails') {
+            await assert.rejects(resumeWithTrustedGitHub(temp.file), /approved canonical graph source commit/)
+          } else await assert.rejects(resumeWithTrustedGitHub(temp.file))
           assert.deepEqual(await fs.readFile(temp.file), before)
+          if (label === 'approved graph source ancestry fails') {
+            assert.equal(api.calls.some(url => url.endsWith('/pulls/678') || url.endsWith('/pulls/695')), false,
+              'invalid source ancestry must fail before any historical PR can release dependent work')
+          }
         }
       } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
     })
   }
 })
 
-test('unverified merge dependencies do not prevent an independent task from advancing', async () => {
+test('canonical graph changes fail even when the forged JSON has a matching Git blob SHA', async () => {
   const temp = await tempCheckpoint()
-  const checkpoint = JSON.parse(await fs.readFile(temp.file, 'utf8'))
-  // This added task is a test-only independent graph node; the authenticated
-  // canonical response below contains the identical graph and blob digest.
-  checkpoint.tasks.push({ id: 'independent-safe-work', title: 'Independent safe work', priority: 100,
-    dependencies: [], status: 'ready', attempts: 0, kind: 'work', blockerCode: null, retryExhausted: false,
-    result: null, rejection: null, pr: null, approval: null, automaticMergeDecision: null, evidenceRefs: [] })
-  checkpoint.maxSelections = Math.max(checkpoint.maxSelections, checkpoint.selections + 1)
-  await fs.writeFile(temp.file, `${JSON.stringify(checkpoint, null, 2)}\n`)
   const graph = JSON.parse(await fs.readFile(graphPath, 'utf8'))
-  graph.tasks.push({ id: 'independent-safe-work', kind: 'work', dependencies: [], pr: null })
-  const api = fixtureApi({ graphText: graph, failPr: new Set([678, 695]) })
+  graph.tasks.find(task => task.id === 'pr-690-reconcile').dependencies = ['pr-678-complete']
+  const tamperedText = `${JSON.stringify(graph, null, 2)}\n`
+  const api = fixtureApi({ graphText: tamperedText })
+  try {
+    await assert.rejects(resumeWithTrustedGitHub(temp.file), /pinned graph identity/)
+    assert.equal(api.calls.some(url => url.includes('/pulls/')), false,
+      'the verifier must reject the graph before consulting merge records')
+  } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
+})
+
+test('unverified merge dependencies do not prevent independent canonical work from advancing', async () => {
+  const temp = await tempCheckpoint()
+  const api = fixtureApi({ failPr: new Set([695]) })
   try {
     const result = await resumeWithTrustedGitHub(temp.file)
-    assert.equal(result.task.id, 'independent-safe-work')
+    assert.equal(result.state.tasks.find(task => task.id === 'pr-678-complete').status, 'completed')
+    assert.equal(result.state.tasks.find(task => task.id === 'pr-695-merge').status, 'completed',
+      'the checkpoint completion remains audit data when the live PR observation fails')
+    assert.equal(result.task.id, 'pr-695-reconcile',
+      'work depending only on verified PR #678 remains actionable when PR #695 cannot be verified')
     assert.equal(result.reason, 'selected')
-    const { transitionAndSaveWithTrustedGitHub } = require('../integration-coordinator.cjs')
-    const next = await transitionAndSaveWithTrustedGitHub(temp.file, result.state, {
-      type: 'complete', taskId: 'independent-safe-work',
-      payload: { evidenceRef: 'docs/autonomy/integration-workflow.md' },
-    })
-    assert.equal(next.reason, 'blocked')
+    assert.notEqual(result.task.id, 'pr-690-reconcile',
+      'work depending on unverified PR #695 must remain unselected')
+    assert.equal(result.state.automaticMergePolicy.status, 'disabled')
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
@@ -540,4 +536,43 @@ test('clearing completed work claims also clears stale objective-complete status
     assert.equal(result.state.status, 'blocked')
     assert.equal(result.state.stopReason, 'no_actionable_task')
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
+})
+
+test('LIVE: actual #678 and #695 merges release downstream work on a disposable checkpoint', {
+  skip: process.env.QFN_LIVE_HISTORY_RECONCILIATION !== '1',
+}, async () => {
+  const temp = await tempCheckpoint()
+  const originalCheckpoint = await fs.readFile(DEFAULT_CHECKPOINT)
+  try {
+    const result = await resumeWithTrustedGitHub(temp.file)
+    assert.equal(result.state.tasks.find(task => task.id === 'pr-678-complete').status, 'completed')
+    assert.equal(result.state.tasks.find(task => task.id === 'pr-695-merge').status, 'completed')
+    assert.equal(result.state.tasks.find(task => task.id === 'pr-690-reconcile').status, 'ready')
+    assert.equal(result.state.automaticMergePolicy.status, 'disabled')
+      assert.equal(result.task?.id, 'pr-695-reconcile')
+
+      // This synthetic completion represents local reconciliation work only;
+      // it is not a GitHub merge fact or authorization. Complete it only in
+      // the disposable checkpoint to demonstrate the verified PR #695 merge
+      // releasing its downstream reconciliation task.
+    const { transitionAndSaveWithTrustedGitHub } = require('../integration-coordinator.cjs')
+    const continuation = await transitionAndSaveWithTrustedGitHub(temp.file, result.state, {
+        type: 'complete', taskId: 'pr-695-reconcile',
+      payload: { evidenceRef: 'docs/autonomy/integration-workflow.md' },
+    })
+    assert.equal(continuation.reason, 'selected')
+      assert.equal(result.state.automaticMergePolicy.status, 'disabled')
+      assert.equal(continuation.task?.id, 'pr-698-review',
+        'independent canonical work precedes the next PR #690 dependency task')
+      const afterIndependent = await transitionAndSaveWithTrustedGitHub(temp.file, result.state, {
+        type: 'complete', taskId: 'pr-698-review',
+        payload: { evidenceRef: 'docs/autonomy/integration-workflow.md' },
+      })
+      assert.equal(afterIndependent.task?.id, 'pr-690-reconcile',
+        'the verified PR #695 merge now makes its downstream reconciliation actionable')
+      assert.equal(afterIndependent.reason, 'selected')
+      assert.equal(result.state.automaticMergePolicy.status, 'disabled')
+    assert.deepEqual(await fs.readFile(DEFAULT_CHECKPOINT), originalCheckpoint,
+      'live reconciliation must leave the version-controlled checkpoint untouched')
+  } finally { await fs.rm(temp.dir, { recursive: true, force: true }) }
 })

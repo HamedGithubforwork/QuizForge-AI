@@ -347,7 +347,7 @@ test('complete_auto_merge rejects caller-supplied host objects and cannot start 
 
 test('automatic-merge agent guidance keeps activation separate and all exact-head roles required', async () => {
   const root = path.resolve(__dirname, '../../..')
-  const [agents, developer, reviewer, qa, security, manager, release, policyDoc, liveProtocol, coordinatorCode] = await Promise.all([
+  const [agents, developer, reviewer, qa, security, manager, release, policyDoc, liveProtocol, coordinatorCode, ciWorkflow] = await Promise.all([
     fs.readFile(path.join(root, 'AGENTS.md'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/developer.toml'), 'utf8'),
     fs.readFile(path.join(root, '.codex/agents/reviewer.toml'), 'utf8'),
@@ -358,6 +358,7 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
     fs.readFile(path.join(root, 'docs/autonomy/automatic-merge-policy.md'), 'utf8'),
     fs.readFile(path.join(root, 'docs/autonomy/automatic-merge-live-execution.md'), 'utf8'),
     fs.readFile(path.join(root, 'scripts/autonomy/integration-coordinator.cjs'), 'utf8'),
+    fs.readFile(path.join(root, '.github/workflows/ci.yml'), 'utf8'),
   ])
   for (const text of [agents, manager, policyDoc]) assert.match(text, /disabled by default|disabled/i)
   assert.match(agents, /created after the recorded activation time/)
@@ -366,6 +367,14 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
   assert.match(qa, /exact current head/)
   assert.match(security, /exact final diff/)
   assert.match(manager, /not the policy-enabling PR or any PR created before activation/)
+  assert.match(agents, /Sourcery AI is optional supplementary review only/i)
+  assert.match(agents, /Before any merge decision, refresh live PR\/CI\/ruleset state/)
+  assert.match(agents, /A history-only resume instead re-fetches the pinned graph and scoped historical merge facts/)
+  assert.match(agents, /ordinary non-mutative continuation without replaying the old merge approval/)
+  assert.match(agents, /That history-only proof does not attest that user approval occurred and cannot authorize a new merge/)
+  assert.match(manager, /Sourcery AI is optional supplementary review/i)
+  assert.match(manager, /unresolved material correctness\/security concern blocks integration/i)
+  assert.doesNotMatch(ciWorkflow, /sourcery/i)
   assert.match(liveProtocol, /expected_head_sha/)
   assert.match(liveProtocol, /trusted_live_verification_unavailable/)
   assert.match(liveProtocol, /do not atomically prevent a concurrent retarget/)
