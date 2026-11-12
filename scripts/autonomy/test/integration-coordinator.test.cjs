@@ -368,6 +368,8 @@ test('automatic-merge agent guidance keeps activation separate and all exact-hea
   assert.match(security, /exact final diff/)
   assert.match(manager, /not the policy-enabling PR or any PR created before activation/)
   assert.match(agents, /Sourcery AI is optional supplementary review only/i)
+  assert.match(agents, /Before any merge decision, refresh live PR\/CI\/ruleset state/)
+  assert.match(agents, /A history-only resume instead re-fetches the pinned graph and scoped historical merge facts/)
   assert.match(agents, /ordinary non-mutative continuation without replaying the old merge approval/)
   assert.match(agents, /That history-only proof does not attest that user approval occurred and cannot authorize a new merge/)
   assert.match(manager, /Sourcery AI is optional supplementary review/i)
