@@ -42,25 +42,44 @@ prove that GitHub merged a PR and cannot independently release dependent
 work. The Coordinator's only repository-code path that can count historical
 merge dependencies is `resumeWithTrustedGitHub` or
 `transitionAndSaveWithTrustedGitHub`; each call recomputes evidence through a
-fixed, read-only GitHub REST provider. It requires a protected `main` ref, the
-active strict `Required PR gate` ruleset with no bypass actors, and the
-`Required PR gate` context from GitHub Actions integration ID `15368`, plus the
-canonical task graph fetched by exact blob from that same protected `main`
-revision. It compares task IDs, dependency edges, kinds, and PR repository,
-number, and target branch against that graph. It then checks each historical
-PR's repository, number, target, exact head, merged state, merge SHA and
-merge-commit parents, plus ancestry on current `main`; it rechecks `main` and
-the ruleset before returning. No token, caller-supplied provider, checkpoint
-flag, or GitHub write is used.
+fixed, read-only HTTPS GitHub REST provider. Historical verification fetches
+the task graph at the exact current protected-`main` SHA and compares its raw
+bytes with the process-rooted SHA-256 pin
+`4967b276a409a5f7836a6901af575f4e6d7fb1a9d7bf7f3c07c790008259b800`. The pin
+was independently computed from the 3,311-byte GitHub Contents API response
+and matches the graph blob introduced by PR #699 merge commit
+`662926ac46d2b1fbb2433f2405c299e08583ac44`. Hash exact GitHub blob bytes; a
+Windows CRLF checkout has different raw bytes and must not be used to compute
+this value. The Git blob SHA-1 is an integrity check, not an approval claim.
 
-The runtime has no authenticated GitHub credential or connected-tool bridge.
-If GitHub's public API omits ruleset bypass-actor data, the verifier fails
-closed rather than assuming an empty bypass list. On November 11, 2026, the
-connected GitHub read showed the active ruleset with no bypass actors, while
-the unauthenticated API response available to repository JavaScript omitted
-that field. A trusted host/API capability is therefore still required for
-live reconciliation on this runtime, in addition to the canonical graph being
-present on protected `main`.
+After matching the pinned graph, the verifier compares all task IDs, dependency
+edges, kinds, and PR repository, number, and target branch against the
+checkpoint. It verifies each historical PR's repository, exact head, target,
+merged state and merge SHA; checks the exact merge-commit parent pair and
+ancestry on current `main`; then re-fetches `main` to reject a moving target.
+Every session resume and trusted transition repeats these live reads. No
+checkpoint claim, caller-provided provider, token, or GitHub write is used.
+
+This is a history-only trust boundary. It proves facts about public GitHub PRs
+and binds them to the pinned task graph; it does **not** prove that current
+ruleset bypass actors are absent. GitHub's public ruleset response omits that
+field, so any operation that requires the bypass guarantee, especially future
+merge evaluation or execution, must continue to block until that information
+is authenticated. The automatic-merge provider remains disabled. Historical
+verification cannot authenticate user approval or authorize a merge.
+
+The graph pin is process-rooted, not cryptographically external to the
+repository. The threat model trusts the repository owner and exact, manually
+authorized changes to protected `main`, while treating checkpoint edits and
+unmerged PRs as untrusted. Any future change to the task graph, pin, or
+verifier must receive a separate PR review and explicit user authorization for
+that exact PR/head/base before integration. A malicious owner/admin or an
+unauthorized direct update to `main` could change both graph and pin; this
+design does not defend against that stronger threat. Because the ruleset
+requires no formal approving review, GitHub itself does not enforce the human
+approval step described here. If that process trust is insufficient, use an
+external trust anchor or a host-issued verifier capability instead of
+loosening the check.
 
 For the `autonomous-integration` objective, ordinary checkpoint loading,
 `begin`/`advance`, or non-trusted transitions cannot use completion statuses
@@ -71,15 +90,15 @@ it. It also snapshots the transition operation before network reads and
 rechecks both state and checkpoint before saving under the checkpoint lock. A
 new trusted resume is required before proceeding.
 
-The canonical graph added with this change is not authoritative while it exists
-only on a feature branch. Until the same manifest is committed to protected
-`main`, trusted resume must stop before changing the checkpoint or selecting
-dependent work. A failed observation for one historical PR leaves that merge
-and its descendants untrusted; independently ready work may continue after
-the graph and protection scope have been authenticated. Every new session and
-every trusted transition must fetch again; trust is in-memory only and bound
-to an unchanged state snapshot. Mutating a returned state invalidates it and
-requires a fresh resume from the persisted checkpoint. This bounded verifier
+The canonical graph is accepted only when protected `main` contains the
+process-pinned bytes and approval-source commit. A changed graph digest,
+missing graph, failed PR observation, API outage, or changed main SHA fails
+closed for affected dependencies. Independently eligible work may continue
+once the pinned graph is established, even when an individual PR merge cannot
+be verified. Every new session and trusted transition fetches again; trust is
+in-memory only and bound to an unchanged state snapshot. Mutating a returned
+state invalidates it and requires a fresh resume from the persisted
+checkpoint. This bounded verifier
 authenticates historical merge facts for dependency
 continuation. It does not authenticate user approvals, specialist invocation
 claims, candidate checks, or any automatic merge decision, and it has no
