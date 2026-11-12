@@ -454,7 +454,7 @@ test('an unmodified trusted session preserves verified merge dependencies throug
   } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
 })
 
-test('missing main manifest, API outage, ruleset bypass, moving main, and bad ancestry fail closed', async t => {
+test('missing main manifest, API outage or rate limit, moving main, and bad ancestry fail closed', async t => {
   const scenarios = [
     ['manifest absent on main', { missingManifest: true }],
     ['API outage or rate limit', { apiOutage: true }],
