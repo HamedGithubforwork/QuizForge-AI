@@ -11,6 +11,7 @@ const { DEFAULT_CHECKPOINT, loadCheckpoint, resumeWithTrustedGitHub } = require(
 
 const repository = 'HamedGithubforwork/QuizForge-AI'
 const mainSha = '8bf9ba6ac8aaf151982d91589ed6d765e97445ea'
+const canonicalGraphApprovalCommit = '662926ac46d2b1fbb2433f2405c299e08583ac44'
 const merge678 = '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff'
 const head678 = 'def1a9eb7a382df53246943fb4235d6407aff4b6'
 const base678 = 'aad0afeda769a6715f2ba8351294b61839ff5fe6'
@@ -101,7 +102,9 @@ test('mocked GitHub API merge facts unlock the historical dependency chain witho
     assert.equal(JSON.stringify(after).includes('verifiedHistoricalMerges'), false)
     assert.equal(JSON.stringify(after).includes('trustedMergeIds'), false)
     assert.deepEqual(await fs.readFile(DEFAULT_CHECKPOINT), original)
+    assert.ok(api.calls.some(url => url.includes(`/contents/docs/autonomy/integration-task-graph.json?ref=${canonicalGraphApprovalCommit}`)))
     assert.ok(api.calls.some(url => url.includes(`/contents/docs/autonomy/integration-task-graph.json?ref=${mainSha}`)))
+    assert.ok(api.calls.some(url => url.includes(`/compare/${canonicalGraphApprovalCommit}...${mainSha}`)))
     assert.ok(api.calls.some(url => url.endsWith('/pulls/678')))
     assert.ok(api.calls.some(url => url.endsWith('/pulls/695')))
     assert.notDeepEqual(before, await fs.readFile(temp.file))
@@ -457,6 +460,7 @@ test('an unmodified trusted session preserves verified merge dependencies throug
 test('missing main manifest, API outage or rate limit, moving main, and bad ancestry fail closed', async t => {
   const scenarios = [
     ['manifest absent on main', { missingManifest: true }],
+    ['approved graph source ancestry fails', { badGraphAncestry: true }],
     ['API outage or rate limit', { apiOutage: true }],
     ['main moves during verification', { moveMain: true }],
     ['merge ancestry fails', { badAncestry: true }],
@@ -474,8 +478,14 @@ test('missing main manifest, API outage or rate limit, moving main, and bad ance
           assert.notEqual(result.task?.id, 'pr-695-reconcile')
           assert.equal(result.state.automaticMergePolicy.status, 'disabled')
         } else {
-          await assert.rejects(resumeWithTrustedGitHub(temp.file))
+          if (label === 'approved graph source ancestry fails') {
+            await assert.rejects(resumeWithTrustedGitHub(temp.file), /approved canonical graph source commit/)
+          } else await assert.rejects(resumeWithTrustedGitHub(temp.file))
           assert.deepEqual(await fs.readFile(temp.file), before)
+          if (label === 'approved graph source ancestry fails') {
+            assert.equal(api.calls.some(url => url.endsWith('/pulls/678') || url.endsWith('/pulls/695')), false,
+              'invalid source ancestry must fail before any historical PR can release dependent work')
+          }
         }
       } finally { api.restore(); await fs.rm(temp.dir, { recursive: true, force: true }) }
     })
