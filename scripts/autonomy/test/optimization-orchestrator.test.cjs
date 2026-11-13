@@ -19,6 +19,7 @@ const {
   recordNewEvidence, recordOptimizationAudit, recordTests, releaseStopGate, resume, saveState, selectNextTask,
   startNewCycle, selectTask, validateState, validateTask, preparePilot, startPreparedPilot, loadState,
   recordRecoveryDiagnosis, recordRecoveryAttempt, createPreservationArchive, resolvePreservationDeferral,
+  diagnosisCodeForFailureClassification, FAILURE_CLASSIFICATION_DIAGNOSIS_CODES,
 } = require('../optimization-orchestrator.cjs')
 
 function task(id, { domain = 'backend', impact = 3, effort = 2, risk = 1, dependencies = [] } = {}) {
@@ -54,6 +55,25 @@ function approvalAttestation(approvalEvidenceRef = 'docs/ai-cost-controls.md') {
   }
 }
 
+function diagnose(state, id, payload) {
+  const taskRecord = state.tasks.find(item => item.id === id)
+  const caseNumber = (taskRecord?.recoveryHistory.length ?? 0) + 1
+  return recordRecoveryDiagnosis(state, id, {
+    ...payload,
+    investigatorInvocationRef: `test/investigator/${id}/${caseNumber}`,
+  })
+}
+
+function recover(state, id, payload) {
+  const taskRecord = state.tasks.find(item => item.id === id)
+  const caseNumber = taskRecord?.recoveryHistory.length ?? 1
+  const attemptNumber = (taskRecord?.recoveryHistory.at(-1)?.attempts.length ?? 0) + 1
+  return recordRecoveryAttempt(state, id, {
+    ...payload,
+    developerInvocationRef: `test/developer/${id}/${caseNumber}/${attemptNumber}`,
+  })
+}
+
 test('production API has no direct pilot creation and begin refuses an unprepared pilot', () => {
   assert.equal(optimizationOrchestrator.createPilot, undefined)
   const state = createInitialState()
@@ -70,7 +90,7 @@ test('production API has no direct pilot creation and begin refuses an unprepare
 })
 
 function blockWithDiagnosis(state, id, blockerCode, evidenceRef = 'docs/ai-cost-controls.md') {
-  return recordRecoveryDiagnosis(state, id, {
+  return diagnose(state, id, {
     diagnosisCode: 'evidence_insufficient',
     investigatorEvidenceRef: evidenceRef,
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -214,7 +234,7 @@ test('recovery records reject free-text diagnosis and solution fields', () => {
     blockerCode: 'tooling_unavailable',
     rationale: 'free-text rationale is not permitted',
   }), /allowlisted diagnosis/)
-  recordRecoveryDiagnosis(state, active.id, {
+  diagnose(state, active.id, {
     diagnosisCode: 'missing_dependency',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -233,6 +253,110 @@ test('recovery records reject free-text diagnosis and solution fields', () => {
   assert.equal(validateState(state), state)
 })
 
+test('new recovery cases require unique actual Investigator and Developer invocation references', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'recovery-provenance-pilot', maxCycles: 3 })
+  addTask(state, task('recovery-provenance-task'))
+  const active = beginRun(state).task
+  const diagnosis = {
+    diagnosisCode: 'missing_dependency',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: true,
+    blockerCode: 'tooling_unavailable',
+  }
+  const beforeInvalidDiagnosis = JSON.stringify(state)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, diagnosis), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidDiagnosis)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    ...diagnosis, investigatorInvocationRef: '../invented-agent-run',
+  }), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidDiagnosis)
+
+  diagnose(state, active.id, diagnosis)
+  const attempt = {
+    strategy: 'dependency_repair',
+    evidenceRef: 'docs/autonomy/optimization-loop.md',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10006',
+    result: 'failed',
+  }
+  const beforeInvalidAttempt = JSON.stringify(state)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, attempt), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidAttempt)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    ...attempt, developerInvocationRef: active.recoveryHistory[0].diagnosis.investigatorInvocationRef,
+  }), /new Developer invocation reference/)
+  assert.equal(JSON.stringify(state), beforeInvalidAttempt)
+
+  recover(state, active.id, attempt)
+  const afterAttempt = JSON.stringify(state)
+  assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    ...attempt,
+    strategy: 'alternative_tooling',
+    evidenceRef: 'backend/performance_metrics.py',
+    verificationRef: 'https://github.com/example/repo/actions/runs/10007',
+    developerInvocationRef: active.recoveryHistory[0].attempts[0].developerInvocationRef,
+  }), /new Developer invocation reference/)
+  assert.equal(JSON.stringify(state), afterAttempt)
+
+  const legacy = structuredClone(state)
+  delete legacy.tasks[0].recoveryHistory[0].diagnosis.investigatorInvocationRef
+  delete legacy.tasks[0].recoveryHistory[0].attempts[0].developerInvocationRef
+  assert.equal(validateState(legacy), legacy,
+    'historical cases without invocation provenance remain readable without fabricated references')
+  assert.equal(active.recoveryHistory[0].diagnosis.investigatorInvocationRef, 'test/investigator/recovery-provenance-task/1')
+  assert.equal(active.recoveryHistory[0].attempts[0].developerInvocationRef, 'test/developer/recovery-provenance-task/1/1')
+  assert.equal(validateState(state), state)
+})
+
+test('failure classifications map only to existing diagnosis codes', () => {
+  assert.deepEqual(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES, {
+    INTRODUCED_REGRESSION: 'other',
+    PREEXISTING_ON_BASE: 'other',
+    ENVIRONMENT_FAILURE: 'environment_incompatible',
+    INFRASTRUCTURE_FAILURE: 'upstream_unavailable',
+    INTERMITTENT_FAILURE: 'other',
+    EXTERNAL_DEPENDENCY: 'upstream_unavailable',
+    INSUFFICIENT_EVIDENCE: 'evidence_insufficient',
+  })
+  for (const [classification, diagnosisCode] of Object.entries(FAILURE_CLASSIFICATION_DIAGNOSIS_CODES)) {
+    assert.equal(diagnosisCodeForFailureClassification(classification), diagnosisCode)
+    assert.ok(['missing_dependency', 'environment_incompatible', 'configuration_invalid',
+      'evidence_insufficient', 'upstream_unavailable', 'benchmark_over_budget',
+      'existing_change_conflict', 'other'].includes(diagnosisCode))
+  }
+  assert.throws(() => diagnosisCodeForFailureClassification('UNKNOWN_FAILURE'), /not allowlisted/)
+  assert.throws(() => diagnosisCodeForFailureClassification('toString'), /not allowlisted/)
+})
+
+test('external benchmark diagnosis requires an Investigator; automatic cost blocker does not fabricate one', () => {
+  const state = createInitialState()
+  createPilot(state, { pilotId: 'benchmark-diagnosis-provenance', maxCycles: 2 })
+  addTask(state, { ...task('external-expensive-diagnosis', { impact: 5, effort: 1 }), benchmarkCost: 'local' })
+  const active = beginRun(state).task
+  const before = JSON.stringify(state)
+  assert.throws(() => recordRecoveryDiagnosis(state, active.id, {
+    diagnosisCode: 'benchmark_over_budget',
+    investigatorEvidenceRef: 'docs/ai-cost-controls.md',
+    originalCheckRef: 'scripts/production/test_runtime.py',
+    recoverable: false,
+    blockerCode: 'benchmark_expensive',
+    nonRecoverableReasonCode: 'resource_unavailable',
+  }), /Invalid actual agent invocation reference/)
+  assert.equal(JSON.stringify(state), before)
+
+  const automatic = createInitialState()
+  createPilot(automatic, { pilotId: 'automatic-benchmark-cost', maxCycles: 2 })
+  addTask(automatic, { ...task('automatic-expensive-task', { impact: 5, effort: 1 }), benchmarkCost: 'expensive' })
+  addTask(automatic, task('automatic-affordable-task', { domain: 'frontend', impact: 4, effort: 1 }))
+  assert.equal(beginRun(automatic).task.id, 'automatic-affordable-task')
+  const blocked = automatic.tasks.find(item => item.id === 'automatic-expensive-task')
+  assert.equal(blocked.recoveryHistory[0].diagnosis.diagnosisCode, 'benchmark_over_budget')
+  assert.equal(blocked.recoveryHistory[0].diagnosis.investigatorInvocationRef, undefined)
+  assert.equal(automatic.checkpoint.cyclesStarted, 2)
+  assert.equal(validateState(automatic), automatic)
+})
+
 test('successful blocker recovery verifies the original allowlisted check and preserves active work', () => {
   const state = createInitialState()
   createPilot(state, { pilotId: 'recovery-success-pilot', maxCycles: 2 })
@@ -241,14 +365,14 @@ test('successful blocker recovery verifies the original allowlisted check and pr
   recordBaseline(state, active.id, { baselineMetric: 10, artifactRef: 'docs/ai-cost-controls.md' })
   recordImplementation(state, active.id, { branch: 'codex/recoverable-task', commitSha: 'a'.repeat(40) })
   recordTests(state, active.id, { passed: false, artifactRef: 'scripts/production/test_runtime.py' })
-  recordRecoveryDiagnosis(state, active.id, {
+  diagnose(state, active.id, {
     diagnosisCode: 'missing_dependency',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  const recovered = recordRecoveryAttempt(state, active.id, {
+  const recovered = recover(state, active.id, {
     strategy: 'dependency_repair',
     evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/10001',
@@ -274,7 +398,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
     addTask(state, task('recovery-blocked', { impact: 5 }))
     addTask(state, task('recovery-independent', { domain: 'frontend', impact: 4 }))
     const active = beginRun(state).task
-    recordRecoveryDiagnosis(state, active.id, {
+    diagnose(state, active.id, {
       diagnosisCode: 'environment_incompatible',
       investigatorEvidenceRef: 'docs/ai-cost-controls.md',
       originalCheckRef: 'scripts/production/test_runtime.py',
@@ -286,9 +410,9 @@ test('two distinct failed recovery attempts persist, block, and select independe
       evidenceRef: 'docs/autonomy/optimization-loop.md',
       verificationRef: 'https://github.com/example/repo/actions/runs/10002', result: 'failed',
     }
-    recordRecoveryAttempt(state, active.id, first)
-    assert.throws(() => recordRecoveryAttempt(state, active.id, first), /Repeated recovery strategy/)
-    assert.throws(() => recordRecoveryAttempt(state, active.id, {
+    recover(state, active.id, first)
+    assert.throws(() => recover(state, active.id, first), /Repeated recovery strategy/)
+    assert.throws(() => recover(state, active.id, {
       ...first, strategy: 'alternative_tooling',
       evidenceRef: 'docs/autonomy/optimization-loop.md',
       verificationRef: 'https://github.com/example/repo/actions/runs/10003',
@@ -302,7 +426,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
       evidenceRef: 'backend/performance_metrics.py',
       verificationRef: 'https://github.com/example/repo/actions/runs/10004', result: 'failed',
     }
-    const outcome = recordRecoveryAttempt(reopened, active.id, second)
+    const outcome = recover(reopened, active.id, second)
     assert.equal(outcome.blocked.status, 'blocked')
     assert.equal(outcome.next.id, 'recovery-independent')
     assert.equal(reopened.tasks[0].recoveryHistory[0].attempts.length, 2)
@@ -317,7 +441,7 @@ test('two distinct failed recovery attempts persist, block, and select independe
     assert.equal(reopened.tasks[0].evidenceRevision, 0)
     assert.equal(reopened.tasks[0].status, 'blocked')
     assert.equal(validateState(reopened), reopened)
-    assert.throws(() => recordRecoveryAttempt(reopened, active.id, second), /not the active checkpoint task/)
+    assert.throws(() => recover(reopened, active.id, second), /not the active checkpoint task/)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
   }
@@ -329,18 +453,18 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
   addTask(state, task('recovery-history-task', { impact: 5 }))
   addTask(state, task('recovery-history-fallback', { domain: 'frontend', impact: 4 }))
   const firstTask = beginRun(state).task
-  recordRecoveryDiagnosis(state, firstTask.id, {
+  diagnose(state, firstTask.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'docs/ai-cost-controls.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/11001', result: 'failed',
   })
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'alternative_tooling', evidenceRef: 'backend/performance_metrics.py',
     verificationRef: 'https://github.com/example/repo/actions/runs/11002', result: 'failed',
   })
@@ -349,7 +473,7 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
   recordNewEvidence(state, firstTask.id, 'https://github.com/example/repo/actions/runs/11003')
   blockWithDiagnosis(state, 'recovery-history-fallback', 'unavailable_evidence')
   assert.equal(state.checkpoint.selectedTaskId, firstTask.id)
-  recordRecoveryDiagnosis(state, firstTask.id, {
+  diagnose(state, firstTask.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'https://github.com/example/repo/actions/runs/11003',
     originalCheckRef: 'scripts/production/test_runtime.py',
@@ -357,11 +481,11 @@ test('recovery evidence stays unique across cases while a strategy may recur wit
     blockerCode: 'tooling_unavailable',
   })
 
-  assert.throws(() => recordRecoveryAttempt(state, firstTask.id, {
+  assert.throws(() => recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'docs/autonomy/optimization-loop.md',
     verificationRef: 'https://github.com/example/repo/actions/runs/11004', result: 'failed',
   }), /distinct evidence/)
-  recordRecoveryAttempt(state, firstTask.id, {
+  recover(state, firstTask.id, {
     strategy: 'dependency_repair', evidenceRef: 'scripts/autonomy/optimization-orchestrator.test.cjs',
     verificationRef: 'https://github.com/example/repo/actions/runs/11005', result: 'failed',
   })
@@ -715,6 +839,7 @@ test('recovery diagnosis and final failed attempt fail atomically when snapshot 
   assert.throws(() => recordRecoveryDiagnosis(nonrecoverable.state, nonrecoverable.active.id, {
     diagnosisCode: 'evidence_insufficient',
     investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
+    investigatorInvocationRef: 'test/investigator/recovery-atomic-diagnosis/1',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: false,
     blockerCode: 'unavailable_evidence',
@@ -723,19 +848,19 @@ test('recovery diagnosis and final failed attempt fail atomically when snapshot 
   assert.equal(JSON.stringify(nonrecoverable.state), beforeDiagnosis)
 
   const recoverable = makeStateWithFullHistory('recovery-atomic-attempt')
-  recordRecoveryDiagnosis(recoverable.state, recoverable.active.id, {
+  diagnose(recoverable.state, recoverable.active.id, {
     diagnosisCode: 'environment_incompatible',
     investigatorEvidenceRef: 'docs/autonomy/optimization-loop.md',
     originalCheckRef: 'scripts/production/test_runtime.py',
     recoverable: true,
     blockerCode: 'tooling_unavailable',
   })
-  recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+  recover(recoverable.state, recoverable.active.id, {
     strategy: 'dependency_repair', evidenceRef: 'backend/performance_metrics.py',
     verificationRef: 'https://github.com/example/repo/actions/runs/12001', result: 'failed',
   })
   const beforeFinalAttempt = JSON.stringify(recoverable.state)
-  assert.throws(() => recordRecoveryAttempt(recoverable.state, recoverable.active.id, {
+  assert.throws(() => recover(recoverable.state, recoverable.active.id, {
     strategy: 'alternative_tooling', evidenceRef: 'scripts/autonomy/test/optimization-orchestrator.test.cjs',
     verificationRef: 'https://github.com/example/repo/actions/runs/12002', result: 'failed',
   }), /bounded work history is full/)
@@ -1023,6 +1148,7 @@ test('CLI persists a blocker fallback and resumes the same active task', async (
     const blocked = JSON.parse(run('diagnose-recovery', firstTask.id, JSON.stringify({
       diagnosisCode: 'existing_change_conflict',
       investigatorEvidenceRef: 'https://github.com/example/repo/pull/665',
+      investigatorInvocationRef: 'test/investigator/cli-blocked-task/1',
       originalCheckRef: 'scripts/production/test_runtime.py',
       recoverable: false,
       blockerCode: 'existing_pr',
