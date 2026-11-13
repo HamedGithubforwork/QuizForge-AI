@@ -12,7 +12,8 @@ import sys
 import tempfile
 import time
 from http.client import HTTPConnection, HTTPException
-from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from urllib.request import Request
 
 import psycopg
 
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_lightsail_configuration import fixture
 from lightsail.render import render
 from lightsail_initialize import initialize
+from runtime_http import open_loopback
 
 
 def run(*args, **kwargs):
@@ -76,7 +78,7 @@ def main():
         'environment': {'PYTHONPATH': '/app/tests:/app'},
         'healthcheck': {
             'test': ['CMD', 'python', '-c',
-                     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"],
+                     "from http.client import HTTPConnection; c=HTTPConnection('127.0.0.1',8000,timeout=2); c.request('GET','/api/health'); r=c.getresponse(); assert r.status==200; c.close()"],
             'interval': '5s', 'timeout': '3s', 'retries': 10,
         },
     }
@@ -144,24 +146,28 @@ def main():
         result=json.loads(notifier.stdout.strip().splitlines()[-1])
         assert result['format']=='quizforge-study-notifier-v1'
         assert result['candidates']==0 and result['sent']==0
-        with urlopen('http://127.0.0.1:8000/api/health', timeout=5) as response:
+        with open_loopback('http://127.0.0.1:8000/api/health', timeout=5) as response:
             assert response.status == 200
         try:
-            urlopen('http://127.0.0.1:8001/identity/session', timeout=5)
+            open_loopback('http://127.0.0.1:8001/identity/session', timeout=5)
         except HTTPError as error:
             assert error.code == 403
         else:
             raise AssertionError('Identity accepted an untrusted origin')
         # Exercise the actual loopback gateway inside the API network namespace.
-        probe = '''import urllib.request,urllib.error,json,time
+        probe = '''from http.client import HTTPConnection, HTTPException
+import json,time
 body=json.dumps({'model':'gpt-5.6-luna','input':[{'role':'user','content':'synthetic'}]}).encode()
 for i in range(30):
  try:
-  urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8002/v1/responses',body,{'Authorization':'Bearer production-budget-guard','Content-Type':'application/json'}),timeout=5)
- except urllib.error.HTTPError as e:
-  assert e.code == 429,e.code
+  connection=HTTPConnection('127.0.0.1',8002,timeout=5)
+  connection.request('POST','/v1/responses',body,{'Authorization':'Bearer production-budget-guard','Content-Type':'application/json'})
+  response=connection.getresponse()
+  assert response.status == 429,response.status
+  response.read()
+  connection.close()
   break
- except urllib.error.URLError:
+ except (OSError, HTTPException):
   time.sleep(1)
  else: raise AssertionError('Disabled budget allowed generation')
 else: raise AssertionError('Gateway did not start')
@@ -193,7 +199,7 @@ else: raise AssertionError('Gateway did not start')
         compose('up', '-d', 'web')
         for attempt in range(30):
             try:
-                with urlopen(Request('http://127.0.0.1/api/health', headers={'Host': 'api.quizfromnotes.com'}), timeout=2) as response:
+                with open_loopback(Request('http://127.0.0.1/api/health', headers={'Host': 'api.quizfromnotes.com'}), timeout=2) as response:
                     assert response.status == 200
                     assert response.headers['Cache-Control'] == 'no-store'
                 break
@@ -201,7 +207,7 @@ else: raise AssertionError('Gateway did not start')
                 time.sleep(1)
         else:
             raise AssertionError('Web proxy did not become ready')
-        with urlopen(Request('http://127.0.0.1/auth/callback', headers={'Host': 'quizfromnotes.com'}), timeout=2) as response:
+        with open_loopback(Request('http://127.0.0.1/auth/callback', headers={'Host': 'quizfromnotes.com'}), timeout=2) as response:
             assert b'Synthetic release' in response.read(256)
             assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']
 
@@ -209,7 +215,7 @@ else: raise AssertionError('Gateway did not start')
         fixture_url = 'http://127.0.0.1/api/__test/answer-review-payload?target_bytes='
 
         def get_invalid_unicode_fixture():
-            with urlopen(Request(
+            with open_loopback(Request(
                 'http://127.0.0.1/api/__test/answer-review-invalid-unicode',
                 headers={'Host': host},
             ), timeout=15) as response:
@@ -219,7 +225,7 @@ else: raise AssertionError('Gateway did not start')
             fixture = fixture_url + str(target_bytes)
             if encoding != 'unicode':
                 fixture += '&encoding=' + encoding
-            with urlopen(Request(fixture, headers={'Host': host}), timeout=15) as response:
+            with open_loopback(Request(fixture, headers={'Host': host}), timeout=15) as response:
                 return response.read()
 
         def post_boundary(path, body):

@@ -76,6 +76,7 @@ jobs:
       - run: |
           python -m venv /tmp/quizforge-runtime-venv
           /tmp/quizforge-runtime-venv/bin/pip install --require-hashes -r scripts/production/requirements.lock
+          /tmp/quizforge-runtime-venv/bin/python scripts/production/test_runtime_rehearsal.py
           docker build -t quizforge-ci-api application-candidate/backend
           docker build -t quizforge-ci-api-current ./backend
           docker build -t quizforge-ci-operations -f scripts/production/operations.Dockerfile .
