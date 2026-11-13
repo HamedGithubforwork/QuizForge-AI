@@ -16,4 +16,3 @@ test('quiz deletion accessible name includes the quiz title and saved date', () 
     'Delete quiz: Cell division, saved Oct 6, 2026, 3:15 PM',
   )
 })
-

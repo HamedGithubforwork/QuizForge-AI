@@ -133,4 +133,3 @@ function QuizHistoryList({
 }
 
 export default QuizHistoryList
-

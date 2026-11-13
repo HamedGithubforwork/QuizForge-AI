@@ -4,4 +4,3 @@ export function formatQuizDeleteAccessibleName(
 ) {
   return `Delete quiz: ${quizTitle}, saved ${savedDate}`
 }
-
