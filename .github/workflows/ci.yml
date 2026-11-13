@@ -20,10 +20,15 @@ on:
       - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
       - ".github/workflows/ci.yml"
+      - "scripts/ci/verify-required-pr-gate.cjs"
+      - "scripts/ci/test-pr-ci-trigger.cjs"
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
@@ -58,11 +63,19 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
 
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
             git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
+          elif [[ "${EVENT_NAME}" == "merge_group" ]]; then
+            if [[ -z "${MERGE_GROUP_BASE_SHA}" || -z "${MERGE_GROUP_HEAD_SHA}" || "${MERGE_GROUP_HEAD_SHA}" != "${CURRENT_SHA}" ]]; then
+              echo "Merge-group base/head SHAs are missing or inconsistent." >&2
+              exit 1
+            fi
+            git diff --name-only "${MERGE_GROUP_BASE_SHA}" "${MERGE_GROUP_HEAD_SHA}" > changed-files.txt
           elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
             git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
           else
@@ -324,6 +337,15 @@ jobs:
 
       - name: Verify relevant CI jobs
         env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_REPOSITORY_ID: ${{ github.repository_id }}
+          CI_OWNER_ID: ${{ github.repository_owner_id }}
+          CI_REF: ${{ github.ref }}
+          CI_SHA: ${{ github.sha }}
+          CI_TARGET_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
+          CI_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref || '' }}
+          CI_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha || '' }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
           BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
