@@ -243,4 +243,3 @@ Rules:
                 "Semantic answer review returned inconsistent data."
             ),
         ) from error
-

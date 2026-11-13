@@ -415,4 +415,3 @@ def test_lone_surrogate_returns_safe_422_before_model_call(monkeypatch):
     assert b"\\ud800" not in response.content
     assert b"input" not in response.content
     assert model_client_called is False
-

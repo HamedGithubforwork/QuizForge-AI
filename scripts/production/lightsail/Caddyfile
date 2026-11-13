@@ -69,4 +69,3 @@ api.quizfromnotes.com {
         respond "Unknown route" 404
     }
 }
-
