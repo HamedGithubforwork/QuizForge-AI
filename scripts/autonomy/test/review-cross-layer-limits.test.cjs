@@ -6,9 +6,10 @@ const ORIGINAL_PROXY_LIMIT_BYTES = 512 * 1024
 const CORRECTED_PROXY_LIMIT_BYTES = 2 * 1024 * 1024
 const USER_PREFIX = 'Review these borderline short answers:\n\n'
 
-// PR #686 sets both the semantic and Caddy caps to 512 KiB. This review
-// fixture models a corrected 2 MiB proxy allowance; it does not claim a live
-// Caddy/backend run or prescribe a production limit without integration tests.
+// Historical, synthetic review fixture: it models the original 512 KiB proxy
+// cap and a hypothetical 2 MiB allowance to demonstrate envelope overhead.
+// It is not a live configuration check and does not describe the current
+// PR #686 Caddy limit (4 MiB); integration tests verify that configuration.
 
 function pythonCompatibleJson(value) {
   const compact = JSON.stringify(value)
