@@ -5,9 +5,11 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.responses import JSONResponse
 
 from answer_review import (
     AnswerReviewRequest,
@@ -259,11 +261,52 @@ async def app_lifespan(_app: FastAPI):
         await close_outbound_clients()
 
 
+async def answer_review_validation_error_handler(
+    request: Request,
+    error: RequestValidationError,
+):
+    if request.url.path not in {
+        "/api/answers/review",
+        "/api/answers/review/",
+    }:
+        # Preserve FastAPI's normal validation response for other routes.
+        from fastapi.exception_handlers import (
+            request_validation_exception_handler,
+        )
+
+        return await request_validation_exception_handler(
+            request,
+            error,
+        )
+
+    # Pydantic validation errors can include the rejected input value. A lone
+    # escaped surrogate is not UTF-8 encodable, so echoing that value through
+    # Starlette's JSONResponse can itself fail. Keep the familiar error-list
+    # shape while excluding input/context entirely.
+    safe_errors = [
+        {
+            "loc": [str(part) for part in item.get("loc", ())],
+            "msg": str(item.get("msg", "Invalid request.")),
+            "type": str(item.get("type", "value_error")),
+        }
+        for item in error.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={"detail": safe_errors},
+    )
+
+
 def create_app():
     app = FastAPI(
         title="QuizForge AI API",
         version="0.7.0",
         lifespan=app_lifespan,
+    )
+
+    app.add_exception_handler(
+        RequestValidationError,
+        answer_review_validation_error_handler,
     )
 
     app.add_middleware(
