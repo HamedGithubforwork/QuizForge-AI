@@ -39,6 +39,81 @@ Merge Manager must independently fetch and verify all live GitHub evidence
 before it uses a GitHub mutation tool. Never treat checkpoint contents as
 external proof.
 
+## Authenticated manual protection preflight
+
+When connected GitHub reads cannot inspect protection settings, an authorized
+operator may perform a **supervised, read-only manual preflight** with the
+official GitHub CLI in an interactive terminal. Verify the resolved executable
+is signed by GitHub, Inc.; use its path directly for these `gh api` requests.
+The CLI manages its own credentials; do not extract, pass, print, or save
+tokens. Run these commands as one review session and record the time and
+sanitized output in the review notes (omit the masked-token line from
+`gh auth status`).
+
+Confirm the CLI account and target first:
+
+```powershell
+$gh = 'C:\Program Files\GitHub CLI\gh.exe'
+if (-not (Test-Path -LiteralPath $gh)) { throw 'GitHub CLI is unavailable at the approved installation path.' }
+$signature = Get-AuthenticodeSignature -LiteralPath $gh
+if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.GetNameInfo('SimpleName', $false) -ne 'GitHub, Inc.') { throw 'Untrusted GitHub CLI executable' }
+& $gh auth status --hostname github.com
+& $gh api user --jq .login
+& $gh api repos/HamedGithubforwork/QuizForge-AI --jq '{full_name, default_branch, permissions}'
+& $gh api repos/HamedGithubforwork/QuizForge-AI/branches/main --jq '{name, sha: .commit.sha}'
+```
+
+The login must be the expected authorized reviewer, `full_name` must match
+exactly, `permissions.admin` must be true for protection inspection, and the
+reported branch/default branch must be `main`. Stop on missing or mismatched
+identity, permission, repository, or branch evidence.
+
+Read classic protection and effective branch rules, then retrieve every
+ruleset ID referenced by the effective rules:
+
+```powershell
+& $gh api --include repos/HamedGithubforwork/QuizForge-AI/branches/main/protection
+$effectivePages = & $gh api --paginate --slurp repos/HamedGithubforwork/QuizForge-AI/rules/branches/main | ConvertFrom-Json
+$effective = @($effectivePages | ForEach-Object { $_ })
+$effective | ConvertTo-Json -Depth 30
+$rulesetIds = $effective.ruleset_id | Sort-Object -Unique
+if (-not $rulesetIds) { throw 'No applicable ruleset IDs returned; protection state is unverified.' }
+foreach ($id in $rulesetIds) {
+  & $gh api "repos/HamedGithubforwork/QuizForge-AI/rulesets/$id" | ConvertTo-Json -Depth 30
+}
+```
+
+Inspect the actual HTTP status and response bodies. A classic-protection 200
+requires reading those settings alongside effective rules and ruleset details;
+it is not inherently unsafe. A 404 establishes absence only after confirming
+the exact repository, branch, and authorized account. A 403 is permission
+denied unless GitHub's response headers/message reliably identify a primary or
+secondary rate limit; either case is a stop. Rate limits, authentication
+errors, API outages, malformed responses, missing ruleset details, unknown
+settings, or any mismatch are UNVERIFIED/BLOCKED. Do not reuse cached output.
+
+At the end, repeat `& $gh auth status --hostname github.com`,
+`& $gh api user --jq .login`, and the repository permission read. If identity or
+permission differs, discard the observation and restart. Re-fetch all relevant
+protection endpoints immediately before any separately authorized manual
+merge and reassess if branch state or settings changed. These are separate
+CLI requests: matching identity at the beginning and end is an operational
+cross-check, not cryptographic proof that the active account could not change
+between requests. This procedure is therefore only time-scoped evidence for a
+supervised human-reviewed manual decision. It is not a PR readiness verdict,
+merge approval, authorization, an atomic target/base guard, or evidence that
+repository code can authenticate. The Merge Manager must still independently
+inspect the exact PR, complete diff, head/base, mergeability, reviews and
+findings, exact-head Required PR gate, and workflow/deployment/infrastructure/
+spending effects, then require separate exact-PR human authorization.
+
+Never pass CLI output, credentials, or checkpoint copies into the automatic
+merge evaluator. Its `trusted_live_verification_unavailable` result remains a
+hard stop. If authenticated CLI access
+is unavailable, use only the existing narrowly scoped, recent,
+authenticated-administrator evidence fallback for manual assessment, with its
+source, date, actor/role, scope, and limitations recorded.
+
 The valid run removes only the repeated per-PR approval prompt for a candidate
 that passes every supervised eligibility check. It does not waive normal
 checks, reviews, protections, side-effect checks, or the immediate pre-merge
