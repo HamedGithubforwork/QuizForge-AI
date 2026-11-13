@@ -14,6 +14,9 @@ on:
       - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
       - "scripts/autonomy/integration-coordinator.cjs"
       - "scripts/autonomy/test/integration-coordinator.test.cjs"
+      - "scripts/autonomy/trusted-integration-verifier.cjs"
+      - "scripts/autonomy/test/trusted-integration-verifier.test.cjs"
+      - "docs/autonomy/integration-task-graph.json"
       - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
       - ".github/workflows/ci.yml"
@@ -91,11 +94,12 @@ jobs:
                 backend=true
                 frontend=true
                 playwright=true
+                autonomy_tests=true
                 ;;
               desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
                 desktop_diagnostic=true
                 ;;
-              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|.github/workflows/quizforge-autonomy-bridge.yml)
+              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
                 autonomy_tests=true
                 ;;
             esac
@@ -279,7 +283,7 @@ jobs:
           node-version: "22"
 
       - name: Run orchestrator regression tests
-        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs
 
   workflow-policy-tests:
     name: CI trigger policy tests
