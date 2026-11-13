@@ -89,7 +89,7 @@
 .mastery-status-pending {
   background: #f0f1f5;
 
-  color: #6e7485;
+  color: #666d80;
 }
 
 .mastery-file {
@@ -112,7 +112,7 @@
 .mastery-file span {
   flex-shrink: 0;
 
-  color: #8b91a1;
+  color: #666d80;
 
   font-size: 10px;
 }
@@ -166,7 +166,7 @@
 }
 
 .mastery-overview-grid span {
-  color: #888e9e;
+  color: #666d80;
 
   font-size: 9px;
   font-weight: 800;
@@ -205,7 +205,7 @@
 }
 
 .mastery-subheading span {
-  color: #959aaa;
+  color: #666d80;
 
   font-size: 9px;
 }
@@ -257,7 +257,7 @@
 
 .mastery-type-label span,
 .mastery-type-score span {
-  color: #989dad;
+  color: #666d80;
 
   font-size: 9px;
 }
@@ -294,7 +294,7 @@
 }
 
 .mastery-trend-date {
-  color: #858b9c;
+  color: #666d80;
 
   font-size: 9px;
 }
@@ -338,7 +338,7 @@
 }
 
 .mastery-page-list span {
-  color: #8a766c;
+  color: #666d80;
 
   font-size: 9px;
   line-height: 1.4;
@@ -361,6 +361,7 @@
   border-radius: 9px;
 
   background: #f0f1fb;
+  color: #666d80;
 }
 
 @media (max-width: 760px) {
@@ -403,3 +404,4 @@
     grid-column: auto;
   }
 }
+
