@@ -11,9 +11,11 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts.github_repository_identity import is_target_repository_object
+from scripts.github_repository_identity import (
+    is_read_only_ci_repository_object,
+    read_only_ci_repository_from_environment,
+)
 
-REPOSITORY = "QuizFromNotes/QuizForge-AI"
 BASE_BRANCH = "application/production"
 BACKEND_REQUIRED = {
     "Required PR gate", "Backend tests", "PostgreSQL history API security",
@@ -25,9 +27,9 @@ FRONTEND_REQUIRED = {
 }
 
 
-def resolve(pr, checks, required):
+def resolve(pr, checks, required, repository):
     if (pr.get("state") != "open" or pr.get("base", {}).get("ref") != BASE_BRANCH
-            or not is_target_repository_object(pr.get("head", {}).get("repo"))):
+            or not is_read_only_ci_repository_object(pr.get("head", {}).get("repo"), repository)):
         raise ValueError("Staging requires open same-repository PRs targeting application/production.")
     sha = pr["head"]["sha"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -46,8 +48,8 @@ def resolve(pr, checks, required):
     return sha
 
 
-def github(path):
-    request = Request(f"https://api.github.com/repos/{REPOSITORY}/{path}", headers={
+def github(path, repository):
+    request = Request(f"https://api.github.com/repos/{repository}/{path}", headers={
         "Authorization": "Bearer " + os.environ["GH_TOKEN"],
         "Accept": "application/vnd.github+json",
     })
@@ -67,25 +69,28 @@ def verify_latest_production_baseline(comparison, requested_sha, production_sha)
     return requested_sha
 
 
-def checked_pr(number, required):
+def checked_pr(number, required, repository):
     if not re.fullmatch(r"[1-9][0-9]*", number):
         raise ValueError("PR numbers must be positive integers.")
-    pr = github(f"pulls/{number}")
+    pr = github(f"pulls/{number}", repository)
     checks = []
     for page in range(1, 11):
-        batch = github(f"commits/{pr['head']['sha']}/check-runs?per_page=100&page={page}")["check_runs"]
+        batch = github(
+            f"commits/{pr['head']['sha']}/check-runs?per_page=100&page={page}", repository
+        )["check_runs"]
         checks.extend(batch)
         if len(batch) < 100:
             break
-    resolved = resolve(pr, checks, required)
-    production_sha = github("branches/application/production")["commit"]["sha"]
-    comparison = github(f"compare/{BASE_BRANCH}...{resolved}")
+    resolved = resolve(pr, checks, required, repository)
+    production_sha = github("branches/application/production", repository)["commit"]["sha"]
+    comparison = github(f"compare/{BASE_BRANCH}...{resolved}", repository)
     return verify_latest_production_baseline(comparison, resolved, production_sha)
 
 
 if __name__ == "__main__":
-    backend_sha = checked_pr(os.environ["PREVIEW_BACKEND_PR"], BACKEND_REQUIRED)
-    frontend_sha = checked_pr(os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED)
+    repository = read_only_ci_repository_from_environment(os.environ)
+    backend_sha = checked_pr(os.environ["PREVIEW_BACKEND_PR"], BACKEND_REQUIRED, repository)
+    frontend_sha = checked_pr(os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED, repository)
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"backend_sha={backend_sha}\n")
         output.write(f"frontend_sha={frontend_sha}\n")

@@ -6,9 +6,13 @@ from scripts.github_repository_identity import (
     OWNER_ID,
     REPOSITORY,
     REPOSITORY_ID,
+    SOURCE_OWNER_ID,
+    SOURCE_REPOSITORY,
+    is_read_only_ci_repository,
     is_target_actions_environment,
     is_target_repository,
     is_target_repository_object,
+    read_only_ci_repository_from_environment,
 )
 
 
@@ -35,6 +39,32 @@ class GitHubRepositoryIdentityTests(unittest.TestCase):
             "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
             "GITHUB_REPOSITORY_OWNER_ID": "148009407",
         }))
+
+    def test_read_only_ci_metadata_accepts_exact_pre_and_post_transfer_identity_only(self):
+        self.assertTrue(is_read_only_ci_repository(
+            SOURCE_REPOSITORY, REPOSITORY_ID, SOURCE_OWNER_ID
+        ))
+        self.assertTrue(is_read_only_ci_repository(REPOSITORY, REPOSITORY_ID, OWNER_ID))
+        self.assertFalse(is_target_repository(
+            SOURCE_REPOSITORY, REPOSITORY_ID, SOURCE_OWNER_ID
+        ), "source identity must not become eligible for privileged destination guards")
+        for env in (
+            {"GITHUB_REPOSITORY": SOURCE_REPOSITORY, "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+             "GITHUB_REPOSITORY_OWNER_ID": SOURCE_OWNER_ID},
+            {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+             "GITHUB_REPOSITORY_OWNER_ID": OWNER_ID},
+        ):
+            self.assertEqual(read_only_ci_repository_from_environment(env), env["GITHUB_REPOSITORY"])
+        for env in (
+            {"GITHUB_REPOSITORY": SOURCE_REPOSITORY, "GITHUB_REPOSITORY_ID": "999",
+             "GITHUB_REPOSITORY_OWNER_ID": SOURCE_OWNER_ID},
+            {"GITHUB_REPOSITORY": "attacker/QuizForge-AI", "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+             "GITHUB_REPOSITORY_OWNER_ID": OWNER_ID},
+            {"GITHUB_REPOSITORY": REPOSITORY, "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+             "GITHUB_REPOSITORY_OWNER_ID": SOURCE_OWNER_ID},
+        ):
+            with self.subTest(env=env), self.assertRaises(ValueError):
+                read_only_ci_repository_from_environment(env)
 
     def test_wrong_or_missing_repository_and_owner_ids_are_rejected(self):
         for repository, repository_id, owner_id in (

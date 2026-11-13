@@ -160,6 +160,16 @@ workflow triggers, and AWS permissions are unchanged.
 Corresponding focused tests/fixtures were updated to require the same target
 identity.
 
+One read-only CI exception is intentionally narrower in authority: the
+`aws_staging_preview.py` preflight uses GitHub's run-provided repository name,
+repository ID, and owner ID to fetch PR metadata before and after transfer.
+It accepts only the exact source or destination identity, validates the PR
+head repository against that same identity, and has no AWS credential or
+write permission. This supports current source-repository PR validation while
+the destination-only identity predicate remains mandatory for operational
+cloud/deployment guards; do not reuse the read-only predicate for privileged
+actions.
+
 **Preserved for a separate post-transfer trust review:** the process-pinned
 `docs/autonomy/integration-task-graph.json`, all other `docs/autonomy` files,
 `scripts/autonomy/trusted-integration-verifier.cjs`,

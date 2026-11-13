@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.github_repository_identity import REPOSITORY_ID, SOURCE_OWNER_ID, SOURCE_REPOSITORY
 import aws_staging_preview as preview
 
 BASE = "a" * 40
@@ -22,6 +23,22 @@ def comparison(**overrides):
 
 
 class StagingApplicationBaseline(unittest.TestCase):
+    def test_read_only_preview_accepts_only_the_run_repository_identity(self):
+        pr = {
+            "state": "open",
+            "base": {"ref": "application/production"},
+            "head": {"sha": HEAD, "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+        }
+        checks = [{"name": "Required PR gate", "id": 2, "head_sha": HEAD,
+                   "app": {"slug": "github-actions"},
+                   "status": "completed", "conclusion": "success"}]
+        self.assertEqual(preview.resolve(pr, checks, {"Required PR gate"}, SOURCE_REPOSITORY), HEAD)
+        with self.assertRaises(ValueError):
+            preview.resolve(pr, checks, {"Required PR gate"}, "attacker/QuizForge-AI")
+
     def test_expected_production_snapshot_and_feature_head(self):
         self.assertEqual(preview.verify_latest_production_baseline(
             comparison(), HEAD, BASE), HEAD)
@@ -44,7 +61,10 @@ class StagingApplicationBaseline(unittest.TestCase):
         pr = {
             "state": "open",
             "base": {"ref": "application/production"},
-            "head": {"sha": HEAD, "repo": {"full_name": preview.REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}},
+            "head": {"sha": HEAD, "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
         }
         checks = [{"name": "Required PR gate", "id": 2, "head_sha": HEAD,
                    "app": {"slug": "github-actions"},
@@ -53,9 +73,14 @@ class StagingApplicationBaseline(unittest.TestCase):
             pr, {"check_runs": checks}, {"commit": {"sha": BASE}},
             comparison(status="diverged", behind_by=1),
         ]):
-            with patch.dict("os.environ", {"PREVIEW_BACKEND_PR": "537"}):
+            with patch.dict("os.environ", {
+                "GITHUB_REPOSITORY": SOURCE_REPOSITORY,
+                "GITHUB_REPOSITORY_ID": REPOSITORY_ID,
+                "GITHUB_REPOSITORY_OWNER_ID": SOURCE_OWNER_ID,
+                "PREVIEW_BACKEND_PR": "537",
+            }):
                 with self.assertRaises(ValueError):
-                    preview.checked_pr("537", {"Required PR gate"})
+                    preview.checked_pr("537", {"Required PR gate"}, SOURCE_REPOSITORY)
 
 
 if __name__ == "__main__":
