@@ -79,7 +79,7 @@ function candidate(overrides = {}) {
     },
     reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: evidenceUrl },
     protections: { verified: true, evidenceRef: evidenceUrl, rulesetRef: rulesetUrl,
-      strictRequiredStatusChecks: true, mergeQueueEnforced: false },
+      strictRequiredStatusChecks: true, mergeQueueEnforced: true },
     sideEffects: {
       assessed: true, productionDeployment: false, deploymentTriggers: [], infrastructureMutation: false,
       cloudSpend: false, destructive: false,
@@ -137,7 +137,7 @@ test('valid-looking caller claims cannot pass without a trusted live verificatio
     { eligible: false, reason: 'trusted_live_verification_unavailable' })
 })
 
-test('weak rulesets without strict status checks or an enforced merge queue are blocked', () => {
+test('strict status checks alone do not provide an atomic target guard', () => {
   const enabled = activePolicy()
   const weak = candidate({ protections: { ...candidate().protections,
     strictRequiredStatusChecks: false, mergeQueueEnforced: false } })
@@ -154,7 +154,7 @@ test('weak rulesets without strict status checks or an enforced merge queue are 
   const strictChecks = candidate({ protections: { ...candidate().protections,
     strictRequiredStatusChecks: true, mergeQueueEnforced: false } })
   assert.deepEqual(policyApi.evaluateCandidate({ policy: enabled, evidence: strictChecks, now }),
-    { eligible: false, reason: 'trusted_live_verification_unavailable' })
+    { eligible: false, reason: 'base_race_guard_missing' })
 })
 
 test('high-risk, policy, and uncertain changes are excluded even if other evidence passes', () => {

@@ -66,7 +66,7 @@ function autoCandidate(overrides = {}) {
       prNumber: 999, runUrl: autoRunRef, completedAt: autoMergeAtNext.toISOString(), associatedPr: true },
     reviews: { blocking: false, unresolvedMaterialConcern: false, evidenceRef: autoEvidenceRef },
     protections: { verified: true, evidenceRef: autoEvidenceRef, rulesetRef: autoRulesetRef,
-      strictRequiredStatusChecks: true, mergeQueueEnforced: false },
+      strictRequiredStatusChecks: true, mergeQueueEnforced: true },
     sideEffects: { assessed: true, productionDeployment: false, deploymentTriggers: [], infrastructureMutation: false, cloudSpend: false,
       destructive: false, unexpectedExternalSideEffects: false, evidenceRef: autoEvidenceRef },
     mergeManager: { passed: true, headSha: autoHead, baseSha: autoBase, diffSha256: autoDiff,
@@ -844,6 +844,7 @@ test('version-controlled integration checkpoint loads verified PR states and dep
   const checkpoint = await loadCheckpoint(DEFAULT_CHECKPOINT)
   assert.equal(checkpoint.objectiveId, 'autonomous-integration')
   assert.equal(checkpoint.automaticMergePolicy.status, 'disabled')
+  assert.equal(checkpoint.automaticMergePolicy.digest, automaticMerge.POLICY_DIGEST)
   assert.deepEqual(checkpoint.automaticMergeEvents, [])
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').status, 'completed')
   assert.equal(checkpoint.tasks.find(task => task.id === 'pr-678-complete').pr.mergeCommitSha, '46f3412f673b0522cc1dfce2769e7e8d7d9d6aff')
@@ -951,6 +952,46 @@ test('version-controlled integration checkpoint loads verified PR states and dep
     assert.equal(checkpoint.tasks.find(task => task.pr?.number === number).pr.checkedOn, '2026-11-09')
     assert.equal(checkpoint.tasks.find(task => task.pr?.number === number).pr.mergeable, true)
   }
+})
+
+test('legacy inert automatic-merge policy digest migrates on a disposable copy only', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-disabled-policy-digest-migration-'))
+  const sourceBytes = await fs.readFile(DEFAULT_CHECKPOINT)
+  const file = path.join(temp, 'integration.json')
+  try {
+    await fs.writeFile(file, sourceBytes)
+    const legacy = JSON.parse(await fs.readFile(file, 'utf8'))
+    legacy.automaticMergePolicy.digest = '2f59f4a1a2bfb56ad87222881c99b8f2124fbc4be423cfaf3c790e564bb07ff4'
+    await fs.writeFile(file, `${JSON.stringify(legacy, null, 2)}\n`)
+
+    const migrated = await loadCheckpoint(file)
+    assert.equal(migrated.automaticMergePolicy.status, 'disabled')
+    assert.equal(migrated.automaticMergePolicy.digest, automaticMerge.POLICY_DIGEST)
+    await saveCheckpoint(file, migrated)
+    const reloaded = await loadCheckpoint(file)
+    assert.equal(reloaded.automaticMergePolicy.status, 'disabled')
+    assert.equal(reloaded.automaticMergePolicy.digest, automaticMerge.POLICY_DIGEST)
+    assert.deepEqual(await fs.readFile(DEFAULT_CHECKPOINT), sourceBytes,
+      'the tracked integration checkpoint is not modified by migration validation')
+  } finally {
+    await fs.rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('legacy policy digests with active authority or audit history are never migrated', () => {
+  const legacyDigest = '2f59f4a1a2bfb56ad87222881c99b8f2124fbc4be423cfaf3c790e564bb07ff4'
+  const active = { ...automaticMerge.activatePolicy({ policy: automaticMerge.defaultPolicy(),
+    authorization: autoPolicyAuthorization(), now: autoMergeAt }), digest: legacyDigest }
+  const activeState = createWorkflow({ objectiveId: 'legacy-active-policy', tasks: [work('one')] })
+  activeState.automaticMergePolicy = active
+  assert.throws(() => validateWorkflow(activeState), /Automatic merge policy is missing, invalid, or out of scope/)
+  assert.equal(activeState.automaticMergePolicy.digest, legacyDigest)
+
+  const auditState = createWorkflow({ objectiveId: 'legacy-policy-audit', tasks: [work('one')] })
+  auditState.automaticMergePolicy = { ...auditState.automaticMergePolicy, digest: legacyDigest }
+  auditState.automaticMergeEvents = [{ type: 'legacy-policy-event' }]
+  assert.throws(() => validateWorkflow(auditState), /Automatic merge policy is missing, invalid, or out of scope/)
+  assert.equal(auditState.automaticMergePolicy.digest, legacyDigest)
 })
 
 test('workflow terminates when every task is complete', () => {

@@ -94,14 +94,18 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
     'docs/autonomy/integration-task-graph.json',
   ]
-  for (const changedPath of coordinatorPaths) {
+  const policyPaths = [
+    'scripts/autonomy/automatic-merge-policy.cjs',
+    'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+  ]
+  for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(pushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`), `${changedPath} must trigger push CI`)
   }
-  assert.ok(workflow.includes(`${coordinatorPaths[0]}|${coordinatorPaths[1]}`), 'both paths must mark autonomy tests relevant')
+  assert.ok(workflow.includes(`${coordinatorPaths[0]}|${coordinatorPaths[1]}`), 'coordinator source and test must mark autonomy tests relevant')
   const classifierStart = workflow.indexOf('          while IFS= read -r file; do')
   const classifierEnd = workflow.indexOf('          done < changed-files.txt', classifierStart)
   const classifier = workflow.slice(classifierStart, classifierEnd)
-  for (const changedPath of coordinatorPaths) {
+  for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(classifier.includes(changedPath), `${changedPath} must mark autonomy tests relevant`)
   }
   assert.match(workflow, /autonomy_tests=true/)
@@ -113,8 +117,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJobStart = workflow.indexOf('  autonomy-tests:')
   const requiredGateStart = workflow.indexOf('  required-pr-gate:', autonomyJobStart)
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
-  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
-    'autonomy CI must execute the trusted integration verifier regression suite when classified relevant')
+  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
+    'autonomy CI must execute policy, coordinator, and verifier regression suites when classified relevant')
 })
 
 function successfulGateInputs(overrides = {}) {
