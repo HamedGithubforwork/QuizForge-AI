@@ -244,12 +244,6 @@ else: raise AssertionError('Gateway did not start')
 
                 try:
                     response = connection.getresponse()
-                    status = response.status
-                    try:
-                        response_body = response.read()
-                    except (HTTPException, OSError, TimeoutError):
-                        response_body = b''
-                    return status, response_body
                 except (HTTPException, OSError, TimeoutError) as error:
                     if send_error is not None:
                         raise AssertionError(
@@ -258,6 +252,15 @@ else: raise AssertionError('Gateway did not start')
                     raise AssertionError(
                         'Boundary POST completed without a readable HTTP status'
                     ) from error
+
+                status = response.status
+                try:
+                    response_body = response.read()
+                except (HTTPException, OSError, TimeoutError) as error:
+                    raise AssertionError(
+                        f'Boundary POST received HTTP {status} but not the complete response body'
+                    ) from error
+                return status, response_body
             finally:
                 connection.close()
         semantic_limit = 512 * 1024
