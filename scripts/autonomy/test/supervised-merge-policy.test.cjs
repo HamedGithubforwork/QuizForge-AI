@@ -148,8 +148,8 @@ test('decision audit persists rejected evidence without fabricated PR/task place
     }
     orchestrator.revokeSupervisedMerges(state, prRef)
     assert.ok(state.checkpoint.eventArchives.flat().some(event => event.type === 'supervised_merge_decision'))
-    await orchestrator.saveState(checkpoint, state)
-    const reloaded = await orchestrator.loadState(checkpoint)
+    await orchestrator.saveState(checkpoint, state, dir)
+    const reloaded = await orchestrator.loadState(checkpoint, dir)
     assert.equal([...reloaded.checkpoint.eventArchives.flat(), ...reloaded.checkpoint.events]
       .find(event => event.type === 'supervised_merge_decision').mergeRecord.prNumber, null)
   } finally {
@@ -255,8 +255,8 @@ test('merge result requires a matching eligible decision and structured merged G
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quizforge-merge-result-'))
   try {
     const checkpoint = path.join(dir, 'checkpoint.json')
-    await orchestrator.saveState(checkpoint, state)
-    const reloaded = await orchestrator.loadState(checkpoint)
+    await orchestrator.saveState(checkpoint, state, dir)
+    const reloaded = await orchestrator.loadState(checkpoint, dir)
     assert.equal(reloaded.checkpoint.events.filter(event => event.type === 'supervised_merge_completed').length, 1)
   } finally {
     await fs.rm(dir, { recursive: true, force: true })
