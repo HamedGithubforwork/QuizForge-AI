@@ -38,7 +38,10 @@ def make_case(alias: str) -> AnswerReviewCase:
     )
 
 
-def make_cases_at_semantic_size(target_bytes: int) -> list[AnswerReviewCase]:
+def make_cases_at_semantic_size(
+    target_bytes: int,
+    alias_character: str = "é",
+) -> list[AnswerReviewCase]:
     case = make_case("")
     base_size = len(
         (
@@ -50,8 +53,9 @@ def make_cases_at_semantic_size(target_bytes: int) -> list[AnswerReviewCase]:
     if remaining < 0:
         raise ValueError("Target is smaller than the minimum request")
 
-    alias = "é" * (remaining // 2)
-    if remaining % 2:
+    character_width = len(alias_character.encode("utf-8"))
+    alias = alias_character * (remaining // character_width)
+    if remaining % character_width:
         alias += "x"
     case = make_case(alias)
     semantic_size = len(
@@ -71,12 +75,20 @@ def health():
 
 
 @app.get("/api/__test/answer-review-payload")
-def answer_review_payload(target_bytes: int):
-    cases = make_cases_at_semantic_size(target_bytes)
+def answer_review_payload(target_bytes: int, encoding: str = "unicode"):
+    if encoding not in {"unicode", "escaped-ascii"}:
+        return Response(status_code=400)
+    alias_character = "A" if encoding == "escaped-ascii" else "é"
+    cases = make_cases_at_semantic_size(target_bytes, alias_character)
     body = json.dumps(
         {"cases": [case.model_dump() for case in cases]},
         ensure_ascii=True,
-    ).encode("utf-8")
+    )
+    if encoding == "escaped-ascii":
+        alias = cases[0].answer_groups[0][0]
+        escaped_alias = "".join(f"\\u{ord(character):04x}" for character in alias)
+        body = body.replace(alias, escaped_alias)
+    body = body.encode("utf-8")
     return Response(body, media_type="application/json")
 
 

@@ -221,8 +221,11 @@ else: raise AssertionError('Gateway did not start')
             ), timeout=15) as response:
                 return response.read()
 
-        def get_fixture(target_bytes):
-            with urlopen(Request(fixture_url + str(target_bytes), headers={'Host': host}), timeout=15) as response:
+        def get_fixture(target_bytes, encoding='unicode'):
+            fixture = fixture_url + str(target_bytes)
+            if encoding != 'unicode':
+                fixture += '&encoding=' + encoding
+            with urlopen(Request(fixture, headers={'Host': host}), timeout=15) as response:
                 return response.read()
 
         def post_boundary(path, body):
@@ -261,19 +264,26 @@ else: raise AssertionError('Gateway did not start')
                 return error.code, error.read()
 
         semantic_limit = 512 * 1024
+        raw_limit = 4 * 1024 * 1024
         exact_semantic_body = get_fixture(semantic_limit)
         assert len(exact_semantic_body) > semantic_limit
-        assert len(exact_semantic_body) < 2 * 1024 * 1024
+        assert len(exact_semantic_body) < raw_limit
         status, response_body = post_boundary('/api/answers/review', exact_semantic_body)
         assert status == 200, (status, response_body[:200])
         assert json.loads(response_body)['semantic_bytes'] == semantic_limit
 
+        escaped_ascii_body = get_fixture(semantic_limit, 'escaped-ascii')
+        assert len(escaped_ascii_body) > 2 * 1024 * 1024
+        assert len(escaped_ascii_body) < raw_limit
+        status, response_body = post_boundary('/api/answers/review', escaped_ascii_body)
+        assert status == 200, (status, response_body[:200])
+        assert json.loads(response_body)['semantic_bytes'] == semantic_limit
+
         over_semantic_body = get_fixture(semantic_limit + 1)
-        assert len(over_semantic_body) < 2 * 1024 * 1024
+        assert len(over_semantic_body) < raw_limit
         status, response_body = post_boundary('/api/answers/review', over_semantic_body)
         assert status == 422, (status, response_body[:200])
 
-        raw_limit = 2 * 1024 * 1024
         small_body = get_fixture(1024)
         assert len(small_body) < raw_limit
         exact_raw_body = small_body + (b' ' * (raw_limit - len(small_body)))
