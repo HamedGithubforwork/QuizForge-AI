@@ -133,6 +133,17 @@ assert.match(
   /useQuizHistoryData/,
 )
 
+const historyDisclosureButton =
+  quizHistoryComponentSource.match(
+    /<button\s+className="history-toggle"([\s\S]*?)>/,
+  )
+
+assert.ok(historyDisclosureButton)
+assert.match(
+  historyDisclosureButton[0],
+  /aria-expanded={expanded}/,
+)
+
 console.log(
   'quiz history pagination tests passed',
 )
