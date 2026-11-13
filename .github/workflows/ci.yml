@@ -8,13 +8,22 @@ on:
       - "backend/**"
       - "frontend/**"
       - "e2e/**"
+      - "desktop/scripts/diagnose-targeted-practice.cjs"
+      - "desktop/test/diagnose-targeted-practice.test.cjs"
+      - "scripts/autonomy/optimization-orchestrator.cjs"
+      - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      - "scripts/autonomy/integration-coordinator.cjs"
+      - "scripts/autonomy/test/integration-coordinator.test.cjs"
+      - "scripts/autonomy/trusted-integration-verifier.cjs"
+      - "scripts/autonomy/test/trusted-integration-verifier.test.cjs"
+      - "docs/autonomy/integration-task-graph.json"
+      - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
       - ".github/workflows/ci.yml"
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
-    branches:
-      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -31,6 +40,8 @@ jobs:
       backend: ${{ steps.changes.outputs.backend }}
       frontend: ${{ steps.changes.outputs.frontend }}
       playwright: ${{ steps.changes.outputs.playwright }}
+      desktop_diagnostic: ${{ steps.changes.outputs.desktop_diagnostic }}
+      autonomy_tests: ${{ steps.changes.outputs.autonomy_tests }}
 
     steps:
       - name: Check out repository history
@@ -64,6 +75,8 @@ jobs:
           backend=false
           frontend=false
           playwright=false
+          desktop_diagnostic=false
+          autonomy_tests=false
 
           while IFS= read -r file; do
             case "${file}" in
@@ -81,6 +94,13 @@ jobs:
                 backend=true
                 frontend=true
                 playwright=true
+                autonomy_tests=true
+                ;;
+              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
+                desktop_diagnostic=true
+                ;;
+              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
+                autonomy_tests=true
                 ;;
             esac
           done < changed-files.txt
@@ -88,6 +108,8 @@ jobs:
           echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
           echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
           echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
+          echo "desktop_diagnostic=${desktop_diagnostic}" >> "${GITHUB_OUTPUT}"
+          echo "autonomy_tests=${autonomy_tests}" >> "${GITHUB_OUTPUT}"
 
   backend-tests:
     name: Backend tests
@@ -227,6 +249,57 @@ jobs:
           path: e2e/playwright-report/
           retention-days: 7
 
+  desktop-diagnostic-tests:
+    name: Desktop diagnostic privacy tests
+    needs: changes
+    if: needs.changes.outputs.desktop_diagnostic == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Run diagnostic privacy tests
+        run: node --test desktop/test/diagnose-targeted-practice.test.cjs
+
+  autonomy-tests:
+    name: Optimization orchestrator tests
+    needs: changes
+    if: needs.changes.outputs.autonomy_tests == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Run orchestrator regression tests
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs
+
+  workflow-policy-tests:
+    name: CI trigger policy tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Verify stacked PR trigger and agent evidence requirements
+        run: node --test scripts/ci/test-pr-ci-trigger.cjs
   required-pr-gate:
     name: Required PR gate
     needs:
@@ -234,39 +307,33 @@ jobs:
       - backend-tests
       - frontend-checks
       - playwright-e2e
+      - desktop-diagnostic-tests
+      - autonomy-tests
+      - workflow-policy-tests
     if: always()
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
       - name: Verify relevant CI jobs
-        shell: bash
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
+          BACKEND_REQUIRED: ${{ needs.changes.outputs.backend }}
           FRONTEND_RESULT: ${{ needs.frontend-checks.result }}
+          FRONTEND_REQUIRED: ${{ needs.changes.outputs.frontend }}
           PLAYWRIGHT_RESULT: ${{ needs.playwright-e2e.result }}
-        run: |
-          set -euo pipefail
-
-          echo "Change detection: ${CHANGES_RESULT}"
-          echo "Backend tests:   ${BACKEND_RESULT}"
-          echo "Frontend checks: ${FRONTEND_RESULT}"
-          echo "Playwright E2E:  ${PLAYWRIGHT_RESULT}"
-
-          if [[ "${CHANGES_RESULT}" != "success" ]]; then
-            echo "Change detection did not succeed."
-            exit 1
-          fi
-
-          for result in "${BACKEND_RESULT}" "${FRONTEND_RESULT}" "${PLAYWRIGHT_RESULT}"; do
-            case "${result}" in
-              success|skipped)
-                ;;
-              *)
-                echo "A relevant CI job did not succeed."
-                exit 1
-                ;;
-            esac
-          done
-
-          echo "All relevant CI jobs passed or were intentionally skipped."
+          PLAYWRIGHT_REQUIRED: ${{ needs.changes.outputs.playwright }}
+          DESKTOP_DIAGNOSTIC_RESULT: ${{ needs.desktop-diagnostic-tests.result }}
+          DESKTOP_DIAGNOSTIC_REQUIRED: ${{ needs.changes.outputs.desktop_diagnostic }}
+          AUTONOMY_RESULT: ${{ needs.autonomy-tests.result }}
+          AUTONOMY_REQUIRED: ${{ needs.changes.outputs.autonomy_tests }}
+          WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
+        run: node scripts/ci/verify-required-pr-gate.cjs
