@@ -826,9 +826,13 @@ function sanitizeMergeDecisionRecord(state, input, result, decisionDigest) {
 function hasActionableRestartEvidence(checkpoint, tasks) {
   const priorExhaustion = checkpoint.optimizationGate.auditHistory.at(-1)
   if (priorExhaustion?.auditStatus !== 'OPTIMIZATION_EXHAUSTED') return false
-  return checkpoint.events.some(event => {
-    if (event.type !== 'optimization_resumed' || event.reasonCode !== 'new_actionable_task' || !event.taskId ||
-        Date.parse(event.at) <= Date.parse(priorExhaustion.recordedAt)) return false
+  const events = [...(checkpoint.eventArchives ?? []).flat(), ...checkpoint.events]
+  const exhaustionIndex = events.findLastIndex(event => event.type === 'audit_completed' &&
+    event.auditId === priorExhaustion.auditId && event.auditStatus === 'OPTIMIZATION_EXHAUSTED')
+  if (exhaustionIndex < 0) return false
+  return events.some((event, index) => {
+    if (index <= exhaustionIndex || event.type !== 'optimization_resumed' ||
+        event.reasonCode !== 'new_actionable_task' || !event.taskId) return false
     const task = tasks.find(item => item.id === event.taskId)
     return task && ['ready', 'selected', 'baseline_established', 'implementing', 'implemented',
       'tests_passed', 'reviewed', 'qa_passed', 'quality_security_passed'].includes(task.status)

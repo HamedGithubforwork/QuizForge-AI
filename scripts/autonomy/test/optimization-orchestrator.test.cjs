@@ -1320,6 +1320,18 @@ test('exhaustion requires two clean audits, blockers remain blocked, and new wor
   addTask(state, task('newly-actionable-task'))
   assert.equal(state.checkpoint.optimizationGate.status, 'ACTIVE')
   assert.equal(state.checkpoint.optimizationGate.finalReport, null)
+  const latestExhaustion = state.checkpoint.optimizationGate.auditHistory.at(-1)
+  const exhaustionEventIndex = state.checkpoint.events.findIndex(event =>
+    event.type === 'audit_completed' && event.auditId === latestExhaustion.auditId)
+  const resumedEvent = state.checkpoint.events.findLast(event =>
+    event.type === 'optimization_resumed' && event.taskId === 'newly-actionable-task')
+  assert.notEqual(exhaustionEventIndex, -1)
+  assert.ok(resumedEvent)
+  resumedEvent.at = latestExhaustion.recordedAt
+  // Model a timestamp tie and an event archive boundary. Event ordering, not
+  // millisecond wall-clock resolution, proves that the actionable discovery
+  // followed the exhaustion audit.
+  state.checkpoint.eventArchives.push(state.checkpoint.events.splice(0, exhaustionEventIndex + 1))
   const pendingAfterExhaustion = preparePilot(state, { pilotId: 'pilot-after-exhaustion-reopened' })
   assert.equal(pendingAfterExhaustion.maxCycles, 10)
   assert.equal(state.checkpoint.selectedTaskId, null)
