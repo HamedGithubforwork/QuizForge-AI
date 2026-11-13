@@ -1,0 +1,2816 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-11-07T06:23:00.000Z",
+  "domains": [
+    "local_ai",
+    "backend",
+    "frontend",
+    "desktop_ui",
+    "reliability",
+    "security",
+    "performance",
+    "ci_efficiency"
+  ],
+  "tasks": [
+    {
+      "id": "local-qwen-664-candidate-root-cause",
+      "domain": "local_ai",
+      "title": "Diagnose #664 because artifact lacks finish and candidate rejection details",
+      "impact": 5,
+      "effort": 3,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "docs/local-qwen-pilot-progress.md",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959"
+      ],
+      "testRefs": [
+        "desktop/test/diagnose-targeted-practice.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "local-qwen-664-candidate-root-cause",
+      "status": "blocked",
+      "initialStatus": "ready",
+      "investigationKey": "local-qwen-664-candidate-root-cause",
+      "baseline": null,
+      "implementation": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "other",
+        "evidenceRef": "docs/local-qwen-pilot-progress.md",
+        "evidenceRevision": 1,
+        "recordedAt": "2026-11-07T00:16:51.307Z"
+      },
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "evidenceRevision": 1,
+      "priorBlockerEvidenceRevision": 0,
+      "testResult": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "local-ai-minimal-replacement-existing-pr-665",
+      "domain": "local_ai",
+      "title": "Assess the existing #665 minimal replacement batching proposal",
+      "impact": 4,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665"
+      ],
+      "testRefs": [
+        "desktop/test/local-quiz-service.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "local-ai-minimal-replacement-existing-pr-665",
+      "status": "blocked",
+      "initialStatus": "ready",
+      "investigationKey": "local-ai-minimal-replacement-existing-pr-665",
+      "baseline": null,
+      "implementation": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "existing_pr",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-06T22:19:09.317Z"
+      },
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "testResult": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "autonomy-bridge-blocker-fallback",
+      "domain": "reliability",
+      "title": "Replace autonomy bridge global-stop blocker semantics with fallback selection",
+      "impact": 5,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/quizforge-autonomy-bridge.yml"
+      ],
+      "testRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "independent_fallback_transitions",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "autonomy-bridge-blocker-fallback",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/aad0afeda769a6715f2ba8351294b61839ff5fe6"
+      },
+      "implementation": {
+        "branch": "codex/global-optimization-exhaustion-20261106",
+        "commitSha": "3b6637d4574916d0d7117b142e1caf3d4e4f3835"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      },
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "desktop-diagnostic-pr-tests",
+      "domain": "ci_efficiency",
+      "title": "Run deterministic diagnostic privacy tests in pull request CI",
+      "impact": 4,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/ci.yml",
+        "desktop/test/diagnose-targeted-practice.test.cjs"
+      ],
+      "testRefs": [
+        "desktop/test/diagnose-targeted-practice.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "diagnostic_ci_test_cases",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "desktop-diagnostic-pr-tests",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/aad0afeda769a6715f2ba8351294b61839ff5fe6"
+      },
+      "implementation": {
+        "branch": "codex/global-optimization-exhaustion-20261106",
+        "commitSha": "460132dbe087481420943f7331f99a961d0a69d1"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 4,
+        "regression": false,
+        "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "autonomy-state-tests-pr-ci",
+      "domain": "ci_efficiency",
+      "title": "Run orchestrator checkpoint and exhaustion tests in PR CI",
+      "impact": 5,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/ci.yml",
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "testRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "autonomy_ci_test_cases",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "autonomy-state-tests-pr-ci",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/460132dbe087481420943f7331f99a961d0a69d1"
+      },
+      "implementation": {
+        "branch": "codex/global-optimization-exhaustion-20261106",
+        "commitSha": "7bef05de15c93e71beb0231336ac56d216da942e"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": ".github/workflows/ci.yml"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 26,
+        "regression": false,
+        "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "backend-validation-metric-batching",
+      "domain": "performance",
+      "title": "Batch quiz validation timing writes during retries",
+      "impact": 4,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/performance_metrics.py",
+        "backend/observability.py",
+        ".github/workflows/ci.yml",
+        "backend/DEPENDENCIES.md"
+      ],
+      "testRefs": [
+        "backend/tests/test_performance_metrics.py",
+        "backend/tests/test_observability.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "validation_metric_pipeline_calls",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "backend-validation-metric-batching",
+      "baseline": {
+        "metric": 2,
+        "evidenceRef": "backend/performance_metrics.py"
+      },
+      "implementation": {
+        "branch": "codex/backend-validation-metric-batching-20261107",
+        "commitSha": "e3512deaed06cb0e126a8864dd26883a31011316"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42335246666"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42335246666"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 2,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "backend/tests/test_observability.py"
+      },
+      "blocker": null,
+      "workPreserved": {
+        "baseline": {
+          "metric": 2,
+          "evidenceRef": "backend/performance_metrics.py"
+        },
+        "implementation": null,
+        "testResult": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "evidenceRevision": 1,
+      "priorBlockerEvidenceRevision": 0,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "history-delete-contextual-label",
+      "domain": "frontend",
+      "title": "Give saved quiz delete buttons contextual accessible names",
+      "impact": 4,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/components/history/QuizHistoryList.tsx"
+      ],
+      "testRefs": [
+        "frontend/src/lib/quizHistoryAccessibility.test.ts",
+        "frontend/src/components/history/QuizHistoryList.tsx"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "contextual_delete_accessible_names",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "history-delete-contextual-label",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+      },
+      "implementation": {
+        "branch": "codex/history-delete-contextual-label-20261106",
+        "commitSha": "a7158ea500f7423207d46161e169d5bb048716ee"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42317479552"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42317479552"
+      },
+      "blocker": null,
+      "workPreserved": {
+        "baseline": {
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+        },
+        "implementation": {
+          "branch": "codex/history-delete-contextual-label-20261106",
+          "commitSha": "e16ebf7dc093cc29ef8338223fa5660a429f4ece"
+        },
+        "testResult": {
+          "passed": true,
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        "assessments": {
+          "reviewer": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          },
+          "qa": {
+            "passed": true,
+            "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+          },
+          "quality": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          },
+          "security": {
+            "passed": true,
+            "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+          }
+        },
+        "validation": null
+      },
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "measure-checkpoint-validation-growth",
+      "domain": "reliability",
+      "title": "Measure checkpoint archive growth and validation cost before redesign",
+      "impact": 3,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "scripts/autonomy/optimization-orchestrator.cjs",
+        "docs/autonomy/optimization-state.json"
+      ],
+      "testRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkRefs": [
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "checkpoint_validation_runtime_ms",
+      "status": "rejected",
+      "initialStatus": "ready",
+      "investigationKey": "measure-checkpoint-validation-growth",
+      "baseline": {
+        "metric": 0.4918,
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": {
+        "accepted": false,
+        "reasonCode": "no_measurable_improvement",
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": [],
+      "preservationDeferral": null,
+      "preservationArchiveRefs": []
+    },
+    {
+      "id": "bound-pdf-upload-read",
+      "domain": "security",
+      "title": "Bound PDF reads before buffering uploaded files",
+      "impact": 5,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/application.py",
+        "backend/quiz_generation_support.py",
+        "backend/quiz_service.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_bounded_upload_reads.py"
+      ],
+      "benchmarkRefs": [
+        "backend/tests/test_bounded_upload_reads.py",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "oversize_upload_bytes_read",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "bound-pdf-upload-read",
+      "baseline": {
+        "metric": 104857600,
+        "evidenceRef": "docs/autonomy/pilot-report.md"
+      },
+      "implementation": {
+        "branch": "codex/bound-pdf-upload-read-20261107",
+        "commitSha": "291ad653780f15285cee52455cea2e51b2df488f"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 104857600,
+        "resultMetric": 15728641,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "weak-area-prompt-data-isolation",
+      "domain": "security",
+      "title": "Keep previous quiz questions out of developer instructions",
+      "impact": 5,
+      "effort": 3,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/application.py",
+        "backend/quiz_service.py",
+        "backend/quiz_prompt.py",
+        "backend/quiz_generation_api.py",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42338822299"
+      ],
+      "testRefs": [
+        "backend/tests/test_main.py",
+        "backend/tests/test_quiz_prompt.py",
+        "backend/tests/test_document_retrieval.py",
+        "backend/tests/test_quiz_generation_api.py"
+      ],
+      "benchmarkRefs": [
+        "backend/tests/test_quiz_prompt.py",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "untrusted_developer_prompt_paths",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "weak-area-prompt-data-isolation",
+      "baseline": {
+        "metric": 1,
+        "evidenceRef": "backend/quiz_prompt.py"
+      },
+      "implementation": {
+        "branch": "codex/weak-area-prompt-data-isolation-main-20261107",
+        "commitSha": "cefe6a24e13b4b364bc25ff70d60ee4aff048b20"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 1,
+        "resultMetric": 0,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": [
+        {
+          "diagnosis": {
+            "diagnosisCode": "other",
+            "investigatorEvidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42338822299",
+            "originalCheckRef": "backend/tests/test_quiz_prompt.py",
+            "recoverable": true,
+            "blockerCode": "other",
+            "recordedAt": "2026-11-07T04:38:48.317Z"
+          },
+          "attempts": [
+            {
+              "strategy": "configuration_repair",
+              "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/cefe6a24e13b4b364bc25ff70d60ee4aff048b20",
+              "checkRef": "backend/tests/test_quiz_prompt.py",
+              "verificationRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+              "result": "passed",
+              "recordedAt": "2026-11-07T04:38:50.208Z"
+            }
+          ],
+          "outcome": "recovered"
+        }
+      ]
+    },
+    {
+      "id": "quiz-navigator-accessible-labels",
+      "domain": "frontend",
+      "title": "Expose accessible names and answer states in quiz navigation",
+      "impact": 4,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/components/quiz/QuizSession.tsx",
+        "frontend/src/App.css"
+      ],
+      "testRefs": [
+        "frontend/src/lib/quizNavigatorAccessibility.test.ts"
+      ],
+      "benchmarkRefs": [
+        "frontend/src/lib/quizNavigatorAccessibility.test.ts",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685"
+      ],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "question_nav_accessible_name_coverage",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "quiz-navigator-accessible-labels",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/QuizSession.tsx"
+      },
+      "implementation": {
+        "branch": "codex/quiz-nav-accessible-labels-20261107",
+        "commitSha": "592cad167414ebd602c82f133b2875407894e7bd"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "quiz-nav-post-results-focus-transfer",
+      "domain": "frontend",
+      "title": "Transfer focus to a question when navigating quiz results",
+      "impact": 3,
+      "effort": 2,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/components/quiz/useQuizAttempt.ts",
+        "frontend/src/components/quiz/QuizSession.tsx",
+        "docs/autonomy/pilot-report.md"
+      ],
+      "testRefs": [
+        "frontend/e2e/quiz.spec.ts"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "focus_transfer_after_results",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "quiz-nav-post-results-focus-transfer",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/useQuizAttempt.ts"
+      },
+      "implementation": {
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "656d24a2aa6c2cc4f1efb9357039ae9b844299fb"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "frontend/src/lib/quizNavigatorAccessibility.test.ts"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "bound-answer-review-rubric-payloads",
+      "domain": "security",
+      "title": "Bound nested answer-review aliases before model prompt serialization",
+      "impact": 5,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/answer_review.py",
+        "scripts/production/lightsail/Caddyfile",
+        "backend/tests/test_answer_review.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_answer_review.py",
+        "backend/tests/test_main.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "maximum_answer_review_prompt_payload_bytes",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "bound-answer-review-rubric-payloads",
+      "baseline": {
+        "metric": 16000000,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile"
+      },
+      "implementation": {
+        "branch": "codex/answer-review-payload-bounds-20261107",
+        "commitSha": "4021f09e98f04b6b76b3a2157665e70baa0f4248"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883125"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883125"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 16000000,
+        "resultMetric": 524288,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883280"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "mastery-panel-aa-text-contrast",
+      "domain": "frontend",
+      "title": "Raise mastery analytics small-text contrast to WCAG AA",
+      "impact": 4,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/MasteryAnalyticsPanel.css",
+        "frontend/src/accessibility.css"
+      ],
+      "testRefs": [
+        "frontend/src/MasteryAnalyticsPanel.css",
+        "frontend/src/accessibility.css"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "mastery_panel_text_contrast_failures",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "mastery-panel-aa-text-contrast",
+      "baseline": {
+        "metric": 8,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css"
+      },
+      "implementation": {
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "530dea27fbc8669197f1884d9d6d3f713b1df415"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 8,
+        "resultMetric": 0,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "prune-expired-memory-rate-limits",
+      "domain": "reliability",
+      "title": "Prune expired in-memory rate-limit buckets during Redis fallback",
+      "impact": 3,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/redis_integration.py",
+        "backend/tests/test_answer_review_rate_limit.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_answer_review_rate_limit.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "expired_memory_rate_limit_buckets",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "prune-expired-memory-rate-limits",
+      "baseline": {
+        "metric": 100,
+        "evidenceRef": "backend/tests/test_answer_review_rate_limit.py"
+      },
+      "implementation": {
+        "branch": "codex/rate-limit-stale-bucket-prune-20261107",
+        "commitSha": "2b66e6415d2e4097333472d97014781652dc4eba"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 100,
+        "resultMetric": 0,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "history-disclosure-expanded-state",
+      "domain": "frontend",
+      "title": "Expose expanded state for My Quiz History disclosure",
+      "impact": 4,
+      "effort": 1,
+      "risk": 1,
+      "dependencies": [],
+      "evidenceRefs": [
+        "frontend/src/QuizHistory.tsx",
+        "frontend/src/lib/quizHistoryPagination.test.ts"
+      ],
+      "testRefs": [
+        "frontend/src/lib/quizHistoryPagination.test.ts"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "higher_is_better",
+      "metricName": "history_disclosure_expanded_state",
+      "status": "validated",
+      "initialStatus": "ready",
+      "investigationKey": "history-disclosure-expanded-state",
+      "baseline": {
+        "metric": 0,
+        "evidenceRef": "frontend/src/QuizHistory.tsx"
+      },
+      "implementation": {
+        "branch": "codex/history-disclosure-expanded-state-20261107",
+        "commitSha": "095303915cd01e837a63c7ed2c1037c0ca3644fb"
+      },
+      "testResult": {
+        "passed": true,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847"
+      },
+      "assessments": {
+        "reviewer": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689"
+        },
+        "qa": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847"
+        },
+        "quality": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689"
+        },
+        "security": {
+          "passed": true,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689"
+        }
+      },
+      "validation": {
+        "accepted": true,
+        "baselineMetric": 0,
+        "resultMetric": 1,
+        "regression": false,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847"
+      },
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "pdf-page-count-resource-bound",
+      "domain": "security",
+      "title": "Bound PDF page extraction and upload preview page counts",
+      "impact": 5,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        "backend/quiz_service.py",
+        "backend/document_api.py",
+        "frontend/src/components/quiz/PagePreviews.tsx",
+        "backend/tests/test_pdf_extraction_async.py"
+      ],
+      "testRefs": [
+        "backend/tests/test_pdf_extraction_async.py"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "pdf_pages_processed",
+      "status": "blocked",
+      "initialStatus": "ready",
+      "investigationKey": "pdf-page-count-resource-bound",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": {
+        "code": "unavailable_evidence",
+        "evidenceRef": "backend/quiz_service.py",
+        "evidenceRevision": 0,
+        "recordedAt": "2026-11-07T06:12:00.000Z"
+      },
+      "workPreserved": {
+        "baseline": null,
+        "implementation": null,
+        "testResult": null,
+        "assessments": {
+          "reviewer": null,
+          "qa": null,
+          "quality": null,
+          "security": null
+        },
+        "validation": null
+      },
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    },
+    {
+      "id": "avoid-duplicate-backend-pr-image-build",
+      "domain": "ci_efficiency",
+      "title": "Avoid duplicate backend image builds across PR workflows",
+      "impact": 3,
+      "effort": 2,
+      "risk": 2,
+      "dependencies": [],
+      "evidenceRefs": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/backend-ecr.yml",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119673",
+        "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885"
+      ],
+      "testRefs": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/backend-ecr.yml"
+      ],
+      "benchmarkRefs": [],
+      "benchmarkCost": "local",
+      "benchmarkDirection": "lower_is_better",
+      "metricName": "backend_pr_image_builds",
+      "status": "ready",
+      "initialStatus": "ready",
+      "investigationKey": "avoid-duplicate-backend-pr-image-build",
+      "baseline": null,
+      "implementation": null,
+      "testResult": null,
+      "assessments": {
+        "reviewer": null,
+        "qa": null,
+        "quality": null,
+        "security": null
+      },
+      "validation": null,
+      "blocker": null,
+      "workPreserved": null,
+      "preservationDeferral": null,
+      "preservationArchiveRefs": [],
+      "evidenceRevision": 0,
+      "priorBlockerEvidenceRevision": null,
+      "recoveryHistory": []
+    }
+  ],
+  "checkpoint": {
+    "pilotId": "pilot-2026-11-06-02",
+    "maxCycles": 10,
+    "cyclesStarted": 10,
+    "cyclesValidated": 9,
+    "revision": 92,
+    "selectedTaskId": null,
+    "previousTaskId": "history-disclosure-expanded-state",
+    "preparedPilot": null,
+    "pilotHistory": [
+      {
+        "pilotId": "pilot-2026-11-06-01",
+        "maxCycles": 5,
+        "cyclesStarted": 5,
+        "cyclesValidated": 4,
+        "gateStatus": "STOPPED",
+        "stopReason": "budget",
+        "startedAt": "2026-11-06T23:16:19.291Z",
+        "completedAt": "2026-11-07T02:09:00.586Z"
+      },
+      {
+        "pilotId": "pilot-2026-11-06-02",
+        "maxCycles": 10,
+        "cyclesStarted": 10,
+        "cyclesValidated": 9,
+        "gateStatus": "STOPPED",
+        "stopReason": "budget",
+        "startedAt": "2026-11-07T02:09:00.596Z",
+        "completedAt": "2026-11-07T06:18:02.000Z"
+      }
+    ],
+    "archivedPilotHistory": [],
+    "eventArchives": [
+      [
+        {
+          "at": "2026-11-06T22:19:09.317Z",
+          "type": "task_discovered",
+          "taskId": "local-qwen-664-candidate-root-cause",
+          "domain": "local_ai",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T22:19:09.317Z",
+          "type": "blocked",
+          "taskId": "local-qwen-664-candidate-root-cause",
+          "blockerCode": "unavailable_evidence",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42293627959"
+        },
+        {
+          "at": "2026-11-06T22:19:09.317Z",
+          "type": "task_discovered",
+          "taskId": "local-ai-minimal-replacement-existing-pr-665",
+          "domain": "local_ai",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T22:19:09.317Z",
+          "type": "blocked",
+          "taskId": "local-ai-minimal-replacement-existing-pr-665",
+          "blockerCode": "existing_pr",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/665"
+        },
+        {
+          "at": "2026-11-06T22:19:09.317Z",
+          "type": "task_discovered",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "domain": "reliability",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T23:16:19.291Z",
+          "type": "pilot_started",
+          "pilotId": "pilot-2026-11-06-01",
+          "maxCycles": 5
+        },
+        {
+          "at": "2026-11-06T23:16:19.293Z",
+          "type": "selected",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "cycle": 1
+        },
+        {
+          "at": "2026-11-06T23:17:20.196Z",
+          "type": "baseline",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/aad0afeda769a6715f2ba8351294b61839ff5fe6"
+        },
+        {
+          "at": "2026-11-06T23:17:20.298Z",
+          "type": "implemented",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "branch": "codex/global-optimization-exhaustion-20261106",
+          "commitSha": "3b6637d4574916d0d7117b142e1caf3d4e4f3835"
+        },
+        {
+          "at": "2026-11-06T23:17:20.395Z",
+          "type": "tests_passed",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:17:32.259Z",
+          "type": "reviewer_passed",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        {
+          "at": "2026-11-06T23:17:32.368Z",
+          "type": "qa_passed",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:18:43.196Z",
+          "type": "quality_passed",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:18:43.314Z",
+          "type": "security_passed",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        {
+          "at": "2026-11-06T23:18:43.431Z",
+          "type": "validated",
+          "taskId": "autonomy-bridge-blocker-fallback",
+          "resultMetric": 1,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:25:00.747Z",
+          "type": "audit_completed",
+          "auditStatus": "ACTIVE",
+          "auditId": "audit-2026-11-06-01",
+          "consecutiveCleanAudits": 0,
+          "actionableCount": 0,
+          "blockedCount": 2,
+          "auditedDimensions": [
+            "performance",
+            "memory",
+            "cpu",
+            "code_quality",
+            "security",
+            "reliability",
+            "backend",
+            "local_ai",
+            "quiz_generation",
+            "grading",
+            "frontend_ux",
+            "desktop_ux",
+            "tests",
+            "gha_efficiency"
+          ],
+          "specialistRoles": [
+            "reviewer",
+            "qa",
+            "security_privacy_engineer",
+            "ai_quality_engineer",
+            "performance_efficiency_engineer",
+            "ui_ux_engineer",
+            "release_reliability_engineer",
+            "data_integrity_engineer"
+          ],
+          "auditEvidenceRefs": [
+            ".github/workflows/ci.yml",
+            "desktop/test/diagnose-targeted-practice.test.cjs",
+            "desktop/scripts/diagnose-targeted-practice.cjs",
+            ".github/workflows/local-ai-targeted-practice-diagnostic.yml",
+            "desktop/benchmarks/prompt-v4/README.md",
+            "docs/autonomy/pilot-report.md"
+          ],
+          "specialistAssessments": [
+            {
+              "role": "reviewer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "qa",
+              "finding": "improvement_identified",
+              "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+            },
+            {
+              "role": "security_privacy_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+            },
+            {
+              "role": "ai_quality_engineer",
+              "finding": "blocked",
+              "evidenceRef": "desktop/benchmarks/prompt-v4/README.md"
+            },
+            {
+              "role": "performance_efficiency_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "ui_ux_engineer",
+              "finding": "clear",
+              "evidenceRef": "frontend/src/App.css"
+            },
+            {
+              "role": "release_reliability_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "data_integrity_engineer",
+              "finding": "clear",
+              "evidenceRef": "scripts/production/schema.sql"
+            }
+          ],
+          "awaitingApprovalCount": 0,
+          "evidenceRef": ".github/workflows/ci.yml"
+        },
+        {
+          "at": "2026-11-06T23:25:07.426Z",
+          "type": "task_discovered",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "domain": "ci_efficiency",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T23:25:07.590Z",
+          "type": "selected",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "cycle": 2
+        },
+        {
+          "at": "2026-11-06T23:25:20.460Z",
+          "type": "baseline",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/aad0afeda769a6715f2ba8351294b61839ff5fe6"
+        },
+        {
+          "at": "2026-11-06T23:26:42.806Z",
+          "type": "implemented",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "branch": "codex/global-optimization-exhaustion-20261106",
+          "commitSha": "460132dbe087481420943f7331f99a961d0a69d1"
+        },
+        {
+          "at": "2026-11-06T23:26:42.982Z",
+          "type": "tests_passed",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:26:43.126Z",
+          "type": "reviewer_passed",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        {
+          "at": "2026-11-06T23:26:43.236Z",
+          "type": "qa_passed",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:27:18.234Z",
+          "type": "quality_passed",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:27:18.336Z",
+          "type": "security_passed",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:27:18.447Z",
+          "type": "validated",
+          "taskId": "desktop-diagnostic-pr-tests",
+          "resultMetric": 4,
+          "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:36:58.442Z",
+          "type": "audit_completed",
+          "auditStatus": "ACTIVE",
+          "auditId": "audit-2026-11-06-02",
+          "consecutiveCleanAudits": 0,
+          "actionableCount": 0,
+          "blockedCount": 2,
+          "auditedDimensions": [
+            "performance",
+            "memory",
+            "cpu",
+            "code_quality",
+            "security",
+            "reliability",
+            "backend",
+            "local_ai",
+            "quiz_generation",
+            "grading",
+            "frontend_ux",
+            "desktop_ux",
+            "tests",
+            "gha_efficiency"
+          ],
+          "specialistRoles": [
+            "reviewer",
+            "qa",
+            "security_privacy_engineer",
+            "ai_quality_engineer",
+            "performance_efficiency_engineer",
+            "ui_ux_engineer",
+            "release_reliability_engineer",
+            "data_integrity_engineer"
+          ],
+          "auditEvidenceRefs": [
+            ".github/workflows/ci.yml",
+            "scripts/autonomy/test/optimization-orchestrator.test.cjs",
+            "backend/performance_metrics.py",
+            "backend/observability.py",
+            "backend/tests/test_performance_metrics.py",
+            "backend/tests/test_observability.py",
+            "frontend/src/components/history/QuizHistoryList.tsx",
+            "desktop/benchmarks/prompt-v4/README.md",
+            "docs/autonomy/pilot-report.md"
+          ],
+          "specialistAssessments": [
+            {
+              "role": "reviewer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "performance_efficiency_engineer",
+              "evidenceRef": "backend/performance_metrics.py"
+            },
+            {
+              "role": "qa",
+              "finding": "improvement_identified",
+              "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+            },
+            {
+              "role": "security_privacy_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "ui_ux_engineer",
+              "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+            },
+            {
+              "role": "ai_quality_engineer",
+              "finding": "blocked",
+              "evidenceRef": "desktop/benchmarks/prompt-v4/README.md"
+            },
+            {
+              "role": "performance_efficiency_engineer",
+              "finding": "improvement_identified",
+              "evidenceRef": "backend/observability.py"
+            },
+            {
+              "role": "ui_ux_engineer",
+              "finding": "improvement_identified",
+              "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+            },
+            {
+              "role": "release_reliability_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "data_integrity_engineer",
+              "finding": "clear",
+              "evidenceRef": "scripts/production/schema.sql"
+            }
+          ],
+          "awaitingApprovalCount": 0,
+          "evidenceRef": ".github/workflows/ci.yml"
+        },
+        {
+          "at": "2026-11-06T23:38:09.338Z",
+          "type": "task_discovered",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "domain": "ci_efficiency",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T23:38:09.436Z",
+          "type": "task_discovered",
+          "taskId": "backend-validation-metric-batching",
+          "domain": "performance",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T23:38:09.524Z",
+          "type": "task_discovered",
+          "taskId": "history-delete-contextual-label",
+          "domain": "frontend",
+          "initialStatus": "ready"
+        },
+        {
+          "at": "2026-11-06T23:38:09.606Z",
+          "type": "selected",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "cycle": 3
+        },
+        {
+          "at": "2026-11-06T23:38:16.433Z",
+          "type": "baseline",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/460132dbe087481420943f7331f99a961d0a69d1"
+        },
+        {
+          "at": "2026-11-06T23:39:30.519Z",
+          "type": "implemented",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "branch": "codex/global-optimization-exhaustion-20261106",
+          "commitSha": "7bef05de15c93e71beb0231336ac56d216da942e"
+        },
+        {
+          "at": "2026-11-06T23:39:30.605Z",
+          "type": "tests_passed",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:39:30.678Z",
+          "type": "reviewer_passed",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/678"
+        },
+        {
+          "at": "2026-11-06T23:39:30.751Z",
+          "type": "qa_passed",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:39:30.832Z",
+          "type": "quality_passed",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:40:16.719Z",
+          "type": "security_passed",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "evidenceRef": ".github/workflows/ci.yml"
+        },
+        {
+          "at": "2026-11-06T23:40:16.860Z",
+          "type": "validated",
+          "taskId": "autonomy-state-tests-pr-ci",
+          "resultMetric": 26,
+          "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+        },
+        {
+          "at": "2026-11-06T23:41:28.681Z",
+          "type": "selected",
+          "taskId": "history-delete-contextual-label",
+          "cycle": 4
+        },
+        {
+          "at": "2026-11-06T23:41:59.339Z",
+          "type": "baseline",
+          "taskId": "history-delete-contextual-label",
+          "metric": 0,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/commit/7bef05de15c93e71beb0231336ac56d216da942e"
+        },
+        {
+          "at": "2026-11-06T23:44:16.438Z",
+          "type": "implemented",
+          "taskId": "history-delete-contextual-label",
+          "branch": "codex/history-delete-contextual-label-20261106",
+          "commitSha": "e16ebf7dc093cc29ef8338223fa5660a429f4ece"
+        },
+        {
+          "at": "2026-11-06T23:44:16.583Z",
+          "type": "tests_passed",
+          "taskId": "history-delete-contextual-label",
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        {
+          "at": "2026-11-06T23:48:04.172Z",
+          "type": "reviewer_passed",
+          "taskId": "history-delete-contextual-label",
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        {
+          "at": "2026-11-06T23:48:04.284Z",
+          "type": "qa_passed",
+          "taskId": "history-delete-contextual-label",
+          "evidenceRef": "frontend/src/lib/quizHistoryAccessibility.test.ts"
+        },
+        {
+          "at": "2026-11-06T23:48:04.372Z",
+          "type": "quality_passed",
+          "taskId": "history-delete-contextual-label",
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        {
+          "at": "2026-11-06T23:48:04.461Z",
+          "type": "security_passed",
+          "taskId": "history-delete-contextual-label",
+          "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+        },
+        {
+          "at": "2026-11-06T23:48:04.545Z",
+          "type": "blocked",
+          "taskId": "history-delete-contextual-label",
+          "blockerCode": "tooling_unavailable",
+          "evidenceRef": "docs/autonomy/pilot-report.md"
+        },
+        {
+          "at": "2026-11-06T23:48:04.546Z",
+          "type": "selected",
+          "taskId": "backend-validation-metric-batching",
+          "cycle": 5
+        },
+        {
+          "at": "2026-11-06T23:48:10.231Z",
+          "type": "baseline",
+          "taskId": "backend-validation-metric-batching",
+          "metric": 2,
+          "evidenceRef": "backend/performance_metrics.py"
+        },
+        {
+          "at": "2026-11-06T23:48:10.320Z",
+          "type": "blocked",
+          "taskId": "backend-validation-metric-batching",
+          "blockerCode": "tooling_unavailable",
+          "evidenceRef": "docs/autonomy/pilot-report.md"
+        },
+        {
+          "at": "2026-11-06T23:48:10.321Z",
+          "type": "gate_stopped",
+          "reasonCode": "budget"
+        },
+        {
+          "at": "2026-11-07T00:16:51.308Z",
+          "type": "blocked",
+          "taskId": "local-qwen-664-candidate-root-cause",
+          "blockerCode": "other",
+          "evidenceRef": "docs/local-qwen-pilot-progress.md"
+        },
+        {
+          "at": "2026-11-07T00:24:11.134Z",
+          "type": "validated",
+          "taskId": "history-delete-contextual-label",
+          "resultMetric": 1,
+          "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42317479552"
+        },
+        {
+          "at": "2026-11-07T00:27:31.964Z",
+          "type": "new_evidence",
+          "taskId": "backend-validation-metric-batching",
+          "evidenceRef": ".github/workflows/ci.yml",
+          "evidenceRevision": 1
+        },
+        {
+          "at": "2026-11-07T01:08:16.429Z",
+          "type": "pilot_prepared",
+          "pilotId": "pilot-2026-11-06-02",
+          "maxCycles": 10
+        },
+        {
+          "at": "2026-11-07T01:38:23.020Z",
+          "type": "task_discovered",
+          "taskId": "measure-checkpoint-validation-growth",
+          "domain": "reliability",
+          "initialStatus": "ready",
+          "pilotId": "pilot-2026-11-06-01"
+        }
+      ]
+    ],
+    "optimizationGate": {
+      "status": "STOPPED",
+      "consecutiveCleanAudits": 0,
+      "lastAuditRefs": [
+        ".github/workflows/ci.yml",
+        "scripts/autonomy/test/optimization-orchestrator.test.cjs",
+        "backend/performance_metrics.py",
+        "backend/observability.py",
+        "backend/tests/test_performance_metrics.py",
+        "backend/tests/test_observability.py",
+        "frontend/src/components/history/QuizHistoryList.tsx",
+        "desktop/benchmarks/prompt-v4/README.md",
+        "docs/autonomy/pilot-report.md"
+      ],
+      "lastAuditedDimensions": [
+        "performance",
+        "memory",
+        "cpu",
+        "code_quality",
+        "security",
+        "reliability",
+        "backend",
+        "local_ai",
+        "quiz_generation",
+        "grading",
+        "frontend_ux",
+        "desktop_ux",
+        "tests",
+        "gha_efficiency"
+      ],
+      "stopReason": "budget",
+      "finalReport": null,
+      "auditHistory": [
+        {
+          "auditId": "audit-2026-11-06-01",
+          "recordedAt": "2026-11-06T23:25:00.745Z",
+          "auditStatus": "ACTIVE",
+          "actionableCount": 0,
+          "blockedCount": 2,
+          "awaitingApprovalCount": 0,
+          "auditedDimensions": [
+            "performance",
+            "memory",
+            "cpu",
+            "code_quality",
+            "security",
+            "reliability",
+            "backend",
+            "local_ai",
+            "quiz_generation",
+            "grading",
+            "frontend_ux",
+            "desktop_ux",
+            "tests",
+            "gha_efficiency"
+          ],
+          "evidenceRefs": [
+            ".github/workflows/ci.yml",
+            "desktop/test/diagnose-targeted-practice.test.cjs",
+            "desktop/scripts/diagnose-targeted-practice.cjs",
+            ".github/workflows/local-ai-targeted-practice-diagnostic.yml",
+            "desktop/benchmarks/prompt-v4/README.md",
+            "docs/autonomy/pilot-report.md"
+          ],
+          "specialistAssessments": [
+            {
+              "role": "reviewer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "qa",
+              "finding": "improvement_identified",
+              "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+            },
+            {
+              "role": "security_privacy_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": "desktop/test/diagnose-targeted-practice.test.cjs"
+            },
+            {
+              "role": "ai_quality_engineer",
+              "finding": "blocked",
+              "evidenceRef": "desktop/benchmarks/prompt-v4/README.md"
+            },
+            {
+              "role": "performance_efficiency_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "ui_ux_engineer",
+              "finding": "clear",
+              "evidenceRef": "frontend/src/App.css"
+            },
+            {
+              "role": "release_reliability_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "data_integrity_engineer",
+              "finding": "clear",
+              "evidenceRef": "scripts/production/schema.sql"
+            }
+          ]
+        },
+        {
+          "auditId": "audit-2026-11-06-02",
+          "recordedAt": "2026-11-06T23:36:58.432Z",
+          "auditStatus": "ACTIVE",
+          "actionableCount": 0,
+          "blockedCount": 2,
+          "awaitingApprovalCount": 0,
+          "auditedDimensions": [
+            "performance",
+            "memory",
+            "cpu",
+            "code_quality",
+            "security",
+            "reliability",
+            "backend",
+            "local_ai",
+            "quiz_generation",
+            "grading",
+            "frontend_ux",
+            "desktop_ux",
+            "tests",
+            "gha_efficiency"
+          ],
+          "evidenceRefs": [
+            ".github/workflows/ci.yml",
+            "scripts/autonomy/test/optimization-orchestrator.test.cjs",
+            "backend/performance_metrics.py",
+            "backend/observability.py",
+            "backend/tests/test_performance_metrics.py",
+            "backend/tests/test_observability.py",
+            "frontend/src/components/history/QuizHistoryList.tsx",
+            "desktop/benchmarks/prompt-v4/README.md",
+            "docs/autonomy/pilot-report.md"
+          ],
+          "specialistAssessments": [
+            {
+              "role": "reviewer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "performance_efficiency_engineer",
+              "evidenceRef": "backend/performance_metrics.py"
+            },
+            {
+              "role": "qa",
+              "finding": "improvement_identified",
+              "evidenceRef": "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+            },
+            {
+              "role": "security_privacy_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "ui_ux_engineer",
+              "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+            },
+            {
+              "role": "ai_quality_engineer",
+              "finding": "blocked",
+              "evidenceRef": "desktop/benchmarks/prompt-v4/README.md"
+            },
+            {
+              "role": "performance_efficiency_engineer",
+              "finding": "improvement_identified",
+              "evidenceRef": "backend/observability.py"
+            },
+            {
+              "role": "ui_ux_engineer",
+              "finding": "improvement_identified",
+              "evidenceRef": "frontend/src/components/history/QuizHistoryList.tsx"
+            },
+            {
+              "role": "release_reliability_engineer",
+              "finding": "improvement_confirmed",
+              "confirmsRole": "qa",
+              "evidenceRef": ".github/workflows/ci.yml"
+            },
+            {
+              "role": "data_integrity_engineer",
+              "finding": "clear",
+              "evidenceRef": "scripts/production/schema.sql"
+            }
+          ]
+        }
+      ]
+    },
+    "events": [
+      {
+        "at": "2026-11-07T02:09:00.596Z",
+        "type": "pilot_started",
+        "pilotId": "pilot-2026-11-06-02",
+        "maxCycles": 10,
+        "pilotStartAuthorization": {
+          "pilotId": "pilot-2026-11-06-02",
+          "maxCycles": 10,
+          "approverIdentity": "HamedGithubforwork",
+          "approvalEvidenceRef": "docs/autonomy/approvals/pilot-2026-11-06-02.md"
+        }
+      },
+      {
+        "at": "2026-11-07T03:33:45.361Z",
+        "type": "selected",
+        "taskId": "backend-validation-metric-batching",
+        "cycle": 1,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:34:07.545Z",
+        "type": "baseline",
+        "taskId": "backend-validation-metric-batching",
+        "metric": 2,
+        "evidenceRef": "backend/performance_metrics.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:44:29.833Z",
+        "type": "implemented",
+        "taskId": "backend-validation-metric-batching",
+        "branch": "codex/backend-validation-metric-batching-20261107",
+        "commitSha": "e3512deaed06cb0e126a8864dd26883a31011316",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:45:58.124Z",
+        "type": "tests_passed",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42335246666",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:47:07.364Z",
+        "type": "reviewer_passed",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:47:08.527Z",
+        "type": "qa_passed",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42335246666",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:47:09.688Z",
+        "type": "security_passed",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:47:38.990Z",
+        "type": "quality_passed",
+        "taskId": "backend-validation-metric-batching",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/680",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:47:40.538Z",
+        "type": "validated",
+        "taskId": "backend-validation-metric-batching",
+        "resultMetric": 1,
+        "evidenceRef": "backend/tests/test_observability.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:50:21.668Z",
+        "type": "selected",
+        "taskId": "measure-checkpoint-validation-growth",
+        "cycle": 2,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:51:01.954Z",
+        "type": "baseline",
+        "taskId": "measure-checkpoint-validation-growth",
+        "metric": 0.4918,
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:52:38.766Z",
+        "type": "rejected",
+        "taskId": "measure-checkpoint-validation-growth",
+        "reasonCode": "no_measurable_improvement",
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:55.864Z",
+        "type": "task_discovered",
+        "taskId": "bound-pdf-upload-read",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:57.326Z",
+        "type": "task_discovered",
+        "taskId": "weak-area-prompt-data-isolation",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T03:59:59.631Z",
+        "type": "task_discovered",
+        "taskId": "quiz-navigator-accessible-labels",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:00:30.688Z",
+        "type": "selected",
+        "taskId": "bound-pdf-upload-read",
+        "cycle": 3,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:00:49.260Z",
+        "type": "baseline",
+        "taskId": "bound-pdf-upload-read",
+        "metric": 104857600,
+        "evidenceRef": "docs/autonomy/pilot-report.md",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:11.599Z",
+        "type": "implemented",
+        "taskId": "bound-pdf-upload-read",
+        "branch": "codex/bound-pdf-upload-read-20261107",
+        "commitSha": "291ad653780f15285cee52455cea2e51b2df488f",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:13.261Z",
+        "type": "tests_passed",
+        "taskId": "bound-pdf-upload-read",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:14.882Z",
+        "type": "reviewer_passed",
+        "taskId": "bound-pdf-upload-read",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:16.667Z",
+        "type": "qa_passed",
+        "taskId": "bound-pdf-upload-read",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:18.423Z",
+        "type": "quality_passed",
+        "taskId": "bound-pdf-upload-read",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:20.108Z",
+        "type": "security_passed",
+        "taskId": "bound-pdf-upload-read",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/681",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:11:21.731Z",
+        "type": "validated",
+        "taskId": "bound-pdf-upload-read",
+        "resultMetric": 15728641,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42337117503",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:14:13.083Z",
+        "type": "selected",
+        "taskId": "weak-area-prompt-data-isolation",
+        "cycle": 4,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:15:51.229Z",
+        "type": "baseline",
+        "taskId": "weak-area-prompt-data-isolation",
+        "metric": 1,
+        "evidenceRef": "backend/quiz_prompt.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:44.528Z",
+        "type": "implemented",
+        "taskId": "weak-area-prompt-data-isolation",
+        "branch": "codex/weak-area-prompt-data-isolation-main-20261107",
+        "commitSha": "cefe6a24e13b4b364bc25ff70d60ee4aff048b20",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:46.383Z",
+        "type": "tests_failed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42338822299",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:48.318Z",
+        "type": "recovery_diagnosed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "recoveryCaseIndex": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42338822299",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:50.210Z",
+        "type": "recovery_attempted",
+        "taskId": "weak-area-prompt-data-isolation",
+        "recoveryCaseIndex": 0,
+        "recoveryStrategy": "configuration_repair",
+        "recoveryResult": "passed",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:50.210Z",
+        "type": "tests_passed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:50.210Z",
+        "type": "recovery_recovered",
+        "taskId": "weak-area-prompt-data-isolation",
+        "recoveryCaseIndex": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:52.008Z",
+        "type": "reviewer_passed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:54.353Z",
+        "type": "qa_passed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:56.243Z",
+        "type": "quality_passed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:38:58.096Z",
+        "type": "security_passed",
+        "taskId": "weak-area-prompt-data-isolation",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/683",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:39:00.035Z",
+        "type": "validated",
+        "taskId": "weak-area-prompt-data-isolation",
+        "resultMetric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42339082086",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:41:09.584Z",
+        "type": "selected",
+        "taskId": "quiz-navigator-accessible-labels",
+        "cycle": 5,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:42:30.960Z",
+        "type": "baseline",
+        "taskId": "quiz-navigator-accessible-labels",
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/QuizSession.tsx",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:53:51.483Z",
+        "type": "implemented",
+        "taskId": "quiz-navigator-accessible-labels",
+        "branch": "codex/quiz-nav-accessible-labels-20261107",
+        "commitSha": "592cad167414ebd602c82f133b2875407894e7bd",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:53:53.311Z",
+        "type": "tests_passed",
+        "taskId": "quiz-navigator-accessible-labels",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:53:55.153Z",
+        "type": "reviewer_passed",
+        "taskId": "quiz-navigator-accessible-labels",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:53:56.848Z",
+        "type": "qa_passed",
+        "taskId": "quiz-navigator-accessible-labels",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:53:58.603Z",
+        "type": "quality_passed",
+        "taskId": "quiz-navigator-accessible-labels",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:54:00.601Z",
+        "type": "security_passed",
+        "taskId": "quiz-navigator-accessible-labels",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/684",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T04:54:02.479Z",
+        "type": "validated",
+        "taskId": "quiz-navigator-accessible-labels",
+        "resultMetric": 1,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42340152685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:16.568Z",
+        "type": "task_discovered",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:20.591Z",
+        "type": "selected",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "cycle": 6,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:09:34.114Z",
+        "type": "baseline",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "metric": 0,
+        "evidenceRef": "frontend/src/components/quiz/useQuizAttempt.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:13:48.014Z",
+        "type": "task_discovered",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:10.312Z",
+        "type": "implemented",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "66b43eb30009e9d8fd4ca1c6899071540e645778",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:12.301Z",
+        "type": "tests_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "frontend/src/lib/quizNavigatorAccessibility.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:27.920Z",
+        "type": "reviewer_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:14:30.012Z",
+        "type": "qa_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:45.961Z",
+        "type": "reviewer_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:47.110Z",
+        "type": "qa_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:48.568Z",
+        "type": "quality_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:18:49.694Z",
+        "type": "security_passed",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/685",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:19:40.259Z",
+        "type": "implemented",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "branch": "codex/quiz-nav-post-results-focus-20261107",
+        "commitSha": "656d24a2aa6c2cc4f1efb9357039ae9b844299fb"
+      },
+      {
+        "at": "2026-11-07T05:19:45.166Z",
+        "type": "validated",
+        "taskId": "quiz-nav-post-results-focus-transfer",
+        "resultMetric": 1,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342118553",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:20:32.563Z",
+        "type": "selected",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "cycle": 7,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:21:56.828Z",
+        "type": "baseline",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "metric": 16777216,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:22:52.452Z",
+        "type": "baseline",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "metric": 16000000,
+        "evidenceRef": "scripts/production/lightsail/Caddyfile"
+      },
+      {
+        "at": "2026-11-07T05:29:22.061Z",
+        "type": "implemented",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "branch": "codex/answer-review-payload-bounds-20261107",
+        "commitSha": "4021f09e98f04b6b76b3a2157665e70baa0f4248",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:30:58.661Z",
+        "type": "tests_passed",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883125",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:30:59.955Z",
+        "type": "reviewer_passed",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:31:01.528Z",
+        "type": "qa_passed",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883125",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:32:27.440Z",
+        "type": "security_passed",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:32:28.545Z",
+        "type": "quality_passed",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/686",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:32:29.602Z",
+        "type": "validated",
+        "taskId": "bound-answer-review-rubric-payloads",
+        "resultMetric": 524288,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42342883280",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:13.919Z",
+        "type": "task_discovered",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:16.130Z",
+        "type": "task_discovered",
+        "taskId": "prune-expired-memory-rate-limits",
+        "domain": "reliability",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:20.179Z",
+        "type": "selected",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "cycle": 8,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:37:43.969Z",
+        "type": "baseline",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "metric": 4,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:40:45.188Z",
+        "type": "implemented",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "71173ddfb1202aca637aa83d4b490e5183ce8bf2",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:40:46.424Z",
+        "type": "tests_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:43:27.024Z",
+        "type": "baseline",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "metric": 8,
+        "evidenceRef": "frontend/src/MasteryAnalyticsPanel.css"
+      },
+      {
+        "at": "2026-11-07T05:46:11.731Z",
+        "type": "implemented",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "branch": "codex/mastery-text-contrast-20261107",
+        "commitSha": "530dea27fbc8669197f1884d9d6d3f713b1df415",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:46:12.923Z",
+        "type": "tests_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "frontend/src/lib/masteryContrast.test.ts",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:04.849Z",
+        "type": "reviewer_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:06.155Z",
+        "type": "qa_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:07.352Z",
+        "type": "quality_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:08.536Z",
+        "type": "security_passed",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/687",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T05:47:09.693Z",
+        "type": "validated",
+        "taskId": "mastery-panel-aa-text-contrast",
+        "resultMetric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42344085820",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "selected",
+        "taskId": "prune-expired-memory-rate-limits",
+        "cycle": 9,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "baseline",
+        "taskId": "prune-expired-memory-rate-limits",
+        "metric": 100,
+        "evidenceRef": "backend/tests/test_answer_review_rate_limit.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "implemented",
+        "taskId": "prune-expired-memory-rate-limits",
+        "branch": "codex/rate-limit-stale-bucket-prune-20261107",
+        "commitSha": "2b66e6415d2e4097333472d97014781652dc4eba",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "tests_passed",
+        "taskId": "prune-expired-memory-rate-limits",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "reviewer_passed",
+        "taskId": "prune-expired-memory-rate-limits",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "qa_passed",
+        "taskId": "prune-expired-memory-rate-limits",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "quality_passed",
+        "taskId": "prune-expired-memory-rate-limits",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "security_passed",
+        "taskId": "prune-expired-memory-rate-limits",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/688",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:03:00.000Z",
+        "type": "validated",
+        "taskId": "prune-expired-memory-rate-limits",
+        "resultMetric": 0,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345119885",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "history-disclosure-expanded-state",
+        "domain": "frontend",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "pdf-page-count-resource-bound",
+        "domain": "security",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "blocked",
+        "taskId": "pdf-page-count-resource-bound",
+        "blockerCode": "unavailable_evidence",
+        "evidenceRef": "backend/quiz_service.py",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "task_discovered",
+        "taskId": "avoid-duplicate-backend-pr-image-build",
+        "domain": "ci_efficiency",
+        "initialStatus": "ready",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "selected",
+        "taskId": "history-disclosure-expanded-state",
+        "cycle": 10,
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:12:00.000Z",
+        "type": "baseline",
+        "taskId": "history-disclosure-expanded-state",
+        "metric": 0,
+        "evidenceRef": "frontend/src/QuizHistory.tsx",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "implemented",
+        "taskId": "history-disclosure-expanded-state",
+        "branch": "codex/history-disclosure-expanded-state-20261107",
+        "commitSha": "095303915cd01e837a63c7ed2c1037c0ca3644fb",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "tests_passed",
+        "taskId": "history-disclosure-expanded-state",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "reviewer_passed",
+        "taskId": "history-disclosure-expanded-state",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "qa_passed",
+        "taskId": "history-disclosure-expanded-state",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "quality_passed",
+        "taskId": "history-disclosure-expanded-state",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "security_passed",
+        "taskId": "history-disclosure-expanded-state",
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/pull/689",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "validated",
+        "taskId": "history-disclosure-expanded-state",
+        "resultMetric": 1,
+        "evidenceRef": "https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/42345878847",
+        "pilotId": "pilot-2026-11-06-02"
+      },
+      {
+        "at": "2026-11-07T06:18:02.000Z",
+        "type": "gate_stopped",
+        "reasonCode": "budget",
+        "pilotId": "pilot-2026-11-06-02",
+        "maxCycles": 10
+      }
+    ]
+  }
+}
