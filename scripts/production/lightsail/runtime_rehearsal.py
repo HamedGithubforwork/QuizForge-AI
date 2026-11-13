@@ -11,14 +11,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.error import HTTPError
-from urllib.request import (
-    HTTPRedirectHandler,
-    ProxyHandler,
-    Request,
-    build_opener,
-    urlopen,
-)
+from http.client import HTTPConnection, HTTPException
+from urllib.request import Request, urlopen
 
 import psycopg
 
@@ -229,40 +223,43 @@ else: raise AssertionError('Gateway did not start')
                 return response.read()
 
         def post_boundary(path, body):
-            class RejectRedirects(HTTPRedirectHandler):
-                def redirect_request(
-                    self,
-                    request,
-                    response,
-                    code,
-                    message,
-                    headers,
-                    new_url,
-                ):
-                    return None
-
-            request = Request(
-                'http://127.0.0.1' + path,
-                data=body,
-                headers={'Host': host, 'Content-Type': 'application/json'},
-                method='POST',
-            )
+            # Use a direct loopback HTTPConnection: it ignores proxy environment
+            # variables and never follows redirects. Caddy can reject an
+            # oversized Content-Length before the client finishes writing the
+            # body, so preserve that transport error long enough to read an
+            # already-sent HTTP response. A transport failure without a status
+            # remains a failed boundary check.
+            connection = HTTPConnection('127.0.0.1', 80, timeout=20)
+            send_error = None
             try:
-                # A redirect must be observed as a failed boundary assertion;
-                # never follow it to a public or production host.
-                opener = build_opener(
-                    ProxyHandler({}),
-                    RejectRedirects(),
-                )
-                assert not any(
-                    isinstance(handler, ProxyHandler)
-                    for handler in opener.handlers
-                )
-                with opener.open(request, timeout=20) as response:
-                    return response.status, response.read()
-            except HTTPError as error:
-                return error.code, error.read()
+                connection.putrequest('POST', path)
+                connection.putheader('Host', host)
+                connection.putheader('Content-Type', 'application/json')
+                connection.putheader('Content-Length', str(len(body)))
+                try:
+                    connection.endheaders()
+                    connection.send(body)
+                except OSError as error:
+                    send_error = error
 
+                try:
+                    response = connection.getresponse()
+                    status = response.status
+                    try:
+                        response_body = response.read()
+                    except (HTTPException, OSError, TimeoutError):
+                        response_body = b''
+                    return status, response_body
+                except (HTTPException, OSError, TimeoutError) as error:
+                    if send_error is not None:
+                        raise AssertionError(
+                            'Boundary POST failed before an HTTP status was readable'
+                        ) from send_error
+                    raise AssertionError(
+                        'Boundary POST completed without a readable HTTP status'
+                    ) from error
+            finally:
+                connection.close()
         semantic_limit = 512 * 1024
         raw_limit = 4 * 1024 * 1024
         exact_semantic_body = get_fixture(semantic_limit)
