@@ -416,19 +416,41 @@ function gradeNumericAnswer(
 
   const value =
     measurement.valueInExpectedUnit
+  const conversionRoundingScale =
+    measurement.conversionRoundingScale ?? 0
+  const conversionRoundingAllowance =
+    Number.EPSILON * Math.max(
+      Math.abs(value ?? 0),
+      Math.abs(grading.numeric_value),
+      conversionRoundingScale,
+    )
 
   const correct =
     measurement.status === 'ok' &&
     value !== null &&
-    Math.abs(
-      value - grading.numeric_value,
-    ) <= tolerance
+    (
+      Math.abs(
+        value - grading.numeric_value,
+      ) <= tolerance ||
+      (
+        conversionRoundingScale > 0 &&
+        Math.abs(
+          value - grading.numeric_value,
+        ) - tolerance <=
+          conversionRoundingAllowance
+      )
+    )
 
   let feedback: string
 
   if (measurement.status === 'no_number') {
     feedback =
       'No numeric value was detected in the answer.'
+  } else if (
+    measurement.status === 'conversion_overflow'
+  ) {
+    feedback =
+      'The numeric value is outside the finite range supported for this unit conversion.'
   } else if (
     measurement.status === 'missing_unit'
   ) {

@@ -4,10 +4,12 @@ export type NumericMeasurementStatus =
   | 'missing_unit'
   | 'unexpected_unit'
   | 'incompatible_unit'
+  | 'conversion_overflow'
 
 export type NumericMeasurement = {
   status: NumericMeasurementStatus
   valueInExpectedUnit: number | null
+  conversionRoundingScale?: number
   providedUnit: string | null
   expectedUnit: string
   converted: boolean
@@ -322,6 +324,16 @@ export function compareNumericMeasurement(
       }
     }
 
+    if (providedKnownUnit === expectedKnownUnit) {
+      return {
+        status: 'ok',
+        valueInExpectedUnit: parsed.value,
+        providedUnit: providedUnitText,
+        expectedUnit,
+        converted: false,
+      }
+    }
+
     const baseValue =
       providedDefinition.toBase(
         parsed.value,
@@ -331,15 +343,42 @@ export function compareNumericMeasurement(
         baseValue,
       )
 
+    if (!Number.isFinite(convertedValue)) {
+      return {
+        status: 'conversion_overflow',
+        valueInExpectedUnit: null,
+        providedUnit: providedUnitText,
+        expectedUnit,
+        converted: false,
+      }
+    }
+
+    const converted =
+      providedKnownUnit !== expectedKnownUnit
+
+    const conversionRoundingScale =
+      expectedDefinition.dimension ===
+      'temperature'
+        ? Math.max(
+            Math.abs(parsed.value),
+            Math.abs(convertedValue),
+          )
+        : Math.abs(convertedValue)
+
+    // Match backend validation: linear conversion error scales with the
+    // converted value. Temperature also includes the affine input offset.
     return {
       status: 'ok',
       valueInExpectedUnit:
         convertedValue,
+      ...(converted
+        ? {
+            conversionRoundingScale,
+          }
+        : {}),
       providedUnit: providedUnitText,
       expectedUnit,
-      converted:
-        providedKnownUnit !==
-        expectedKnownUnit,
+      converted,
     }
   }
 

@@ -249,7 +249,7 @@ def _parse_numeric_measurement(
     if not expected_unit:
         if provided_unit_text:
             return None
-        return value
+        return value, 0.0
 
     if not provided_unit_text:
         return None
@@ -278,12 +278,28 @@ def _parse_numeric_measurement(
         ):
             return None
 
+        if provided_known == expected_known:
+            return value, 0.0
+
         base_value = provided_definition[
             "to_base"
         ](value)
-        return expected_definition[
+        converted_value = expected_definition[
             "from_base"
         ](base_value)
+        if not math.isfinite(converted_value):
+            return None
+
+        rounding_scale = abs(converted_value)
+        if expected_definition["dimension"] == "temperature":
+            # Celsius/Fahrenheit conversion has an affine offset; account for
+            # its input-scale rounding near the offset without scaling linear
+            # unit allowances by an unconverted source magnitude.
+            rounding_scale = max(
+                rounding_scale,
+                abs(value),
+            )
+        return converted_value, rounding_scale
 
     if (
         _compact_unit_text(provided_unit_text)
@@ -291,7 +307,7 @@ def _parse_numeric_measurement(
     ):
         return None
 
-    return value
+    return value, 0.0
 
 
 def _numeric_answer_matches(
@@ -300,22 +316,33 @@ def _numeric_answer_matches(
     tolerance: float,
     expected_unit: str,
 ) -> bool:
-    converted_value = _parse_numeric_measurement(
+    parsed_measurement = _parse_numeric_measurement(
         answer,
         expected_unit,
     )
 
-    if converted_value is None:
+    if parsed_measurement is None:
         return False
 
-    absolute_tolerance = max(
-        tolerance,
-        1e-9 * max(1, abs(expected_value)),
+    converted_value, conversion_rounding_scale = (
+        parsed_measurement
+    )
+    difference = abs(
+        converted_value - expected_value
+    )
+    conversion_allowance = (
+        math.ulp(1.0)
+        * max(
+            abs(expected_value),
+            abs(converted_value),
+            conversion_rounding_scale,
+        )
     )
 
-    return (
-        abs(converted_value - expected_value)
-        <= absolute_tolerance
+    return difference <= tolerance or (
+        conversion_rounding_scale > 0
+        and difference - tolerance
+        <= conversion_allowance
     )
 
 
