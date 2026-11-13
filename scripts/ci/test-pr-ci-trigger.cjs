@@ -21,6 +21,19 @@ function pullRequestTriggerBlock(workflowText) {
   return body.join('\n')
 }
 
+function mergeGroupTriggerBlock(workflowText) {
+  const lines = workflowText.split(/\r?\n/)
+  const triggerLine = lines.findIndex(line => /^  merge_group:\s*$/.test(line))
+  assert.notEqual(triggerLine, -1, 'CI workflow must declare merge_group')
+
+  const body = []
+  for (const line of lines.slice(triggerLine + 1)) {
+    if (line.trim() && !/^\s{4,}/.test(line)) break
+    body.push(line)
+  }
+  return body.join('\n')
+}
+
 function configuredList(block, key) {
   const inline = block.match(new RegExp(`^    ${key}:\\s*\\[([^\\]]*)\\]`, 'm'))
   if (inline) return inline[1].split(',').map(value => value.trim()).filter(Boolean)
@@ -49,6 +62,27 @@ test('CI runs a PR-associated gate for stacked PR opened, synchronize, and reope
   assert.equal(allowsPullRequestActivity(workflow, 'main', 'edited'), false)
   assert.match(workflow, /name:\s*Required PR gate/)
   assert.match(workflow, /required-pr-gate:/)
+})
+
+test('CI retains ordinary PR events and requests checks for merge groups targeting main', () => {
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  for (const action of ['opened', 'synchronize', 'reopened']) {
+    assert.equal(allowsPullRequestActivity(workflow, 'codex/stacked-parent', action), true, action)
+  }
+
+  const mergeGroup = mergeGroupTriggerBlock(workflow)
+  assert.match(mergeGroup, /^    types: \[checks_requested\]$/m)
+  assert.match(mergeGroup, /^    branches: \[main\]$/m)
+  assert.equal(mergeGroup.includes('branches: [codex/stacked-parent]'), false)
+
+  const classifier = workflow.slice(workflow.indexOf('  changes:'), workflow.indexOf('  backend-tests:'))
+  assert.match(classifier, /EVENT_NAME.*== "merge_group"/)
+  assert.match(classifier, /MERGE_GROUP_BASE_SHA/)
+  assert.match(classifier, /MERGE_GROUP_HEAD_SHA/)
+  assert.match(classifier, /\[\[ "\$\{MERGE_GROUP_HEAD_SHA\}" == "\$\{CURRENT_SHA\}" \]\]/)
+  assert.match(classifier, /git diff --name-only "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}"/)
+  assert.match(classifier, /git fetch --no-tags origin "\$\{MERGE_GROUP_BASE_SHA\}"/)
+  assert.match(classifier, /Invalid merge-group (base|head) SHA/)
 })
 
 test('regression model rejects the prior main-only retarget procedure', () => {
@@ -119,6 +153,11 @@ test('integration coordinator source and tests trigger autonomy verification', (
 
 function successfulGateInputs(overrides = {}) {
   return {
+    EVENT_NAME: 'pull_request',
+    REPOSITORY_ID: '1307099196',
+    BASE_REPOSITORY_ID: '1307099196',
+    PR_BASE_REF: 'codex/stacked-parent',
+    GIT_REF: 'refs/heads/main',
     CHANGES_RESULT: 'success',
     BACKEND_RESULT: 'success',
     BACKEND_REQUIRED: 'true',
@@ -134,6 +173,48 @@ function successfulGateInputs(overrides = {}) {
     ...overrides,
   }
 }
+
+test('Required PR gate accepts a verified merge-group context for main', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({
+    EVENT_NAME: 'merge_group',
+    MERGE_GROUP_BASE_REF: 'refs/heads/main',
+    BASE_REPOSITORY_ID: undefined,
+    PR_BASE_REF: undefined,
+  })))
+})
+
+test('Required PR gate accepts a main push for the expected repository', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({
+    EVENT_NAME: 'push',
+    GIT_REF: 'refs/heads/main',
+    BASE_REPOSITORY_ID: undefined,
+    PR_BASE_REF: undefined,
+  })))
+})
+
+test('stacked PR target refs with valid plus and at-sign characters are accepted', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({
+    PR_BASE_REF: 'release/+candidate@v2',
+  })))
+})
+
+test('wrong repository, PR base repository, or merge-group branch identity fails closed', () => {
+  for (const overrides of [
+    { REPOSITORY_ID: '999999999' },
+    { BASE_REPOSITORY_ID: '999999999' },
+    { PR_BASE_REF: '' },
+    { EVENT_NAME: 'merge_group', MERGE_GROUP_BASE_REF: 'refs/heads/release' },
+    { EVENT_NAME: 'merge_group', MERGE_GROUP_BASE_REF: undefined },
+    { EVENT_NAME: 'push', GIT_REF: 'refs/heads/release' },
+    { EVENT_NAME: 'push', GIT_REF: undefined },
+  ]) {
+    assert.throws(() => verifyRequiredPrGate(successfulGateInputs(overrides)), /identity|target/i, JSON.stringify(overrides))
+  }
+})
+
+test('unsupported events cannot produce a passing Required PR gate', () => {
+  assert.throws(() => verifyRequiredPrGate(successfulGateInputs({ EVENT_NAME: 'workflow_dispatch' })), /Unsupported event/)
+})
 
 test('a skipped CI trigger policy test cannot pass the Required PR gate', () => {
   assert.throws(
