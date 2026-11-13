@@ -9,8 +9,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
-REPOSITORY = "HamedGithubforwork/QuizForge-AI"
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.github_repository_identity import is_target_actions_environment, is_target_repository_object
+
+REPOSITORY = "QuizFromNotes/QuizForge-AI"
 TRIGGER_BRANCH = "ops/staging-signup-resume-checklist-v2"
 MARKER = ".github/staging-update-requests/frontend-signup-resume-checklist-v2.json"
 FRONTEND_PR = "538"
@@ -33,7 +37,7 @@ SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def authorize(event, changes, prs, request):
-    if event.get("ref") != "refs/heads/main" or event.get("repository", {}).get("full_name") != REPOSITORY:
+    if event.get("ref") != "refs/heads/main" or not is_target_repository_object(event.get("repository")):
         raise ValueError("Unapproved staging repository or branch")
     before, after = event.get("before"), event.get("after")
     if not all(isinstance(s, str) and SHA.fullmatch(s) and s != "0" * 40
@@ -48,7 +52,7 @@ def authorize(event, changes, prs, request):
         and pr.get("merge_commit_sha") == after
         and pr.get("base", {}).get("ref") == "main"
         and pr.get("head", {}).get("ref") == TRIGGER_BRANCH
-        and pr.get("head", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and is_target_repository_object(pr.get("head", {}).get("repo"))
         for pr in prs
     ):
         raise ValueError("Main push was not the approved staging update merge")
@@ -66,7 +70,7 @@ def main():
             handle.write("approved=false\n")
         return
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-    if (os.environ.get("GITHUB_REPOSITORY") != REPOSITORY or
+    if (not is_target_actions_environment(os.environ) or
             os.environ.get("GITHUB_SHA") != event.get("after")):
         raise ValueError("Unexpected GitHub push identity")
     changed = run("git", "diff", "--name-status", event["before"], event["after"]).splitlines()

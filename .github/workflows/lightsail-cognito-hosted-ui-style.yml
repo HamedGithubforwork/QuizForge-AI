@@ -41,7 +41,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      github.repository == 'HamedGithubforwork/QuizForge-AI' &&
+      github.repository == 'QuizFromNotes/QuizForge-AI' && github.repository_id == '1307099196' && github.repository_owner_id == '356387243' &&
       github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 5

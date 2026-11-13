@@ -6,9 +6,14 @@ credentialed deployment runner; the separate build runner has no AWS identity.
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from urllib.request import Request, urlopen
 
-REPOSITORY = "HamedGithubforwork/QuizForge-AI"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.github_repository_identity import is_target_repository_object
+
+REPOSITORY = "QuizFromNotes/QuizForge-AI"
 BASE_BRANCH = "application/production"
 BACKEND_REQUIRED = {
     "Required PR gate", "Backend tests", "PostgreSQL history API security",
@@ -22,7 +27,7 @@ FRONTEND_REQUIRED = {
 
 def resolve(pr, checks, required):
     if (pr.get("state") != "open" or pr.get("base", {}).get("ref") != BASE_BRANCH
-            or pr.get("head", {}).get("repo", {}).get("full_name") != REPOSITORY):
+            or not is_target_repository_object(pr.get("head", {}).get("repo"))):
         raise ValueError("Staging requires open same-repository PRs targeting application/production.")
     sha = pr["head"]["sha"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):

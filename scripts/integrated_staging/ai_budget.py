@@ -10,9 +10,9 @@ import re
 import sys
 import time
 
-import control
-import fast_frontend
 from guards import NAME
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.github_repository_identity import is_target_actions_environment
 
 ALLOWED = frozenset(("status", "refill"))
 STAGING_CAP = 10
@@ -72,7 +72,7 @@ def require_trusted_manual_action(action, environ=None):
     if (action not in ALLOWED or env.get("STAGING_AI_BUDGET_ACTION") != action
             or env.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
             or env.get("GITHUB_REF") != "refs/heads/main"
-            or env.get("GITHUB_REPOSITORY") != "HamedGithubforwork/QuizForge-AI"):
+            or not is_target_actions_environment(env)):
         raise ValueError("Only a trusted manually dispatched staging action is allowed")
 
 
@@ -96,6 +96,11 @@ def parse_status(events):
 
 def run(action):
     require_trusted_manual_action(action)
+    # Load cloud dependencies only after the target repository and manual action
+    # have passed the pure local identity gate.
+    import control
+    import fast_frontend
+
     # Verify the existing Terraform state, CloudFront, Cognito, RDS, TLS,
     # app services, cache and security boundaries BEFORE requesting a task.
     values, _ = fast_frontend.live()

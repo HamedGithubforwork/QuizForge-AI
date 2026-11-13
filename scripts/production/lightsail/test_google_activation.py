@@ -10,7 +10,8 @@ class GoogleActivationTests(unittest.TestCase):
         now = datetime(2026, 10, 13, tzinfo=timezone.utc)
         metadata = {"updated_at": now.isoformat(), "event": "workflow_dispatch", "path": WORKFLOW,
                     "head_branch": "main", "status": "completed", "conclusion": "success",
-                    "repository": {"full_name": "HamedGithubforwork/QuizForge-AI"}}
+                    "repository": {"full_name": "QuizFromNotes/QuizForge-AI", "id": 1307099196,
+                                   "owner": {"id": 356387243}}}
         lock = {"application_candidate_sha": APPLICATION, "release_sha": "a" * 40, "ai_enabled": False}
         report = {"inspection_only": True, "preflight_verified": True, "observed_current_release_sha": "a" * 40,
                   "release_sha": "a" * 40, "release_switched": False, "frontend_switched": False,
@@ -30,6 +31,12 @@ class GoogleActivationTests(unittest.TestCase):
             fixture[index][key] = value
             with self.subTest(key=key), self.assertRaises(ValueError):
                 verify_preflight(*fixture)
+        for field, value in (("id", 123), ("owner", {"id": 148009407}),
+                             ("full_name", "HamedGithubforwork/QuizForge-AI")):
+            metadata, report, lock, now = self.fixture()
+            metadata["repository"][field] = value
+            with self.subTest(repository_field=field), self.assertRaises(ValueError):
+                verify_preflight(metadata, report, lock, now)
         metadata, report, lock, now = self.fixture()
         with self.assertRaises(ValueError):
             verify_preflight(metadata, report, lock, now + timedelta(minutes=16))

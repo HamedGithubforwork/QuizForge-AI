@@ -44,7 +44,7 @@ class StagingApplicationBaseline(unittest.TestCase):
         pr = {
             "state": "open",
             "base": {"ref": "application/production"},
-            "head": {"sha": HEAD, "repo": {"full_name": preview.REPOSITORY}},
+            "head": {"sha": HEAD, "repo": {"full_name": preview.REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}},
         }
         checks = [{"name": "Required PR gate", "id": 2, "head_sha": HEAD,
                    "app": {"slug": "github-actions"},

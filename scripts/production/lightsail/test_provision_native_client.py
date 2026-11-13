@@ -85,7 +85,9 @@ class RegistrationTests(unittest.TestCase):
 
     def test_main_preserves_uncertain_status_without_service_details(self):
         env = {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
-               'GITHUB_REPOSITORY': 'HamedGithubforwork/QuizForge-AI', 'GITHUB_RUN_ATTEMPT': '1',
+               'GITHUB_REPOSITORY': 'QuizFromNotes/QuizForge-AI',
+               'GITHUB_REPOSITORY_ID': '1307099196', 'GITHUB_REPOSITORY_OWNER_ID': '356387243',
+               'GITHUB_RUN_ATTEMPT': '1',
                'REGISTRATION_CONFIRMATION': registration.CONFIRMATION}
         def uncertain(sts, cognito, report):
             report.update(create_attempted=True, changes_performed='unknown')

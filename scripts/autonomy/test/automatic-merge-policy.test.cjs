@@ -99,6 +99,18 @@ test('standing low-risk policy defaults disabled and fails closed', () => {
   assert.equal(policyApi.evaluateCandidate({ policy: disabled, evidence: candidate(), now }).reason, 'policy_disabled')
 })
 
+test('a source-repository authorization cannot authorize the transferred destination', () => {
+  const oldAuthorization = activePolicy()
+  const destinationEvidence = candidate({
+    repository: 'QuizFromNotes/QuizForge-AI',
+    prUrl: 'https://github.com/QuizFromNotes/QuizForge-AI/pull/999',
+  })
+  const result = policyApi.evaluateCandidate({ policy: oldAuthorization, evidence: destinationEvidence, now })
+  assert.equal(result.eligible, false)
+  assert.equal(result.reason, 'scope_mismatch')
+  assert.equal(oldAuthorization.repository, repository)
+})
+
 test('activation requires a current explicit authorization scoped to this repository, main, and policy digest', () => {
   const enabled = activePolicy()
   assert.equal(enabled.status, 'active')

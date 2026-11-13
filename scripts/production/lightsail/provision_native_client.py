@@ -10,6 +10,7 @@ import boto3
 from botocore.config import Config
 
 from scripts.production.lightsail import native_auth_readiness as readiness
+from scripts.github_repository_identity import is_target_actions_environment
 
 RESULT = Path('native-client-registration-results/summary.json')
 CONFIRMATION = 'register-reviewed-desktop-client'
@@ -59,7 +60,7 @@ def main():
     try:
         if (os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
                 or os.environ.get('GITHUB_REF') != 'refs/heads/main'
-                or os.environ.get('GITHUB_REPOSITORY') != 'HamedGithubforwork/QuizForge-AI'
+                or not is_target_actions_environment(os.environ)
                 or os.environ.get('GITHUB_RUN_ATTEMPT') != '1'
                 or os.environ.get('REGISTRATION_CONFIRMATION') != CONFIRMATION):
             raise ValueError('Explicit first-attempt main dispatch required')

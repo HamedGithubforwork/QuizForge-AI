@@ -31,7 +31,7 @@ jobs:
   activate:
     name: Activate reviewed production Google provider after backend verification
     needs: validate
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'HamedGithubforwork/QuizForge-AI' && github.run_attempt == 1
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'QuizFromNotes/QuizForge-AI' && github.repository_id == '1307099196' && github.repository_owner_id == '356387243' && github.run_attempt == 1
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
@@ -74,7 +74,7 @@ jobs:
         from pathlib import Path
         run=os.environ["PREFLIGHT_RUN_ID"]
         assert re.fullmatch(r"[0-9]{1,20}",run)
-        request=urllib.request.Request("https://api.github.com/repos/HamedGithubforwork/QuizForge-AI/actions/runs/"+run,
+        request=urllib.request.Request("https://api.github.com/repos/QuizFromNotes/QuizForge-AI/actions/runs/"+run,
          headers={"Authorization":"Bearer "+os.environ["GITHUB_TOKEN"],"Accept":"application/vnd.github+json"})
         with urllib.request.urlopen(request,timeout=30) as response:
          data=json.loads(response.read(262144))

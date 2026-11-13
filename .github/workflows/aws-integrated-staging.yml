@@ -451,7 +451,7 @@ jobs:
                   summary.write("Only this isolated staging pool permits signup. You must manually Stop staging to delete its test users.\n\n")
               else:
                   summary.write("Public email/password sign-up is disabled (default). The workflow seeded a disposable password+TOTP account.\n\n")
-              summary.write("[Manual Google account-linking guide (self-signup or operator fixture)](https://github.com/HamedGithubforwork/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\n\n")
+              summary.write("[Manual Google account-linking guide (self-signup or operator fixture)](https://github.com/QuizFromNotes/QuizForge-AI/blob/main/docs/staging-manual-google-link-test.md).\n\n")
               summary.write("Never print fixture passwords, TOTP seeds, bearer tokens or the full secret in Actions logs.\n\n")
               summary.write("**Shutdown policy: MANUAL.** To end AWS charges and delete temporary accounts, select operation `stop` in Full AWS Staging.\n")
           PY
