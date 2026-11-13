@@ -11,7 +11,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from http.client import HTTPConnection, HTTPException
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -21,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_lightsail_configuration import fixture
 from lightsail.render import render
 from lightsail_initialize import initialize
-from runtime_http import open_loopback
+from runtime_http import open_loopback, post_loopback
 
 
 def run(*args, **kwargs):
@@ -229,46 +228,9 @@ else: raise AssertionError('Gateway did not start')
                 return response.read()
 
         def post_boundary(path, body):
-            # Use a direct loopback HTTPConnection: it ignores proxy environment
-            # variables and never follows redirects. Caddy can reject an
-            # oversized Content-Length before the client finishes writing the
-            # body, so preserve that transport error long enough to read an
-            # already-sent HTTP response. A transport failure without a status
-            # remains a failed boundary check.
-            connection = HTTPConnection('127.0.0.1', 80, timeout=20)
-            send_error = None
-            try:
-                connection.putrequest('POST', path)
-                connection.putheader('Host', host)
-                connection.putheader('Content-Type', 'application/json')
-                connection.putheader('Content-Length', str(len(body)))
-                try:
-                    connection.endheaders()
-                    connection.send(body)
-                except OSError as error:
-                    send_error = error
-
-                try:
-                    response = connection.getresponse()
-                except (HTTPException, OSError, TimeoutError) as error:
-                    if send_error is not None:
-                        raise AssertionError(
-                            'Boundary POST failed before an HTTP status was readable'
-                        ) from send_error
-                    raise AssertionError(
-                        'Boundary POST completed without a readable HTTP status'
-                    ) from error
-
-                status = response.status
-                try:
-                    response_body = response.read()
-                except (HTTPException, OSError, TimeoutError) as error:
-                    raise AssertionError(
-                        f'Boundary POST received HTTP {status} but not the complete response body'
-                    ) from error
-                return status, response_body
-            finally:
-                connection.close()
+            # The helper uses a direct connection and sends exactly one Host
+            # header, including when Caddy rejects an oversized body early.
+            return post_loopback(path, body, host, timeout=20)
         semantic_limit = 512 * 1024
         raw_limit = 4 * 1024 * 1024
         exact_semantic_body = get_fixture(semantic_limit)

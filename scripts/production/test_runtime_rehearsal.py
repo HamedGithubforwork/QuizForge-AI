@@ -9,11 +9,13 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 sys.path.insert(0, str(Path(__file__).parent / 'lightsail'))
-from runtime_http import open_loopback
+from runtime_http import open_loopback, post_loopback
 
 
 class _Handler(BaseHTTPRequestHandler):
     paths = []
+    post_headers = []
+    post_body = None
 
     def do_GET(self):
         type(self).paths.append(self.path)
@@ -25,6 +27,13 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b'ok')
+
+    def do_POST(self):
+        type(self).post_headers = self.headers.get_all('Host')
+        type(self).post_body = self.rfile.read(int(self.headers['Content-Length']))
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b'accepted')
 
     def log_message(self, *_args):
         pass
@@ -46,6 +55,8 @@ class RuntimeRehearsalLoopbackTests(unittest.TestCase):
 
     def setUp(self):
         _Handler.paths.clear()
+        _Handler.post_headers = []
+        _Handler.post_body = None
 
     def test_loopback_request_ignores_environment_proxy(self):
         previous = {key: os.environ.get(key) for key in ('HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy')}
@@ -76,6 +87,16 @@ class RuntimeRehearsalLoopbackTests(unittest.TestCase):
                     'http://example.com/health'):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 open_loopback(Request(url), timeout=1)
+
+    def test_direct_post_sends_one_virtual_host_and_complete_body(self):
+        status, response = post_loopback(
+            '/api/answers/review', b'{"cases":[]}', 'api.quizfromnotes.com',
+            timeout=2, port=self.server.server_port,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(response, b'accepted')
+        self.assertEqual(_Handler.post_headers, ['api.quizfromnotes.com'])
+        self.assertEqual(_Handler.post_body, b'{"cases":[]}')
 
 
 if __name__ == '__main__':
