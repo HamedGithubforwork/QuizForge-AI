@@ -119,6 +119,15 @@ test('integration coordinator source and tests trigger autonomy verification', (
 
 function successfulGateInputs(overrides = {}) {
   return {
+    CI_EVENT_NAME: 'pull_request',
+    CI_REPOSITORY: 'HamedGithubforwork/QuizForge-AI',
+    CI_REPOSITORY_ID: '1307099196',
+    CI_OWNER_ID: '148009407',
+    CI_REF: 'refs/pull/42/merge',
+    CI_SHA: 'a'.repeat(40),
+    CI_TARGET_REF: 'main',
+    CI_GROUP_HEAD_REF: '',
+    CI_GROUP_HEAD_SHA: '',
     CHANGES_RESULT: 'success',
     BACKEND_RESULT: 'success',
     BACKEND_REQUIRED: 'true',
@@ -278,4 +287,106 @@ test('supervised manual gh api procedure is time-scoped and separate from automa
   assert.doesNotMatch(runbook, /snapshotSha256/)
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'scripts/autonomy/github-manual-preflight.cjs')), false)
   assert.equal(fs.existsSync(path.join(repositoryRoot, 'scripts/autonomy/test/github-manual-preflight.test.cjs')), false)
+})
+
+test('merge queue uses a dedicated merge_group trigger and synthetic-commit classification', () => {
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  assert.match(workflow, /^  merge_group:\s*\n    types: \[checks_requested\]\s*\n    branches: \[main\]/m)
+  assert.match(workflow, /EVENT_NAME\}" == "merge_group"/)
+  assert.match(workflow, /MERGE_GROUP_BASE_SHA: \$\{\{ github\.event\.merge_group\.base_sha \}\}/)
+  assert.match(workflow, /MERGE_GROUP_HEAD_SHA: \$\{\{ github\.event\.merge_group\.head_sha \}\}/)
+  assert.match(workflow, /git diff --name-only "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}" > changed-files\.txt/)
+  assert.match(workflow, /MERGE_GROUP_HEAD_SHA\}" != "\$\{CURRENT_SHA\}/)
+  assert.match(workflow, /CI_EVENT_NAME: \$\{\{ github\.event_name \}\}/)
+  assert.match(workflow, /CI_GROUP_HEAD_SHA: \$\{\{ github\.event\.merge_group\.head_sha/)
+  assert.match(workflow, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
+  // The synthetic commit is checked by the same required status as a PR.
+  assert.equal((workflow.match(/name: Required PR gate/g) || []).length, 1)
+})
+
+function mergeGroupInputs(overrides = {}) {
+  const headRef = 'refs/heads/gh-readonly-queue/main/pr-42-abcdef'
+  return successfulGateInputs({
+    CI_EVENT_NAME: 'merge_group',
+    CI_REF: headRef,
+    CI_TARGET_REF: 'refs/heads/main',
+    CI_GROUP_HEAD_REF: headRef,
+    CI_GROUP_HEAD_SHA: 'b'.repeat(40),
+    CI_SHA: 'b'.repeat(40),
+    ...overrides,
+  })
+}
+
+test('ordinary pull requests and merge groups both require the entire same CI gate', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs()))
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: 'codex/stacked-parent' })))
+  assert.doesNotThrow(() => verifyRequiredPrGate(mergeGroupInputs()))
+})
+
+test('repository owner, repository ID and source identity fail closed', () => {
+  for (const [field, value] of [
+    ['CI_REPOSITORY', 'QuizFromNotes/QuizForge-AI'],
+    ['CI_REPOSITORY_ID', '999999999'],
+    ['CI_OWNER_ID', '356387243'],
+    ['CI_REPOSITORY', 'HamedGithubforwork/Another-Repo'],
+  ]) {
+    assert.throws(() => verifyRequiredPrGate(successfulGateInputs({ [field]: value })), /repository identity mismatch/)
+    assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({ [field]: value })), /repository identity mismatch/)
+  }
+})
+
+test('merge groups fail closed on wrong target, queue branch, or commit identity', () => {
+  for (const overrides of [
+    { CI_TARGET_REF: 'refs/heads/develop' },
+    { CI_TARGET_REF: 'main' },
+    { CI_REF: 'refs/heads/main' },
+    { CI_GROUP_HEAD_REF: 'refs/heads/gh-readonly-queue/develop/pr-42-abcdef' },
+    { CI_GROUP_HEAD_REF: '' },
+    { CI_GROUP_HEAD_SHA: 'c'.repeat(40) },
+    { CI_GROUP_HEAD_SHA: '' },
+    { CI_SHA: '' },
+  ]) {
+    assert.throws(() => verifyRequiredPrGate(mergeGroupInputs(overrides)))
+  }
+})
+
+test('unsupported events and invalid ordinary PR/push branch identities fail closed', () => {
+  for (const overrides of [
+    { CI_EVENT_NAME: 'workflow_dispatch' },
+    { CI_TARGET_REF: '' },
+    { CI_TARGET_REF: 'refs/heads/main' },
+  ]) {
+    assert.throws(() => verifyRequiredPrGate(successfulGateInputs(overrides)))
+  }
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({
+    CI_EVENT_NAME: 'push', CI_REF: 'refs/heads/main', CI_TARGET_REF: '',
+  })))
+  assert.throws(() => verifyRequiredPrGate(successfulGateInputs({
+    CI_EVENT_NAME: 'push', CI_REF: 'refs/heads/feature',
+  })), /restricted to main/)
+})
+
+test('merge groups reject missing, failed, or incorrectly skipped relevant tests', () => {
+  for (const [result, required] of [
+    ['skipped', 'true'],
+    ['failure', 'true'],
+    ['cancelled', 'true'],
+    [undefined, 'true'],
+  ]) {
+    assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+      BACKEND_RESULT: result, BACKEND_REQUIRED: required,
+    })))
+  }
+  assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+    WORKFLOW_POLICY_RESULT: 'skipped',
+  })), /must run and pass/)
+  assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+    CHANGES_RESULT: 'failure',
+  })), /Change detection did not succeed/)
+  assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+    FRONTEND_RESULT: 'skipped', FRONTEND_REQUIRED: undefined,
+  })), /relevance output must be true or false/)
+  assert.doesNotThrow(() => verifyRequiredPrGate(mergeGroupInputs({
+    FRONTEND_RESULT: 'skipped', FRONTEND_REQUIRED: 'false',
+  })))
 })
