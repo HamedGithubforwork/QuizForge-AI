@@ -11,12 +11,13 @@ There is no always-on runner. A checkpoint is an audit/continuation record,
 not proof of GitHub state, specialist invocation, policy activation, or merge
 authority.
 
-The authenticated Windows GitHub CLI helper documented in
-`docs/autonomy/supervised-merge.md` is only a supervised manual-preflight aid.
-Its output is a local, time-scoped observation; repository JavaScript cannot
-authenticate it, and it does not bind a later merge to an atomic target/base.
-Never pass its output or a checkpoint copy into the policy evaluator as trusted
-evidence. It cannot change `trusted_live_verification_unavailable`.
+Authenticated `gh api` observations documented in
+`docs/autonomy/supervised-merge.md` may support a supervised manual preflight
+only. They are time-scoped terminal output, are not cryptographically bound to
+repository code or an atomic target/base, and cannot establish automatic-merge
+eligibility. Never pass their output or a checkpoint copy to the policy
+evaluator as trusted evidence. They cannot change
+`trusted_live_verification_unavailable`.
 
 Automatic merging must remain blocked until a reviewed trusted provider is
 integrated and the policy evaluator can accept its authenticated evidence. A

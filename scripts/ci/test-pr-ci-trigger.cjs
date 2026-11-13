@@ -92,8 +92,6 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/integration-coordinator.test.cjs',
     'scripts/autonomy/trusted-integration-verifier.cjs',
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
-    'scripts/autonomy/github-manual-preflight.cjs',
-    'scripts/autonomy/test/github-manual-preflight.test.cjs',
     'docs/autonomy/integration-task-graph.json',
   ]
   for (const changedPath of coordinatorPaths) {
@@ -117,8 +115,6 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
   assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
     'autonomy CI must execute the trusted integration verifier regression suite when classified relevant')
-  assert.match(autonomyJob, /scripts\/autonomy\/test\/github-manual-preflight\.test\.cjs/,
-    'autonomy CI must execute the authenticated manual preflight regression suite when classified relevant')
 })
 
 function successfulGateInputs(overrides = {}) {
@@ -245,25 +241,41 @@ test('Merge Manager requires fresh authenticated evidence when classic protectio
     /exact repository and branch/i,
     /confirm the inspected settings remain unchanged/i,
     /screenshot alone/i,
-    /evidence is stale/i,
+    /stale evidence/i,
     /conflicts? with live rulesets/i,
     /UNVERIFIED and STOP/i,
     /never bypasses or relaxes protections/i,
-    /Never hardcode a past observation/i,
-    /node scripts\/autonomy\/github-manual-preflight\.cjs/,
-    /HTTP 403 is permission denied, not absence/,
-    /does not alter or feed the automatic-merge evaluator/,
+    /direct read-only `gh api` procedure/,
+    /not cryptographic account pinning/,
+    /does not authenticate evidence to repository code/,
+    /HTTP 403 is permission denied unless response headers\/message identify a primary or secondary rate limit/,
+    /past observations are not permanent facts/i,
+    /`trusted_live_verification_unavailable` result remains a hard stop/,
   ]) {
     assert.match(contents, requirement, `Merge Manager must include ${requirement}`)
   }
 })
 
-test('supervised manual CLI preflight is time-scoped and separate from automatic eligibility', () => {
+test('supervised manual gh api procedure is time-scoped and separate from automatic eligibility', () => {
   const runbook = fs.readFileSync(path.join(repositoryRoot, 'docs/autonomy/supervised-merge.md'), 'utf8')
-  assert.match(runbook, /Authenticated local protection preflight/)
-  assert.match(runbook, /intentionally Windows-only/)
-  assert.match(runbook, /repeats[\s\S]*scoped reads[\s\S]*detect observations that[\s\S]*change/)
-  assert.match(runbook, /Never silently reuse an older\s+successful observation/)
-  assert.match(runbook, /not an authenticated provider for repository\s+JavaScript/)
-  assert.match(runbook, /`trusted_live_verification_unavailable` remains a hard stop/)
+  assert.match(runbook, /Authenticated manual protection preflight/)
+  assert.match(runbook, /C:\\Program Files\\GitHub CLI\\gh\.exe/)
+  assert.match(runbook, /Get-AuthenticodeSignature/)
+  assert.match(runbook, /& \$gh auth status --hostname github\.com/)
+  assert.match(runbook, /& \$gh api user --jq \.login/)
+  assert.match(runbook, /permissions\.admin/)
+  assert.match(runbook, /api --paginate --slurp repos\/HamedGithubforwork\/QuizForge-AI\/rules\/branches\/main/)
+  assert.match(runbook, /effective = @\(\$effectivePages \| ForEach-Object/)
+  assert.match(runbook, /rulesets\/\$id/)
+  assert.match(runbook, /A classic-protection 200[\s\S]*alongside effective rules and ruleset details/)
+  assert.match(runbook, /A 403 is permission\s+denied unless GitHub's response headers\/message reliably identify a primary or\s+secondary rate limit/)
+  assert.match(runbook, /repeat `& \$gh auth status[\s\S]*repository permission read/)
+  assert.match(runbook, /not cryptographic proof/)
+  assert.match(runbook, /Do not reuse cached output/)
+  assert.match(runbook, /Never pass CLI output, credentials, or checkpoint copies into the automatic/)
+  assert.match(runbook, /`trusted_live_verification_unavailable` result remains a\s+hard stop/)
+  assert.doesNotMatch(runbook, /github-manual-preflight\.cjs/)
+  assert.doesNotMatch(runbook, /snapshotSha256/)
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'scripts/autonomy/github-manual-preflight.cjs')), false)
+  assert.equal(fs.existsSync(path.join(repositoryRoot, 'scripts/autonomy/test/github-manual-preflight.test.cjs')), false)
 })

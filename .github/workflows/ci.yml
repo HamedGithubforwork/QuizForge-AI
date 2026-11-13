@@ -16,8 +16,6 @@ on:
       - "scripts/autonomy/test/integration-coordinator.test.cjs"
       - "scripts/autonomy/trusted-integration-verifier.cjs"
       - "scripts/autonomy/test/trusted-integration-verifier.test.cjs"
-      - "scripts/autonomy/github-manual-preflight.cjs"
-      - "scripts/autonomy/test/github-manual-preflight.test.cjs"
       - "docs/autonomy/integration-task-graph.json"
       - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
@@ -101,7 +99,7 @@ jobs:
               desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
                 desktop_diagnostic=true
                 ;;
-              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|scripts/autonomy/github-manual-preflight.cjs|scripts/autonomy/test/github-manual-preflight.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
+              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
                 autonomy_tests=true
                 ;;
             esac
@@ -285,7 +283,7 @@ jobs:
           node-version: "22"
 
       - name: Run orchestrator regression tests
-        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs scripts/autonomy/test/github-manual-preflight.test.cjs
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs
 
   workflow-policy-tests:
     name: CI trigger policy tests
