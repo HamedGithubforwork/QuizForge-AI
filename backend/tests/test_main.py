@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import quiz_service
 from main import (
     AuthenticatedUser,
     QuizQuestion,
@@ -256,6 +257,7 @@ def test_parse_avoid_questions():
         "{not valid json",
         '"not a list"',
         "[1, 2, 3]",
+        "[" * 2_000 + "0" + "]" * 2_000,
     ],
 )
 def test_parse_avoid_questions_rejects_invalid_values(
@@ -269,6 +271,52 @@ def test_parse_avoid_questions_rejects_invalid_values(
         )
 
     assert error.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        " " * (quiz_service.MAX_AVOID_QUESTIONS_JSON_CHARACTERS + 1),
+        json.dumps(["Q"] * (quiz_service.MAX_AVOID_QUESTIONS + 1)),
+        json.dumps(["Q" * (quiz_service.MAX_AVOID_QUESTION_CHARACTERS + 1)]),
+        json.dumps(["Q" * 1_000] * 11),
+    ],
+)
+def test_parse_avoid_questions_rejects_oversized_values(value):
+    with pytest.raises(HTTPException) as error:
+        parse_avoid_questions(value)
+
+    assert error.value.status_code == 400
+
+
+def test_parse_avoid_questions_accepts_each_exact_limit():
+    raw_limit_value = (
+        " " * (quiz_service.MAX_AVOID_QUESTIONS_JSON_CHARACTERS - 2)
+        + "[]"
+    )
+    count_limit_value = json.dumps(
+        ["Q"] * quiz_service.MAX_AVOID_QUESTIONS
+    )
+    item_limit_value = json.dumps(
+        ["Q" * quiz_service.MAX_AVOID_QUESTION_CHARACTERS]
+    )
+    aggregate_limit_value = json.dumps(
+        ["Q" * 1_000] * 10
+    )
+
+    assert len(raw_limit_value) == (
+        quiz_service.MAX_AVOID_QUESTIONS_JSON_CHARACTERS
+    )
+    assert len(parse_avoid_questions(raw_limit_value)) == 0
+    assert len(parse_avoid_questions(count_limit_value)) == (
+        quiz_service.MAX_AVOID_QUESTIONS
+    )
+    assert len(parse_avoid_questions(item_limit_value)[0]) == (
+        quiz_service.MAX_AVOID_QUESTION_CHARACTERS
+    )
+    assert sum(
+        map(len, parse_avoid_questions(aggregate_limit_value))
+    ) == quiz_service.MAX_AVOID_QUESTIONS_TOTAL_CHARACTERS
 
 
 def test_generate_rejects_invalid_question_count_without_calling_ai(

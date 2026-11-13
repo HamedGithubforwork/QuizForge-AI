@@ -14,6 +14,7 @@ from outbound_clients import get_openai_client
 from quiz_prompt import (
     build_focus_instructions,
     build_quiz_prompt,
+    build_previous_questions_user_data,
     build_study_material,
     build_validation_retry,
 )
@@ -22,6 +23,10 @@ from quiz_validation import get_quiz_validation_errors
 
 MAX_FILE_SIZE = 15 * 1024 * 1024
 MAX_AI_CHARACTERS = 100_000
+MAX_AVOID_QUESTIONS_JSON_CHARACTERS = 25_000
+MAX_AVOID_QUESTIONS = 20
+MAX_AVOID_QUESTION_CHARACTERS = 1_000
+MAX_AVOID_QUESTIONS_TOTAL_CHARACTERS = 10_000
 MIN_EXTRACTABLE_CHARACTERS = 100
 SCAN_CHARACTERS_PER_PAGE = 50
 
@@ -331,6 +336,14 @@ def parse_focus_question_types(
 def parse_avoid_questions(
     avoid_questions: str,
 ):
+    if len(avoid_questions) > MAX_AVOID_QUESTIONS_JSON_CHARACTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The previous question list is too large."
+            ),
+        )
+
     if not avoid_questions.strip():
         return []
 
@@ -338,7 +351,7 @@ def parse_avoid_questions(
         parsed = json.loads(
             avoid_questions
         )
-    except json.JSONDecodeError as error:
+    except (json.JSONDecodeError, RecursionError) as error:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -362,11 +375,40 @@ def parse_avoid_questions(
             ),
         )
 
-    return [
+    if len(parsed) > MAX_AVOID_QUESTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Too many previous questions were supplied."
+            ),
+        )
+
+    normalized = [
         value.strip()
         for value in parsed
         if value.strip()
     ]
+
+    if any(
+        len(value) > MAX_AVOID_QUESTION_CHARACTERS
+        for value in normalized
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "A previous question is too long."
+            ),
+        )
+
+    if sum(map(len, normalized)) > MAX_AVOID_QUESTIONS_TOTAL_CHARACTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The previous question text is too large."
+            ),
+        )
+
+    return normalized
 
 
 async def generate_quiz_from_pages(
@@ -482,6 +524,9 @@ async def generate_quiz_from_pages(
                             "the following study "
                             "material:\n\n"
                             + study_material
+                            + build_previous_questions_user_data(
+                                previous_questions
+                            )
                         ),
                     },
                 ],
