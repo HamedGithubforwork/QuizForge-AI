@@ -6,9 +6,10 @@ const HISTORICAL_PROXY_LIMIT_BYTES = 512 * 1024
 const HISTORICAL_CORRECTED_PROXY_LIMIT_BYTES = 2 * 1024 * 1024
 const USER_PREFIX = 'Review these borderline short answers:\n\n'
 
-// Historical PR #686 review fixture: this fixed-value model records the
-// request-envelope mismatch and a proposed allowance. It does not read live
-// Caddy/backend configuration or prove current runtime compatibility.
+// Historical, synthetic PR #686 review fixture: this fixed-value model records the
+// original 512 KiB proxy cap and a hypothetical 2 MiB allowance for request
+// envelope overhead. It does not read live configuration and does not describe
+// the reconciled PR #686 Caddy cap of 4 MiB.
 
 function pythonCompatibleJson(value) {
   const compact = JSON.stringify(value)
