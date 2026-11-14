@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict')
+const { spawnSync } = require('node:child_process')
 const fs = require('node:fs')
 const path = require('node:path')
 const test = require('node:test')
@@ -78,6 +79,19 @@ test('workflow policy test runs unconditionally and is connected to the existing
   assert.match(gate, /AUTONOMY_REQUIRED: \$\{\{ needs\.changes\.outputs\.autonomy_tests \}\}/)
   assert.match(gate, /uses: actions\/checkout@v7[\s\S]*uses: actions\/setup-node@v7/)
   assert.match(gate, /run: node scripts\/ci\/verify-required-pr-gate\.cjs/)
+})
+
+test('destination repository identity regressions run in the unconditional Required PR policy job', () => {
+  // CI uses Ubuntu's python3. On Windows, use the Python launcher so a local
+  // python3 shim or PATH alias cannot break the regression test.
+  const windows = process.platform === 'win32'
+  const identitySuite = spawnSync(
+    windows ? 'py' : 'python3',
+    [...(windows ? ['-3'] : []), '-m', 'unittest', 'scripts.test_github_repository_identity'],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  )
+  assert.equal(identitySuite.error, undefined, identitySuite.error?.message)
+  assert.equal(identitySuite.status, 0, `${identitySuite.stdout || ''}\n${identitySuite.stderr || ''}`)
 })
 
 test('integration coordinator source and tests trigger autonomy verification', () => {

@@ -9,13 +9,13 @@ AFTER = "b"*40
 
 def event():
     return {"before": BEFORE, "after": AFTER, "ref": "refs/heads/main",
-            "repository": {"full_name": REPOSITORY}}
+            "repository": {"full_name": REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}}
 
 
 def merged():
     return [{"number": PR, "merged_at": "2026-10-12T18:30:00Z",
              "merge_commit_sha": AFTER, "base": {"ref": "main"},
-             "head": {"repo": {"full_name": REPOSITORY}}}]
+             "head": {"repo": {"full_name": REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}}}]
 
 
 class StrictDiagnosticGate(unittest.TestCase):

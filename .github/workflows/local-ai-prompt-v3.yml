@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          repository: HamedGithubforwork/QuizForge-AI
+          repository: ${{ github.repository }}
           ref: 13e2c781085ea3c00802711ecefdbbee6a368c70
           path: product-source
           persist-credentials: false
@@ -46,7 +46,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v7
         with:
-          repository: HamedGithubforwork/QuizForge-AI
+          repository: ${{ github.repository }}
           ref: 13e2c781085ea3c00802711ecefdbbee6a368c70
           path: product-source
           persist-credentials: false

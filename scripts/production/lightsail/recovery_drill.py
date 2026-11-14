@@ -33,6 +33,7 @@ PRODUCTION_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PRODUCTION_DIR))
 from scripts.production import lightsail_backup as backup  # noqa: E402
 from scripts.production import lightsail_backup_job as backup_job  # noqa: E402
+from scripts.github_repository_identity import is_target_actions_environment  # noqa: E402
 
 from scripts.production.lightsail import recovery_capacity as capacity  # noqa: E402
 
@@ -504,7 +505,7 @@ def run() -> int:
         os.environ.get("GITHUB_EVENT_NAME") != "push"
         or os.environ.get("GITHUB_REF") != "refs/heads/main"
         or os.environ.get("GITHUB_RUN_ATTEMPT") != "1"
-        or os.environ.get("GITHUB_REPOSITORY") != "HamedGithubforwork/QuizForge-AI"
+        or not is_target_actions_environment(os.environ)
     ):
         raise ValueError("Live recovery drill requires the first trusted main-branch push")
 

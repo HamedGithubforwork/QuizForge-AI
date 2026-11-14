@@ -8,9 +8,13 @@ import os
 import re
 import subprocess
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.github_repository_identity import is_target_actions_environment, is_target_repository_object
 
 MARKER = ".github/staging-update-requests/auth-parity-pr-563.json"
-REPOSITORY = "HamedGithubforwork/QuizForge-AI"
+REPOSITORY = "QuizFromNotes/QuizForge-AI"
 PR_NUMBER = 563
 REQUEST = {
     "operation": "align_auth_parity",
@@ -24,7 +28,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 def authorize(event, changed, prs, request):
     if event.get("ref") != "refs/heads/main":
         raise ValueError("Unexpected non-main staging trigger")
-    if event.get("repository", {}).get("full_name") != REPOSITORY:
+    if not is_target_repository_object(event.get("repository")):
         raise ValueError("Unexpected staging repository")
     before, after = event.get("before"), event.get("after")
     if not all(isinstance(s, str) and SHA.fullmatch(s) and s != "0" * 40
@@ -40,7 +44,7 @@ def authorize(event, changed, prs, request):
         and pr.get("merged_at")
         and pr.get("merge_commit_sha") == after
         and pr.get("base", {}).get("ref") == "main"
-        and pr.get("head", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and is_target_repository_object(pr.get("head", {}).get("repo"))
         for pr in prs
     ):
         raise ValueError("The specified trusted pull request was not merged")
@@ -53,7 +57,7 @@ def command(*args):
 
 def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-    if os.environ.get("GITHUB_REPOSITORY") != REPOSITORY or (
+    if not is_target_actions_environment(os.environ) or (
         os.environ.get("GITHUB_EVENT_NAME") != "push"
     ) or os.environ.get("GITHUB_SHA") != event.get("after"):
         raise ValueError("Unexpected GitHub event environment")

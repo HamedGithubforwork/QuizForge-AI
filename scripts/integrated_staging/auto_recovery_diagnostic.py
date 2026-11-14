@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from auto_parity_merge import REPOSITORY, SHA, command
+from scripts.github_repository_identity import is_target_actions_environment, is_target_repository_object
 
 MARKER = ".github/staging-update-requests/recovery-diagnostic-pr-565.json"
 PR = 565
@@ -20,7 +21,7 @@ REQUEST = {
 
 
 def authorize(event, changed, prs, request):
-    if (event.get("repository", {}).get("full_name") != REPOSITORY
+    if (not is_target_repository_object(event.get("repository"))
             or event.get("ref") != "refs/heads/main"):
         raise ValueError("Unexpected branch or repository")
     before, after = event.get("before"), event.get("after")
@@ -35,7 +36,7 @@ def authorize(event, changed, prs, request):
         and pr.get("merged_at")
         and pr.get("merge_commit_sha") == after
         and pr.get("base", {}).get("ref") == "main"
-        and pr.get("head", {}).get("repo", {}).get("full_name") == REPOSITORY
+        and is_target_repository_object(pr.get("head", {}).get("repo"))
         for pr in prs
     ):
         raise ValueError("Expected merged PR #565 is not the main push")
@@ -44,7 +45,7 @@ def authorize(event, changed, prs, request):
 
 def main():
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
-    if (os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
+    if (not is_target_actions_environment(os.environ)
             or os.environ.get("GITHUB_EVENT_NAME") != "push"
             or os.environ.get("GITHUB_SHA") != event.get("after")):
         raise ValueError("Untrusted job context")
