@@ -37,32 +37,44 @@ change AWS, merge a PR, alter repository protections, or deploy.
    #706 on that new `main`, rerun its exact-head Required PR gate, and address
    review findings. PR #705 changes CI only and does not enable a merge queue.
    Neither PR is authorized to merge by this runbook.
-6. Before the transfer window, inventory any in-progress AWS-capable workflow
-   and establish a temporary GitHub Actions hold for the 28 workflows that
-   request `id-token: write` (listed below). Use GitHub's reversible
-   workflow-disable controls and record exactly which workflows were disabled.
+6. Before the transfer window, inventory in-progress AWS-capable workflows and
+   establish a temporary GitHub Actions hold for the 28 such workflows on the
+   current `main` (listed below). Use GitHub's reversible workflow-disable
+   controls and record exactly which workflows were disabled. PR #706 adds a
+   29th, identity-only workflow; it is not on current `main` before that PR is
+   integrated and has no automatic push/PR trigger.
    Keep the credentialless `CI` workflow and `Required PR gate` enabled. Do not
    change IAM, rulesets, permissions, or workflow code to create the hold. The
    hold interrupts manual cloud operations; schedule it with the service owner
-   and do not proceed if that interruption is unacceptable.
+   and do not proceed if that interruption is unacceptable. Disabling a
+   workflow does not cancel an active run: wait for each active cloud-capable
+   run to finish or cancel it only when that operation can be safely stopped,
+   and confirm no cloud-capable run remains queued or in progress before
+   transfer.
 7. After destination identity/settings verification, reconcile PR #706 against
    the post-transfer `main` and obtain fresh CI. With AWS-capable workflows
    still held, separately authorize and integrate #706. Its main-push paths
    otherwise match three effects: production Cognito hosted-UI styling,
    release-candidate ECR publication, and a read-only production Terraform
    plan. Do not rely solely on its destination-only guards to suppress those
-   effects. After integration, verify those workflows did not run, re-enable
-   the held workflows only after OIDC and protections are confirmed, and do not
-   dispatch any production-changing workflow without separate authorization.
+   effects. After integration, verify those workflows did not run. Keep the 28
+   operational workflows held until the owner-only identity test succeeds, then
+   restore only the workflows that were enabled before the maintenance window.
+   Do not dispatch any production-changing workflow without separate
+   authorization.
 
 ### Temporary AWS-capable workflow hold
 
-The exact current list of workflows with `id-token: write` is:
+The transfer-candidate inventory includes 29 workflows with `id-token: write`:
+28 already on `main` and the manual identity-only workflow introduced by PR #706.
+Before PR #706 is integrated, disable only the 28 existing operational workflows;
+afterward, keep those 28 disabled while using the separately owner-gated check.
 
 `aws-backup-activation.yml`, `aws-backup-activation-cloud.yml`,
 `aws-budget-alerts.yml`, `aws-integrated-staging.yml`,
 `aws-integrated-staging-frontend-update.yml`, `aws-production-inventory.yml`,
-`aws-staging-ai-budget.yml`, `backend-ecr.yml`, `cognito-sms-activation.yml`,
+`aws-staging-ai-budget.yml`, `aws-oidc-identity-check.yml`, `backend-ecr.yml`,
+`cognito-sms-activation.yml`,
 `desktop-auth-readiness.yml`, `desktop-native-client-registration.yml`,
 `lightsail-app-stage.yml`, `lightsail-backup-timer-activation.yml`,
 `lightsail-cognito-hosted-ui-style.yml`, `lightsail-database-migrations.yml`,
@@ -109,13 +121,22 @@ and an owner has authorized the AWS identity-validation step.
    application baseline after image builds immediately before staging
    provisioning. Before integrating #706, separately authorize the exact PR/head and verify that
    the three held main-push workflows did not execute during the merge.
-6. Re-enable the AWS-capable workflows only after destination identity,
+6. Keep the 28 existing OIDC-capable workflows held until destination identity,
    protections, environments, and the owner-confirmed OIDC policy are checked.
-   Then, under explicit owner authorization, use a read-only OIDC identity
-   verification that runs `aws sts get-caller-identity` and performs no apply,
-   image publication, provisioning, or deployment. If no currently enabled
-   workflow is limited to that safe scope, stop and prepare a separately
-   reviewed identity-only validation before dispatching anything.
+   After #706 introduces the new check, with explicit owner authorization,
+   enable only the manual `AWS OIDC identity check` workflow and have the owner
+   account dispatch it from protected `main` through the `production`
+   environment. The job also enforces that account's immutable GitHub actor ID.
+   It uses a 15-minute session policy limited to
+   `sts:GetCallerIdentity`, validates the expected AWS account/role without
+   printing raw caller-identity data or credentials, and masks the account ID.
+   The AWS credentials action may log its noncredential assumed-role session
+   identifier. The workflow performs no apply, image publication,
+   provisioning, or deployment. If the check fails or the configured role is
+   unexpected, disable it again and leave all other OIDC workflows held.
+   On success, restore only the 28 workflows recorded as enabled before the
+   window; recheck their enabled state and leave the identity check manual-only.
+   Do not dispatch any other operation.
 7. After the destination OIDC path and production environment restrictions are
    independently verified, separately authorize removal of the old-owner IAM
    subject. Re-read the resulting trust policy and verify no unexpected
@@ -193,6 +214,12 @@ staging path verifies selection before AWS-authenticated preflight and checks
 the same immutable heads again after image builds before provisioning; its
 `stop` operation remains independent of PR inputs. These changes preserve
 deployment logic and AWS permissions.
+
+The new `aws-oidc-identity-check.yml` is manual-only on protected `main`,
+requires the `production` environment, accepts only the exact source or
+destination repository identity, and limits the assumed-role session to
+`sts:GetCallerIdentity`. It does not read secrets, publish artifacts, or
+modify cloud resources. Its identity assertion is not run during PR validation.
 
 **Runtime script changes:** `scripts/github_repository_identity.py`,
 `scripts/aws_staging_preview.py`, `scripts/backup_activation/contract.py`,

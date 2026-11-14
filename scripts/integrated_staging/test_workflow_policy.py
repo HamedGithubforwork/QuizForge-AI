@@ -5,6 +5,7 @@ import unittest
 
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "aws-integrated-staging.yml"
+OIDC_IDENTITY_WORKFLOW = WORKFLOW.with_name("aws-oidc-identity-check.yml")
 
 
 def block(text, key, indent=2):
@@ -84,6 +85,30 @@ class StagingWorkflowPolicyTests(unittest.TestCase):
         self.assertIn("inputs.operation == 'stop'", cleanup)
         self.assertNotIn("inputs.backend_pr", cleanup)
         self.assertNotIn("inputs.frontend_pr", cleanup)
+
+    def test_oidc_identity_check_is_manual_main_only_and_sts_scoped(self):
+        workflow = OIDC_IDENTITY_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", workflow)
+        self.assertNotRegex(workflow, r"(?m)^\s+(?:pull_request|push|schedule):")
+        for guard in (
+            "github.event_name == 'workflow_dispatch'",
+            "github.ref == 'refs/heads/main'",
+            "github.actor_id == '148009407'",
+            "github.repository_id == '1307099196'",
+            "github.repository_owner_id == '148009407'",
+            "github.repository_owner_id == '356387243'",
+            "environment: production",
+            "mask-aws-account-id: true",
+            '"Action":"sts:GetCallerIdentity"',
+            "expected_account = \"399311815467\"",
+            "QuizForgeGitHubTerraform/",
+        ):
+            self.assertIn(guard, workflow)
+        aws_commands = re.findall(r"(?m)^\s*aws\s+([^\r\n]+)", workflow)
+        self.assertEqual(len(aws_commands), 1)
+        self.assertTrue(aws_commands[0].startswith("sts get-caller-identity --output json | python -c"))
+        self.assertNotRegex(workflow, r"(?i)\b(?:terraform|ecr|cognito|lightsail|deploy|apply)\b")
+        self.assertIn("aws sts get-caller-identity", workflow)
 
 
 if __name__ == "__main__":
