@@ -96,12 +96,19 @@ class GitHubRepositoryIdentityTests(unittest.TestCase):
         guard_count = 0
         for path in workflows.glob("*.yml"):
             content = path.read_text(encoding="utf-8")
-            self.assertNotIn("github.repository == 'HamedGithubforwork/QuizForge-AI'", content, path.name)
+            source_identity_guard = "github.repository == 'HamedGithubforwork/QuizForge-AI'"
+            if source_identity_guard in content:
+                self.assertEqual(path.name, "aws-oidc-identity-check.yml")
+                self.assertIn("github.event_name == 'workflow_dispatch'", content)
+                self.assertIn("github.ref == 'refs/heads/main'", content)
+                self.assertIn("github.actor_id == '148009407'", content)
+                self.assertIn("github.repository_id == '1307099196'", content)
+                self.assertIn("github.repository_owner_id == '148009407'", content)
             if "github.repository == 'QuizFromNotes/QuizForge-AI'" in content:
                 guard_count += 1
                 self.assertIn("github.repository_id == '1307099196'", content, path.name)
                 self.assertIn("github.repository_owner_id == '356387243'", content, path.name)
-        self.assertEqual(guard_count, 19)
+        self.assertEqual(guard_count, 20)
 
     def test_local_ai_contract_checkouts_follow_current_repository_without_enabling_model_runs(self):
         root = Path(__file__).resolve().parents[1]
