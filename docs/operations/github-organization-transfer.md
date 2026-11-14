@@ -32,11 +32,11 @@ change AWS, merge a PR, alter repository protections, or deploy.
    identify how GitHub Apps and the Codex connector will be reinstalled or
    reconnected after transfer. Do not create credentials or broaden permissions
    as part of this preparation.
-5. Complete the no-cost PR work in this order: integrate PR #705 first after
-   its exact-head review and separate authorization; then rebase/reconcile PR
-   #706 on that new `main`, rerun its exact-head Required PR gate, and address
-   review findings. PR #705 changes CI only and does not enable a merge queue.
-   Neither PR is authorized to merge by this runbook.
+5. Keep PRs #705 and #706 open through transfer. After destination verification,
+   reconcile and integrate them in dependency order: #705 first, then #706 on
+   the resulting `main`. Run fresh exact-head checks and resolve findings for
+   each. PR #705 changes CI only and does not enable a merge queue. This runbook
+   does not authorize either merge.
 6. Before the transfer window, inventory in-progress AWS-capable workflows and
    establish a temporary GitHub Actions hold for the 28 such workflows on the
    current `main` (listed below). Use GitHub's reversible workflow-disable
@@ -47,28 +47,42 @@ change AWS, merge a PR, alter repository protections, or deploy.
    change IAM, rulesets, permissions, or workflow code to create the hold. The
    hold interrupts manual cloud operations; schedule it with the service owner
    and do not proceed if that interruption is unacceptable. Disabling a
-   workflow does not cancel an active run: wait for each active cloud-capable
+   workflow does not cancel an active run (see [GitHub's workflow disable
+   guidance](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/disable-and-enable-workflows)):
+   wait for each active cloud-capable
    run to finish or cancel it only when that operation can be safely stopped,
    and confirm no cloud-capable run remains queued or in progress before
    transfer.
-7. After destination identity/settings verification, reconcile PR #706 against
-   the post-transfer `main` and obtain fresh CI. With AWS-capable workflows
-   still held, separately authorize and integrate #706. Its main-push paths
-   otherwise match three effects: production Cognito hosted-UI styling,
-   release-candidate ECR publication, and a read-only production Terraform
-   plan. Do not rely solely on its destination-only guards to suppress those
-   effects. After integration, verify those workflows did not run. Keep the 28
-   operational workflows held until the owner-only identity test succeeds, then
-   restore only the workflows that were enabled before the maintenance window.
-   Do not dispatch any production-changing workflow without separate
+7. After destination identity/settings verification, restore the 28 workflows
+   that were enabled before the transfer hold so post-transfer PR validators
+   can run. Do not dispatch manual AWS operations. Integrate #705 first with
+   its exact-head checks and separate authorization; its diff is CI-only. Then
+   reconcile #706 and run all relevant workflow validations plus Required PR
+   CI at its final exact head while workflows are enabled. Before separately
+   authorized integration of #706, drain active runs and temporarily disable
+   only these three workflows whose `push` paths match its changed files:
+   `lightsail-cognito-hosted-ui-style.yml` (production Cognito styling),
+   `lightsail-release-candidate-build.yml` (ECR publication), and
+   `production-google-terraform-plan.yml` (read-only production plan). Keep
+   `ci.yml` and the Required PR gate enabled. Immediately before merge, re-fetch
+   and confirm the exact-head gate and all previously completed relevant checks
+   still apply; stop if any required check is missing or no longer successful.
+   After the authorized merge, verify those three effects did not execute,
+   restore their prior enabled states, and inspect Actions before any further
+   operation. Do not dispatch production-changing workflows without separate
    authorization.
 
 ### Temporary AWS-capable workflow hold
 
 The transfer-candidate inventory includes 29 workflows with `id-token: write`:
 28 already on `main` and the manual identity-only workflow introduced by PR #706.
-Before PR #706 is integrated, disable only the 28 existing operational workflows;
-afterward, keep those 28 disabled while using the separately owner-gated check.
+For the transfer itself, disable the 28 workflows already on `main`; keep the
+credentialless Required PR gate enabled. Restore the 28 to their recorded
+pre-transfer states after destination identity and protection checks, before
+running fresh PR validations. Do not dispatch manual AWS operations during this
+period. After #706 is integrated, a separate identity-test window may disable
+the 28 operational workflows again while leaving the new identity-only workflow
+enabled for its specifically authorized dispatch.
 
 `aws-backup-activation.yml`, `aws-backup-activation-cloud.yml`,
 `aws-budget-alerts.yml`, `aws-integrated-staging.yml`,
@@ -89,9 +103,14 @@ afterward, keep those 28 disabled while using the separately owner-gated check.
 
 This list must be regenerated from the exact transfer candidate before use.
 Leave `.github/workflows/ci.yml` enabled so required PR checks continue. Do not
-disable branch rules or required checks. Re-enable the held workflows only
-after the destination repository identity and protections have been checked
-and an owner has authorized the AWS identity-validation step.
+disable branch rules or required checks. A workflow-level hold also suppresses
+that workflow's PR validation jobs; it does not cancel active runs. Restore the
+28-workflow hold after the transfer verification, before fresh PR validation.
+For #706, disable its three push-side-effect workflows only after their
+exact-head validation has passed; verify the Required PR gate remains successful
+immediately before the merge. For the later identity-test window, disable the
+28 operational workflows again and leave only the new manual identity check
+available. Restore recorded enabled states after the identity check completes.
 
 ## Transfer and destination checks
 
@@ -113,19 +132,24 @@ and an owner has authorized the AWS identity-validation step.
    Do not treat old run links or pre-transfer check conclusions as current
    verification. Keep automatic merging disabled and do not enable the merge
    queue as part of this migration.
-5. Keep the AWS-capable workflow hold in place while reconciling PR #706 to the
-   destination `main`. Run deterministic tests and exact-head Required PR CI;
-   the staging PR path now runs credentialless validation only. Its manual
-   Run path checks explicit PRs before AWS preflight, pins their immutable
-   heads, and rechecks the same open PRs, exact-head checks, and current
-   application baseline after image builds immediately before staging
-   provisioning. Before integrating #706, separately authorize the exact PR/head and verify that
-   the three held main-push workflows did not execute during the merge.
-6. Keep the 28 existing OIDC-capable workflows held until destination identity,
-   protections, environments, and the owner-confirmed OIDC policy are checked.
-   After #706 introduces the new check, with explicit owner authorization,
-   enable only the manual `AWS OIDC identity check` workflow and have the owner
-   account dispatch it from protected `main` through the `production`
+5. Restore the 28 workflows to their pre-transfer enabled states after the
+   transfer checks so post-transfer PR validation can run. Keep manual AWS
+   operations undispatched. Reconcile PR #705 and obtain exact-head checks
+   first. Then reconcile #706; the staging PR path runs credentialless
+   validation only. Its manual Run path requires explicit current PRs before
+   AWS preflight, pins their immutable heads, and rechecks the same open PRs,
+   exact-head checks, and current application baseline after image builds
+   immediately before staging provisioning.
+6. Before separately authorized #706 integration, after all relevant PR checks
+   have passed, temporarily disable only the three push-side-effect workflows
+   listed above. Leave the Required PR gate enabled and confirm its exact-head
+   success remains applicable. After merge, confirm those workflows did not
+   run, restore their previous enabled states, and inspect for unexpected runs.
+   Once #706 is integrated and destination settings are verified, temporarily
+   disable the 28 operational workflows listed above while retaining the new
+   identity-only workflow. After confirming no AWS-capable jobs are queued or
+   active, a separately authorized owner may dispatch `AWS OIDC identity check`
+   from protected `main` through the `production`
    environment. The job also enforces that account's immutable GitHub actor ID.
    It uses a 15-minute session policy limited to
    `sts:GetCallerIdentity`, validates the expected AWS account/role without
@@ -133,10 +157,10 @@ and an owner has authorized the AWS identity-validation step.
    The AWS credentials action may log its noncredential assumed-role session
    identifier. The workflow performs no apply, image publication,
    provisioning, or deployment. If the check fails or the configured role is
-   unexpected, disable it again and leave all other OIDC workflows held.
-   On success, restore only the 28 workflows recorded as enabled before the
-   window; recheck their enabled state and leave the identity check manual-only.
-   Do not dispatch any other operation.
+   unexpected, do not dispatch any other operation. The identity check does not
+   authorize production changes or independently verify the saved IAM document.
+   Restore the 28 workflows to their recorded pre-maintenance states after the
+   check completes and verify no workflow was unexpectedly triggered.
 7. After the destination OIDC path and production environment restrictions are
    independently verified, separately authorize removal of the old-owner IAM
    subject. Re-read the resulting trust policy and verify no unexpected

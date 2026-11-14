@@ -6,6 +6,7 @@ import unittest
 
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "aws-integrated-staging.yml"
 OIDC_IDENTITY_WORKFLOW = WORKFLOW.with_name("aws-oidc-identity-check.yml")
+QUICK_UPDATE_WORKFLOW = WORKFLOW.with_name("aws-integrated-staging-frontend-update.yml")
 
 
 def block(text, key, indent=2):
@@ -55,6 +56,22 @@ class StagingWorkflowPolicyTests(unittest.TestCase):
         self.assertNotRegex(self.workflow, r"inputs\.(?:backend|frontend)_pr\s*\|\|\s*['\"](?:537|538)['\"]")
         self.assertIn("PREVIEW_BACKEND_PR: ${{ inputs.backend_pr }}", self.workflow)
         self.assertIn("PREVIEW_FRONTEND_PR: ${{ inputs.frontend_pr }}", self.workflow)
+
+    def test_quick_update_manual_frontend_run_has_no_stale_pr_default(self):
+        workflow = QUICK_UPDATE_WORKFLOW.read_text(encoding="utf-8")
+        dispatch = block(workflow, "workflow_dispatch", indent=2)
+        inputs = block(dispatch, "inputs", indent=4)
+        frontend_pr = block(inputs, "frontend_pr", indent=6)
+        self.assertIn("required: false", frontend_pr)
+        self.assertNotRegex(frontend_pr, r"(?m)^\s+default:")
+        self.assertIn("inputs.operation == 'frontend'", workflow)
+        self.assertIn("PREVIEW_FRONTEND_PR: ${{ github.event_name == 'push' && '538' || inputs.frontend_pr }}", workflow)
+        self.assertIn("frontend-signup-resume-checklist-v2.json", workflow)
+        authorization = (
+            Path(__file__).resolve().parents[2]
+            / "scripts" / "integrated_staging" / "auto_frontend_merge.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"mode": "one-time-reviewed-main-merge"', authorization)
 
     def test_exact_selected_refs_feed_images_and_staging_gates_remain_manual(self):
         select_prs = block(self.jobs, "select-prs", indent=2)
