@@ -99,6 +99,15 @@ class GitHubRepositoryIdentityTests(unittest.TestCase):
             source_identity_guard = "github.repository == 'HamedGithubforwork/QuizForge-AI'"
             if source_identity_guard in content:
                 self.assertEqual(path.name, "aws-oidc-identity-check.yml")
+                self.assertEqual(content.count(source_identity_guard), 1)
+                self.assertRegex(
+                    content,
+                    re.compile(
+                        r"\(\s*github\.repository == 'HamedGithubforwork/QuizForge-AI'"
+                        r"\s*&&\s*github\.repository_owner_id == '148009407'\s*\)"
+                    ),
+                    "the source repository slug must be paired with its source owner ID",
+                )
                 self.assertIn("github.event_name == 'workflow_dispatch'", content)
                 self.assertIn("github.ref == 'refs/heads/main'", content)
                 self.assertIn("github.actor_id == '148009407'", content)
