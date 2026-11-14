@@ -26,7 +26,10 @@ class StagingApplicationBaseline(unittest.TestCase):
     def test_read_only_preview_accepts_only_the_run_repository_identity(self):
         pr = {
             "state": "open",
-            "base": {"ref": "application/production"},
+            "base": {"ref": "application/production", "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
             "head": {"sha": HEAD, "repo": {
                 "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
                 "owner": {"id": int(SOURCE_OWNER_ID)},
@@ -60,7 +63,10 @@ class StagingApplicationBaseline(unittest.TestCase):
         # The ancestry check runs AFTER exact-head PR CI verification.
         pr = {
             "state": "open",
-            "base": {"ref": "application/production"},
+            "base": {"ref": "application/production", "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
             "head": {"sha": HEAD, "repo": {
                 "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
                 "owner": {"id": int(SOURCE_OWNER_ID)},
@@ -81,6 +87,61 @@ class StagingApplicationBaseline(unittest.TestCase):
             }):
                 with self.assertRaises(ValueError):
                     preview.checked_pr("537", {"Required PR gate"}, SOURCE_REPOSITORY)
+
+    def test_missing_or_closed_staging_pr_is_rejected_before_it_can_be_used(self):
+        with patch.object(preview, "github") as github:
+            with self.assertRaises(ValueError):
+                preview.checked_pr("", {"Required PR gate"}, SOURCE_REPOSITORY)
+            github.assert_not_called()
+
+        pr = {
+            "state": "closed",
+            "base": {"ref": "application/production", "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+            "head": {"sha": HEAD, "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+        }
+        with self.assertRaises(ValueError):
+            preview.resolve(pr, [], {"Required PR gate"}, SOURCE_REPOSITORY)
+
+    def test_wrong_base_repository_identity_is_rejected(self):
+        pr = {
+            "state": "open",
+            "base": {"ref": "application/production", "repo": {
+                "full_name": "attacker/QuizForge-AI", "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+            "head": {"sha": HEAD, "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+        }
+        with self.assertRaises(ValueError):
+            preview.resolve(pr, [], {"Required PR gate"}, SOURCE_REPOSITORY)
+
+    def test_final_confirmation_rejects_changed_application_pr_head(self):
+        pr = {
+            "state": "open",
+            "base": {"ref": "application/production", "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+            "head": {"sha": HEAD, "repo": {
+                "full_name": SOURCE_REPOSITORY, "id": int(REPOSITORY_ID),
+                "owner": {"id": int(SOURCE_OWNER_ID)},
+            }},
+        }
+        checks = [{"name": "Required PR gate", "id": 2, "head_sha": HEAD,
+                   "app": {"slug": "github-actions"},
+                   "status": "completed", "conclusion": "success"}]
+        with patch.object(preview, "github", side_effect=[pr, {"check_runs": checks}]) as github:
+            with self.assertRaisesRegex(ValueError, "head changed"):
+                preview.checked_pr("537", {"Required PR gate"}, SOURCE_REPOSITORY, "c" * 40)
+        self.assertEqual(github.call_count, 2)
 
 
 if __name__ == "__main__":

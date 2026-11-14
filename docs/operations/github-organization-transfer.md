@@ -21,35 +21,65 @@ change AWS, merge a PR, alter repository protections, or deploy.
    Free organization removes protected-branch features. See [merge queue
    availability](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue#who-can-use-this-feature)
    and [repository-transfer behavior](https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository#whats-transferred-with-a-repository).
-3. Independently inspect the saved AWS OIDC trust policy using authorized,
-   read-only AWS access. The current report of a dual old/new immutable subject
-   policy is user-reported and has **not** been independently verified in this
-   development environment. Do not transfer until the exact audience, subject
-   prefix, repository ID, owner ID, allowed refs, and production environment
-   conditions are confirmed. Do not remove the old subject before a safe
-   destination validation; authorize that later removal separately.
+3. The repository owner has confirmed saving a dual old/new immutable-subject
+   AWS OIDC trust policy. This remains owner-confirmed and has not been read
+   back by this environment; do not request the same screenshots again. The
+   owner should retain the policy snapshot and confirm its exact audience,
+   subject prefixes, repository/owner IDs, refs, and production environment
+   conditions in their authorized AWS interface during the maintenance
+   checklist. Do not modify IAM or remove the old subject in this preparation.
 4. Confirm the destination organization permits Actions and GitHub OIDC, and
    identify how GitHub Apps and the Codex connector will be reinstalled or
    reconnected after transfer. Do not create credentials or broaden permissions
    as part of this preparation.
-5. Schedule a maintenance window. Stop or disable cloud-capable/manual
-   activation operations through their existing operator controls before the
-   transfer. Do not edit deployment logic to suppress a deployment. Confirm
-   that no push, release, Terraform, image-publication, or production workflow
-   is queued and that no one is dispatching one during the window.
-6. Keep the target-only identity-guard PR unmerged until after transfer. It
-   contains no old-owner allowlist: its guarded operations fail closed on the
-   source identity and accept only the expected destination name and immutable
-   IDs. Review its exact diff and test results again immediately before use.
-   Its workflow-file changes have merge-triggered effects that need a separate
-   reviewed maintenance-window plan: `lightsail-cognito-hosted-ui-style.yml`
-   has a `push` path filter that includes its own workflow and can run the
-   production Cognito styling job; `lightsail-release-candidate-build.yml`
-   includes its own workflow in a protected-main push filter and can publish an
-   ECR image; `production-google-terraform-plan.yml` includes its own workflow
-   in a protected-main push filter and performs a read-only production plan.
-   This PR does not suppress or authorize those runs. Do not integrate it until
-   the owner has approved a safe handling plan for these exact effects.
+5. Complete the no-cost PR work in this order: integrate PR #705 first after
+   its exact-head review and separate authorization; then rebase/reconcile PR
+   #706 on that new `main`, rerun its exact-head Required PR gate, and address
+   review findings. PR #705 changes CI only and does not enable a merge queue.
+   Neither PR is authorized to merge by this runbook.
+6. Before the transfer window, inventory any in-progress AWS-capable workflow
+   and establish a temporary GitHub Actions hold for the 28 workflows that
+   request `id-token: write` (listed below). Use GitHub's reversible
+   workflow-disable controls and record exactly which workflows were disabled.
+   Keep the credentialless `CI` workflow and `Required PR gate` enabled. Do not
+   change IAM, rulesets, permissions, or workflow code to create the hold. The
+   hold interrupts manual cloud operations; schedule it with the service owner
+   and do not proceed if that interruption is unacceptable.
+7. After destination identity/settings verification, reconcile PR #706 against
+   the post-transfer `main` and obtain fresh CI. With AWS-capable workflows
+   still held, separately authorize and integrate #706. Its main-push paths
+   otherwise match three effects: production Cognito hosted-UI styling,
+   release-candidate ECR publication, and a read-only production Terraform
+   plan. Do not rely solely on its destination-only guards to suppress those
+   effects. After integration, verify those workflows did not run, re-enable
+   the held workflows only after OIDC and protections are confirmed, and do not
+   dispatch any production-changing workflow without separate authorization.
+
+### Temporary AWS-capable workflow hold
+
+The exact current list of workflows with `id-token: write` is:
+
+`aws-backup-activation.yml`, `aws-backup-activation-cloud.yml`,
+`aws-budget-alerts.yml`, `aws-integrated-staging.yml`,
+`aws-integrated-staging-frontend-update.yml`, `aws-production-inventory.yml`,
+`aws-staging-ai-budget.yml`, `backend-ecr.yml`, `cognito-sms-activation.yml`,
+`desktop-auth-readiness.yml`, `desktop-native-client-registration.yml`,
+`lightsail-app-stage.yml`, `lightsail-backup-timer-activation.yml`,
+`lightsail-cognito-hosted-ui-style.yml`, `lightsail-database-migrations.yml`,
+`lightsail-frontend-hotfix.yml`, `lightsail-manual-control.yml`,
+`lightsail-production-quiz-e2e.yml`,
+`lightsail-production-recovery-drill.yml`,
+`lightsail-release-candidate-build.yml`, `lightsail-release-promote.yml`,
+`lightsail-ssh-host-trust-probe.yml`,
+`lightsail-study-notifier-activation.yml`, `production-google-activation.yml`,
+`production-google-incident.yml`, `production-google-oauth-readiness.yml`,
+`production-google-terraform-plan.yml`, and `terraform-aws.yml`.
+
+This list must be regenerated from the exact transfer candidate before use.
+Leave `.github/workflows/ci.yml` enabled so required PR checks continue. Do not
+disable branch rules or required checks. Re-enable the held workflows only
+after the destination repository identity and protections have been checked
+and an owner has authorized the AWS identity-validation step.
 
 ## Transfer and destination checks
 
@@ -71,16 +101,26 @@ change AWS, merge a PR, alter repository protections, or deploy.
    Do not treat old run links or pre-transfer check conclusions as current
    verification. Keep automatic merging disabled and do not enable the merge
    queue as part of this migration.
-5. Review and integrate the target-only identity guards only after confirming
-   the exact destination name and IDs. Run deterministic tests and ordinary
-   Required PR CI. For OIDC, use a separately approved, non-deploy validation
-   that only obtains caller identity or validates the trust path; do not run
-   Terraform apply, publish an image, change IAM, or deploy.
-6. After the destination OIDC path and production environment restrictions are
+5. Keep the AWS-capable workflow hold in place while reconciling PR #706 to the
+   destination `main`. Run deterministic tests and exact-head Required PR CI;
+   the staging PR path now runs credentialless validation only. Its manual
+   Run path checks explicit PRs before AWS preflight, pins their immutable
+   heads, and rechecks the same open PRs, exact-head checks, and current
+   application baseline after image builds immediately before staging
+   provisioning. Before integrating #706, separately authorize the exact PR/head and verify that
+   the three held main-push workflows did not execute during the merge.
+6. Re-enable the AWS-capable workflows only after destination identity,
+   protections, environments, and the owner-confirmed OIDC policy are checked.
+   Then, under explicit owner authorization, use a read-only OIDC identity
+   verification that runs `aws sts get-caller-identity` and performs no apply,
+   image publication, provisioning, or deployment. If no currently enabled
+   workflow is limited to that safe scope, stop and prepare a separately
+   reviewed identity-only validation before dispatching anything.
+7. After the destination OIDC path and production environment restrictions are
    independently verified, separately authorize removal of the old-owner IAM
    subject. Re-read the resulting trust policy and verify no unexpected
    identities, audiences, refs, or environments were added.
-7. Reconcile active Merge Manager commands and the process-pinned historical
+8. Reconcile active Merge Manager commands and the process-pinned historical
    verifier/canonical graph in a separate, manually reviewed post-transfer
    change. This PR intentionally leaves those trust anchors and historical
    checkpoint/audit records unchanged. Until that follow-up is reviewed and
@@ -147,8 +187,12 @@ repository ID, and destination owner ID: `aws-backup-activation-cloud.yml`,
 `local-ai-prompt-v4.yml` use `${{ github.repository }}` for their pinned source
 checkouts so PR contract checks work before and after transfer; their model
 comparisons remain manual-dispatch only. `aws-integrated-staging.yml` updates
-one generated guide link. These are identity/input changes; deployment logic,
-workflow triggers, and AWS permissions are unchanged.
+one generated guide link and separates credentialless PR validation from
+manually selected, exact-head-verified staging application PRs. The manual
+staging path verifies selection before AWS-authenticated preflight and checks
+the same immutable heads again after image builds before provisioning; its
+`stop` operation remains independent of PR inputs. These changes preserve
+deployment logic and AWS permissions.
 
 **Runtime script changes:** `scripts/github_repository_identity.py`,
 `scripts/aws_staging_preview.py`, `scripts/backup_activation/contract.py`,

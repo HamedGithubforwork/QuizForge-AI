@@ -29,7 +29,8 @@ FRONTEND_REQUIRED = {
 
 def resolve(pr, checks, required, repository):
     if (pr.get("state") != "open" or pr.get("base", {}).get("ref") != BASE_BRANCH
-            or not is_read_only_ci_repository_object(pr.get("head", {}).get("repo"), repository)):
+            or not is_read_only_ci_repository_object(pr.get("head", {}).get("repo"), repository)
+            or not is_read_only_ci_repository_object(pr.get("base", {}).get("repo"), repository)):
         raise ValueError("Staging requires open same-repository PRs targeting application/production.")
     sha = pr["head"]["sha"]
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
@@ -69,7 +70,7 @@ def verify_latest_production_baseline(comparison, requested_sha, production_sha)
     return requested_sha
 
 
-def checked_pr(number, required, repository):
+def checked_pr(number, required, repository, expected_sha=None):
     if not re.fullmatch(r"[1-9][0-9]*", number):
         raise ValueError("PR numbers must be positive integers.")
     pr = github(f"pulls/{number}", repository)
@@ -82,6 +83,8 @@ def checked_pr(number, required, repository):
         if len(batch) < 100:
             break
     resolved = resolve(pr, checks, required, repository)
+    if expected_sha is not None and resolved != expected_sha:
+        raise ValueError("Selected application PR head changed during the staging workflow.")
     production_sha = github("branches/application/production", repository)["commit"]["sha"]
     comparison = github(f"compare/{BASE_BRANCH}...{resolved}", repository)
     return verify_latest_production_baseline(comparison, resolved, production_sha)
@@ -89,8 +92,14 @@ def checked_pr(number, required, repository):
 
 if __name__ == "__main__":
     repository = read_only_ci_repository_from_environment(os.environ)
-    backend_sha = checked_pr(os.environ["PREVIEW_BACKEND_PR"], BACKEND_REQUIRED, repository)
-    frontend_sha = checked_pr(os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED, repository)
+    backend_sha = checked_pr(
+        os.environ["PREVIEW_BACKEND_PR"], BACKEND_REQUIRED, repository,
+        os.environ.get("PREVIEW_EXPECT_BACKEND_SHA"),
+    )
+    frontend_sha = checked_pr(
+        os.environ["PREVIEW_FRONTEND_PR"], FRONTEND_REQUIRED, repository,
+        os.environ.get("PREVIEW_EXPECT_FRONTEND_SHA"),
+    )
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"backend_sha={backend_sha}\n")
         output.write(f"frontend_sha={frontend_sha}\n")
