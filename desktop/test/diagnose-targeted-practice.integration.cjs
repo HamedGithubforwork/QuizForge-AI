@@ -13,9 +13,12 @@ const appRootInput = process.argv[2]
 assert.ok(appRootInput, 'Usage: node diagnose-targeted-practice.integration.cjs <verified-app-root>')
 const appRoot = path.resolve(appRootInput)
 const { inspectModelResponse } = require(path.join(appRoot, 'desktop/scripts/inspect-synthetic-quiz.cjs'))
+const { MODEL_DOWNLOAD_TIMEOUT_MS } = require(path.join(appRoot, 'desktop/src/local-model-store.cjs'))
 const { FIXTURES } = require(path.join(appRoot, 'desktop/scripts/verify-local-product-acceptance.cjs'))
 const fixture = FIXTURES.find(item => item.id === 'selected_pages')
 assert.ok(fixture, 'The verified app source must include the pinned selected_pages fixture')
+assert.equal(MODEL_DOWNLOAD_TIMEOUT_MS, 20 * 60 * 1000,
+  'Diagnostic-specific preparation must not change the desktop default timeout')
 
 const report = {
   setupFailures: [],

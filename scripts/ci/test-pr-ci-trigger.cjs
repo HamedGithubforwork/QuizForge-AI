@@ -169,17 +169,27 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   assert.match(diagnosticWorkflow, /QFN_DIAGNOSTIC_SOURCE_SHA=\$sourceSha/)
 
   const revisionCheck = diagnosticWorkflow.indexOf('Verify exact checked-out revisions before downloads')
+  const initializeStatus = diagnosticWorkflow.indexOf('Initialize sanitized model-preparation status')
   const integrationTest = diagnosticWorkflow.indexOf('Verify synthetic diagnostic callback and inspector integration')
   const cacheRestore = diagnosticWorkflow.indexOf('Restore verified pinned Qwen model cache')
-  const modelDownload = diagnosticWorkflow.indexOf('Verify pinned model SHA-256')
+  const modelDownload = diagnosticWorkflow.indexOf('Verify or download pinned model and record bounded preparation status')
   const runtimeDownload = diagnosticWorkflow.indexOf('Download, verify, and stage pinned llama.cpp runtime')
-  assert.ok(revisionCheck >= 0 && integrationTest > revisionCheck)
+  assert.ok(revisionCheck >= 0 && initializeStatus > revisionCheck && integrationTest > initializeStatus,
+    'A sanitized pre-inference preparation record must exist before synthetic tests and model work')
   assert.ok(cacheRestore > integrationTest && modelDownload > cacheRestore && runtimeDownload > modelDownload,
     'Exact SHA checks and synthetic integration must precede model/runtime downloads')
   assert.match(diagnosticWorkflow, /node diagnostic-tools\/desktop\/test\/diagnose-targeted-practice\.integration\.cjs app/)
+  assert.match(diagnosticWorkflow, /node --test diagnostic-tools\/desktop\/test\/prepare-targeted-practice-model\.test\.cjs/)
+  assert.match(diagnosticWorkflow, /node --test app\/desktop\/test\/local-model-store\.test\.cjs/)
   assert.match(diagnosticWorkflow, /runs-on: windows-2025/)
-  assert.match(diagnosticWorkflow, /timeout-minutes: 25/)
+  assert.match(diagnosticWorkflow, /timeout-minutes: 55/)
   assert.match(diagnosticWorkflow, /permissions:\s+contents: read/)
+  assert.match(diagnosticWorkflow, /key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5/)
+  assert.match(diagnosticWorkflow, /path: \$\{\{ runner\.temp \}\}\/models\/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5\.gguf/)
+  assert.match(diagnosticWorkflow, /steps\.model-preparation\.outcome == 'success'/,
+    'only a model successfully reverified by the preparation step may enter cache')
+  assert.match(diagnosticWorkflow, /name: Upload sanitized model-preparation status\s+if: always\(\)/)
+  assert.match(diagnosticWorkflow, /name: Save only verified Qwen model cache file[\s\S]*?actions\/cache\/save@v4/)
 
   const revisionStepEnd = diagnosticWorkflow.indexOf('      - name: Set up Node', revisionCheck)
   const revisionStep = diagnosticWorkflow.slice(revisionCheck, revisionStepEnd)
@@ -196,6 +206,11 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   const integrationTestSource = fs.readFileSync(path.join(repositoryRoot, 'desktop/test/diagnose-targeted-practice.integration.cjs'), 'utf8')
   assert.match(integrationTestSource, /const appRoot = path\.resolve\(appRootInput\)/,
     'relative app checkout paths must resolve from the workflow working directory')
+  const preparationTool = fs.readFileSync(path.join(repositoryRoot, 'desktop/scripts/prepare-targeted-practice-model.cjs'), 'utf8')
+  assert.match(preparationTool, /downloadTimeoutMs: DOWNLOAD_TIMEOUT_MS/)
+  assert.match(preparationTool, /const DOWNLOAD_TIMEOUT_MS = 35 \* 60 \* 1000/)
+  assert.match(preparationTool, /const MAX_PREPARATION_ELAPSED_MS = 55 \* 60 \* 1000/)
+  assert.match(preparationTool, /MODEL_SHA256 = '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5'/)
 })
 
 function successfulGateInputs(overrides = {}) {

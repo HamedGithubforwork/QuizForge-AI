@@ -31,7 +31,9 @@ jobs:
   targeted-practice:
     name: One synthetic targeted-practice diagnostic (Windows x64 CPU)
     runs-on: windows-2025
-    timeout-minutes: 25
+    # 35 minutes for the verified model download, plus bounded runtime setup,
+    # warmup, targeted inference, and artifact upload time.
+    timeout-minutes: 55
     steps:
       - name: Check out diagnostic tools
         uses: actions/checkout@v7
@@ -68,22 +70,49 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Initialize sanitized model-preparation status
+        shell: pwsh
+        run: |
+          node diagnostic-tools/desktop/scripts/prepare-targeted-practice-model.cjs initialize `
+            "$env:RUNNER_TEMP/qfn-model-preparation.json" `
+            "$env:QFN_DIAGNOSTIC_TOOL_SHA" "$env:QFN_DIAGNOSTIC_SOURCE_SHA"
+          exit $LASTEXITCODE
       - name: Verify synthetic diagnostic callback and inspector integration
         shell: pwsh
         run: |
+          node --test diagnostic-tools/desktop/test/prepare-targeted-practice-model.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test app/desktop/test/local-model-store.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node diagnostic-tools/desktop/test/diagnose-targeted-practice.integration.cjs app
           exit $LASTEXITCODE
-      - name: Restore verified pinned Qwen model cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/models
-          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
-          fail-on-cache-miss: false
-      - name: Verify pinned model SHA-256
+      - name: Prepare exact model cache file
         shell: pwsh
         run: |
-          New-Item -ItemType Directory "$env:RUNNER_TEMP/models" -Force | Out-Null
-          node app/desktop/scripts/ensure-verified-model.cjs "$env:RUNNER_TEMP/models"
+          $ErrorActionPreference = 'Stop'
+          $modelDir = Join-Path $env:RUNNER_TEMP 'models'
+          $modelFile = Join-Path $modelDir '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
+          New-Item -ItemType Directory $modelDir -Force | Out-Null
+          if (Test-Path -LiteralPath $modelFile) { throw 'Unexpected preexisting model cache file' }
+          New-Item -ItemType File -Path $modelFile | Out-Null
+      - name: Restore verified pinned Qwen model cache
+        id: qwen-model-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+          fail-on-cache-miss: false
+      - name: Verify or download pinned model and record bounded preparation status
+        id: model-preparation
+        shell: pwsh
+        env:
+          MODEL_CACHE_HIT: ${{ steps.qwen-model-cache.outputs.cache-hit }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $modelFile = Join-Path $env:RUNNER_TEMP 'models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'
+          if ($env:MODEL_CACHE_HIT -cne 'true') { Remove-Item -LiteralPath $modelFile -Force }
+          node diagnostic-tools/desktop/scripts/prepare-targeted-practice-model.cjs prepare `
+            app "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/qfn-model-preparation.json" "$env:MODEL_CACHE_HIT"
           exit $LASTEXITCODE
       - name: Download, verify, and stage pinned llama.cpp runtime
         shell: pwsh
@@ -116,3 +145,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
           compression-level: 6
+      - name: Upload sanitized model-preparation status
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-ai-targeted-practice-preparation
+          path: ${{ runner.temp }}/qfn-model-preparation.json
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 6
+      - name: Save only verified Qwen model cache file
+        if: always() && steps.model-preparation.outcome == 'success' && steps.qwen-model-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf
+          key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
