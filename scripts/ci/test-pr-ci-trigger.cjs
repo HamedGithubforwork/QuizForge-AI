@@ -175,10 +175,19 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   const cacheRestore = diagnosticWorkflow.indexOf('Restore verified pinned Qwen model cache')
   const modelDownload = diagnosticWorkflow.indexOf('Verify or download pinned model and record bounded preparation status')
   const runtimeDownload = diagnosticWorkflow.indexOf('Download, verify, and stage pinned llama.cpp runtime')
+  const inferenceStart = diagnosticWorkflow.indexOf('Run one selected-pages targeted-practice diagnostic')
   assert.ok(revisionCheck >= 0 && initializeStatus > revisionCheck && integrationTest > initializeStatus,
     'A sanitized pre-inference preparation record must exist before synthetic tests and model work')
   assert.ok(cacheRestore > integrationTest && modelDownload > cacheRestore && runtimeDownload > modelDownload,
     'Exact SHA checks and synthetic integration must precede model/runtime downloads')
+  const runtimeStep = diagnosticWorkflow.slice(runtimeDownload, inferenceStart)
+  const inferenceStep = diagnosticWorkflow.slice(inferenceStart)
+  assert.match(runtimeStep, /prepare-targeted-practice-model\.cjs mark[\s\S]*?runtime_setup/,
+    'preparation evidence must mark runtime setup before it begins')
+  assert.match(inferenceStep, /prepare-targeted-practice-model\.cjs mark[\s\S]*?inference/,
+    'preparation evidence must mark inference before it begins')
+  assert.match(inferenceStep, /name: Upload sanitized model-preparation status\s+if: always\(\)/,
+    'preparation evidence must upload even if runtime setup or inference fails')
   assert.match(diagnosticWorkflow, /node diagnostic-tools\/desktop\/test\/diagnose-targeted-practice\.integration\.cjs app/)
   assert.match(diagnosticWorkflow, /node --test diagnostic-tools\/desktop\/test\/prepare-targeted-practice-model\.test\.cjs/)
   assert.match(diagnosticWorkflow, /node --test app\/desktop\/test\/local-model-store\.test\.cjs/)

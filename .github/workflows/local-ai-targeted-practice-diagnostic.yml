@@ -118,6 +118,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          node diagnostic-tools/desktop/scripts/prepare-targeted-practice-model.cjs mark `
+            "$env:RUNNER_TEMP/qfn-model-preparation.json" runtime_setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           curl.exe -fL --max-time 180 -o "$env:RUNNER_TEMP/runtime.zip" 'https://github.com/ggml-org/llama.cpp/releases/download/b11317/llama-b11317-bin-win-vulkan-x64.zip'
           if ($LASTEXITCODE -ne 0) { throw 'Runtime download failed' }
           if ((Get-FileHash "$env:RUNNER_TEMP/runtime.zip" -Algorithm SHA256).Hash.ToLower() -ne 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338') { throw 'Runtime checksum mismatch' }
@@ -134,6 +137,9 @@ jobs:
       - name: Run one selected-pages targeted-practice diagnostic
         shell: pwsh
         run: |
+          node diagnostic-tools/desktop/scripts/prepare-targeted-practice-model.cjs mark `
+            "$env:RUNNER_TEMP/qfn-model-preparation.json" inference
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node diagnostic-tools/desktop/scripts/diagnose-targeted-practice.cjs "$env:RUNNER_TEMP/llama" "$env:RUNNER_TEMP/models" "$env:RUNNER_TEMP/local-ai-targeted-practice-diagnostic.json" app
           exit $LASTEXITCODE
       - name: Upload numeric synthetic diagnostic report

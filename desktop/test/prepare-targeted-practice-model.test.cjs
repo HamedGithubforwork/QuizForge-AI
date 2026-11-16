@@ -8,7 +8,7 @@ const path = require('node:path')
 const test = require('node:test')
 const {
   DOWNLOAD_TIMEOUT_MS, MAX_PREPARATION_ELAPSED_MS, MODEL_BYTES, MODEL_ID, MODEL_SHA256, MODEL_URL,
-  initialStatus, initializeStatus, prepareVerifiedModel, safeErrorCategory,
+  initialStatus, initializeStatus, markStarted, prepareVerifiedModel, safeErrorCategory,
 } = require('../scripts/prepare-targeted-practice-model.cjs')
 
 const model = { id: MODEL_ID, bytes: MODEL_BYTES, sha256: MODEL_SHA256, url: MODEL_URL }
@@ -240,6 +240,8 @@ test('preparation status includes exact revisions and excludes private diagnosti
     assert.equal(saved.sourceSha, shas.sourceSha)
     assert.equal(saved.cache, 'unknown')
     assert.equal(saved.stage, 'pending')
+    assert.equal(saved.runtimeSetupStarted, false)
+    assert.equal(saved.inferenceStarted, false)
     assert.equal(saved.modelSource, 'unknown')
     for (const forbidden of ['private-model-dir', 'https://', 'prompt', 'study notes', 'token=']) {
       assert.equal(JSON.stringify(saved).includes(forbidden), false)
@@ -247,6 +249,34 @@ test('preparation status includes exact revisions and excludes private diagnosti
     assert.equal(safeErrorCategory(Object.assign(new Error('secret'), { code: 'unknown_private_code' })), 'model_store_failed')
     assert.equal(DOWNLOAD_TIMEOUT_MS, 35 * 60 * 1000)
     assert.equal(MAX_PREPARATION_ELAPSED_MS, 55 * 60 * 1000)
+  } finally { await f.cleanup() }
+})
+
+test('preparation report records runtime and inference lifecycle before those stages execute', async () => {
+  const f = await fixture()
+  try {
+    await initializeStatus({ reportFile: f.reportFile, ...shas })
+    await markStarted({ reportFile: f.reportFile, stage: 'runtime_setup' })
+    let saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
+    assert.equal(saved.runtimeSetupStarted, true)
+    assert.equal(saved.inferenceStarted, false)
+    await markStarted({ reportFile: f.reportFile, stage: 'inference' })
+    saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
+    assert.equal(saved.runtimeSetupStarted, true)
+    assert.equal(saved.inferenceStarted, true)
+    assert.equal(saved.diagnosticToolSha, shas.toolSha)
+    assert.equal(saved.sourceSha, shas.sourceSha)
+  } finally { await f.cleanup() }
+})
+
+test('preparation report rejects unknown lifecycle markers without changing state', async () => {
+  const f = await fixture()
+  try {
+    await initializeStatus({ reportFile: f.reportFile, ...shas })
+    await assert.rejects(markStarted({ reportFile: f.reportFile, stage: 'deployment' }), /Invalid diagnostic lifecycle stage/)
+    const saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
+    assert.equal(saved.runtimeSetupStarted, false)
+    assert.equal(saved.inferenceStarted, false)
   } finally { await f.cleanup() }
 })
 

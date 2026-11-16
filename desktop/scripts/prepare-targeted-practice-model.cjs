@@ -36,6 +36,8 @@ function initialStatus({ toolSha, sourceSha, cacheHit }) {
     expectedBytes: MODEL_BYTES,
     cache: ['true', 'false'].includes(cacheHit) ? (cacheHit === 'true' ? 'hit' : 'miss') : 'unknown',
     stage: 'pending',
+    runtimeSetupStarted: false,
+    inferenceStarted: false,
     elapsedMs: 0,
     downloadElapsedMs: null,
     receivedBytes: 0,
@@ -150,13 +152,27 @@ async function initializeStatus({ reportFile, toolSha, sourceSha }) {
   await persistStatus(reportFile, initialStatus({ toolSha, sourceSha, cacheHit: 'unknown' }))
 }
 
+async function markStarted({ reportFile, stage }) {
+  const status = JSON.parse(await fs.readFile(reportFile, 'utf8'))
+  if (stage === 'runtime_setup') status.runtimeSetupStarted = true
+  else if (stage === 'inference') {
+    status.runtimeSetupStarted = true
+    status.inferenceStarted = true
+  } else throw new Error('Invalid diagnostic lifecycle stage')
+  await persistStatus(reportFile, status)
+}
+
 async function cli(args) {
   if (args[0] === 'initialize' && args.length === 4) {
     await initializeStatus({ reportFile: path.resolve(args[1]), toolSha: args[2], sourceSha: args[3] })
     return
   }
+  if (args[0] === 'mark' && args.length === 3) {
+    await markStarted({ reportFile: path.resolve(args[1]), stage: args[2] })
+    return
+  }
   if (args[0] !== 'prepare' || args.length !== 5) {
-    throw new Error('Usage: initialize <report> <tool-sha> <source-sha> | prepare <app-root> <model-dir> <report> <cache-hit>')
+    throw new Error('Usage: initialize <report> <tool-sha> <source-sha> | mark <report> <runtime_setup|inference> | prepare <app-root> <model-dir> <report> <cache-hit>')
   }
   const appRoot = path.resolve(args[1])
   const reportFile = path.resolve(args[3])
@@ -192,5 +208,5 @@ if (require.main === module) {
 
 module.exports = {
   DOWNLOAD_TIMEOUT_MS, MAX_PREPARATION_ELAPSED_MS, MODEL_BYTES, MODEL_ID, MODEL_SHA256, MODEL_URL,
-  assertPinnedModel, initialStatus, initializeStatus, prepareVerifiedModel, safeErrorCategory,
+  assertPinnedModel, initialStatus, initializeStatus, markStarted, prepareVerifiedModel, safeErrorCategory,
 }
