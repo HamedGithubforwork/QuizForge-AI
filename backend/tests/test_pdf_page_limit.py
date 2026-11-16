@@ -6,7 +6,10 @@ from fastapi import HTTPException
 
 import document_generation_support
 import document_api
+import processed_documents
 import quiz_service
+import source_page_cache
+from redis_integration import build_document_cache_key_from_sha
 
 
 def make_pdf(page_count: int, *, encrypted: bool = False) -> bytes:
@@ -227,3 +230,240 @@ def test_stale_oversized_processed_document_is_rejected():
 
     assert error.value.status_code == 413
     assert metric_calls == []
+
+
+class FakeSourcePageRedis:
+    def __init__(self):
+        self.values = {}
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def exists(self, key):
+        return int(key in self.values)
+
+    async def set(self, key, value, *, ex=None):
+        self.values[key] = value
+        return True
+
+
+def _oversized_pages():
+    return [
+        {"page_number": index, "text": f"page {index}"}
+        for index in range(1, 102)
+    ]
+
+
+def test_stale_oversized_seeded_source_page_cache_is_rejected(
+    monkeypatch,
+):
+    processed_documents._memory_documents.clear()
+    user_id = "source-cache-user"
+    pdf_sha256 = "d" * 64
+    cache_key = build_document_cache_key_from_sha(
+        user_id=user_id,
+        pdf_sha256=pdf_sha256,
+    )
+    redis = FakeSourcePageRedis()
+    redis.values[cache_key] = "cached document marker"
+    pages = _oversized_pages()
+
+    asyncio.run(
+        source_page_cache.seed_source_page_cache(
+            cache_key,
+            pages,
+            client=redis,
+        )
+    )
+
+    async def get_seeded_page(
+        key,
+        page_number,
+        *,
+        validate_page_count=None,
+    ):
+        return await source_page_cache.get_cached_source_page(
+            key,
+            page_number,
+            client=redis,
+            validate_page_count=validate_page_count,
+        )
+
+    async def fail_if_full_document_read(_key):
+        raise AssertionError(
+            "seeded source-page hits must not load the full document"
+        )
+
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_source_page",
+        get_seeded_page,
+    )
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_document",
+        fail_if_full_document_read,
+    )
+
+    try:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(
+                document_api.resolve_source_page(
+                    user_id=user_id,
+                    document_sha256=pdf_sha256,
+                    page_number=1,
+                )
+            )
+
+        assert error.value.status_code == 413
+    finally:
+        processed_documents._memory_documents.clear()
+
+
+def test_stale_oversized_unseeded_redis_document_is_not_seeded(
+    monkeypatch,
+):
+    processed_documents._memory_documents.clear()
+    oversized_document = {"pages": _oversized_pages()}
+    seed_calls = []
+
+    async def return_unseeded(*_args, **_kwargs):
+        return "unseeded", None
+
+    async def get_stale_document(_key):
+        return oversized_document
+
+    async def record_seed(key, pages):
+        seed_calls.append((key, pages))
+        return True
+
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_source_page",
+        return_unseeded,
+    )
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_document",
+        get_stale_document,
+    )
+    monkeypatch.setattr(
+        processed_documents,
+        "seed_source_page_cache",
+        record_seed,
+    )
+
+    try:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(
+                document_api.resolve_source_page(
+                    user_id="stale-redis-user",
+                    document_sha256="e" * 64,
+                    page_number=1,
+                )
+            )
+
+        assert error.value.status_code == 413
+        assert seed_calls == []
+        assert not processed_documents._memory_documents
+    finally:
+        processed_documents._memory_documents.clear()
+
+
+def test_stale_oversized_in_memory_source_page_is_rejected(
+    monkeypatch,
+):
+    processed_documents._memory_documents.clear()
+    user_id = "stale-memory-user"
+    pdf_sha256 = "f" * 64
+    processed_documents.remember_processed_document(
+        user_id=user_id,
+        pdf_sha256=pdf_sha256,
+        pages=_oversized_pages(),
+    )
+
+    async def no_source_page_cache(*_args, **_kwargs):
+        return "backend_unavailable", None
+
+    async def no_cached_document(_key):
+        return None
+
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_source_page",
+        no_source_page_cache,
+    )
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_document",
+        no_cached_document,
+    )
+
+    try:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(
+                document_api.resolve_source_page(
+                    user_id=user_id,
+                    document_sha256=pdf_sha256,
+                    page_number=1,
+                )
+            )
+
+        assert error.value.status_code == 413
+    finally:
+        processed_documents._memory_documents.clear()
+
+
+def test_generation_rejects_stale_redis_document_before_source_page_seed(
+    monkeypatch,
+):
+    processed_documents._memory_documents.clear()
+    seed_calls = []
+    metric_calls = []
+
+    async def get_stale_document(_cache_key):
+        return {"pages": _oversized_pages()}
+
+    async def record_seed(cache_key, pages):
+        seed_calls.append((cache_key, pages))
+        return True
+
+    async def record_metric(_client, result):
+        metric_calls.append(result)
+
+    monkeypatch.setattr(
+        processed_documents,
+        "get_cached_document",
+        get_stale_document,
+    )
+    monkeypatch.setattr(
+        processed_documents,
+        "seed_source_page_cache",
+        record_seed,
+    )
+
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            document_generation_support.get_generation_pages(
+                user_id="stale-generation-user",
+                pdf_sha256="b" * 64,
+                contents=None,
+                get_document_pages_with_cache=(
+                    lambda **_kwargs: None
+                ),
+                get_processed_document=(
+                    processed_documents.get_processed_document
+                ),
+                validate_pages=(
+                    quiz_service.validate_extracted_pdf_pages
+                ),
+                record_cache_metric=record_metric,
+                redis_client=object(),
+                log_event=lambda *_args, **_kwargs: None,
+            )
+        )
+
+    assert error.value.status_code == 413
+    assert seed_calls == []
+    assert metric_calls == []
+    assert not processed_documents._memory_documents

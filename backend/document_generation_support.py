@@ -134,6 +134,7 @@ async def get_generation_pages(
     document = await get_processed_document(
         user_id=user_id,
         pdf_sha256=pdf_sha256,
+        validate_pages=validate_pages,
     )
 
     if document is None:

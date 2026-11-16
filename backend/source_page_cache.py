@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from redis.exceptions import RedisError
@@ -200,6 +201,7 @@ async def get_cached_source_page(
     document_cache_key: str,
     page_number: int,
     client: Any = None,
+    validate_page_count: Callable[[int], Any] | None = None,
 ):
     selected_client = (
         client
@@ -273,6 +275,9 @@ async def get_cached_source_page(
 
     if page_numbers is None:
         return "unseeded", None
+
+    if validate_page_count is not None:
+        validate_page_count(len(page_numbers))
 
     if page_number not in page_numbers:
         return "missing_page", None
