@@ -158,6 +158,7 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
     path.join(repositoryRoot, '.github/workflows/local-ai-targeted-practice-diagnostic.yml'),
     'utf8',
   )
+  const ciWorkflow = fs.readFileSync(workflowPath, 'utf8')
   assert.match(diagnosticWorkflow, /expected_tool_sha:[\s\S]*?type: string\s+required: true/)
   assert.match(diagnosticWorkflow, /expected_source_sha:[\s\S]*?type: string\s+required: true/)
   assert.match(diagnosticWorkflow, /ref: \$\{\{ inputs\.expected_tool_sha \}\}/)
@@ -211,6 +212,27 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   assert.match(preparationTool, /const DOWNLOAD_TIMEOUT_MS = 35 \* 60 \* 1000/)
   assert.match(preparationTool, /const MAX_PREPARATION_ELAPSED_MS = 55 \* 60 \* 1000/)
   assert.match(preparationTool, /MODEL_SHA256 = '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5'/)
+
+  const pushStart = ciWorkflow.indexOf('  push:')
+  const pullRequestStart = ciWorkflow.indexOf('  pull_request:', pushStart)
+  const ciPushBlock = ciWorkflow.slice(pushStart, pullRequestStart)
+  for (const changedPath of [
+    'desktop/scripts/prepare-targeted-practice-model.cjs',
+    'desktop/test/prepare-targeted-practice-model.test.cjs',
+  ]) {
+    assert.ok(ciPushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`),
+      `${changedPath} must run desktop diagnostic CI on main`)
+  }
+  const classifierStart = ciWorkflow.indexOf('          while IFS= read -r file; do')
+  const classifierEnd = ciWorkflow.indexOf('          done < changed-files.txt', classifierStart)
+  const classifier = ciWorkflow.slice(classifierStart, classifierEnd)
+  assert.ok(classifier.includes('desktop/scripts/prepare-targeted-practice-model.cjs'))
+  assert.ok(classifier.includes('desktop/test/prepare-targeted-practice-model.test.cjs'))
+  const desktopJobStart = ciWorkflow.indexOf('  desktop-diagnostic-tests:')
+  const desktopJobEnd = ciWorkflow.indexOf('  autonomy-tests:', desktopJobStart)
+  const desktopJob = ciWorkflow.slice(desktopJobStart, desktopJobEnd)
+  assert.match(desktopJob, /node --test desktop\/test\/prepare-targeted-practice-model\.test\.cjs/)
+  assert.match(desktopJob, /node --test qwen-app-source\/desktop\/test\/local-model-store\.test\.cjs/)
 })
 
 function successfulGateInputs(overrides = {}) {

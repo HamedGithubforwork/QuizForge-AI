@@ -10,8 +10,10 @@ on:
       - "frontend/**"
       - "e2e/**"
       - "desktop/scripts/diagnose-targeted-practice.cjs"
+      - "desktop/scripts/prepare-targeted-practice-model.cjs"
       - "desktop/test/diagnose-targeted-practice.test.cjs"
       - "desktop/test/diagnose-targeted-practice.integration.cjs"
+      - "desktop/test/prepare-targeted-practice-model.test.cjs"
       - "scripts/autonomy/optimization-orchestrator.cjs"
       - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
       - "scripts/autonomy/integration-coordinator.cjs"
@@ -101,7 +103,7 @@ jobs:
                 playwright=true
                 autonomy_tests=true
                 ;;
-              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs|desktop/test/diagnose-targeted-practice.integration.cjs)
+              desktop/scripts/diagnose-targeted-practice.cjs|desktop/scripts/prepare-targeted-practice-model.cjs|desktop/test/diagnose-targeted-practice.test.cjs|desktop/test/diagnose-targeted-practice.integration.cjs|desktop/test/prepare-targeted-practice-model.test.cjs)
                 desktop_diagnostic=true
                 ;;
               scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
@@ -282,6 +284,12 @@ jobs:
 
       - name: Run diagnostic privacy tests
         run: node --test desktop/test/diagnose-targeted-practice.test.cjs
+
+      - name: Run diagnostic preparation tests
+        run: node --test desktop/test/prepare-targeted-practice-model.test.cjs
+
+      - name: Run pinned model-store regression tests
+        run: node --test qwen-app-source/desktop/test/local-model-store.test.cjs
 
   autonomy-tests:
     name: Optimization orchestrator tests
