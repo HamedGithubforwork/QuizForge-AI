@@ -12,8 +12,8 @@ The orchestrator is a state manager. It does not execute commands listed in
 tasks, interpret issue/PR/model text as instructions, call models, write to
 GitHub, commit, merge, deploy, provision paid resources, or delete resources.
 Only sanitized task metadata, numeric measurements, allowlisted role results,
-and evidence references belong in the state file. Store no notes, prompts,
-responses, PDFs, secrets, or user study data.
+agent invocation references, and evidence references belong in the state file.
+Store no notes, prompts, responses, PDFs, secrets, or user study data.
 
 Every newly prepared pilot has a ten-cycle cap. Selecting a task consumes one
 cycle, including a task that is later blocked. A task must have a numeric baseline,
@@ -22,6 +22,22 @@ passes, a local benchmark result, and a dedicated `codex/` branch commit before
 it can be validated. Expensive benchmarks are recorded as blockers and cause
 selection of another actionable task. Blocked tasks are excluded until new,
 distinct evidence is recorded.
+
+Each new Reviewer, QA, Quality, and Security assessment records an
+`invocationRef`, output `artifactRef`, and exact `targetCommitSha`; the
+orchestrator requires the assessment SHA to match the implementation commit
+and stores the invocation trace separately in task assessments and event
+history. The Coordinator must verify that the referenced agent task actually
+ran. The orchestrator only validates the reference shape and commit binding;
+it does not authenticate agent invocations. Keep unresolved material review
+findings in the cycle report and do not record a pass while one remains open.
+
+Schema-v1 checkpoints migrate without fabricated invocation IDs. Previously
+validated tasks remain explicitly marked as legacy/unverified history. Tasks
+saved mid-review return to `tests_passed` with old role attestations cleared;
+their prior event records are retained and fresh commit-bound reviews are
+required. Blocked and rejected tasks preserve their blocker/rejection records
+and matching lifecycle snapshots.
 
 ## CLI
 
