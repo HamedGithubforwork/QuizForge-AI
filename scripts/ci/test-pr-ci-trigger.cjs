@@ -181,9 +181,21 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   assert.match(diagnosticWorkflow, /timeout-minutes: 25/)
   assert.match(diagnosticWorkflow, /permissions:\s+contents: read/)
 
+  const revisionStepEnd = diagnosticWorkflow.indexOf('      - name: Set up Node', revisionCheck)
+  const revisionStep = diagnosticWorkflow.slice(revisionCheck, revisionStepEnd)
+  assert.match(revisionStep, /SOURCE_BRANCH: \$\{\{ inputs\.source_branch \}\}/)
+  assert.match(revisionStep, /\$supportedSourceBranches = @\('diagnostic\/targeted-practice-stage-timing-20261103', 'perf\/local-practice-minimal-replacement-batch-20261103'\)/)
+  assert.match(revisionStep, /\$env:SOURCE_BRANCH -cnotin \$supportedSourceBranches/)
+  assert.match(revisionStep, /QFN_DIAGNOSTIC_SOURCE_REF=\$\(\$env:SOURCE_BRANCH\)/)
+  assert.doesNotMatch(revisionStep.slice(revisionStep.indexOf('        run: |')), /\$\{\{\s*inputs\.source_branch\s*\}\}/,
+    'source branch input must not be interpolated directly into PowerShell')
+
   const collector = fs.readFileSync(path.join(repositoryRoot, 'desktop/scripts/diagnose-targeted-practice.cjs'), 'utf8')
   assert.match(collector, /sourceSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_SOURCE_SHA\)/)
   assert.match(collector, /diagnosticToolSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_TOOL_SHA\)/)
+  const integrationTestSource = fs.readFileSync(path.join(repositoryRoot, 'desktop/test/diagnose-targeted-practice.integration.cjs'), 'utf8')
+  assert.match(integrationTestSource, /const appRoot = path\.resolve\(appRootInput\)/,
+    'relative app checkout paths must resolve from the workflow working directory')
 })
 
 function successfulGateInputs(overrides = {}) {

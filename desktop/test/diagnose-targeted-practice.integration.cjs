@@ -9,8 +9,9 @@ const {
   summarize,
 } = require('../scripts/diagnose-targeted-practice.cjs')
 
-const appRoot = process.argv[2]
-assert.ok(appRoot, 'Usage: node diagnose-targeted-practice.integration.cjs <verified-app-root>')
+const appRootInput = process.argv[2]
+assert.ok(appRootInput, 'Usage: node diagnose-targeted-practice.integration.cjs <verified-app-root>')
+const appRoot = path.resolve(appRootInput)
 const { inspectModelResponse } = require(path.join(appRoot, 'desktop/scripts/inspect-synthetic-quiz.cjs'))
 const { FIXTURES } = require(path.join(appRoot, 'desktop/scripts/verify-local-product-acceptance.cjs'))
 const fixture = FIXTURES.find(item => item.id === 'selected_pages')
