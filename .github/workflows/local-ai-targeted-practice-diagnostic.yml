@@ -106,7 +106,7 @@ jobs:
         id: model-preparation
         shell: pwsh
         env:
-          MODEL_CACHE_HIT: ${{ steps.qwen-model-cache.outputs.cache-hit }}
+          MODEL_CACHE_HIT: ${{ steps.qwen-model-cache.outputs.cache-hit == 'true' && 'true' || 'false' }}
         run: |
           $ErrorActionPreference = 'Stop'
           $modelFile = Join-Path $env:RUNNER_TEMP 'models/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5.gguf'

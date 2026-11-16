@@ -196,6 +196,8 @@ test('Local Qwen diagnostic dispatch requires and records exact tool and applica
   assert.match(diagnosticWorkflow, /permissions:\s+contents: read/)
   assert.match(diagnosticWorkflow, /key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5/)
   assert.match(diagnosticWorkflow, /path: \$\{\{ runner\.temp \}\}\/models\/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5\.gguf/)
+  assert.match(diagnosticWorkflow, /MODEL_CACHE_HIT: \$\{\{ steps\.qwen-model-cache\.outputs\.cache-hit == 'true' && 'true' \|\| 'false' \}\}/,
+    'an empty cache-action miss output must be normalized to false for the preparation artifact')
   assert.match(diagnosticWorkflow, /steps\.model-preparation\.outcome == 'success'/,
     'only a model successfully reverified by the preparation step may enter cache')
   assert.match(diagnosticWorkflow, /name: Upload sanitized model-preparation status\s+if: always\(\)/)
