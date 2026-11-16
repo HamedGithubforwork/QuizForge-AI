@@ -117,21 +117,6 @@ def validate_pdf_size(contents: bytes):
         )
 
 
-def validate_pdf_page_count(page_count: int):
-    if page_count > MAX_PDF_PAGE_COUNT:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                "PDF contains too many pages. "
-                f"Maximum is {MAX_PDF_PAGE_COUNT} pages."
-            ),
-        )
-
-
-def validate_extracted_pdf_pages(pages):
-    validate_pdf_page_count(len(pages))
-
-
 def normalize_quiz_settings(
     question_count: int,
     difficulty: str,
@@ -174,6 +159,21 @@ def normalize_quiz_settings(
         normalized_difficulty,
         normalized_question_type,
     )
+
+
+def validate_pdf_page_count(page_count: int):
+    if page_count > MAX_PDF_PAGE_COUNT:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "PDF contains too many pages. "
+                f"Maximum is {MAX_PDF_PAGE_COUNT} pages."
+            ),
+        )
+
+
+def validate_extracted_pdf_pages(pages):
+    validate_pdf_page_count(len(pages))
 
 
 def extract_pdf_pages(contents: bytes):
