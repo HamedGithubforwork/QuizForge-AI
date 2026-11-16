@@ -241,7 +241,7 @@ test('preparation status includes exact revisions and excludes private diagnosti
     assert.equal(saved.cache, 'unknown')
     assert.equal(saved.stage, 'pending')
     assert.equal(saved.runtimeSetupStarted, false)
-    assert.equal(saved.inferenceStarted, false)
+    assert.equal(saved.inferenceLaunchAttempted, false)
     assert.equal(saved.modelSource, 'unknown')
     for (const forbidden of ['private-model-dir', 'https://', 'prompt', 'study notes', 'token=']) {
       assert.equal(JSON.stringify(saved).includes(forbidden), false)
@@ -259,11 +259,11 @@ test('preparation report records runtime and inference lifecycle before those st
     await markStarted({ reportFile: f.reportFile, stage: 'runtime_setup' })
     let saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
     assert.equal(saved.runtimeSetupStarted, true)
-    assert.equal(saved.inferenceStarted, false)
+    assert.equal(saved.inferenceLaunchAttempted, false)
     await markStarted({ reportFile: f.reportFile, stage: 'inference' })
     saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
     assert.equal(saved.runtimeSetupStarted, true)
-    assert.equal(saved.inferenceStarted, true)
+    assert.equal(saved.inferenceLaunchAttempted, true)
     assert.equal(saved.diagnosticToolSha, shas.toolSha)
     assert.equal(saved.sourceSha, shas.sourceSha)
   } finally { await f.cleanup() }
@@ -276,7 +276,7 @@ test('preparation report rejects unknown lifecycle markers without changing stat
     await assert.rejects(markStarted({ reportFile: f.reportFile, stage: 'deployment' }), /Invalid diagnostic lifecycle stage/)
     const saved = JSON.parse(await fs.readFile(f.reportFile, 'utf8'))
     assert.equal(saved.runtimeSetupStarted, false)
-    assert.equal(saved.inferenceStarted, false)
+    assert.equal(saved.inferenceLaunchAttempted, false)
   } finally { await f.cleanup() }
 })
 

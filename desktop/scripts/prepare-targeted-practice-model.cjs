@@ -37,7 +37,7 @@ function initialStatus({ toolSha, sourceSha, cacheHit }) {
     cache: ['true', 'false'].includes(cacheHit) ? (cacheHit === 'true' ? 'hit' : 'miss') : 'unknown',
     stage: 'pending',
     runtimeSetupStarted: false,
-    inferenceStarted: false,
+    inferenceLaunchAttempted: false,
     elapsedMs: 0,
     downloadElapsedMs: null,
     receivedBytes: 0,
@@ -157,7 +157,7 @@ async function markStarted({ reportFile, stage }) {
   if (stage === 'runtime_setup') status.runtimeSetupStarted = true
   else if (stage === 'inference') {
     status.runtimeSetupStarted = true
-    status.inferenceStarted = true
+    status.inferenceLaunchAttempted = true
   } else throw new Error('Invalid diagnostic lifecycle stage')
   await persistStatus(reportFile, status)
 }
