@@ -21,7 +21,7 @@ function requireSha(value, description) {
 
 function requireBranch(value, description) {
   const components = typeof value === 'string' ? value.split('/') : []
-  if (typeof value !== 'string' || value.length === 0 || /[\u0000-\u0020\u007f~^:?*\\[\\]/.test(value) ||
+  if (typeof value !== 'string' || value.length === 0 || value === '@' || /[\u0000-\u0020\u007f~^:?*\\[\\]/.test(value) ||
       value.startsWith('refs/') || value.startsWith('/') || value.endsWith('/') || value.endsWith('.') ||
       value.includes('..') || value.includes('//') || value.includes('@{') ||
       components.some(component => component.startsWith('.') || component.endsWith('.lock'))) {

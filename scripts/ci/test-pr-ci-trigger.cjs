@@ -317,6 +317,7 @@ test('gate rejects mismatched repository identity and malformed pull-request con
     { CI_TARGET_REF: '' },
     { CI_TARGET_REF: 'refs/heads/main' },
     { CI_TARGET_REF: 'branch with spaces' },
+    { CI_TARGET_REF: '@' },
     { CI_PR_BASE_SHA: 'b'.repeat(39) },
     { CI_PR_HEAD_SHA: '' },
     { CI_SHA: 'not-a-sha' },
