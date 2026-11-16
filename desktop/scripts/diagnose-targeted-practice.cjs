@@ -34,7 +34,9 @@ const SAFE_REASONS = new Set([
 const SAFE_ATTEMPTS = new Set([
   'primary', 'retry', 'recovery', 'fast_recovery', 'single_question_repair', 'batch',
 ])
-const SAFE_PHASES = new Set(['generation', 'weak-area-recovery', 'weak-area-grounding-repair'])
+const SAFE_PHASES = new Set([
+  'generation', 'weak-area-recovery', 'weak-area-grounding-repair', 'weak-area-quote-selection',
+])
 const SAFE_PROFILES = new Set([
   'quiz-mcq-v1', 'quiz-mcq-retry-v1', 'quiz-mcq-targeted-primary-v1',
   'quiz-mcq-targeted-retry-v1',
@@ -53,6 +55,7 @@ const SAFE_SOURCE_BRANCHES = new Set([
 const round = value => Math.round(value * 1000) / 1000
 const MAX_DIAGNOSTIC_SECONDS = 1500
 const MAX_DIAGNOSTIC_TOKENS = 1_000_000
+const MAX_RESPONSE_TEXT_CHARS = 80_000
 const elapsed = (start, now = performance.now()) =>
   Math.min(MAX_DIAGNOSTIC_SECONDS, round(Math.max(0, now - start) / 1000))
 
@@ -117,7 +120,7 @@ function safeMetric(fields, stage, since) {
     promptTokens: integer('promptTokens'),
     completionTokens: integer('completionTokens'),
     acceleration: ['cpu', 'gpu'].includes(fields?.acceleration) ? fields.acceleration : 'unknown',
-    responsePhase: 'unmatched',
+    responsePhase: 'auxiliary_or_unmatched',
     generationProfile: 'other',
   }
 }
@@ -144,7 +147,35 @@ function safeResponseDiagnostics(diagnostics) {
   }
 }
 
+// The pinned application inspector predates the supported MCQ representation
+// with `choices` and `correct_index`. Normalize only a transient copy for this
+// diagnostic inspection; never change production validation or persist text.
+function normalizeResponseForInspector(text) {
+  if (typeof text !== 'string' || text.length > MAX_RESPONSE_TEXT_CHARS) return text
+  let parsed
+  try { parsed = JSON.parse(text) } catch { return text }
+  if (!parsed || !Array.isArray(parsed.questions)) return text
+
+  let changed = false
+  const questions = parsed.questions.map(question => {
+    if (!question || typeof question !== 'object' || Array.isArray(question) ||
+        Object.hasOwn(question, 'correct_answer') ||
+        !Array.isArray(question.choices) ||
+        !Number.isSafeInteger(question.correct_index) ||
+        question.correct_index < 0 || question.correct_index >= question.choices.length ||
+        typeof question.choices[question.correct_index] !== 'string') return question
+    changed = true
+    return { ...question, correct_answer: question.choices[question.correct_index] }
+  })
+  return changed ? JSON.stringify({ ...parsed, questions }) : text
+}
+
+function inspectDiagnosticResponse(text, fixture, inspectModelResponse) {
+  return inspectModelResponse(normalizeResponseForInspector(text), fixture)
+}
+
 function createDiagnosticCallbacks({ report, getActiveStage, getStageStarted, getCurrent, started, inspectResponse }) {
+  const lastAssociatedCallCount = new WeakMap()
   return {
     onDiagnostic(event, fields) {
       if (event === 'question_rejected') {
@@ -162,7 +193,9 @@ function createDiagnosticCallbacks({ report, getActiveStage, getStageStarted, ge
         const current = getCurrent()
         const stageStarted = getStageStarted()
         if (!current || stageStarted === null) return
-        current.inferenceCalls.push(safeMetric(fields, getActiveStage(), stageStarted))
+        const metric = safeMetric(fields, getActiveStage(), stageStarted)
+        metric.callNumber = current.inferenceCalls.length + 1
+        current.inferenceCalls.push(metric)
         return
       }
       const current = getCurrent()
@@ -186,10 +219,18 @@ function createDiagnosticCallbacks({ report, getActiveStage, getStageStarted, ge
         finishReason: safeFinishReason(response),
         quality: safeResponseDiagnostics(inspectResponse(response?.text)),
       })
-      const unmatched = current.inferenceCalls.findLast(item => item.responsePhase === 'unmatched')
-      if (unmatched) {
-        unmatched.responsePhase = phase
-        unmatched.generationProfile = generationProfile
+      const associationStart = lastAssociatedCallCount.get(current) ?? 0
+      const pending = current.inferenceCalls.slice(associationStart)
+        .filter(item => item.responsePhase === 'auxiliary_or_unmatched')
+      // The runtime callback has no inference-call ID. Associate only an
+      // unambiguous one-to-one observation; when several calls are pending,
+      // retain them as auxiliary_or_unmatched instead of guessing.
+      if (pending.length === 1) {
+        pending[0].responsePhase = phase
+        pending[0].generationProfile = generationProfile
+      }
+      if (pending.length > 0) {
+        lastAssociatedCallCount.set(current, current.inferenceCalls.length)
       }
     },
     onQuizValidationIssue(issue) {
@@ -311,7 +352,7 @@ async function main() {
     getStageStarted: () => stageStarted,
     getCurrent: current,
     started,
-    inspectResponse: text => inspectModelResponse(text, fixture),
+    inspectResponse: text => inspectDiagnosticResponse(text, fixture, inspectModelResponse),
   })
   const persist = async () => {
     report.summary = summarize(report)
@@ -429,5 +470,6 @@ if (require.main === module) {
 
 module.exports = {
   numericCounters, safeIssue, safeMetric, safeResponseDiagnostics, safeFinishReason,
-  safeSha, safeFailure, createDiagnosticCallbacks, summarize,
+  safeSha, safeFailure, normalizeResponseForInspector, inspectDiagnosticResponse,
+  createDiagnosticCallbacks, summarize,
 }
