@@ -26,6 +26,7 @@ def patch_generation_dependencies(
         *,
         user_id,
         pdf_sha256,
+        validate_pages=None,
     ):
         assert pdf_sha256 == DOCUMENT_SHA256
 

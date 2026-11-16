@@ -1,6 +1,8 @@
 import json
 import time
 from collections import OrderedDict
+from collections.abc import Callable
+from typing import Any
 
 from cache_identity import normalize_document_sha256
 from redis_integration import (
@@ -218,6 +220,7 @@ async def get_processed_document(
     *,
     user_id: str,
     pdf_sha256: str,
+    validate_pages: Callable[[Any], Any] | None = None,
 ):
     normalized_hash = (
         normalize_document_sha256(
@@ -238,6 +241,9 @@ async def get_processed_document(
     )
 
     if cached_document is not None:
+        if validate_pages is not None:
+            validate_pages(cached_document["pages"])
+
         _memory_documents.pop(
             cache_key,
             None,
@@ -263,6 +269,9 @@ async def get_processed_document(
         document,
     ) = memory_entry
 
+    if validate_pages is not None:
+        validate_pages(document["pages"])
+
     _memory_documents.move_to_end(
         cache_key
     )
@@ -275,6 +284,7 @@ async def get_processed_page(
     user_id: str,
     pdf_sha256: str,
     page_number: int,
+    validate_page_count: Callable[[int], object] | None = None,
 ):
     normalized_hash = normalize_document_sha256(
         pdf_sha256
@@ -288,12 +298,23 @@ async def get_processed_page(
         pdf_sha256=normalized_hash,
     )
 
-    cache_status, source_text = (
-        await get_cached_source_page(
-            cache_key,
-            page_number,
+    if validate_page_count is None:
+        cache_status, source_text = (
+            await get_cached_source_page(
+                cache_key,
+                page_number,
+            )
         )
-    )
+    else:
+        cache_status, source_text = (
+            await get_cached_source_page(
+                cache_key,
+                page_number,
+                validate_page_count=(
+                    validate_page_count
+                ),
+            )
+        )
 
     if cache_status == "ok":
         _memory_documents.pop(
@@ -313,6 +334,11 @@ async def get_processed_page(
         )
 
         if cached_document is not None:
+            if validate_page_count is not None:
+                validate_page_count(
+                    len(cached_document["pages"])
+                )
+
             _memory_documents.pop(
                 cache_key,
                 None,
@@ -340,6 +366,11 @@ async def get_processed_page(
         _serialized_size,
         document,
     ) = memory_entry
+
+    if validate_page_count is not None:
+        validate_page_count(
+            len(document["pages"])
+        )
 
     _memory_documents.move_to_end(
         cache_key

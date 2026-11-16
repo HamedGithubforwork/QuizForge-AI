@@ -4,7 +4,10 @@ from processed_documents import (
     get_processed_page,
     normalize_document_sha256,
 )
-from quiz_service import analyze_extracted_text
+from quiz_service import (
+    analyze_extracted_text,
+    validate_pdf_page_count,
+)
 
 
 class UploadPageSummary(BaseModel):
@@ -85,6 +88,7 @@ async def resolve_source_page(
             user_id=user_id,
             pdf_sha256=normalized_hash,
             page_number=page_number,
+            validate_page_count=validate_pdf_page_count,
         )
     )
 

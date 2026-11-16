@@ -46,6 +46,7 @@ from quiz_service import (
     generate_quiz_from_pages,
     normalize_quiz_settings,
     validate_pdf_content_type,
+    validate_extracted_pdf_pages,
     validate_pdf_size,
 )
 from quiz_generation_api import (
@@ -110,6 +111,7 @@ async def get_document_pages_with_cache(
         extract_pages=(
             extract_pdf_pages_off_event_loop
         ),
+        validate_pages=validate_extracted_pdf_pages,
         cache_document=cache_document,
         forget_processed_document=(
             forget_processed_document
@@ -206,6 +208,7 @@ async def get_generation_pages(
         get_processed_document=(
             get_processed_document
         ),
+        validate_pages=validate_extracted_pdf_pages,
         record_cache_metric=(
             record_document_cache_metric
         ),
