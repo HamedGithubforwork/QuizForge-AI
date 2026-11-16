@@ -5,6 +5,8 @@ const assert = require('node:assert/strict')
 const {
   numericCounters,
   safeResponseDiagnostics,
+  safeFinishReason,
+  safeFailure,
   safeIssue,
   safeMetric,
   summarize,
@@ -93,6 +95,111 @@ test('model-response analysis is reduced to fixture quality counts without quest
   assert.equal(JSON.stringify(safe).includes('aster_material'), false)
 })
 
+test('short abstention and finish reasons are captured without retaining model text', () => {
+  const safe = safeResponseDiagnostics({
+    status: 'abstained', questionCount: 0, rawResponse: 'private short output',
+    notes: 'private study notes', prompt: 'private prompt',
+  })
+  assert.equal(safe.status, 'abstained')
+  assert.equal(safe.questionCount, 0)
+  assert.equal(safeFinishReason({ finishReason: 'stop' }), 'stop')
+  assert.equal(safeFinishReason({ profile: 'length' }), 'length')
+  assert.equal(safeFinishReason({ finishReason: 'provider-private-path' }), 'unknown')
+  assert.equal(safeFinishReason({ profile: 'private prompt' }), 'unknown')
+  assert.equal(JSON.stringify(safe).includes('private'), false)
+})
+
+test('known parser and oracle failures remain distinct while unknown labels stay other', () => {
+  assert.equal(safeIssue({ attempt: 'primary', reason: 'json' }, 'targeted').reason, 'json')
+  assert.equal(safeIssue({ attempt: 'retry', reason: 'question_shape' }, 'targeted').reason, 'question_shape')
+  assert.equal(safeIssue({ attempt: 'primary', reason: 'truncated_output' }, 'targeted').reason,
+    'truncated_output')
+  assert.equal(safeIssue({ attempt: 'recovery', reason: 'candidate_pool_exhausted' }, 'targeted').reason,
+    'candidate_pool_exhausted')
+  assert.equal(safeIssue({ attempt: 'mystery', reason: 'private source text' }, 'targeted').reason, 'other')
+
+  const response = safeResponseDiagnostics({
+    status: 'invalid_shape', questions: [
+      { reason: 'question_shape', question: 'private question', sourceFactId: 'secret-fact' },
+      { reason: 'private parser details', question: 'private question' },
+    ],
+  })
+  assert.deepEqual(response.reasonCounts, { question_shape: 1, other: 1 })
+  assert.equal(JSON.stringify(response).includes('private'), false)
+  assert.equal(JSON.stringify(response).includes('secret-fact'), false)
+})
+
+test('runtime failures keep only allowlisted event and reason codes', () => {
+  const timeout = safeFailure('runtime_failed', {
+    reason: 'timed_out', stage: 'inference', message: 'private path and token',
+  }, 'targeted', performance.now() - 500)
+  assert.equal(timeout.event, 'runtime_failed')
+  assert.equal(timeout.reason, 'timed_out')
+  assert.equal(timeout.stage, 'targeted')
+  assert.equal(timeout.runtimeStage, 'inference')
+
+  const invalidResponse = safeFailure('operation_failed', {
+    reason: 'invalid_response', error: 'private response body',
+  }, 'warmup', performance.now() - 100)
+  assert.equal(invalidResponse.reason, 'invalid_response')
+  assert.equal(invalidResponse.stage, 'warmup')
+
+  const unknown = safeFailure('operation_failed', { reason: 'private error text' }, 'targeted', performance.now())
+  assert.equal(unknown.reason, 'other')
+  assert.equal(Object.hasOwn(unknown, 'runtimeStage'), false)
+  const untrustedStage = safeFailure('runtime_failed', {
+    reason: 'runtime_unavailable', stage: 'private path and credentials',
+  }, 'targeted', performance.now())
+  assert.equal(Object.hasOwn(untrustedStage, 'runtimeStage'), false)
+  assert.equal(safeFailure('inference_completed', { reason: 'timed_out' }, 'targeted', performance.now()), null)
+  assert.equal(JSON.stringify([timeout, invalidResponse, unknown, untrustedStage]).includes('private'), false)
+})
+
+test('setup failures emitted before a stage starts preserve bounded startup context only', () => {
+  const setupFailure = safeFailure('runtime_failed', {
+    reason: 'runtime_unavailable',
+    stage: 'startup',
+    message: 'C:\\private\\model path and token',
+    notes: 'private study notes',
+  }, 'setup', performance.now() - 250)
+
+  assert.deepEqual(Object.keys(setupFailure).sort(), [
+    'atSeconds', 'event', 'reason', 'runtimeStage', 'stage',
+  ])
+  assert.equal(setupFailure.stage, 'setup')
+  assert.equal(setupFailure.event, 'runtime_failed')
+  assert.equal(setupFailure.reason, 'runtime_unavailable')
+  assert.equal(setupFailure.runtimeStage, 'startup')
+  assert.equal(JSON.stringify(setupFailure).includes('private'), false)
+  assert.equal(JSON.stringify(setupFailure).includes('token'), false)
+
+  const summary = summarize({ stages: [], setupFailures: [setupFailure] })
+  assert.deepEqual(summary.setupFailureCategoryCounts, {
+    'runtime_failed:runtime_unavailable': 1,
+  })
+})
+
+test('successful recovery remains distinguishable from failed candidate validation', () => {
+  const result = summarize({
+    stages: [
+      { id: 'warmup', elapsedSeconds: 20, outcome: 'pass', inferenceCalls: [], responses: [], validationIssues: [], failures: [] },
+      {
+        id: 'targeted', elapsedSeconds: 55, outcome: 'pass', questionCount: 5,
+        distinctQuestionCount: 5, semanticOracle: 'pass', avoidsPriorQuestions: 'pass',
+        responses: [{ atSeconds: 50, phase: 'weak-area-recovery', generationProfile: 'quiz-mcq-v1',
+          finishReason: 'stop', quality: { reasonCounts: { matched: 5 } } }],
+        inferenceCalls: [],
+        validationIssues: [{ attempt: 'recovery', reason: 'repaired' }],
+        failures: [],
+      },
+    ],
+  })
+  assert.equal(result.targetOutcome, 'pass')
+  assert.deepEqual(result.finishReasonCounts, { stop: 1 })
+  assert.deepEqual(result.validationCategoryCounts, { repaired: 1 })
+  assert.deepEqual(result.responseCategoryCounts, { matched: 5 })
+})
+
 test('diagnostic summary derives per-response intervals from cumulative event offsets', () => {
   const result = summarize({
     stages: [
@@ -102,11 +209,15 @@ test('diagnostic summary derives per-response intervals from cumulative event of
         distinctQuestionCount: 0, semanticOracle: 'not_run',
         avoidsPriorQuestions: 'not_run',
         responses: [
-          { atSeconds: 20, phase: 'generation', generationProfile: 'quiz-mcq-v1' },
-          { atSeconds: 52, phase: 'weak-area-recovery', generationProfile: 'quiz-mcq-v1' },
-          { atSeconds: 84, phase: 'generation', generationProfile: 'quiz-mcq-retry-v1' },
+          { atSeconds: 20, phase: 'generation', generationProfile: 'quiz-mcq-v1', finishReason: 'stop' },
+          { atSeconds: 52, phase: 'weak-area-recovery', generationProfile: 'quiz-mcq-v1', finishReason: 'length' },
+          { atSeconds: 84, phase: 'generation', generationProfile: 'quiz-mcq-retry-v1', finishReason: 'stop' },
         ],
         inferenceCalls: [],
+        failures: [
+          { event: 'runtime_failed', reason: 'timed_out' },
+          { event: 'operation_failed', reason: 'quiz_validation_failed' },
+        ],
         validationIssues: [
           { attempt: 'primary', reason: 'insufficient_source' },
           { attempt: 'recovery', reason: 'candidate_pool_exhausted', counters: { survivors: 4 } },
@@ -119,6 +230,11 @@ test('diagnostic summary derives per-response intervals from cumulative event of
   assert.deepEqual(result.validationCategoryCounts, {
     insufficient_source: 1,
     candidate_pool_exhausted: 1,
+  })
+  assert.deepEqual(result.finishReasonCounts, { stop: 2, length: 1 })
+  assert.deepEqual(result.failureCategoryCounts, {
+    'runtime_failed:timed_out': 1,
+    'operation_failed:quiz_validation_failed': 1,
   })
   assert.equal(result.fixtureId, 'selected_pages_targeted_practice')
   assert.equal(result.targetOutcome, 'fail')

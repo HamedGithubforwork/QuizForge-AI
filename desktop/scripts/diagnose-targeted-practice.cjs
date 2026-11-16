@@ -17,9 +17,23 @@ const SAFE_REASONS = new Set([
   'insufficient_source', 'quiz_validation_failed', 'unsupported_answer',
   'unsupported_source_fact', 'candidate_pool_exhausted', 'duplicate_source_fact',
   'avoided_question', 'repaired', 'truncated_output', 'generation_failed',
-  'runtime_unavailable', 'timed_out',
+  'runtime_unavailable', 'timed_out', 'cancelled', 'invalid_response',
+  'invalid_request', 'request_failed', 'response_too_large', 'runtime_invalid',
+  'model_missing', 'invalid_model', 'capability_failed', 'busy', 'source_too_large',
+  'shutdown_failed', 'invalid_provider', 'invalid_capability', 'invalid_model_store',
+  'invalid_model_status', 'invalid_model_progress', 'insufficient_disk',
+  'invalid_download', 'unapproved_download', 'unsafe_model', 'model_store_failed',
+  'unsupported_platform', 'unsupported_quiz_mode', 'review_context_missing',
+  'json', 'top_level_shape', 'invalid_abstention',
+  'question_count', 'question_shape', 'unexpected_output_script',
+  'true_false_shape', 'multiple_choice_shape', 'short_answer_format',
+  'short_answer_unsupported_answer', 'source_fact_shape', 'duplicate_choices',
+  'duplicate_question', 'insufficient_source_facts', 'mixed_type_coverage',
+  'requested_type_mismatch',
 ])
-const SAFE_ATTEMPTS = new Set(['primary', 'retry', 'recovery', 'fast_recovery', 'single_question_repair'])
+const SAFE_ATTEMPTS = new Set([
+  'primary', 'retry', 'recovery', 'fast_recovery', 'single_question_repair', 'batch',
+])
 const SAFE_PHASES = new Set(['generation', 'weak-area-recovery', 'weak-area-grounding-repair'])
 const SAFE_PROFILES = new Set([
   'quiz-mcq-v1', 'quiz-mcq-retry-v1', 'quiz-mcq-targeted-primary-v1',
@@ -27,8 +41,11 @@ const SAFE_PROFILES = new Set([
 ])
 const SAFE_RESPONSE_REASONS = new Set([
   'oracle_ambiguous', 'duplicate_fact', 'matched', 'oracle_wording_mismatch_candidate',
-  'citation_or_answer_context_mismatch', 'answer_not_in_fixture_aliases',
+  'citation_or_answer_context_mismatch', 'answer_not_in_fixture_aliases', 'question_shape',
 ])
+const SAFE_FINISH_REASONS = new Set(['stop', 'length'])
+const SAFE_FAILURE_EVENTS = new Set(['operation_failed', 'runtime_failed'])
+const SAFE_RUNTIME_STAGES = new Set(['verification', 'startup', 'inference', 'cleanup'])
 const SAFE_SOURCE_BRANCHES = new Set([
   'diagnostic/targeted-practice-stage-timing-20261103',
   'perf/local-practice-minimal-replacement-batch-20261103',
@@ -54,6 +71,29 @@ function safeIssue(issue, stage) {
     attempt: SAFE_ATTEMPTS.has(issue?.attempt) ? issue.attempt : 'other',
     reason: SAFE_REASONS.has(issue?.reason) ? issue.reason : 'other',
     ...(numericCounters(issue?.details) ? { counters: numericCounters(issue.details) } : {}),
+  }
+}
+
+function safeFinishReason(response) {
+  if (SAFE_FINISH_REASONS.has(response?.finishReason)) return response.finishReason
+  // PR #665 currently places the provider finish reason in `profile`. Accept
+  // only the two documented values; arbitrary profile strings stay unknown.
+  if (response?.finishReason === undefined && SAFE_FINISH_REASONS.has(response?.profile)) {
+    return response.profile
+  }
+  return 'unknown'
+}
+
+function safeFailure(event, fields, stage, since) {
+  if (!SAFE_FAILURE_EVENTS.has(event)) return null
+  const reason = SAFE_REASONS.has(fields?.reason) ? fields.reason : 'other'
+  return {
+    stage: ['setup', 'warmup', 'targeted'].includes(stage) ? stage : 'warmup',
+    event,
+    reason,
+    ...(event === 'runtime_failed' && SAFE_RUNTIME_STAGES.has(fields?.stage)
+      ? { runtimeStage: fields.stage } : {}),
+    atSeconds: elapsed(since),
   }
 }
 
@@ -115,6 +155,16 @@ function summarize(report) {
   for (const issue of target?.validationIssues ?? []) {
     categoryCounts[issue.reason] = (categoryCounts[issue.reason] ?? 0) + 1
   }
+  const failureCategoryCounts = {}
+  for (const failure of target?.failures ?? []) {
+    failureCategoryCounts[`${failure.event}:${failure.reason}`] =
+      (failureCategoryCounts[`${failure.event}:${failure.reason}`] ?? 0) + 1
+  }
+  const setupFailureCategoryCounts = {}
+  for (const failure of report.setupFailures ?? []) {
+    setupFailureCategoryCounts[`${failure.event}:${failure.reason}`] =
+      (setupFailureCategoryCounts[`${failure.event}:${failure.reason}`] ?? 0) + 1
+  }
   return {
     fixtureId: 'selected_pages_targeted_practice',
     targetElapsedSeconds: target?.elapsedSeconds ?? null,
@@ -126,6 +176,13 @@ function summarize(report) {
     callIntervals,
     inferenceCalls: metrics,
     validationCategoryCounts: categoryCounts,
+    finishReasonCounts: (target?.responses ?? []).reduce((total, response) => {
+      const reason = safeFinishReason(response)
+      total[reason] = (total[reason] ?? 0) + 1
+      return total
+    }, {}),
+    failureCategoryCounts,
+    setupFailureCategoryCounts,
     responseCategoryCounts: (target?.responses ?? []).reduce((total, response) => {
       for (const [reason, count] of Object.entries(response.quality?.reasonCounts ?? {})) {
         total[reason] = (total[reason] ?? 0) + count
@@ -155,7 +212,7 @@ async function main() {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-target-diagnostic-'))
   const started = performance.now()
   const report = {
-    schema: 1,
+    schema: 2,
     syntheticOnly: true,
     diagnostic: 'targeted-practice-recovery',
     platform: process.platform,
@@ -168,9 +225,10 @@ async function main() {
     acceleration: null,
     logicalCpuCount: null,
     totalMemoryBytes: null,
+    setupFailures: [],
     stages: [
-      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [] },
-      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [] },
+      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [] },
+      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [] },
     ],
     summary: null,
   }
@@ -189,8 +247,16 @@ async function main() {
       modelDirectory,
       runtimeDirectory,
       onDiagnostic(event, fields) {
-        if (event !== 'inference_completed' || !current() || stageStarted === null) return
-        current().inferenceCalls.push(safeMetric(fields, activeStage, stageStarted))
+        if (event === 'inference_completed') {
+          if (!current() || stageStarted === null) return
+          current().inferenceCalls.push(safeMetric(fields, activeStage, stageStarted))
+          return
+        }
+        const failure = safeFailure(event, fields, activeStage ?? 'setup', stageStarted ?? started)
+        if (failure) {
+          if (current() && stageStarted !== null) current().failures.push(failure)
+          else report.setupFailures.push(failure)
+        }
       },
       onQuizGeneratedResponse(response) {
         if (!current() || stageStarted === null) return
@@ -201,6 +267,7 @@ async function main() {
           atSeconds: elapsed(stageStarted),
           phase,
           generationProfile,
+          finishReason: safeFinishReason(response),
           quality: safeResponseDiagnostics(inspectModelResponse(response?.text, fixture)),
         })
         const unmatched = current().inferenceCalls.findLast(item => item.responsePhase === 'unmatched')
@@ -319,5 +386,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  numericCounters, safeIssue, safeMetric, safeResponseDiagnostics, summarize,
+  numericCounters, safeIssue, safeMetric, safeResponseDiagnostics, safeFinishReason,
+  safeFailure, summarize,
 }
