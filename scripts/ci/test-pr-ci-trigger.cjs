@@ -1,6 +1,9 @@
 const assert = require('node:assert/strict')
+const { execFileSync, spawnSync } = require('node:child_process')
 const fs = require('node:fs')
+const os = require('node:os')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 const test = require('node:test')
 const { verifyRequiredPrGate } = require('./verify-required-pr-gate.cjs')
 
@@ -66,6 +69,14 @@ test('backend ECR workflow changes use Required PR backend validation without du
   const ciPushBlock = ciWorkflow.slice(pushStart, pullRequestStart)
   assert.ok(ciPushBlock.split(/\r?\n/).includes('      - ".github/workflows/backend-ecr.yml"'),
     'a main-branch edit to the ECR workflow must run credential-limited CI')
+  for (const ciPolicyPath of [
+    'scripts/ci/test-pr-ci-trigger.cjs',
+    'scripts/ci/validate-merge-group-commits.sh',
+    'scripts/ci/verify-required-pr-gate.cjs',
+  ]) {
+    assert.ok(ciPushBlock.split(/\r?\n/).includes(`      - "${ciPolicyPath}"`),
+      `${ciPolicyPath} must run workflow-policy CI when changed on main`)
+  }
 
   const classifierStart = ciWorkflow.indexOf('          while IFS= read -r file; do')
   const classifierEnd = ciWorkflow.indexOf('          done < changed-files.txt', classifierStart)
@@ -289,14 +300,153 @@ test('merge-group changed-file detection validates immutable SHAs and base commi
   const classifierEnd = workflow.indexOf('      - name:', classifierStart + 10)
   const classifier = workflow.slice(classifierStart, classifierEnd)
   assert.match(classifier, /EVENT_NAME.*merge_group/)
-  assert.match(classifier, /MERGE_GROUP_BASE_SHA.*github\.event\.merge_group\.base_sha/)
-  assert.match(classifier, /MERGE_GROUP_HEAD_SHA.*github\.event\.merge_group\.head_sha/)
-  assert.match(classifier, /\[\[ "\$\{MERGE_GROUP_HEAD_SHA\}" == "\$\{CURRENT_SHA\}" \]\]/)
-  assert.match(classifier, /git cat-file -e "\$\{MERGE_GROUP_HEAD_SHA\}\^\{commit\}"/)
-  assert.match(classifier, /git cat-file -e "\$\{MERGE_GROUP_BASE_SHA\}\^\{commit\}"/)
-  assert.match(classifier, /git merge-base --is-ancestor "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}"/)
-  assert.match(classifier, /git fetch --no-tags origin "\$\{MERGE_GROUP_BASE_SHA\}"/)
-  assert.match(classifier, /git diff --name-only "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}"/)
+  assert.match(classifier, /MERGE_GROUP_BASE_SHA: \$\{\{ github\.event\.merge_group\.base_sha \}\}/)
+  assert.match(classifier, /MERGE_GROUP_HEAD_SHA: \$\{\{ github\.event\.merge_group\.head_sha \}\}/)
+  assert.match(classifier, /bash scripts\/ci\/validate-merge-group-commits\.sh > changed-files\.txt/)
+  const helper = fs.readFileSync(path.join(repositoryRoot, 'scripts/ci/validate-merge-group-commits.sh'), 'utf8')
+  assert.match(helper, /git fetch --no-tags origin refs\/heads\/main/)
+  assert.match(helper, /git fetch --unshallow --no-tags origin refs\/heads\/main/)
+  assert.match(helper, /git merge-base --is-ancestor "\$\{BASE_SHA\}" "\$\{HEAD_SHA\}"/)
+})
+
+test('actual merge-group shell validator handles local Git histories and failures', async t => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'quizforge-merge-group-'))
+  t.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }))
+
+  const runGit = (cwd, args, { allowFailure = false } = {}) => {
+    const result = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+    if (!allowFailure && result.status !== 0) {
+      throw new Error(`git ${args.join(' ')} failed (${result.status}): ${result.stderr}`)
+    }
+    return result
+  }
+  const gitOutput = (cwd, args) => runGit(cwd, args).stdout.trim()
+  const initRepo = (repoPath, bare = false) => {
+    fs.mkdirSync(repoPath, { recursive: true })
+    const args = bare ? ['init', '--bare', repoPath] : ['init', '-b', 'main', repoPath]
+    const result = spawnSync('git', args, { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+  }
+  const commitFile = (repoPath, name, contents, message) => {
+    fs.writeFileSync(path.join(repoPath, name), contents)
+    runGit(repoPath, ['add', name])
+    runGit(repoPath, ['-c', 'user.name=QuizForge CI test', '-c', 'user.email=ci-test@example.invalid', 'commit', '-m', message])
+    return gitOutput(repoPath, ['rev-parse', 'HEAD'])
+  }
+  const setupSource = name => {
+    const source = path.join(temporaryRoot, `${name}-source`)
+    const remote = path.join(temporaryRoot, `${name}-remote.git`)
+    initRepo(source)
+    initRepo(remote, true)
+    const baseSha = commitFile(source, 'base.txt', 'base\n', 'base')
+    const headSha = commitFile(source, 'head.txt', 'head\n', 'head')
+    runGit(source, ['remote', 'add', 'origin', remote])
+    runGit(source, ['push', '-u', 'origin', 'main'])
+    return { source, remote, baseSha, headSha }
+  }
+  const clone = (remote, name) => {
+    const destination = path.join(temporaryRoot, name)
+    const result = spawnSync('git', ['clone', remote, destination], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    return destination
+  }
+  const runValidator = (repoPath, values, remoteOverride) => {
+    if (remoteOverride) runGit(repoPath, ['remote', 'set-url', 'origin', remoteOverride])
+    const helper = fs.readFileSync(path.join(repositoryRoot, 'scripts/ci/validate-merge-group-commits.sh'), 'utf8')
+    const bash = process.platform === 'win32' && fs.existsSync('C:/Program Files/Git/bin/bash.exe')
+      ? 'C:/Program Files/Git/bin/bash.exe'
+      : 'bash'
+    return spawnSync(bash, ['-s'], {
+      cwd: repoPath,
+      input: helper,
+      encoding: 'utf8',
+      env: { ...process.env, ...values },
+    })
+  }
+  const baseEnvironment = (baseSha, headSha, currentSha = headSha) => ({
+    MERGE_GROUP_BASE_SHA: baseSha,
+    MERGE_GROUP_HEAD_SHA: headSha,
+    CURRENT_SHA: currentSha,
+  })
+
+  await t.test('valid base/head verifies ancestry and emits the changed path', () => {
+    const history = setupSource('valid')
+    const checkout = clone(history.remote, 'valid-checkout')
+    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /head\.txt/)
+  })
+
+  await t.test('missing local base is fetched and then verified', () => {
+    const history = setupSource('fetchable')
+    const checkout = path.join(temporaryRoot, 'fetchable-shallow')
+    initRepo(checkout)
+    runGit(checkout, ['remote', 'add', 'origin', pathToFileURL(history.remote).href])
+    runGit(checkout, ['fetch', '--depth=1', 'origin', 'main'])
+    runGit(checkout, ['checkout', '--detach', 'FETCH_HEAD'])
+    assert.equal(gitOutput(checkout, ['rev-parse', '--is-shallow-repository']), 'true')
+    assert.notEqual(runGit(checkout, ['cat-file', '-e', `${history.baseSha}^{commit}`], { allowFailure: true }).status, 0)
+
+    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /head\.txt/)
+    assert.equal(runGit(checkout, ['cat-file', '-e', `${history.baseSha}^{commit}`]).status, 0)
+  })
+
+  await t.test('base that cannot be fetched exits nonzero', () => {
+    const history = setupSource('unavailable')
+    const checkout = path.join(temporaryRoot, 'unavailable-shallow')
+    const emptyRemote = path.join(temporaryRoot, 'empty-remote.git')
+    initRepo(checkout)
+    initRepo(emptyRemote, true)
+    runGit(checkout, ['remote', 'add', 'origin', pathToFileURL(history.remote).href])
+    runGit(checkout, ['fetch', '--depth=1', 'origin', 'main'])
+    runGit(checkout, ['checkout', '--detach', 'FETCH_HEAD'])
+    runGit(checkout, ['remote', 'set-url', 'origin', pathToFileURL(emptyRemote).href])
+
+    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
+    assert.notEqual(result.status, 0)
+  })
+
+  await t.test('available but non-ancestor base exits nonzero', () => {
+    const history = setupSource('non-ancestor')
+    const unrelated = path.join(temporaryRoot, 'non-ancestor-unrelated')
+    initRepo(unrelated)
+    const unrelatedBaseSha = commitFile(unrelated, 'unrelated.txt', 'unrelated\n', 'unrelated root')
+    const checkout = clone(history.remote, 'non-ancestor-checkout')
+    // Keep the unrelated commit available locally but outside the head ancestry.
+    const unrelatedRemote = path.join(temporaryRoot, 'unrelated-remote.git')
+    initRepo(unrelatedRemote, true)
+    runGit(unrelated, ['remote', 'add', 'origin', unrelatedRemote])
+    runGit(unrelated, ['push', '-u', 'origin', 'main'])
+    runGit(checkout, ['fetch', pathToFileURL(unrelatedRemote).href, 'main'])
+
+    const result = runValidator(checkout, baseEnvironment(unrelatedBaseSha, history.headSha))
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /not an ancestor/)
+  })
+
+  await t.test('checked-out/event head mismatch exits nonzero', () => {
+    const history = setupSource('head-mismatch')
+    const checkout = clone(history.remote, 'head-mismatch-checkout')
+    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha, history.baseSha))
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /does not match/)
+  })
+
+  await t.test('invalid, inconsistent, and unavailable SHAs fail nonzero', () => {
+    const history = setupSource('invalid-shas')
+    const checkout = clone(history.remote, 'invalid-shas-checkout')
+    for (const values of [
+      baseEnvironment('not-a-sha', history.headSha),
+      baseEnvironment(history.baseSha, 'c'.repeat(39)),
+      baseEnvironment(history.baseSha, history.headSha, 'd'.repeat(40)),
+      baseEnvironment(history.baseSha, 'f'.repeat(40)),
+    ]) {
+      const result = runValidator(checkout, values)
+      assert.notEqual(result.status, 0)
+    }
+  })
 })
 
 test('gate accepts valid merge-group context and stacked pull-request targets', () => {
