@@ -16,6 +16,7 @@ async def get_document_pages_with_cache(
     build_cache_key: Callable[..., str],
     get_cached_document: Callable[[str], Awaitable[Any]],
     extract_pages: Callable[[bytes], Awaitable[Any]],
+    validate_pages: Callable[[Any], Any],
     cache_document: Callable[[str, Any], Awaitable[bool]],
     forget_processed_document: Callable[..., Any],
     remember_processed_document: Callable[..., bool],
@@ -39,6 +40,8 @@ async def get_document_pages_with_cache(
     )
 
     if cached_document is not None:
+        validate_pages(cached_document["pages"])
+
         forget_processed_document(
             user_id=user_id,
             pdf_sha256=resolved_pdf_sha256,
@@ -65,6 +68,7 @@ async def get_document_pages_with_cache(
     pages = await extract_pages(
         contents
     )
+    validate_pages(pages)
 
     cached = await cache_document(
         cache_key,
@@ -111,6 +115,7 @@ async def get_generation_pages(
     contents: bytes | None,
     get_document_pages_with_cache: Callable[..., Awaitable[Any]],
     get_processed_document: Callable[..., Awaitable[Any]],
+    validate_pages: Callable[[Any], Any],
     record_cache_metric: Callable[..., Awaitable[Any]],
     redis_client: Any,
     log_event: Callable[..., Any],
@@ -149,6 +154,8 @@ async def get_generation_pages(
                 "Please process the PDF again."
             ),
         )
+
+    validate_pages(document["pages"])
 
     await record_cache_metric(
         redis_client,
