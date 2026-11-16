@@ -25,6 +25,9 @@ on:
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
@@ -59,11 +62,28 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: |
           set -euo pipefail
 
           if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            [[ "${BASE_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid pull request base SHA." >&2; exit 1; }
+            [[ "${HEAD_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid pull request head SHA." >&2; exit 1; }
+            git cat-file -e "${BASE_SHA}^{commit}"
+            git cat-file -e "${HEAD_SHA}^{commit}"
             git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
+          elif [[ "${EVENT_NAME}" == "merge_group" ]]; then
+            [[ "${MERGE_GROUP_BASE_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid merge-group base SHA." >&2; exit 1; }
+            [[ "${MERGE_GROUP_HEAD_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid merge-group head SHA." >&2; exit 1; }
+            [[ "${MERGE_GROUP_HEAD_SHA}" == "${CURRENT_SHA}" ]] || { echo "Merge-group head does not match the checked-out workflow SHA." >&2; exit 1; }
+            git cat-file -e "${MERGE_GROUP_HEAD_SHA}^{commit}"
+            if ! git cat-file -e "${MERGE_GROUP_BASE_SHA}^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "${MERGE_GROUP_BASE_SHA}"
+            fi
+            git cat-file -e "${MERGE_GROUP_BASE_SHA}^{commit}"
+            git merge-base --is-ancestor "${MERGE_GROUP_BASE_SHA}" "${MERGE_GROUP_HEAD_SHA}" || { echo "Merge-group base is not an ancestor of its checked-out head." >&2; exit 1; }
+            git diff --name-only "${MERGE_GROUP_BASE_SHA}" "${MERGE_GROUP_HEAD_SHA}" > changed-files.txt
           elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
             git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
           else
@@ -340,4 +360,19 @@ jobs:
           AUTONOMY_RESULT: ${{ needs.autonomy-tests.result }}
           AUTONOMY_REQUIRED: ${{ needs.changes.outputs.autonomy_tests }}
           WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_REPOSITORY_ID: ${{ github.repository_id }}
+          CI_OWNER_ID: ${{ github.repository_owner_id }}
+          CI_REF: ${{ github.ref }}
+          CI_SHA: ${{ github.sha }}
+          CI_AFTER_SHA: ${{ github.event.after }}
+          CI_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CI_PR_BASE_REPOSITORY_ID: ${{ github.event.pull_request.base.repo.id }}
+          CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_TARGET_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
+          CI_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref || '' }}
+          CI_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha || '' }}
+          CI_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha || '' }}
         run: node scripts/ci/verify-required-pr-gate.cjs

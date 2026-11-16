@@ -155,6 +155,21 @@ test('integration coordinator source and tests trigger autonomy verification', (
 
 function successfulGateInputs(overrides = {}) {
   return {
+    CI_EVENT_NAME: 'pull_request',
+    CI_REPOSITORY: 'HamedGithubforwork/QuizForge-AI',
+    CI_REPOSITORY_ID: '1307099196',
+    CI_OWNER_ID: '148009407',
+    CI_REF: 'refs/pull/42/merge',
+    CI_SHA: 'a'.repeat(40),
+    CI_AFTER_SHA: '',
+    CI_PR_NUMBER: '42',
+    CI_PR_BASE_REPOSITORY_ID: '1307099196',
+    CI_PR_BASE_SHA: 'b'.repeat(40),
+    CI_PR_HEAD_SHA: 'c'.repeat(40),
+    CI_TARGET_REF: 'main',
+    CI_GROUP_HEAD_REF: '',
+    CI_GROUP_BASE_SHA: '',
+    CI_GROUP_HEAD_SHA: '',
     CHANGES_RESULT: 'success',
     BACKEND_RESULT: 'success',
     BACKEND_REQUIRED: 'true',
@@ -238,6 +253,110 @@ test('missing or invalid change-relevance outputs fail closed', () => {
       requiredKey,
     )
   }
+})
+
+function mergeGroupInputs(overrides = {}) {
+  const queueRef = 'refs/heads/gh-readonly-queue/main/pr-42-a1b2c3'
+  return successfulGateInputs({
+    CI_EVENT_NAME: 'merge_group',
+    CI_REF: queueRef,
+    CI_TARGET_REF: 'refs/heads/main',
+    CI_GROUP_HEAD_REF: queueRef,
+    CI_GROUP_BASE_SHA: 'b'.repeat(40),
+    CI_GROUP_HEAD_SHA: 'c'.repeat(40),
+    CI_SHA: 'c'.repeat(40),
+    CI_PR_NUMBER: '',
+    CI_PR_BASE_REPOSITORY_ID: '',
+    CI_PR_BASE_SHA: '',
+    CI_PR_HEAD_SHA: '',
+    ...overrides,
+  })
+}
+
+test('CI supports checks_requested for main merge groups and preserves ordinary PR triggers', () => {
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  assert.equal(allowsPullRequestActivity(workflow, 'codex/stacked-parent', 'opened'), true)
+  assert.equal(allowsPullRequestActivity(workflow, 'codex/stacked-parent', 'synchronize'), true)
+  assert.equal(allowsPullRequestActivity(workflow, 'codex/stacked-parent', 'reopened'), true)
+  assert.match(workflow, /^  merge_group:\s*\n    types: \[checks_requested\]\s*\n    branches: \[main\]/m)
+  assert.equal((workflow.match(/name: Required PR gate/g) || []).length, 1)
+  assert.match(workflow, /- workflow-policy-tests/)
+})
+
+test('merge-group changed-file detection validates immutable SHAs and base commit availability', () => {
+  const workflow = fs.readFileSync(workflowPath, 'utf8')
+  const classifierStart = workflow.indexOf('      - name: Classify changed files')
+  const classifierEnd = workflow.indexOf('      - name:', classifierStart + 10)
+  const classifier = workflow.slice(classifierStart, classifierEnd)
+  assert.match(classifier, /EVENT_NAME.*merge_group/)
+  assert.match(classifier, /MERGE_GROUP_BASE_SHA.*github\.event\.merge_group\.base_sha/)
+  assert.match(classifier, /MERGE_GROUP_HEAD_SHA.*github\.event\.merge_group\.head_sha/)
+  assert.match(classifier, /\[\[ "\$\{MERGE_GROUP_HEAD_SHA\}" == "\$\{CURRENT_SHA\}" \]\]/)
+  assert.match(classifier, /git cat-file -e "\$\{MERGE_GROUP_HEAD_SHA\}\^\{commit\}"/)
+  assert.match(classifier, /git cat-file -e "\$\{MERGE_GROUP_BASE_SHA\}\^\{commit\}"/)
+  assert.match(classifier, /git merge-base --is-ancestor "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}"/)
+  assert.match(classifier, /git fetch --no-tags origin "\$\{MERGE_GROUP_BASE_SHA\}"/)
+  assert.match(classifier, /git diff --name-only "\$\{MERGE_GROUP_BASE_SHA\}" "\$\{MERGE_GROUP_HEAD_SHA\}"/)
+})
+
+test('gate accepts valid merge-group context and stacked pull-request targets', () => {
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: 'codex/stacked-parent' })))
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: 'release/+candidate@v2' })))
+  assert.doesNotThrow(() => verifyRequiredPrGate(mergeGroupInputs()))
+})
+
+test('gate rejects mismatched repository identity and malformed pull-request context', () => {
+  for (const override of [
+    { CI_REPOSITORY: 'QuizFromNotes/QuizForge-AI' },
+    { CI_REPOSITORY: 'HamedGithubforwork/Other' },
+    { CI_REPOSITORY_ID: '999999999' },
+    { CI_OWNER_ID: '356387243' },
+    { CI_PR_BASE_REPOSITORY_ID: '999999999' },
+    { CI_PR_NUMBER: '' },
+    { CI_REF: 'refs/pull/43/merge' },
+    { CI_TARGET_REF: '' },
+    { CI_TARGET_REF: 'refs/heads/main' },
+    { CI_TARGET_REF: 'branch with spaces' },
+    { CI_PR_BASE_SHA: 'b'.repeat(39) },
+    { CI_PR_HEAD_SHA: '' },
+    { CI_SHA: 'not-a-sha' },
+    { CI_EVENT_NAME: 'workflow_dispatch' },
+  ]) assert.throws(() => verifyRequiredPrGate(successfulGateInputs(override)), undefined, JSON.stringify(override))
+})
+
+test('gate rejects malformed or inconsistent merge-group target, ref, and SHA data', () => {
+  for (const override of [
+    { CI_TARGET_REF: 'refs/heads/release' },
+    { CI_TARGET_REF: 'main' },
+    { CI_REF: 'refs/heads/main' },
+    { CI_GROUP_HEAD_REF: 'refs/heads/gh-readonly-queue/release/pr-42-id' },
+    { CI_GROUP_HEAD_REF: '' },
+    { CI_GROUP_BASE_SHA: 'invalid' },
+    { CI_GROUP_BASE_SHA: '' },
+    { CI_GROUP_HEAD_SHA: 'c'.repeat(39) },
+    { CI_GROUP_HEAD_SHA: '' },
+    { CI_SHA: 'd'.repeat(40) },
+  ]) assert.throws(() => verifyRequiredPrGate(mergeGroupInputs(override)), undefined, JSON.stringify(override))
+})
+
+test('gate validates main push after SHA and rejects stale or mismatched revisions', () => {
+  const sha = 'e'.repeat(40)
+  const common = {
+    CI_EVENT_NAME: 'push', CI_REF: 'refs/heads/main', CI_SHA: sha, CI_AFTER_SHA: sha,
+    CI_PR_NUMBER: '', CI_PR_BASE_REPOSITORY_ID: '', CI_PR_BASE_SHA: '', CI_PR_HEAD_SHA: '', CI_TARGET_REF: '',
+  }
+  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs(common)))
+  assert.throws(() => verifyRequiredPrGate(successfulGateInputs({ ...common, CI_AFTER_SHA: 'f'.repeat(40) })), /does not match/)
+  assert.throws(() => verifyRequiredPrGate(successfulGateInputs({ ...common, CI_REF: 'refs/heads/feature' })), /restricted/)
+})
+
+test('merge-group Required PR gate rejects skipped relevant tests and policy checks', () => {
+  assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+    BACKEND_RESULT: 'skipped', BACKEND_REQUIRED: 'true',
+  })))
+  assert.throws(() => verifyRequiredPrGate(mergeGroupInputs({
+    WORKFLOW_POLICY_RESULT: 'skipped',
+  })), /must run and pass/)
 })
 
 test('Coordinator and CI assessors require actual event and check evidence', () => {
