@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "backend/**"
+      - ".github/workflows/backend-ecr.yml"
       - "frontend/**"
       - "e2e/**"
       - "desktop/scripts/diagnose-targeted-practice.cjs"
@@ -81,6 +82,9 @@ jobs:
           while IFS= read -r file; do
             case "${file}" in
               backend/*|.python-version)
+                backend=true
+                ;;
+              .github/workflows/backend-ecr.yml)
                 backend=true
                 ;;
               frontend/*)
