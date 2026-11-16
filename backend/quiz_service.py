@@ -116,6 +116,17 @@ def validate_pdf_size(contents: bytes):
         )
 
 
+async def read_pdf_upload(
+    file,
+    *,
+    validate_size=validate_pdf_size,
+):
+    """Read only enough upload data to enforce the PDF size limit."""
+    contents = await file.read(MAX_FILE_SIZE + 1)
+    validate_size(contents)
+    return contents
+
+
 def normalize_quiz_settings(
     question_count: int,
     difficulty: str,
