@@ -1,16 +1,11 @@
 name: Backend ECR image
 
 on:
-  pull_request:
-    paths:
-      - "backend/**"
-      - ".github/workflows/backend-ecr.yml"
   push:
     branches:
       - main
     paths:
       - "backend/**"
-      - ".github/workflows/backend-ecr.yml"
   workflow_dispatch:
 
 permissions:

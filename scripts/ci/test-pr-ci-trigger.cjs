@@ -57,6 +57,42 @@ test('regression model rejects the prior main-only retarget procedure', () => {
   assert.equal(allowsPullRequestActivity(priorMainOnlyWorkflow, 'main', 'edited'), false)
 })
 
+test('backend ECR workflow changes use Required PR backend validation without duplicate builds', () => {
+  const ciWorkflow = fs.readFileSync(workflowPath, 'utf8')
+  const ecrWorkflow = fs.readFileSync(path.join(repositoryRoot, '.github/workflows/backend-ecr.yml'), 'utf8')
+
+  const pushStart = ciWorkflow.indexOf('  push:')
+  const pullRequestStart = ciWorkflow.indexOf('  pull_request:', pushStart)
+  const ciPushBlock = ciWorkflow.slice(pushStart, pullRequestStart)
+  assert.ok(ciPushBlock.split(/\r?\n/).includes('      - ".github/workflows/backend-ecr.yml"'),
+    'a main-branch edit to the ECR workflow must run credential-limited CI')
+
+  const classifierStart = ciWorkflow.indexOf('          while IFS= read -r file; do')
+  const classifierEnd = ciWorkflow.indexOf('          done < changed-files.txt', classifierStart)
+  const classifier = ciWorkflow.slice(classifierStart, classifierEnd)
+  const ecrWorkflowCase = classifier.match(/\.github\/workflows\/backend-ecr\.yml\)\r?\n([\s\S]*?)\r?\n\s+;;/)
+  assert.ok(ecrWorkflowCase, 'ECR workflow edits must have an explicit relevance classification')
+  assert.match(ecrWorkflowCase[1], /backend=true/, 'ECR workflow edits must require the backend validation job')
+  assert.doesNotMatch(ecrWorkflowCase[1], /frontend=true|playwright=true|autonomy_tests=true/,
+    'ECR workflow edits should not run unrelated conditional suites')
+
+  assert.doesNotMatch(ecrWorkflow, /^  pull_request:/m,
+    'the ECR workflow must not duplicate CI backend builds on pull requests')
+  const ecrPushBlock = ecrWorkflow.slice(ecrWorkflow.indexOf('  push:'), ecrWorkflow.indexOf('  workflow_dispatch:'))
+  assert.match(ecrPushBlock, /branches:\s*\n\s+- main/)
+  assert.match(ecrPushBlock, /- "backend\/\*\*"/)
+  assert.doesNotMatch(ecrPushBlock, /backend-ecr\.yml/,
+    'a workflow-file-only merge must not trigger an ECR publication')
+
+  const pushJobStart = ecrWorkflow.search(/^  push:\r?\n    name: Push backend image to ECR/m)
+  assert.notEqual(pushJobStart, -1, 'the ECR push job must remain present')
+  const pushJob = ecrWorkflow.slice(pushJobStart)
+  assert.match(pushJob, /\(github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'\) &&\s+github\.ref == 'refs\/heads\/main'/,
+    'ECR publishing must remain limited to main push or manual runs on main')
+  assert.match(pushJob, /id-token: write/)
+  assert.match(pushJob, /role-to-assume: \$\{\{ vars\.AWS_ROLE_ARN \}\}/)
+})
+
 test('workflow policy test runs unconditionally and is connected to the existing Required PR gate', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8')
   const jobStart = workflow.indexOf('  workflow-policy-tests:')
