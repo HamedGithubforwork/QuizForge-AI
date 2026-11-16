@@ -107,6 +107,7 @@ function QuizHistory({
       <button
         className="history-toggle"
         type="button"
+        aria-expanded={expanded}
         onClick={() => {
           enableHistory()
           setExpanded(
