@@ -11,6 +11,7 @@ on:
       - "e2e/**"
       - "desktop/scripts/diagnose-targeted-practice.cjs"
       - "desktop/test/diagnose-targeted-practice.test.cjs"
+      - "desktop/test/diagnose-targeted-practice.integration.cjs"
       - "scripts/autonomy/optimization-orchestrator.cjs"
       - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
       - "scripts/autonomy/integration-coordinator.cjs"
@@ -100,7 +101,7 @@ jobs:
                 playwright=true
                 autonomy_tests=true
                 ;;
-              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
+              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs|desktop/test/diagnose-targeted-practice.integration.cjs)
                 desktop_diagnostic=true
                 ;;
               scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
@@ -267,6 +268,17 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: "22"
+
+      - name: Check out pinned Local Qwen application diagnostic source
+        uses: actions/checkout@v7
+        with:
+          repository: HamedGithubforwork/QuizForge-AI
+          ref: 85518cf6240836448ef331260d16ba2401d7bfa7
+          path: qwen-app-source
+          persist-credentials: false
+
+      - name: Run diagnostic callback and inspector integration test
+        run: node desktop/test/diagnose-targeted-practice.integration.cjs qwen-app-source
 
       - name: Run diagnostic privacy tests
         run: node --test desktop/test/diagnose-targeted-practice.test.cjs

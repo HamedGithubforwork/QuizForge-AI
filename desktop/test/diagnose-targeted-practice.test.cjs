@@ -9,6 +9,8 @@ const {
   safeFailure,
   safeIssue,
   safeMetric,
+  safeSha,
+  createDiagnosticCallbacks,
   summarize,
 } = require('../scripts/diagnose-targeted-practice.cjs')
 
@@ -69,6 +71,13 @@ test('diagnostic inference capture contains only numeric timings and bounded lab
   assert.equal(overLimit.decodeMs, null)
   assert.equal(overLimit.promptTokens, null)
   assert.equal(overLimit.completionTokens, null)
+})
+
+test('diagnostic source identities accept only lowercase full Git commit SHAs', () => {
+  assert.equal(safeSha('a'.repeat(40)), 'a'.repeat(40))
+  for (const value of [undefined, '', 'a'.repeat(39), 'A'.repeat(40), 'g'.repeat(40), 'a'.repeat(41)]) {
+    assert.equal(safeSha(value), 'unknown')
+  }
 })
 
 test('model-response analysis is reduced to fixture quality counts without question text or fact IDs', () => {
@@ -177,6 +186,91 @@ test('setup failures emitted before a stage starts preserve bounded startup cont
   assert.deepEqual(summary.setupFailureCategoryCounts, {
     'runtime_failed:runtime_unavailable': 1,
   })
+})
+
+test('wired diagnostic callbacks capture generation, parsing, rejection, recovery and runtime failures safely', () => {
+  const report = {
+    setupFailures: [],
+    stages: [
+      { id: 'warmup', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
+      { id: 'targeted', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
+    ],
+  }
+  const state = { stage: 'targeted', stageStarted: performance.now() - 1000 }
+  const callbacks = createDiagnosticCallbacks({
+    report,
+    getActiveStage: () => state.stage,
+    getStageStarted: () => state.stageStarted,
+    getCurrent: () => report.stages.find(stage => stage.id === state.stage),
+    started: performance.now() - 2000,
+    inspectResponse(text) {
+      if (text.includes('PRIVATE_BAD')) {
+        return { status: 'invalid_json', questionCount: 0, questions: [{ reason: 'json', raw: text }] }
+      }
+      return { status: 'has_questions', questionCount: 1, questions: [{ reason: 'matched', question: text }] }
+    },
+  })
+
+  callbacks.onDiagnostic('inference_completed', {
+    elapsedMs: 900, prefillMs: 300, decodeMs: 600,
+    promptTokens: 420, completionTokens: 18, acceleration: 'cpu',
+    prompt: 'PRIVATE_PROMPT', response: 'PRIVATE_OUTPUT',
+  })
+  callbacks.onQuizGeneratedResponse({
+    profile: 'stop', phase: 'generation', generationProfile: 'quiz-mcq-v1',
+    text: 'PRIVATE_QUESTION study note and output path C:\\private\\model',
+  })
+  callbacks.onDiagnostic('inference_completed', {
+    elapsedMs: 1200, promptTokens: 400, completionTokens: 8, acceleration: 'cpu',
+  })
+  callbacks.onQuizGeneratedResponse({
+    finishReason: 'length', phase: 'weak-area-recovery',
+    generationProfile: 'quiz-mcq-v1', text: 'PRIVATE_TRUNCATED_OUTPUT',
+  })
+  callbacks.onQuizGeneratedResponse({
+    text: 'PRIVATE_BAD_MODEL_OUTPUT', phase: 'generation', generationProfile: 'unknown-profile',
+  })
+  callbacks.onQuizValidationIssue({
+    attempt: 'primary', reason: 'json', error: 'PRIVATE_ERROR C:\\private\\file',
+  })
+  callbacks.onDiagnostic('question_rejected', {
+    reason: 'unsupported_answer', questionNumber: 4, questionType: 'multiple_choice',
+    sourcePages: [1], question: 'PRIVATE_QUESTION', sourceText: 'PRIVATE_NOTES',
+  })
+  callbacks.onQuizValidationIssue({
+    attempt: 'recovery', reason: 'candidate_pool_exhausted', details: {
+      survivors: 0, questions: ['PRIVATE_QUESTION'], notes: 'PRIVATE_NOTES',
+    },
+  })
+  callbacks.onDiagnostic('runtime_failed', {
+    reason: 'timed_out', stage: 'inference', error: 'PRIVATE_ERROR', token: 'PRIVATE_CREDENTIAL',
+  })
+  callbacks.onDiagnostic('operation_failed', { reason: 'secret model detail', message: 'PRIVATE_ERROR' })
+
+  state.stage = null
+  state.stageStarted = null
+  callbacks.onDiagnostic('runtime_failed', {
+    reason: 'runtime_unavailable', stage: 'startup', message: 'PRIVATE_SETUP_ERROR C:\\private\\models',
+  })
+
+  const serialized = JSON.stringify(report)
+  assert.deepEqual(report.stages[1].inferenceCalls.map(item => item.completionTokens), [18, 8])
+  assert.deepEqual(report.stages[1].responses.map(item => item.finishReason), ['stop', 'length', 'unknown'])
+  assert.equal(report.stages[1].responses[2].quality.status, 'invalid_json')
+  assert.deepEqual(report.stages[1].validationIssues.map(item => item.reason), [
+    'json', 'candidate_pool_exhausted',
+  ])
+  assert.deepEqual(report.stages[1].rejections.map(item => item.reason), ['unsupported_answer'])
+  assert.deepEqual(report.stages[1].failures.map(item => `${item.event}:${item.reason}`), [
+    'runtime_failed:timed_out', 'operation_failed:other',
+  ])
+  assert.deepEqual(summarize(report).rejectionCategoryCounts, { unsupported_answer: 1 })
+  assert.equal(report.setupFailures[0].runtimeStage, 'startup')
+  for (const secret of [
+    'PRIVATE_PROMPT', 'PRIVATE_OUTPUT', 'PRIVATE_QUESTION', 'PRIVATE_TRUNCATED_OUTPUT',
+    'PRIVATE_BAD_MODEL_OUTPUT', 'PRIVATE_NOTES', 'PRIVATE_ERROR', 'PRIVATE_CREDENTIAL',
+    'PRIVATE_SETUP_ERROR', 'C:\\private', 'secret model detail',
+  ]) assert.equal(serialized.includes(secret), false, `leaked ${secret}`)
 })
 
 test('successful recovery remains distinguishable from failed candidate validation', () => {

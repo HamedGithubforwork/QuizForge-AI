@@ -84,6 +84,10 @@ function safeFinishReason(response) {
   return 'unknown'
 }
 
+function safeSha(value) {
+  return /^[a-f0-9]{40}$/.test(value ?? '') ? value : 'unknown'
+}
+
 function safeFailure(event, fields, stage, since) {
   if (!SAFE_FAILURE_EVENTS.has(event)) return null
   const reason = SAFE_REASONS.has(fields?.reason) ? fields.reason : 'other'
@@ -140,6 +144,66 @@ function safeResponseDiagnostics(diagnostics) {
   }
 }
 
+function createDiagnosticCallbacks({ report, getActiveStage, getStageStarted, getCurrent, started, inspectResponse }) {
+  return {
+    onDiagnostic(event, fields) {
+      if (event === 'question_rejected') {
+        const current = getCurrent()
+        const stageStarted = getStageStarted()
+        if (!current) return
+        current.rejections.push({
+          stage: getActiveStage() === 'targeted' ? 'targeted' : 'warmup',
+          reason: SAFE_REASONS.has(fields?.reason) ? fields.reason : 'other',
+          atSeconds: stageStarted === null ? null : elapsed(stageStarted),
+        })
+        return
+      }
+      if (event === 'inference_completed') {
+        const current = getCurrent()
+        const stageStarted = getStageStarted()
+        if (!current || stageStarted === null) return
+        current.inferenceCalls.push(safeMetric(fields, getActiveStage(), stageStarted))
+        return
+      }
+      const current = getCurrent()
+      const stageStarted = getStageStarted()
+      const failure = safeFailure(event, fields, getActiveStage() ?? 'setup', stageStarted ?? started)
+      if (!failure) return
+      if (current && stageStarted !== null) current.failures.push(failure)
+      else report.setupFailures.push(failure)
+    },
+    onQuizGeneratedResponse(response) {
+      const current = getCurrent()
+      const stageStarted = getStageStarted()
+      if (!current || stageStarted === null) return
+      const phase = SAFE_PHASES.has(response?.phase) ? response.phase : 'generation'
+      const generationProfile = SAFE_PROFILES.has(response?.generationProfile)
+        ? response.generationProfile : 'other'
+      current.responses.push({
+        atSeconds: elapsed(stageStarted),
+        phase,
+        generationProfile,
+        finishReason: safeFinishReason(response),
+        quality: safeResponseDiagnostics(inspectResponse(response?.text)),
+      })
+      const unmatched = current.inferenceCalls.findLast(item => item.responsePhase === 'unmatched')
+      if (unmatched) {
+        unmatched.responsePhase = phase
+        unmatched.generationProfile = generationProfile
+      }
+    },
+    onQuizValidationIssue(issue) {
+      const current = getCurrent()
+      if (!current) return
+      const stageStarted = getStageStarted()
+      current.validationIssues.push({
+        ...safeIssue(issue, getActiveStage()),
+        atSeconds: stageStarted === null ? null : elapsed(stageStarted),
+      })
+    },
+  }
+}
+
 function summarize(report) {
   const target = report.stages.find(stage => stage.id === 'targeted')
   const metrics = target?.inferenceCalls ?? []
@@ -165,6 +229,10 @@ function summarize(report) {
     setupFailureCategoryCounts[`${failure.event}:${failure.reason}`] =
       (setupFailureCategoryCounts[`${failure.event}:${failure.reason}`] ?? 0) + 1
   }
+  const rejectionCategoryCounts = {}
+  for (const rejection of target?.rejections ?? []) {
+    rejectionCategoryCounts[rejection.reason] = (rejectionCategoryCounts[rejection.reason] ?? 0) + 1
+  }
   return {
     fixtureId: 'selected_pages_targeted_practice',
     targetElapsedSeconds: target?.elapsedSeconds ?? null,
@@ -183,6 +251,7 @@ function summarize(report) {
     }, {}),
     failureCategoryCounts,
     setupFailureCategoryCounts,
+    rejectionCategoryCounts,
     responseCategoryCounts: (target?.responses ?? []).reduce((total, response) => {
       for (const [reason, count] of Object.entries(response.quality?.reasonCounts ?? {})) {
         total[reason] = (total[reason] ?? 0) + count
@@ -219,16 +288,16 @@ async function main() {
     architecture: process.arch,
     sourceBranch: SAFE_SOURCE_BRANCHES.has(process.env.QFN_DIAGNOSTIC_SOURCE_REF)
       ? process.env.QFN_DIAGNOSTIC_SOURCE_REF : 'unknown',
-    sourceSha: /^[a-f0-9]{40}$/.test(process.env.QFN_DIAGNOSTIC_SOURCE_SHA ?? '')
-      ? process.env.QFN_DIAGNOSTIC_SOURCE_SHA : 'unknown',
+    sourceSha: safeSha(process.env.QFN_DIAGNOSTIC_SOURCE_SHA),
+    diagnosticToolSha: safeSha(process.env.QFN_DIAGNOSTIC_TOOL_SHA),
     modelId: null,
     acceleration: null,
     logicalCpuCount: null,
     totalMemoryBytes: null,
     setupFailures: [],
     stages: [
-      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [] },
-      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [] },
+      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
+      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
     ],
     summary: null,
   }
@@ -236,6 +305,14 @@ async function main() {
   let stageStarted = null
   let stack = null
   const current = () => report.stages.find(stage => stage.id === activeStage)
+  const diagnosticCallbacks = createDiagnosticCallbacks({
+    report,
+    getActiveStage: () => activeStage,
+    getStageStarted: () => stageStarted,
+    getCurrent: current,
+    started,
+    inspectResponse: text => inspectModelResponse(text, fixture),
+  })
   const persist = async () => {
     report.summary = summarize(report)
     await fs.writeFile(output, JSON.stringify(report, null, 2) + '\n', 'utf8')
@@ -246,42 +323,7 @@ async function main() {
       userDataDirectory: profile,
       modelDirectory,
       runtimeDirectory,
-      onDiagnostic(event, fields) {
-        if (event === 'inference_completed') {
-          if (!current() || stageStarted === null) return
-          current().inferenceCalls.push(safeMetric(fields, activeStage, stageStarted))
-          return
-        }
-        const failure = safeFailure(event, fields, activeStage ?? 'setup', stageStarted ?? started)
-        if (failure) {
-          if (current() && stageStarted !== null) current().failures.push(failure)
-          else report.setupFailures.push(failure)
-        }
-      },
-      onQuizGeneratedResponse(response) {
-        if (!current() || stageStarted === null) return
-        const phase = SAFE_PHASES.has(response?.phase) ? response.phase : 'generation'
-        const generationProfile = SAFE_PROFILES.has(response?.generationProfile)
-          ? response.generationProfile : 'other'
-        current().responses.push({
-          atSeconds: elapsed(stageStarted),
-          phase,
-          generationProfile,
-          finishReason: safeFinishReason(response),
-          quality: safeResponseDiagnostics(inspectModelResponse(response?.text, fixture)),
-        })
-        const unmatched = current().inferenceCalls.findLast(item => item.responsePhase === 'unmatched')
-        if (unmatched) {
-          unmatched.responsePhase = phase
-          unmatched.generationProfile = generationProfile
-        }
-      },
-      onQuizValidationIssue(issue) {
-        if (current()) current().validationIssues.push({
-          ...safeIssue(issue, activeStage),
-          atSeconds: stageStarted === null ? null : elapsed(stageStarted),
-        })
-      },
+      ...diagnosticCallbacks,
     })
 
     const manager = await stack.load()
@@ -387,5 +429,5 @@ if (require.main === module) {
 
 module.exports = {
   numericCounters, safeIssue, safeMetric, safeResponseDiagnostics, safeFinishReason,
-  safeFailure, summarize,
+  safeSha, safeFailure, createDiagnosticCallbacks, summarize,
 }

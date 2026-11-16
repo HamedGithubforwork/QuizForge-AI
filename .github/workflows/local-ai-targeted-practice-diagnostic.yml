@@ -11,6 +11,14 @@ on:
           - perf/local-practice-minimal-replacement-batch-20261103
         default: perf/local-practice-minimal-replacement-batch-20261103
         required: true
+      expected_tool_sha:
+        description: 'Exact commit SHA for both the workflow revision and diagnostic-tools checkout'
+        type: string
+        required: true
+      expected_source_sha:
+        description: 'Exact expected commit SHA for the selected application source branch'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -28,6 +36,7 @@ jobs:
       - name: Check out diagnostic tools
         uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.expected_tool_sha }}
           path: diagnostic-tools
           persist-credentials: false
       - name: Check out selected application source
@@ -36,10 +45,31 @@ jobs:
           ref: ${{ inputs.source_branch }}
           path: app
           persist-credentials: false
+      - name: Verify exact checked-out revisions before downloads
+        shell: pwsh
+        env:
+          EXPECTED_TOOL_SHA: ${{ inputs.expected_tool_sha }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:EXPECTED_TOOL_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'expected_tool_sha must be a lowercase 40-character commit SHA' }
+          if ($env:EXPECTED_SOURCE_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'expected_source_sha must be a lowercase 40-character commit SHA' }
+          $toolSha = git -C diagnostic-tools rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $toolSha -cne $env:EXPECTED_TOOL_SHA -or $env:GITHUB_SHA -cne $env:EXPECTED_TOOL_SHA) { throw 'Workflow and diagnostic-tools revisions do not match expected_tool_sha' }
+          $sourceSha = git -C app rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $sourceSha -cne $env:EXPECTED_SOURCE_SHA) { throw 'Application checkout does not match expected_source_sha' }
+          "QFN_DIAGNOSTIC_TOOL_SHA=$toolSha" >> $env:GITHUB_ENV
+          "QFN_DIAGNOSTIC_SOURCE_SHA=$sourceSha" >> $env:GITHUB_ENV
+          "QFN_DIAGNOSTIC_SOURCE_REF=${{ inputs.source_branch }}" >> $env:GITHUB_ENV
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+      - name: Verify synthetic diagnostic callback and inspector integration
+        shell: pwsh
+        run: |
+          node diagnostic-tools/desktop/test/diagnose-targeted-practice.integration.cjs app
+          exit $LASTEXITCODE
       - name: Restore verified pinned Qwen model cache
         uses: actions/cache/restore@v4
         with:
@@ -66,10 +96,9 @@ jobs:
       - name: Record exact diagnostic source commit
         shell: pwsh
         run: |
-          $sha = git -C app rev-parse HEAD
-          if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$') { throw 'Cannot identify diagnostic source commit' }
-          "QFN_DIAGNOSTIC_SOURCE_SHA=$sha" >> $env:GITHUB_ENV
-          "QFN_DIAGNOSTIC_SOURCE_REF=${{ inputs.source_branch }}" >> $env:GITHUB_ENV
+          $toolSha = git -C diagnostic-tools rev-parse HEAD
+          $sourceSha = git -C app rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $toolSha -cne $env:QFN_DIAGNOSTIC_TOOL_SHA -or $sourceSha -cne $env:QFN_DIAGNOSTIC_SOURCE_SHA) { throw 'Diagnostic source revision changed after preflight' }
       - name: Run one selected-pages targeted-practice diagnostic
         shell: pwsh
         run: |

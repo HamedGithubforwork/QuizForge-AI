@@ -60,14 +60,19 @@ Validation plan: review the #665 diff against #664 to confirm validators remain 
 
 ### Reproducible Windows x64 diagnostic procedure
 
-The existing `.github/workflows/local-ai-targeted-practice-diagnostic.yml` is a manual `workflow_dispatch` on `windows-2025` x64. It accepts only the two named #664/#665 source branches, verifies the pinned Qwen3-4B Q4_K_M model and llama.cpp b11317 runtime checksums, runs one synthetic selected-pages warmup and targeted-practice case, records the checked-out source SHA, and uploads the sanitized report for three days. A cache miss downloads the pinned model and runtime. Do not run it without a separate bounded-run authorization; it consumes a hosted Windows runner and may download large artifacts.
+The existing `.github/workflows/local-ai-targeted-practice-diagnostic.yml` is a manual `workflow_dispatch` on `windows-2025` x64. It accepts only the two named #664/#665 source branches, verifies the pinned Qwen3-4B Q4_K_M model and llama.cpp b11317 runtime checksums, runs one synthetic selected-pages warmup and targeted-practice case, records the checked-out source SHA, and uploads the sanitized report for three days. The pinned model may download on a cache miss; the pinned llama.cpp runtime archive is downloaded each run. Do not run it without separate bounded-run authorization; it consumes one hosted Windows runner (up to its 25-minute timeout) and may download a large model plus the runtime archive.
 
-When authorized, first record the selected source branch's full SHA and confirm it is the intended PR head. The workflow input is a mutable branch name, not an immutable revision; after checkout, compare the report's `sourceSha` with that preflight SHA and treat any difference as an invalid run. Dispatch exactly one run with:
+When authorized, first record the selected source branch's full SHA and confirm it is the intended PR head. The workflow input is a mutable branch name, not an immutable revision; after checkout, compare the report's `sourceSha` with that preflight SHA and treat any difference as an invalid run. Also record the exact diagnostic-tool branch SHA; it must match both the workflow event's `GITHUB_SHA` and the `diagnosticToolSha` in the report. The workflow checks both SHAs immediately after its two credentialless checkouts, before cache/model/runtime downloads, and runs the synthetic callback/inspector test before the model cache step. Obtain the SHAs without exposing credentials:
 
 ```powershell
+$expectedToolSha = gh api repos/HamedGithubforwork/QuizForge-AI/git/ref/heads/codex/local-qwen-diagnostic-evidence --jq .object.sha
+$expectedSourceSha = gh api repos/HamedGithubforwork/QuizForge-AI/git/ref/heads/perf/local-practice-minimal-replacement-batch-20261103 --jq .object.sha
 gh workflow run local-ai-targeted-practice-diagnostic.yml `
   --repo HamedGithubforwork/QuizForge-AI `
-  -f source_branch=perf/local-practice-minimal-replacement-batch-20261103
+  --ref codex/local-qwen-diagnostic-evidence `
+  -f source_branch=perf/local-practice-minimal-replacement-batch-20261103 `
+  -f expected_tool_sha=$expectedToolSha `
+  -f expected_source_sha=$expectedSourceSha
 ```
 
 Then record the resulting run ID and exact source SHA, monitor that run to completion, and retrieve only its `local-ai-targeted-practice-diagnostic` artifact. Compare its finish-reason counts, numeric completion tokens, parser/validator categories, runtime-failure categories, recovery termination, semantic oracle, uniqueness, and prior-question avoidance. Do not use run output or logs that contain raw prompts or model responses. The current ARM64 development machine is not the x64 acceptance host; use the existing Windows x64 workflow rather than claiming local x64 validation.

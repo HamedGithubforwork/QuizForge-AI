@@ -153,6 +153,39 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'autonomy CI must execute the trusted integration verifier regression suite when classified relevant')
 })
 
+test('Local Qwen diagnostic dispatch requires and records exact tool and application revisions before downloads', () => {
+  const diagnosticWorkflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github/workflows/local-ai-targeted-practice-diagnostic.yml'),
+    'utf8',
+  )
+  assert.match(diagnosticWorkflow, /expected_tool_sha:[\s\S]*?type: string\s+required: true/)
+  assert.match(diagnosticWorkflow, /expected_source_sha:[\s\S]*?type: string\s+required: true/)
+  assert.match(diagnosticWorkflow, /ref: \$\{\{ inputs\.expected_tool_sha \}\}/)
+  assert.match(diagnosticWorkflow, /EXPECTED_TOOL_SHA: \$\{\{ inputs\.expected_tool_sha \}\}/)
+  assert.match(diagnosticWorkflow, /EXPECTED_SOURCE_SHA: \$\{\{ inputs\.expected_source_sha \}\}/)
+  assert.match(diagnosticWorkflow, /\$env:GITHUB_SHA -cne \$env:EXPECTED_TOOL_SHA/)
+  assert.match(diagnosticWorkflow, /\$sourceSha -cne \$env:EXPECTED_SOURCE_SHA/)
+  assert.match(diagnosticWorkflow, /QFN_DIAGNOSTIC_TOOL_SHA=\$toolSha/)
+  assert.match(diagnosticWorkflow, /QFN_DIAGNOSTIC_SOURCE_SHA=\$sourceSha/)
+
+  const revisionCheck = diagnosticWorkflow.indexOf('Verify exact checked-out revisions before downloads')
+  const integrationTest = diagnosticWorkflow.indexOf('Verify synthetic diagnostic callback and inspector integration')
+  const cacheRestore = diagnosticWorkflow.indexOf('Restore verified pinned Qwen model cache')
+  const modelDownload = diagnosticWorkflow.indexOf('Verify pinned model SHA-256')
+  const runtimeDownload = diagnosticWorkflow.indexOf('Download, verify, and stage pinned llama.cpp runtime')
+  assert.ok(revisionCheck >= 0 && integrationTest > revisionCheck)
+  assert.ok(cacheRestore > integrationTest && modelDownload > cacheRestore && runtimeDownload > modelDownload,
+    'Exact SHA checks and synthetic integration must precede model/runtime downloads')
+  assert.match(diagnosticWorkflow, /node diagnostic-tools\/desktop\/test\/diagnose-targeted-practice\.integration\.cjs app/)
+  assert.match(diagnosticWorkflow, /runs-on: windows-2025/)
+  assert.match(diagnosticWorkflow, /timeout-minutes: 25/)
+  assert.match(diagnosticWorkflow, /permissions:\s+contents: read/)
+
+  const collector = fs.readFileSync(path.join(repositoryRoot, 'desktop/scripts/diagnose-targeted-practice.cjs'), 'utf8')
+  assert.match(collector, /sourceSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_SOURCE_SHA\)/)
+  assert.match(collector, /diagnosticToolSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_TOOL_SHA\)/)
+})
+
 function successfulGateInputs(overrides = {}) {
   return {
     CHANGES_RESULT: 'success',
