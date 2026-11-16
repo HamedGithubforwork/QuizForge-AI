@@ -8,13 +8,13 @@ AFTER = "b" * 40
 
 def event():
     return {"before": BEFORE, "after": AFTER, "ref": "refs/heads/main",
-            "repository": {"full_name": REPOSITORY}}
+            "repository": {"full_name": REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}}
 
 
 def merged():
     return [{"number": PR_NUMBER, "merged_at": "2026-10-12T16:30:00Z",
              "merge_commit_sha": AFTER, "base": {"ref": "main"},
-             "head": {"repo": {"full_name": REPOSITORY}}}]
+             "head": {"repo": {"full_name": REPOSITORY, "id": 1307099196, "owner": {"id": 356387243}}}}]
 
 
 class AuthorizedStagingMerge(unittest.TestCase):
@@ -32,6 +32,14 @@ class AuthorizedStagingMerge(unittest.TestCase):
         e["repository"] = {"full_name": "untrusted/fork"}
         with self.assertRaises(ValueError):
             authorize(e, [f"A\t{MARKER}"], merged(), REQUEST)
+        e = event()
+        e["repository"]["owner"]["id"] = 148009407
+        with self.assertRaises(ValueError):
+            authorize(e, [f"A\t{MARKER}"], merged(), REQUEST)
+        prs = merged()
+        prs[0]["head"]["repo"]["id"] = 123
+        with self.assertRaises(ValueError):
+            authorize(event(), [f"A\t{MARKER}"], prs, REQUEST)
 
     def test_marker_must_be_new_not_changed(self):
         for changes in ([], [f"M\t{MARKER}"], [f"D\t{MARKER}"], ["A\tother"]):

@@ -9,6 +9,7 @@ import sys
 from scripts.production.lightsail.google_plan_guard import (
     IDENTITY_PROVIDER, BROWSER_CLIENT, safe_scope_change_summary,
 )
+from scripts.github_repository_identity import is_target_repository_object
 
 APPLICATION = "77a060cce504008a4479deacdc31279633d0fe4f"
 WORKFLOW = ".github/workflows/lightsail-release-promote.yml"
@@ -21,7 +22,7 @@ def verify_preflight(metadata, report, lock, now=None):
     if (metadata.get("event") != "workflow_dispatch"
             or metadata.get("path") != WORKFLOW or metadata.get("head_branch") != "main"
             or metadata.get("status") != "completed" or metadata.get("conclusion") != "success"
-            or metadata.get("repository", {}).get("full_name") != "HamedGithubforwork/QuizForge-AI"
+            or not is_target_repository_object(metadata.get("repository"))
             or not -120 <= age <= 900):
         raise ValueError("Untrusted or stale backend inspection")
     if (lock.get("application_candidate_sha") != APPLICATION

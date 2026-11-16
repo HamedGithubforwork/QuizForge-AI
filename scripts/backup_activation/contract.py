@@ -12,7 +12,9 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-REPOSITORY = "HamedGithubforwork/QuizForge-AI"
+from scripts.github_repository_identity import is_target_actions_environment
+
+REPOSITORY = "QuizFromNotes/QuizForge-AI"
 WORKFLOW = ".github/workflows/aws-backup-activation.yml"
 CANDIDATE = "62e39f33d715cc83928390cfd5ff1728008c4053"
 MAIN_SHA256 = "c0edc4a089a6b4158f68ca1a8eef853910384d336a90fcb36ab77ccbc0140dc0"
@@ -114,7 +116,7 @@ def trusted_invocation(env: Mapping[str, str], mode: str) -> None:
     manual = event == "workflow_dispatch"
     require((manual or push_verify)
             and env.get("GITHUB_REF") == "refs/heads/main"
-            and env.get("GITHUB_REPOSITORY") == REPOSITORY
+            and is_target_actions_environment(env)
             and env.get("GITHUB_WORKFLOW_REF") == f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
             "UNTRUSTED_INVOCATION")
     sha = env.get("GITHUB_SHA", "")

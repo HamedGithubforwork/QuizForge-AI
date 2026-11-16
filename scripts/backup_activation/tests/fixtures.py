@@ -16,7 +16,9 @@ SHA = "a" * 40
 
 def environment(mode="inspect"):
     return {"GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main",
-            "GITHUB_REPOSITORY": REPOSITORY, "GITHUB_WORKFLOW_REF": f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
+            "GITHUB_REPOSITORY": REPOSITORY, "GITHUB_REPOSITORY_ID": "1307099196",
+            "GITHUB_REPOSITORY_OWNER_ID": "356387243",
+            "GITHUB_WORKFLOW_REF": f"{REPOSITORY}/{WORKFLOW}@refs/heads/main",
             "GITHUB_SHA": SHA, "GITHUB_WORKFLOW_SHA": SHA, "GITHUB_RUN_ATTEMPT": "1",
             "QF_OPERATION": mode, "QF_ROLE_ARN": SETTINGS.role, "QF_STATE_BUCKET": SETTINGS.state_bucket,
             "AWS_BUDGET_ALERT_EMAIL": SETTINGS.email, "TF_WORKSPACE": "default"}

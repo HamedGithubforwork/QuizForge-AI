@@ -11,7 +11,9 @@ def env(action="status"):
         "STAGING_AI_BUDGET_ACTION": action,
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_REF": "refs/heads/main",
-        "GITHUB_REPOSITORY": "HamedGithubforwork/QuizForge-AI",
+        "GITHUB_REPOSITORY": "QuizFromNotes/QuizForge-AI",
+        "GITHUB_REPOSITORY_ID": "1307099196",
+        "GITHUB_REPOSITORY_OWNER_ID": "356387243",
     }
 
 
@@ -39,6 +41,8 @@ class StagingBudgetSafety(unittest.TestCase):
                 ("GITHUB_EVENT_NAME", "pull_request"),
                 ("GITHUB_REF", "refs/heads/application/production"),
                 ("GITHUB_REPOSITORY", "someone/other"),
+                ("GITHUB_REPOSITORY_ID", "999"),
+                ("GITHUB_REPOSITORY_OWNER_ID", "148009407"),
                 ("STAGING_AI_BUDGET_ACTION", "refill" if action == "status" else "status"),
             ):
                 with self.subTest(action=action, key=key), self.assertRaises(ValueError):

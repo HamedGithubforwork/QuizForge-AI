@@ -75,7 +75,6 @@ on:
         description: "Frontend PR with green checks (used only for frontend operation)"
         type: string
         required: false
-        default: "538"
 
 permissions:
   contents: read

@@ -265,6 +265,13 @@ class InvocationTests(unittest.TestCase):
             env[key] = value
             with self.subTest(key=key), self.assertRaises(Refused):
                 trusted_invocation(env, "inspect")
+        for key, value in (("GITHUB_REPOSITORY_ID", "123"),
+                           ("GITHUB_REPOSITORY_OWNER_ID", "148009407"),
+                           ("GITHUB_REPOSITORY", "HamedGithubforwork/QuizForge-AI")):
+            env = environment()
+            env[key] = value
+            with self.subTest(identity_key=key), self.assertRaises(Refused):
+                trusted_invocation(env, "inspect")
         push = environment()
         push["GITHUB_EVENT_NAME"] = "push"
         trusted_invocation(push, "verify")

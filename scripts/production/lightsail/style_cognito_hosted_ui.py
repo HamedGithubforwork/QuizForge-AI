@@ -16,6 +16,8 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from scripts.github_repository_identity import is_target_actions_environment
+
 REGION = "ca-central-1"
 POOL_NAME = "quizforge-production-lightsail"
 CLIENT_NAME = "quizforge-production-pkce"
@@ -161,7 +163,7 @@ def main() -> int:
             os.environ.get("GITHUB_EVENT_NAME") != "push"
             or os.environ.get("GITHUB_REF") != "refs/heads/main"
             or os.environ.get("GITHUB_RUN_ATTEMPT") != "1"
-            or os.environ.get("GITHUB_REPOSITORY") != "HamedGithubforwork/QuizForge-AI"
+            or not is_target_actions_environment(os.environ)
         ):
             raise ValueError("Live hosted-UI styling requires the first trusted main-branch push")
 
