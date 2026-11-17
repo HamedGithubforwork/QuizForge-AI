@@ -5,11 +5,11 @@ BASE_SHA="${MERGE_GROUP_BASE_SHA:-}"
 HEAD_SHA="${MERGE_GROUP_HEAD_SHA:-}"
 CURRENT_SHA="${CURRENT_SHA:-}"
 # Bound each origin read to 120 seconds, with a 10-second termination grace.
-# A shorter positive value may be supplied by deterministic tests; CI defaults to 120.
-FETCH_TIMEOUT_MAX_SECONDS=120
-FETCH_TIMEOUT_SECONDS="${FETCH_TIMEOUT_SECONDS:-${FETCH_TIMEOUT_MAX_SECONDS}}"
-if [[ ! "${FETCH_TIMEOUT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || (( FETCH_TIMEOUT_SECONDS > FETCH_TIMEOUT_MAX_SECONDS )); then
-  echo "Fetch timeout must be a positive integer no greater than ${FETCH_TIMEOUT_MAX_SECONDS}s." >&2
+# Validate the complete canonical decimal range before passing it to timeout;
+# do not use shell arithmetic on an untrusted, potentially oversized value.
+FETCH_TIMEOUT_SECONDS="${FETCH_TIMEOUT_SECONDS:-120}"
+if [[ ! "${FETCH_TIMEOUT_SECONDS}" =~ ^([1-9]|[1-9][0-9]|1[01][0-9]|120)$ ]]; then
+  echo "Fetch timeout must be a canonical decimal integer from 1 through 120." >&2
   exit 2
 fi
 

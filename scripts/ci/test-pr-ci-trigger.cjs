@@ -333,8 +333,10 @@ test('workflow delegates merge-group classification and ancestry checks to share
   assert.match(classifier, /case "\$\{EVENT_NAME\}" in[\s\S]*merge_group\)/)
   assert.match(classifier, /bash "\$\{SCRIPT_DIR\}\/validate-merge-group-commits\.sh"/)
   const helper = fs.readFileSync(mergeGroupValidatorPath, 'utf8')
-  assert.match(helper, /FETCH_TIMEOUT_MAX_SECONDS=120/)
-  assert.match(helper, /FETCH_TIMEOUT_SECONDS="\$\{FETCH_TIMEOUT_SECONDS:-\$\{FETCH_TIMEOUT_MAX_SECONDS\}\}"/)
+  assert.match(helper, /FETCH_TIMEOUT_SECONDS="\$\{FETCH_TIMEOUT_SECONDS:-120\}"/)
+  assert.match(helper, /\^\(\[1-9\]\|\[1-9\]\[0-9\]\|1\[01\]\[0-9\]\|120\)\$/)
+  assert.doesNotMatch(helper, /\(\(\s*FETCH_TIMEOUT_SECONDS/,
+    'timeout input must be range-checked without shell arithmetic')
   assert.match(helper, /timeout --signal=TERM --kill-after=10s/)
   assert.match(helper, /git merge-base --is-ancestor "\$\{BASE_SHA\}" "\$\{HEAD_SHA\}"/)
 })
@@ -576,13 +578,37 @@ test('actual merge-group shell validator handles local Git histories and failure
     }
   })
 
-  await t.test('fetch timeout override cannot exceed the documented maximum', () => {
+  await t.test('fetch timeout accepts only canonical decimal integers from 1 through 120 before SHA or Git validation', () => {
     const history = setupSource('fetch-timeout-bound')
     const checkout = clone(history.remote, 'fetch-timeout-bound-checkout')
-    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha), undefined,
-      { FETCH_TIMEOUT_SECONDS: '121' })
-    assert.equal(result.status, 2)
-    assert.match(result.stderr, /no greater than 120s/)
+    const tracePath = path.join(temporaryRoot, 'fetch-timeout-invalid-git-trace.log')
+    const invalidBase = { ...baseEnvironment('not-a-sha', history.headSha) }
+
+    for (const timeout of ['', '1', '60', '120']) {
+      const accepted = runValidator(checkout, invalidBase, undefined, {
+        FETCH_TIMEOUT_SECONDS: timeout,
+        GIT_TRACE: tracePath,
+      })
+      assert.equal(accepted.status, 2, `timeout ${timeout || '<default>'} must reach SHA validation`)
+      assert.match(accepted.stderr, /Merge-group base SHA must be a full lowercase 40-character commit SHA/,
+        `timeout ${timeout || '<default>'} must not be rejected by the timeout guard`)
+      assert.doesNotMatch(accepted.stderr, /Fetch timeout must be/)
+      assert.equal(fs.existsSync(tracePath), false, `timeout ${timeout || '<default>'} must be rejected before Git commands`)
+    }
+
+    for (const timeout of ['0', '121', '-1', 'abc', '01', '0001', '+60', ' 60', '60\n', '18446744073709551616', '9'.repeat(100)]) {
+      fs.rmSync(tracePath, { force: true })
+      const rejected = runValidator(checkout, invalidBase, undefined, {
+        FETCH_TIMEOUT_SECONDS: timeout,
+        GIT_TRACE: tracePath,
+      })
+      assert.equal(rejected.status, 2, `timeout ${timeout} must be rejected`)
+      assert.match(rejected.stderr, /Fetch timeout must be a canonical decimal integer from 1 through 120/,
+        `timeout ${timeout} must fail at the timeout guard`)
+      assert.doesNotMatch(rejected.stderr, /commit SHA|Could not fetch|Timed out/,
+        `timeout ${timeout} must be rejected before SHA validation or fetch`)
+      assert.equal(fs.existsSync(tracePath), false, `timeout ${timeout} must not start Git`)
+    }
   })
 })
 
