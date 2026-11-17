@@ -984,14 +984,18 @@ test('legacy policy digests with active authority or audit history are never mig
     authorization: autoPolicyAuthorization(), now: autoMergeAt }), digest: legacyDigest }
   const activeState = createWorkflow({ objectiveId: 'legacy-active-policy', tasks: [work('one')] })
   activeState.automaticMergePolicy = active
+  const activePolicyBefore = structuredClone(activeState.automaticMergePolicy)
   assert.throws(() => validateWorkflow(activeState), /Automatic merge policy is missing, invalid, or out of scope/)
-  assert.equal(activeState.automaticMergePolicy.digest, legacyDigest)
+  assert.deepEqual(activeState.automaticMergePolicy, activePolicyBefore,
+    'rejected active legacy policy must remain completely unchanged')
 
   const auditState = createWorkflow({ objectiveId: 'legacy-policy-audit', tasks: [work('one')] })
   auditState.automaticMergePolicy = { ...auditState.automaticMergePolicy, digest: legacyDigest }
   auditState.automaticMergeEvents = [{ type: 'legacy-policy-event' }]
+  const auditedPolicyBefore = structuredClone(auditState.automaticMergePolicy)
   assert.throws(() => validateWorkflow(auditState), /Automatic merge policy is missing, invalid, or out of scope/)
-  assert.equal(auditState.automaticMergePolicy.digest, legacyDigest)
+  assert.deepEqual(auditState.automaticMergePolicy, auditedPolicyBefore,
+    'rejected legacy policy with audit history must remain completely unchanged')
 })
 
 test('workflow terminates when every task is complete', () => {

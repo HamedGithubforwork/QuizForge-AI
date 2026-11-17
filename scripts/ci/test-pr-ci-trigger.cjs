@@ -20,12 +20,13 @@ function bashExecutable() {
     : 'bash'
 }
 
-function runClassifier(cwd, overrides = {}) {
+function runClassifier(cwd, overrides = {}, classifierContents) {
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'quizforge-ci-classifier-'))
   const changedFiles = path.join(outputDirectory, 'changed-files.txt')
   const githubOutput = path.join(outputDirectory, 'github-output.txt')
   fs.mkdirSync(path.join(cwd, 'scripts', 'ci'), { recursive: true })
-  fs.copyFileSync(classifierPath, path.join(cwd, 'scripts', 'ci', 'classify-changed-files.sh'))
+  fs.writeFileSync(path.join(cwd, 'scripts', 'ci', 'classify-changed-files.sh'),
+    classifierContents ?? fs.readFileSync(classifierPath, 'utf8'))
   fs.copyFileSync(mergeGroupValidatorPath, path.join(cwd, 'scripts', 'ci', 'validate-merge-group-commits.sh'))
   const result = spawnSync(bashExecutable(), ['scripts/ci/classify-changed-files.sh'], {
     cwd,
@@ -437,6 +438,63 @@ test('actual merge-group shell validator handles local Git histories and failure
       } finally {
         result.cleanup()
       }
+    }
+  })
+
+  await t.test('each automatic-merge policy path independently triggers autonomy tests', async t => {
+    const policyPaths = [
+      'scripts/autonomy/automatic-merge-policy.cjs',
+      'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+    ]
+    const originalClassifier = fs.readFileSync(classifierPath, 'utf8')
+    const policyRuleLine = originalClassifier.split(/\r?\n/).find(line =>
+      policyPaths.every(policyPath => line.includes(policyPath)))
+    assert.ok(policyRuleLine, 'classifier must contain both policy paths in its autonomy rule')
+
+    function removePolicyRule(classifierText, policyPath) {
+      let replacements = 0
+      const result = classifierText.replace(policyRuleLine, line => {
+        replacements += 1
+        const indent = line.match(/^\s*/)[0]
+        const rule = line.trim().replace(/\)$/, '')
+        const originalPaths = rule.split('|')
+        const remainingPaths = originalPaths.filter(classifierPath => classifierPath !== policyPath)
+        assert.equal(remainingPaths.length, originalPaths.length - 1,
+          `exactly one rule for ${policyPath} must be removed`)
+        return `${indent}${remainingPaths.join('|')})`
+      })
+      assert.equal(replacements, 1, 'only the intended classifier rule line must change')
+      return result
+    }
+
+    for (const policyPath of policyPaths) {
+      await t.test(`${policyPath} is classified alone and its missing rule fails`, () => {
+        const history = setupSource(`classifier-${path.basename(policyPath)}`, [[policyPath, 'isolated policy change\n']])
+        const env = { EVENT_NAME: 'pull_request', BASE_SHA: history.baseSha, HEAD_SHA: history.headSha }
+        const expected = outputs => {
+          const actual = Object.fromEntries(outputs.trim().split(/\r?\n/).map(line => line.split('=')))
+          assert.equal(actual.autonomy_tests, 'true', `${policyPath} must require autonomy tests`)
+        }
+
+        const correct = runClassifier(history.source, env)
+        try {
+          assert.equal(correct.status, 0, correct.stderr)
+          assert.deepEqual(correct.changed, [policyPath], 'the history must isolate this single changed path')
+          expected(correct.outputs)
+        } finally {
+          correct.cleanup()
+        }
+
+        const missingRule = runClassifier(history.source, env, removePolicyRule(originalClassifier, policyPath))
+        try {
+          assert.equal(missingRule.status, 0, missingRule.stderr)
+          assert.deepEqual(missingRule.changed, [policyPath], 'the mutation must preserve the isolated history')
+          assert.throws(() => expected(missingRule.outputs), /must require autonomy tests/,
+            'the corresponding positive regression assertion must fail when its classifier rule is removed')
+        } finally {
+          missingRule.cleanup()
+        }
+      })
     }
   })
 
