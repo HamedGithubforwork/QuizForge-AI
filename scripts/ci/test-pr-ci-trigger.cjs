@@ -20,12 +20,13 @@ function bashExecutable() {
     : 'bash'
 }
 
-function runClassifier(cwd, overrides = {}) {
+function runClassifier(cwd, overrides = {}, classifierContents) {
   const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'quizforge-ci-classifier-'))
   const changedFiles = path.join(outputDirectory, 'changed-files.txt')
   const githubOutput = path.join(outputDirectory, 'github-output.txt')
   fs.mkdirSync(path.join(cwd, 'scripts', 'ci'), { recursive: true })
-  fs.copyFileSync(classifierPath, path.join(cwd, 'scripts', 'ci', 'classify-changed-files.sh'))
+  fs.writeFileSync(path.join(cwd, 'scripts', 'ci', 'classify-changed-files.sh'),
+    classifierContents ?? fs.readFileSync(classifierPath, 'utf8'))
   fs.copyFileSync(mergeGroupValidatorPath, path.join(cwd, 'scripts', 'ci', 'validate-merge-group-commits.sh'))
   const result = spawnSync(bashExecutable(), ['scripts/ci/classify-changed-files.sh'], {
     cwd,
@@ -169,13 +170,17 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
     'docs/autonomy/integration-task-graph.json',
   ]
-  for (const changedPath of coordinatorPaths) {
+  const policyPaths = [
+    'scripts/autonomy/automatic-merge-policy.cjs',
+    'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+  ]
+  for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(pushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`), `${changedPath} must trigger push CI`)
   }
   const classifier = fs.readFileSync(classifierPath, 'utf8')
   assert.match(classifier, /scripts\/autonomy\/optimization-orchestrator\.cjs\|scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs/,
     'the classifier must group the orchestrator source and its tests')
-  for (const changedPath of coordinatorPaths) {
+  for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(classifier.includes(changedPath), `${changedPath} must mark autonomy tests relevant`)
   }
   assert.match(classifier, /autonomy_tests=true/)
@@ -187,8 +192,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJobStart = workflow.indexOf('  autonomy-tests:')
   const requiredGateStart = workflow.indexOf('  required-pr-gate:', autonomyJobStart)
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
-  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
-    'autonomy CI must execute the trusted integration verifier regression suite when classified relevant')
+  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
+    'autonomy CI must execute policy, coordinator, and verifier regression suites when classified relevant')
 })
 
 function successfulGateInputs(overrides = {}) {
@@ -414,6 +419,8 @@ test('actual merge-group shell validator handles local Git histories and failure
       ['e2e/tests/quiz.spec.ts', 'e2e\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: false, autonomy_tests: false }],
       ['desktop/test/diagnose-targeted-practice.test.cjs', 'desktop\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
       ['scripts/autonomy/integration-coordinator.cjs', 'autonomy\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
+      ['scripts/autonomy/automatic-merge-policy.cjs', 'merge policy\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
+      ['scripts/autonomy/test/automatic-merge-policy.test.cjs', 'merge policy tests\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
     ]
     const history = setupSource('classifier-matrix', cases.map(([file, contents]) => [file, contents]))
     for (let index = 0; index < cases.length; index += 1) {
@@ -431,6 +438,63 @@ test('actual merge-group shell validator handles local Git histories and failure
       } finally {
         result.cleanup()
       }
+    }
+  })
+
+  await t.test('each automatic-merge policy path independently triggers autonomy tests', async t => {
+    const policyPaths = [
+      'scripts/autonomy/automatic-merge-policy.cjs',
+      'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+    ]
+    const originalClassifier = fs.readFileSync(classifierPath, 'utf8')
+    const policyRuleLine = originalClassifier.split(/\r?\n/).find(line =>
+      policyPaths.every(policyPath => line.includes(policyPath)))
+    assert.ok(policyRuleLine, 'classifier must contain both policy paths in its autonomy rule')
+
+    function removePolicyRule(classifierText, policyPath) {
+      let replacements = 0
+      const result = classifierText.replace(policyRuleLine, line => {
+        replacements += 1
+        const indent = line.match(/^\s*/)[0]
+        const rule = line.trim().replace(/\)$/, '')
+        const originalPaths = rule.split('|')
+        const remainingPaths = originalPaths.filter(classifierPath => classifierPath !== policyPath)
+        assert.equal(remainingPaths.length, originalPaths.length - 1,
+          `exactly one rule for ${policyPath} must be removed`)
+        return `${indent}${remainingPaths.join('|')})`
+      })
+      assert.equal(replacements, 1, 'only the intended classifier rule line must change')
+      return result
+    }
+
+    for (const policyPath of policyPaths) {
+      await t.test(`${policyPath} is classified alone and its missing rule fails`, () => {
+        const history = setupSource(`classifier-${path.basename(policyPath)}`, [[policyPath, 'isolated policy change\n']])
+        const env = { EVENT_NAME: 'pull_request', BASE_SHA: history.baseSha, HEAD_SHA: history.headSha }
+        const expected = outputs => {
+          const actual = Object.fromEntries(outputs.trim().split(/\r?\n/).map(line => line.split('=')))
+          assert.equal(actual.autonomy_tests, 'true', `${policyPath} must require autonomy tests`)
+        }
+
+        const correct = runClassifier(history.source, env)
+        try {
+          assert.equal(correct.status, 0, correct.stderr)
+          assert.deepEqual(correct.changed, [policyPath], 'the history must isolate this single changed path')
+          expected(correct.outputs)
+        } finally {
+          correct.cleanup()
+        }
+
+        const missingRule = runClassifier(history.source, env, removePolicyRule(originalClassifier, policyPath))
+        try {
+          assert.equal(missingRule.status, 0, missingRule.stderr)
+          assert.deepEqual(missingRule.changed, [policyPath], 'the mutation must preserve the isolated history')
+          assert.throws(() => expected(missingRule.outputs), /must require autonomy tests/,
+            'the corresponding positive regression assertion must fail when its classifier rule is removed')
+        } finally {
+          missingRule.cleanup()
+        }
+      })
     }
   })
 

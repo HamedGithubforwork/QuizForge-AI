@@ -23,6 +23,10 @@ const MAX_TASKS = 100
 const MAX_SELECTIONS = 50
 const MAX_ATTEMPTS = 3 // one initial attempt plus at most two retries
 const MAX_EVENTS = 1000
+// The previous policy digest described strict checks as an alternative to
+// an atomic target guard. Only its inert default state is migrated; a prior
+// activation or automatic-merge audit history must be reviewed under the new digest.
+const LEGACY_DISABLED_AUTO_MERGE_POLICY_DIGEST = '2f59f4a1a2bfb56ad87222881c99b8f2124fbc4be423cfaf3c790e564bb07ff4'
 // No trusted provider exists for policy authorization or actual merge execution.
 const TRUSTED_GITHUB_MERGE_VERIFICATION_PROVIDER_AVAILABLE = false
 const verifiedHistoricalMerges = new WeakMap()
@@ -515,6 +519,15 @@ function validateWorkflow(state) {
   if (state && typeof state === 'object' && state.schemaVersion === SCHEMA_VERSION) {
     state.automaticMergePolicy ??= defaultAutomaticMergePolicy()
     state.automaticMergeEvents ??= []
+    const legacyDisabledPolicy = { ...defaultAutomaticMergePolicy(), digest: LEGACY_DISABLED_AUTO_MERGE_POLICY_DIGEST }
+    if (state.automaticMergePolicy.status === 'disabled' && state.automaticMergeEvents.length === 0 &&
+        Object.keys(state.automaticMergePolicy).length === Object.keys(legacyDisabledPolicy).length &&
+        Object.keys(legacyDisabledPolicy).every(key => Object.hasOwn(state.automaticMergePolicy, key) &&
+          state.automaticMergePolicy[key] === legacyDisabledPolicy[key])) {
+      // A disabled default has no authority to preserve. Upgrade it in memory
+      // so the stricter digest is written on the next normal checkpoint save.
+      state.automaticMergePolicy = defaultAutomaticMergePolicy()
+    }
     for (const task of state.tasks ?? []) {
       if (task && !Object.hasOwn(task, 'automaticMergeDecision')) task.automaticMergeDecision = null
     }
