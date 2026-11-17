@@ -22,6 +22,7 @@ on:
       - ".python-version"
       - ".github/workflows/ci.yml"
       - "scripts/ci/test-pr-ci-trigger.cjs"
+      - "scripts/ci/classify-changed-files.sh"
       - "scripts/ci/validate-merge-group-commits.sh"
       - "scripts/ci/verify-required-pr-gate.cjs"
       - ".github/workflows/deployment-smoke.yml"
@@ -67,67 +68,10 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          CHANGED_FILES_PATH: ${{ runner.temp }}/changed-files.txt
         run: |
           set -euo pipefail
-
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            [[ "${BASE_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid pull request base SHA." >&2; exit 1; }
-            [[ "${HEAD_SHA}" =~ ^[[:xdigit:]]{40}$ ]] || { echo "Invalid pull request head SHA." >&2; exit 1; }
-            git cat-file -e "${BASE_SHA}^{commit}"
-            git cat-file -e "${HEAD_SHA}^{commit}"
-            git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
-          elif [[ "${EVENT_NAME}" == "merge_group" ]]; then
-            bash scripts/ci/validate-merge-group-commits.sh > changed-files.txt
-          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
-            git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
-          else
-            git show --pretty="" --name-only "${CURRENT_SHA}" > changed-files.txt
-          fi
-
-          echo "Changed files:"
-          cat changed-files.txt
-
-          backend=false
-          frontend=false
-          playwright=false
-          desktop_diagnostic=false
-          autonomy_tests=false
-
-          while IFS= read -r file; do
-            case "${file}" in
-              backend/*|.python-version)
-                backend=true
-                ;;
-              .github/workflows/backend-ecr.yml)
-                backend=true
-                ;;
-              frontend/*)
-                frontend=true
-                playwright=true
-                ;;
-              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/deployment-smoke.yml)
-                playwright=true
-                ;;
-              .github/workflows/ci.yml)
-                backend=true
-                frontend=true
-                playwright=true
-                autonomy_tests=true
-                ;;
-              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
-                desktop_diagnostic=true
-                ;;
-              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
-                autonomy_tests=true
-                ;;
-            esac
-          done < changed-files.txt
-
-          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
-          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
-          echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
-          echo "desktop_diagnostic=${desktop_diagnostic}" >> "${GITHUB_OUTPUT}"
-          echo "autonomy_tests=${autonomy_tests}" >> "${GITHUB_OUTPUT}"
+          bash scripts/ci/classify-changed-files.sh
 
   backend-tests:
     name: Backend tests

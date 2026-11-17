@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict')
-const { execFileSync, spawnSync } = require('node:child_process')
+const { spawnSync } = require('node:child_process')
+const http = require('node:http')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
@@ -9,7 +10,35 @@ const { verifyRequiredPrGate } = require('./verify-required-pr-gate.cjs')
 
 const repositoryRoot = path.resolve(__dirname, '../..')
 const workflowPath = path.join(repositoryRoot, '.github/workflows/ci.yml')
+const classifierPath = path.join(repositoryRoot, 'scripts/ci/classify-changed-files.sh')
+const mergeGroupValidatorPath = path.join(repositoryRoot, 'scripts/ci/validate-merge-group-commits.sh')
 const requiredGateName = 'Required PR gate'
+
+function bashExecutable() {
+  return process.platform === 'win32' && fs.existsSync('C:/Program Files/Git/bin/bash.exe')
+    ? 'C:/Program Files/Git/bin/bash.exe'
+    : 'bash'
+}
+
+function runClassifier(cwd, overrides = {}) {
+  const outputDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'quizforge-ci-classifier-'))
+  const changedFiles = path.join(outputDirectory, 'changed-files.txt')
+  const githubOutput = path.join(outputDirectory, 'github-output.txt')
+  fs.mkdirSync(path.join(cwd, 'scripts', 'ci'), { recursive: true })
+  fs.copyFileSync(classifierPath, path.join(cwd, 'scripts', 'ci', 'classify-changed-files.sh'))
+  fs.copyFileSync(mergeGroupValidatorPath, path.join(cwd, 'scripts', 'ci', 'validate-merge-group-commits.sh'))
+  const result = spawnSync(bashExecutable(), ['scripts/ci/classify-changed-files.sh'], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_OUTPUT: githubOutput, CHANGED_FILES_PATH: changedFiles, ...overrides },
+  })
+  return {
+    ...result,
+    outputs: fs.existsSync(githubOutput) ? fs.readFileSync(githubOutput, 'utf8') : '',
+    changed: fs.existsSync(changedFiles) ? fs.readFileSync(changedFiles, 'utf8').trimEnd().split(/\r?\n/).filter(Boolean) : [],
+    cleanup: () => fs.rmSync(outputDirectory, { recursive: true, force: true }),
+  }
+}
 
 function pullRequestTriggerBlock(workflowText) {
   const lines = workflowText.split(/\r?\n/)
@@ -78,14 +107,13 @@ test('backend ECR workflow changes use Required PR backend validation without du
       `${ciPolicyPath} must run workflow-policy CI when changed on main`)
   }
 
-  const classifierStart = ciWorkflow.indexOf('          while IFS= read -r file; do')
-  const classifierEnd = ciWorkflow.indexOf('          done < changed-files.txt', classifierStart)
-  const classifier = ciWorkflow.slice(classifierStart, classifierEnd)
-  const ecrWorkflowCase = classifier.match(/\.github\/workflows\/backend-ecr\.yml\)\r?\n([\s\S]*?)\r?\n\s+;;/)
-  assert.ok(ecrWorkflowCase, 'ECR workflow edits must have an explicit relevance classification')
-  assert.match(ecrWorkflowCase[1], /backend=true/, 'ECR workflow edits must require the backend validation job')
-  assert.doesNotMatch(ecrWorkflowCase[1], /frontend=true|playwright=true|autonomy_tests=true/,
-    'ECR workflow edits should not run unrelated conditional suites')
+  assert.ok(ciWorkflow.includes('bash scripts/ci/classify-changed-files.sh'),
+    'CI must execute the same checked-in classifier exercised by tests')
+  assert.ok(ciPushBlock.split(/\r?\n/).includes('      - "scripts/ci/classify-changed-files.sh"'),
+    'classifier changes must trigger push CI')
+  const classifier = fs.readFileSync(classifierPath, 'utf8')
+  assert.match(classifier, /\.github\/workflows\/backend-ecr\.yml\)[\s\S]*?backend=true/,
+    'ECR workflow edits must require the backend validation job')
 
   assert.doesNotMatch(ecrWorkflow, /^  pull_request:/m,
     'the ECR workflow must not duplicate CI backend builds on pull requests')
@@ -144,14 +172,13 @@ test('integration coordinator source and tests trigger autonomy verification', (
   for (const changedPath of coordinatorPaths) {
     assert.ok(pushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`), `${changedPath} must trigger push CI`)
   }
-  assert.ok(workflow.includes(`${coordinatorPaths[0]}|${coordinatorPaths[1]}`), 'both paths must mark autonomy tests relevant')
-  const classifierStart = workflow.indexOf('          while IFS= read -r file; do')
-  const classifierEnd = workflow.indexOf('          done < changed-files.txt', classifierStart)
-  const classifier = workflow.slice(classifierStart, classifierEnd)
+  const classifier = fs.readFileSync(classifierPath, 'utf8')
+  assert.match(classifier, /scripts\/autonomy\/optimization-orchestrator\.cjs\|scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs/,
+    'the classifier must group the orchestrator source and its tests')
   for (const changedPath of coordinatorPaths) {
     assert.ok(classifier.includes(changedPath), `${changedPath} must mark autonomy tests relevant`)
   }
-  assert.match(workflow, /autonomy_tests=true/)
+  assert.match(classifier, /autonomy_tests=true/)
   const ciWorkflowCase = classifier.match(/\.github\/workflows\/ci\.yml\)\r?\n([\s\S]*?)\r?\n\s+;;/)
   assert.ok(ciWorkflowCase, 'CI workflow changes must be classified')
   assert.match(ciWorkflowCase[1], /autonomy_tests=true/, 'CI workflow changes must run autonomy tests')
@@ -294,18 +321,21 @@ test('CI supports checks_requested for main merge groups and preserves ordinary 
   assert.match(workflow, /- workflow-policy-tests/)
 })
 
-test('merge-group changed-file detection validates immutable SHAs and base commit availability', () => {
+test('workflow delegates merge-group classification and ancestry checks to shared helpers', () => {
   const workflow = fs.readFileSync(workflowPath, 'utf8')
   const classifierStart = workflow.indexOf('      - name: Classify changed files')
   const classifierEnd = workflow.indexOf('      - name:', classifierStart + 10)
-  const classifier = workflow.slice(classifierStart, classifierEnd)
-  assert.match(classifier, /EVENT_NAME.*merge_group/)
-  assert.match(classifier, /MERGE_GROUP_BASE_SHA: \$\{\{ github\.event\.merge_group\.base_sha \}\}/)
-  assert.match(classifier, /MERGE_GROUP_HEAD_SHA: \$\{\{ github\.event\.merge_group\.head_sha \}\}/)
-  assert.match(classifier, /bash scripts\/ci\/validate-merge-group-commits\.sh > changed-files\.txt/)
-  const helper = fs.readFileSync(path.join(repositoryRoot, 'scripts/ci/validate-merge-group-commits.sh'), 'utf8')
-  assert.match(helper, /git fetch --no-tags origin refs\/heads\/main/)
-  assert.match(helper, /git fetch --unshallow --no-tags origin refs\/heads\/main/)
+  const step = workflow.slice(classifierStart, classifierEnd)
+  assert.match(step, /MERGE_GROUP_BASE_SHA: \$\{\{ github\.event\.merge_group\.base_sha \}\}/)
+  assert.match(step, /MERGE_GROUP_HEAD_SHA: \$\{\{ github\.event\.merge_group\.head_sha \}\}/)
+  assert.match(step, /bash scripts\/ci\/classify-changed-files\.sh/)
+  const classifier = fs.readFileSync(classifierPath, 'utf8')
+  assert.match(classifier, /case "\$\{EVENT_NAME\}" in[\s\S]*merge_group\)/)
+  assert.match(classifier, /bash "\$\{SCRIPT_DIR\}\/validate-merge-group-commits\.sh"/)
+  const helper = fs.readFileSync(mergeGroupValidatorPath, 'utf8')
+  assert.match(helper, /FETCH_TIMEOUT_MAX_SECONDS=120/)
+  assert.match(helper, /FETCH_TIMEOUT_SECONDS="\$\{FETCH_TIMEOUT_SECONDS:-\$\{FETCH_TIMEOUT_MAX_SECONDS\}\}"/)
+  assert.match(helper, /timeout --signal=TERM --kill-after=10s/)
   assert.match(helper, /git merge-base --is-ancestor "\$\{BASE_SHA\}" "\$\{HEAD_SHA\}"/)
 })
 
@@ -328,21 +358,28 @@ test('actual merge-group shell validator handles local Git histories and failure
     assert.equal(result.status, 0, result.stderr)
   }
   const commitFile = (repoPath, name, contents, message) => {
-    fs.writeFileSync(path.join(repoPath, name), contents)
+    const filePath = path.join(repoPath, name)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, contents)
     runGit(repoPath, ['add', name])
     runGit(repoPath, ['-c', 'user.name=QuizForge CI test', '-c', 'user.email=ci-test@example.invalid', 'commit', '-m', message])
     return gitOutput(repoPath, ['rev-parse', 'HEAD'])
   }
-  const setupSource = name => {
+  const setupSource = (name, changedFiles = [['head.txt', 'head\n']]) => {
     const source = path.join(temporaryRoot, `${name}-source`)
     const remote = path.join(temporaryRoot, `${name}-remote.git`)
     initRepo(source)
     initRepo(remote, true)
     const baseSha = commitFile(source, 'base.txt', 'base\n', 'base')
-    const headSha = commitFile(source, 'head.txt', 'head\n', 'head')
+    let headSha = baseSha
+    const commitShas = []
+    for (const [file, contents] of changedFiles) {
+      headSha = commitFile(source, file, contents, `change ${file}`)
+      commitShas.push(headSha)
+    }
     runGit(source, ['remote', 'add', 'origin', remote])
     runGit(source, ['push', '-u', 'origin', 'main'])
-    return { source, remote, baseSha, headSha }
+    return { source, remote, baseSha, headSha, commitShas }
   }
   const clone = (remote, name) => {
     const destination = path.join(temporaryRoot, name)
@@ -350,17 +387,14 @@ test('actual merge-group shell validator handles local Git histories and failure
     assert.equal(result.status, 0, result.stderr)
     return destination
   }
-  const runValidator = (repoPath, values, remoteOverride) => {
+  const runValidator = (repoPath, values, remoteOverride, extraEnv = {}) => {
     if (remoteOverride) runGit(repoPath, ['remote', 'set-url', 'origin', remoteOverride])
     const helper = fs.readFileSync(path.join(repositoryRoot, 'scripts/ci/validate-merge-group-commits.sh'), 'utf8')
-    const bash = process.platform === 'win32' && fs.existsSync('C:/Program Files/Git/bin/bash.exe')
-      ? 'C:/Program Files/Git/bin/bash.exe'
-      : 'bash'
-    return spawnSync(bash, ['-s'], {
+    return spawnSync(bashExecutable(), ['-s'], {
       cwd: repoPath,
       input: helper,
       encoding: 'utf8',
-      env: { ...process.env, ...values },
+      env: { ...process.env, ...values, ...extraEnv },
     })
   }
   const baseEnvironment = (baseSha, headSha, currentSha = headSha) => ({
@@ -369,12 +403,72 @@ test('actual merge-group shell validator handles local Git histories and failure
     CURRENT_SHA: currentSha,
   })
 
+  await t.test('the workflow classifier handles relevant and unrelated changed paths from real temporary Git diffs', () => {
+    const cases = [
+      ['docs/only.md', 'docs\n', { backend: false, frontend: false, playwright: false, desktop_diagnostic: false, autonomy_tests: false }],
+      ['.github/workflows/backend-ecr.yml', 'ecr workflow\n', { backend: true, frontend: false, playwright: false, desktop_diagnostic: false, autonomy_tests: false }],
+      ['backend/api.py', 'backend\n', { backend: true, frontend: false, playwright: false, desktop_diagnostic: false, autonomy_tests: false }],
+      ['frontend/src/page.tsx', 'frontend\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: false, autonomy_tests: false }],
+      ['e2e/tests/quiz.spec.ts', 'e2e\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: false, autonomy_tests: false }],
+      ['desktop/test/diagnose-targeted-practice.test.cjs', 'desktop\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
+      ['scripts/autonomy/integration-coordinator.cjs', 'autonomy\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
+    ]
+    const history = setupSource('classifier-matrix', cases.map(([file, contents]) => [file, contents]))
+    for (let index = 0; index < cases.length; index += 1) {
+      const [file, , expected] = cases[index]
+      const result = runClassifier(history.source, {
+        EVENT_NAME: 'pull_request', BASE_SHA: history.baseSha, HEAD_SHA: history.commitShas[index],
+      })
+      try {
+        assert.equal(result.status, 0, result.stderr)
+        assert.deepEqual(result.changed.slice().sort(), cases.slice(0, index + 1).map(([changed]) => changed).sort(),
+          'the complete changed-file list must contain only paths changed since the base')
+        const outputs = Object.fromEntries(result.outputs.trim().split(/\r?\n/).map(line => line.split('=')))
+        assert.deepEqual(outputs, Object.fromEntries(Object.entries(expected).map(([key, value]) => [key, String(value)])),
+          `relevance outputs for ${file}`)
+      } finally {
+        result.cleanup()
+      }
+    }
+  })
+
+  await t.test('merge-group classifier accepts valid context and rejects mismatched or unsupported events', () => {
+    const history = setupSource('classifier-merge-group')
+    const valid = runClassifier(history.source, {
+      EVENT_NAME: 'merge_group',
+      ...baseEnvironment(history.baseSha, history.headSha),
+      MERGE_GROUP_BASE_SHA: history.baseSha,
+      MERGE_GROUP_HEAD_SHA: history.headSha,
+    })
+    try {
+      assert.equal(valid.status, 0, valid.stderr)
+      assert.deepEqual(valid.changed, ['head.txt'])
+      assert.match(valid.outputs, /^backend=false$/m)
+    } finally {
+      valid.cleanup()
+    }
+
+    for (const env of [
+      { EVENT_NAME: 'merge_group', ...baseEnvironment(history.baseSha, history.headSha, 'd'.repeat(40)), MERGE_GROUP_BASE_SHA: history.baseSha, MERGE_GROUP_HEAD_SHA: history.headSha },
+      { EVENT_NAME: 'merge_group', CURRENT_SHA: history.headSha, MERGE_GROUP_BASE_SHA: 'bad', MERGE_GROUP_HEAD_SHA: history.headSha },
+      { EVENT_NAME: 'not_merge_group', CURRENT_SHA: history.headSha },
+    ]) {
+      const invalid = runClassifier(history.source, env)
+      try {
+        assert.notEqual(invalid.status, 0)
+        assert.equal(invalid.outputs, '')
+      } finally {
+        invalid.cleanup()
+      }
+    }
+  })
+
   await t.test('valid base/head verifies ancestry and emits the changed path', () => {
     const history = setupSource('valid')
     const checkout = clone(history.remote, 'valid-checkout')
     const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /head\.txt/)
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/).sort(), ['head.txt'])
   })
 
   await t.test('missing local base is fetched and then verified', () => {
@@ -389,7 +483,7 @@ test('actual merge-group shell validator handles local Git histories and failure
 
     const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.stdout, /head\.txt/)
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/).sort(), ['head.txt'])
     assert.equal(runGit(checkout, ['cat-file', '-e', `${history.baseSha}^{commit}`]).status, 0)
   })
 
@@ -406,6 +500,40 @@ test('actual merge-group shell validator handles local Git histories and failure
 
     const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha))
     assert.notEqual(result.status, 0)
+  })
+
+  await t.test('stalled fetch times out and unsuccessful fetch fails without exposing remote diagnostics', async () => {
+    const history = setupSource('bounded-fetch')
+    const checkout = path.join(temporaryRoot, 'bounded-fetch-checkout')
+    initRepo(checkout)
+    runGit(checkout, ['remote', 'add', 'origin', pathToFileURL(history.remote).href])
+    runGit(checkout, ['fetch', '--depth=1', 'origin', 'main'])
+    runGit(checkout, ['checkout', '--detach', 'FETCH_HEAD'])
+    const server = http.createServer(() => {})
+    server.listen(0, '127.0.0.1')
+    await new Promise((resolve, reject) => {
+      server.once('listening', resolve)
+      server.once('error', reject)
+    })
+    runGit(checkout, ['remote', 'set-url', 'origin', `http://127.0.0.1:${server.address().port}/stalled.git`])
+    const timedOut = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha), undefined, {
+      FETCH_TIMEOUT_SECONDS: '1',
+      NO_PROXY: '127.0.0.1,localhost',
+      no_proxy: '127.0.0.1,localhost',
+    })
+    server.closeAllConnections?.()
+    await new Promise(resolve => server.close(resolve))
+    assert.notEqual(timedOut.status, 0)
+    assert.match(timedOut.stderr, /Timed out after 1s/)
+
+    const emptyRemote = path.join(temporaryRoot, 'synthetic-only-empty.git')
+    initRepo(emptyRemote, true)
+    runGit(checkout, ['remote', 'set-url', 'origin', pathToFileURL(emptyRemote).href])
+    const failed = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha), undefined,
+      { FETCH_TIMEOUT_SECONDS: '1' })
+    assert.notEqual(failed.status, 0)
+    assert.match(failed.stderr, /Could not fetch merge-group base history/)
+    assert.doesNotMatch(failed.stderr, /synthetic-only|https?:\/\//)
   })
 
   await t.test('available but non-ancestor base exits nonzero', () => {
@@ -447,12 +575,30 @@ test('actual merge-group shell validator handles local Git histories and failure
       assert.notEqual(result.status, 0)
     }
   })
+
+  await t.test('fetch timeout override cannot exceed the documented maximum', () => {
+    const history = setupSource('fetch-timeout-bound')
+    const checkout = clone(history.remote, 'fetch-timeout-bound-checkout')
+    const result = runValidator(checkout, baseEnvironment(history.baseSha, history.headSha), undefined,
+      { FETCH_TIMEOUT_SECONDS: '121' })
+    assert.equal(result.status, 2)
+    assert.match(result.stderr, /no greater than 120s/)
+  })
 })
 
 test('gate accepts valid merge-group context and stacked pull-request targets', () => {
-  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: 'codex/stacked-parent' })))
-  assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: 'release/+candidate@v2' })))
+  for (const target of ['codex/stacked-parent', 'release/+candidate@v2', 'refs/topic', 'feature/@version', 'UPPER_case-1', '@']) {
+    assert.equal(spawnSync('git', ['check-ref-format', '--branch', target]).status, 0, `${target} must be valid by Git branch rules`)
+    assert.doesNotThrow(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: target })), target)
+  }
   assert.doesNotThrow(() => verifyRequiredPrGate(mergeGroupInputs()))
+})
+
+test('gate rejects invalid Git branch names while accepting refs-prefixed short names', () => {
+  for (const target of ['', '-leading-dash', 'branch with spaces', 'refs//topic', 'name..part', 'trailing.', 'bad.lock', 'slash//again', 'name@{upstream}']) {
+    assert.notEqual(spawnSync('git', ['check-ref-format', '--branch', target]).status, 0, `${target} must be invalid by Git branch rules`)
+    assert.throws(() => verifyRequiredPrGate(successfulGateInputs({ CI_TARGET_REF: target })), undefined, JSON.stringify(target))
+  }
 })
 
 test('gate rejects mismatched repository identity and malformed pull-request context', () => {
@@ -465,9 +611,7 @@ test('gate rejects mismatched repository identity and malformed pull-request con
     { CI_PR_NUMBER: '' },
     { CI_REF: 'refs/pull/43/merge' },
     { CI_TARGET_REF: '' },
-    { CI_TARGET_REF: 'refs/heads/main' },
     { CI_TARGET_REF: 'branch with spaces' },
-    { CI_TARGET_REF: '@' },
     { CI_PR_BASE_SHA: 'b'.repeat(39) },
     { CI_PR_HEAD_SHA: '' },
     { CI_SHA: 'not-a-sha' },

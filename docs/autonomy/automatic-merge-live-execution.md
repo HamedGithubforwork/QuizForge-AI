@@ -79,8 +79,11 @@ ensure an up-to-date topic branch for a PR targeting protected `main`, so a
 main advance makes old checks inapplicable until the branch is updated. They
 do not atomically prevent a concurrent retarget to an unprotected branch
 between preflight and the merge request. The current ruleset has no merge
-queue, and the workflows are not configured for `merge_group`. No currently
-verified atomic target/base guard closes that race.
+queue. The CI workflow is configured to handle `merge_group`
+`checks_requested` events targeting `main`, but no real merge-group run has
+been observed. Workflow support is not evidence that GitHub's merge queue is
+enabled or enforced, and it does not validate actual queue execution. No
+currently verified atomic target/base guard closes that race.
 
 Because live host calls cannot be authenticated to repository code, the local
 policy evaluator is fail-closed, the target ref cannot be atomically bound by
@@ -121,9 +124,12 @@ Strict required status checks require the topic branch to be up to date with
 its target. For stacked PRs, use the actual stack trunk and current base/head
 relationship shown by GitHub. Integrate dependencies bottom-up, then update
 the next PR's base and re-run its Required PR gate where needed. Do not assume
-that a prior green run remains applicable after a base change. Merge queue
-verification is not used unless the active ruleset requires it and the current
-workflows explicitly handle the `merge_group` event.
+that a prior green run remains applicable after a base change. The CI workflow
+recognizes `merge_group` `checks_requested` events targeting `main`, but
+GitHub's merge queue is not enabled or enforced, and no actual merge-group run
+has validated that path. Configured workflow support and a successful
+merge-group check do not authorize a merge or activate the separate trusted
+automatic-merge policy; that policy remains disabled and fail-closed.
 
 The policy remains disabled. Separate integration and activation approvals do
 not make automatic merging operational until the trusted provider and atomic
