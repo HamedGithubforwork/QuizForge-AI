@@ -37,8 +37,12 @@ job, including after a lost HTTP response. At most sixteen job records and
 reserve their input size plus 8 MiB for completed page text. Busy submissions receive
 429 with Retry-After; a stopped queue fails closed with 503.
 
-The existing 15 MiB file, 100 total pages, 30 scanned pages, page-dimension,
-8 MiB result and 768 MiB worker address-space limits remain. The child retains its
+The synchronous upload path enforces the existing 15 MiB file and 100 total-page
+limits before extraction; it returns at most 100 page previews, each capped at
+300 characters. The 200-page ceiling is only a proposal and is not adopted; a
+change to that product limit requires an explicit decision and resource-bound
+validation. The background worker retains its 30-scanned-page and page-dimension
+limits, 8 MiB result cap, and 768 MiB address-space cap. The child retains its
 90-second soft / 95-second hard CPU-time limit. A background job has a separate
 600-second wall deadline; it does not hold an HTTP request for that duration.
 The synchronous worker deadline is still 120 seconds. Timed-out/cancelled workers
