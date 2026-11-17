@@ -30,7 +30,7 @@ async function readGithub(url) {
 }
 
 function blocked(reason) {
-  return Object.freeze({ verified: false, mergeAuthorized: false, reason })
+  return Object.freeze({ status: 'UNVERIFIED', mergeAuthorized: false, reason })
 }
 
 function ruleAppliesToMain(ruleset) {
@@ -53,6 +53,40 @@ function checkRuleset(ruleset) {
   if (!ruleset.rules.some(rule => rule.type === 'pull_request')) return 'pr_protection_missing'
   if (!ruleset.rules.some(rule => rule.type === 'merge_queue')) return 'merge_queue_not_enforced'
   return null
+}
+
+function runIncludesExactPullRequest(run, { prNumber, headSha, baseSha }) {
+  if (!Array.isArray(run?.pull_requests) || run.pull_requests.length > 100) return false
+  return run.pull_requests.some(pr => pr?.number === prNumber &&
+    pr.head?.repo?.id === REPOSITORY_ID && pr.head?.sha === headSha &&
+    pr.base?.repo?.id === REPOSITORY_ID && pr.base?.ref === TARGET && pr.base?.sha === baseSha)
+}
+
+function exactRequiredGate(checks, expected) {
+  if (!Number.isInteger(checks?.total_count) || checks.total_count < 1 ||
+      checks.total_count > 100 || !Array.isArray(checks.check_runs) ||
+      checks.check_runs.length !== checks.total_count) return null
+  const gates = checks.check_runs.filter(check => check.name === REQUIRED_GATE)
+  if (gates.length !== 1) return null
+  const gate = gates[0]
+  const urlMatch = typeof gate.details_url === 'string' && gate.details_url.match(
+    /^https:\/\/github\.com\/HamedGithubforwork\/QuizForge-AI\/actions\/runs\/([1-9][0-9]*)\/job\/[1-9][0-9]*$/)
+  if (gate.app?.id !== GITHUB_ACTIONS_APP_ID || gate.head_sha !== expected.headSha ||
+      gate.status !== 'completed' || gate.conclusion !== 'success' ||
+      !Number.isSafeInteger(gate.check_suite?.id) || !urlMatch ||
+      (expected.checkId !== undefined && gate.id !== expected.checkId) ||
+      (expected.checkSuiteId !== undefined && gate.check_suite.id !== expected.checkSuiteId) ||
+      (expected.runId !== undefined && Number(urlMatch[1]) !== expected.runId)) return null
+  return { gate, runId: Number(urlMatch[1]) }
+}
+
+function exactCiRun(run, expected) {
+  return run?.id === expected.runId && run.workflow_id === CI_WORKFLOW_ID &&
+    run.path === '.github/workflows/ci.yml' && run.event === 'pull_request' &&
+    run.head_sha === expected.headSha && run.check_suite_id === expected.checkSuiteId &&
+    run.status === 'completed' && run.conclusion === 'success' &&
+    run.repository?.id === REPOSITORY_ID &&
+    runIncludesExactPullRequest(run, expected)
 }
 
 async function inspectGithubNativePreflight({ prNumber, read = readGithub } = {}) {
@@ -81,49 +115,45 @@ async function inspectGithubNativePreflight({ prNumber, read = readGithub } = {}
       read(API + '/commits/' + head + '/check-runs?per_page=100'),
       read(API + '/commits/' + head + '/pulls?per_page=100'),
     ])
-    if (!Number.isInteger(checks?.total_count) || checks.total_count < 1 ||
-        checks.total_count > 100 || !Array.isArray(checks.check_runs) ||
-        checks.check_runs.length !== checks.total_count || !Array.isArray(associated) ||
+    if (!Array.isArray(associated) ||
         associated.length > 100 || !associated.some(p => p.number === prNumber &&
           p.head?.sha === head && p.base?.repo?.id === REPOSITORY_ID && p.base?.ref === TARGET)) {
       return blocked('github_check_or_pr_association_unverified')
     }
-    const gates = checks.check_runs.filter(check => check.name === REQUIRED_GATE)
-    if (gates.length !== 1) return blocked('required_gate_ambiguous_or_missing')
-    const gate = gates[0]
-    const urlMatch = typeof gate.details_url === 'string' && gate.details_url.match(
-      /^https:\/\/github\.com\/HamedGithubforwork\/QuizForge-AI\/actions\/runs\/([1-9][0-9]*)\/job\/[1-9][0-9]*$/)
-    if (gate.app?.id !== GITHUB_ACTIONS_APP_ID || gate.head_sha !== head ||
-        gate.status !== 'completed' || gate.conclusion !== 'success' ||
-        !Number.isSafeInteger(gate.check_suite?.id) || !urlMatch) return blocked('required_gate_unverified')
-    const run = await read(API + '/actions/runs/' + urlMatch[1])
-    if (run?.id !== Number(urlMatch[1]) || run.workflow_id !== CI_WORKFLOW_ID ||
-        run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
-        run.head_sha !== head || run.check_suite_id !== gate.check_suite.id ||
-        run.status !== 'completed' || run.conclusion !== 'success' ||
-        run.repository?.id !== REPOSITORY_ID) return blocked('ci_run_unverified')
+    const gateResult = exactRequiredGate(checks, { headSha: head })
+    if (!gateResult) return blocked('required_gate_unverified')
+    const { gate, runId } = gateResult
+    const run = await read(API + '/actions/runs/' + runId)
+    const runScope = { runId, prNumber, headSha: head, baseSha: base, checkSuiteId: gate.check_suite.id }
+    if (!exactCiRun(run, runScope)) return blocked('ci_run_unverified')
 
     const ruleFailure = checkRuleset(ruleset)
     if (ruleFailure) return blocked(ruleFailure)
 
     // Multi-read TOCTOU guard. A future privileged executor needs atomic queue
     // admission as well; this read-only observation cannot authorize a merge.
-    const [finalPr, finalMain, finalRules, finalRepo] = await Promise.all([
+    const [finalPr, finalMain, finalRules, finalRepo, finalChecks] = await Promise.all([
       read(API + '/pulls/' + prNumber), read(API + '/branches/' + TARGET),
       read(API + '/rulesets/' + RULESET_ID), read(API),
+      read(API + '/commits/' + head + '/check-runs?per_page=100'),
     ])
+    const finalGateResult = exactRequiredGate(finalChecks, {
+      headSha: head, checkId: gate.id, checkSuiteId: gate.check_suite.id, runId,
+    })
+    const finalRun = await read(API + '/actions/runs/' + runId)
     if (finalPr?.head?.sha !== head || finalPr?.base?.sha !== base ||
         finalPr?.state !== 'open' || finalPr?.draft !== false ||
         finalPr?.merged !== false || finalPr?.mergeable !== true ||
         finalPr?.base?.ref !== TARGET || finalPr?.base?.repo?.id !== REPOSITORY_ID ||
         finalMain?.commit?.sha !== base || finalMain?.protected !== true ||
         finalRepo?.id !== REPOSITORY_ID || finalRepo?.owner?.id !== OWNER_ID ||
-        finalRepo?.allow_auto_merge !== false || checkRuleset(finalRules)) {
+        finalRepo?.allow_auto_merge !== false || checkRuleset(finalRules) ||
+        !finalGateResult || !exactCiRun(finalRun, runScope)) {
       return blocked('state_changed_during_preflight')
     }
 
     return Object.freeze({
-      verified: true, mergeAuthorized: false, reason: 'read_only_preflight_only',
+      status: 'OBSERVATION_ONLY', mergeAuthorized: false, reason: 'read_only_preflight_only',
       repositoryId: REPOSITORY_ID, prNumber, headSha: head, baseSha: base,
       requiredGateCheckId: gate.id, ciRunId: run.id, rulesetId: RULESET_ID,
     })

@@ -19,11 +19,11 @@ This changes the assurance: **independently verified GitHub checks and formal re
 
 - Open, non-draft, mergeable PR targeting protected `main` at the exact current base SHA
 - GitHub-associated PR head and a successful `Required PR gate` check from the expected GitHub Actions app
-- The matching successful CI workflow run and check-suite ID
+- The matching successful CI workflow run, check-suite ID, and the run's own PR association for the exact PR number, head SHA, `main` target, and base SHA
 - Active strict protection and lack of ruleset bypass actors
-- Merge-queue rule presence and final re-read of PR/main/repository/ruleset state
+- Merge-queue rule presence and final re-read of PR/main/repository/ruleset, Required PR gate, and workflow-run state
 
-The preflight requires no privileged GitHub token and performs **no writes**. It **never outputs merge authorization**, even in the positive unit-test scenario. Mocked `read` calls are strictly a test seam, not trusted evidence. A future privileged implementation must execute reviewed policy code from a protected revision and never from an untrusted candidate PR.
+The preflight requires no privileged GitHub token and performs **no writes**. A successful result is labeled `OBSERVATION_ONLY`; it is not a durable attestation and never outputs merge authorization. Mocked `read` calls are strictly a test seam, not trusted evidence. A future privileged implementation must execute reviewed policy code from a protected revision and never from an untrusted candidate PR.
 
 Main currently does **not** enforce a merge queue, so real preflight checks must fail closed with `merge_queue_not_enforced` or another unmet prerequisite. Merely finding a queue rule will not prove successful real merge-group execution.
 

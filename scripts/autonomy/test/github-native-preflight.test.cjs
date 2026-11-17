@@ -30,7 +30,9 @@ function fixture() {
   const association = [{number:prNumber,head:{sha:head},base:{ref:'main',repo:{id:repo.id}}}]
   const run = {id:runId,workflow_id:330113334,path:'.github/workflows/ci.yml',
     event:'pull_request',head_sha:head,check_suite_id:111,
-    status:'completed',conclusion:'success',repository:{id:repo.id}}
+    status:'completed',conclusion:'success',repository:{id:repo.id},
+    pull_requests:[{number:prNumber,head:{sha:head,repo:{id:repo.id}},
+      base:{ref:'main',sha:base,repo:{id:repo.id}}}]}
   const values = {
     [root]:repo,
     [root+'/pulls/'+prNumber]:pr,
@@ -50,7 +52,8 @@ async function inspect(f, read) {
 
 test('successful GitHub preflight is never automatic merge authority',async()=>{
   const r=await inspect(fixture())
-  assert.equal(r.verified,true)
+  assert.equal(r.status,'OBSERVATION_ONLY')
+  assert.equal(Object.hasOwn(r,'verified'),false)
   assert.equal(r.mergeAuthorized,false)
   assert.equal(r.reason,'read_only_preflight_only')
   assert.equal(r.headSha,head)
@@ -69,8 +72,14 @@ const cases = [
   ['wrong workflow identity', f=>f.run.workflow_id=1234,'ci_run_unverified'],
   ['failed workflow', f=>f.run.conclusion='failure','ci_run_unverified'],
   ['check suite mismatch', f=>f.run.check_suite_id=222,'ci_run_unverified'],
+  ['workflow run missing PR association', f=>delete f.run.pull_requests,'ci_run_unverified'],
+  ['workflow run associated with another PR', f=>f.run.pull_requests[0].number=998,'ci_run_unverified'],
+  ['workflow run associated with another PR base', f=>f.run.pull_requests[0].base.sha='c'.repeat(40),'ci_run_unverified'],
+  ['workflow run associated with another target', f=>f.run.pull_requests[0].base.ref='release','ci_run_unverified'],
+  ['workflow run associated with another head', f=>f.run.pull_requests[0].head.sha='c'.repeat(40),'ci_run_unverified'],
+  ['workflow run associated with another repository', f=>f.run.pull_requests[0].base.repo.id=9,'ci_run_unverified'],
   ['missing PR association', f=>f.association.splice(0),'github_check_or_pr_association_unverified'],
-  ['ambiguous required check', f=>{f.checks.check_runs.push({...f.gate});f.checks.total_count=2},'required_gate_ambiguous_or_missing'],
+  ['ambiguous required check', f=>{f.checks.check_runs.push({...f.gate});f.checks.total_count=2},'required_gate_unverified'],
   ['queue not enforced', f=>f.rules.rules=f.rules.rules.filter(x=>x.type!=='merge_queue'),'merge_queue_not_enforced'],
   ['required check removed', f=>f.rules.rules.find(x=>x.type==='required_status_checks').parameters.required_status_checks=[],'required_gate_not_enforced'],
   ['branch bypass allowed', f=>f.rules.bypass_actors.push({actor_id:3}),'protections_unverified'],
@@ -114,9 +123,39 @@ test('repo settings changing during inspection fails closed',async()=>{
   })
   assert.equal(r.reason,'state_changed_during_preflight')
 })
+test('required gate changing during final revalidation fails closed',async()=>{
+  const f=fixture();let count=0
+  const checksUrl=root+'/commits/'+head+'/check-runs?per_page=100'
+  const r=await inspect(f,async url=>{
+    if(url===checksUrl&&++count===2) {
+      const checks=structuredClone(f.values[url])
+      checks.check_runs[0].conclusion='failure'
+      return checks
+    }
+    return structuredClone(f.values[url])
+  })
+  assert.equal(r.status,'UNVERIFIED')
+  assert.equal(r.reason,'state_changed_during_preflight')
+  assert.equal(r.mergeAuthorized,false)
+})
+test('workflow PR association changing during final revalidation fails closed',async()=>{
+  const f=fixture();let count=0
+  const runUrl=root+'/actions/runs/'+runId
+  const r=await inspect(f,async url=>{
+    if(url===runUrl&&++count===2) {
+      const run=structuredClone(f.values[url])
+      run.pull_requests[0].base.sha='c'.repeat(40)
+      return run
+    }
+    return structuredClone(f.values[url])
+  })
+  assert.equal(r.status,'UNVERIFIED')
+  assert.equal(r.reason,'state_changed_during_preflight')
+  assert.equal(r.mergeAuthorized,false)
+})
 test('API outage fails closed without merge authority',async()=>{
   const r=await inspect(fixture(),async()=>{throw Error('API outage')})
-  assert.deepEqual(r,{verified:false,mergeAuthorized:false,reason:'github_unavailable_or_invalid'})
+  assert.deepEqual(r,{status:'UNVERIFIED',mergeAuthorized:false,reason:'github_unavailable_or_invalid'})
 })
 test('invalid PR number never invokes GitHub',async()=>{
   const r=await inspectGithubNativePreflight({prNumber:0,read:async()=>{throw Error('called')}})
