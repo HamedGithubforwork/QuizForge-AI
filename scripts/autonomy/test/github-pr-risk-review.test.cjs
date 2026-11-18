@@ -305,7 +305,11 @@ test('privileged workflow is main-revision-only, read-only, and never executes P
   assert.match(workflow,/uses: actions\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510/)
   assert.match(workflow,/client-id:\s*\$\{\{\s*vars\.QUIZFORGE_VERIFIER_APP_CLIENT_ID\s*\}\}/)
   assert.match(workflow,/if:\s*\$\{\{\s*vars\.QUIZFORGE_VERIFIER_APP_CLIENT_ID != ''\s*\}\}/)
-  assert.match(workflow,/private-key:\s*\$\{\{\s*secrets\.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY\s*\}\}/)
+  assert.match(workflow,/^\s*private-key:\s*\$\{\{\s*secrets\.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY\s*\}\}\s*$/m)
+  assert.equal(workflow.split('secrets.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY').length - 1,1,
+    'the App private key must appear only in the token action input')
+  assert.equal(workflow.split('secrets.').length - 1,1,
+    'the trusted workflow must not expose any other secret reference')
   assert.doesNotMatch(workflow,/APP_PRIVATE_KEY:\s*\$\{\{\s*secrets\./)
   assert.doesNotMatch(workflow,/QUIZFORGE_VERIFIER_APP_ID|app-config/)
   for (const permission of ['actions','administration','checks','contents','pull-requests']) {
@@ -353,10 +357,17 @@ test('workflow_run live verifier is scoped to the successful PR Required PR gate
   })
   await t.test('runtime run id must be the exact Required PR gate run',async () => {
     const data = fixture()
+    const differentRunId = gateRunId + 1
+    data.setChecks([{
+      ...data.getCheck(),
+      details_url:`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/${differentRunId}/job/22`,
+    }])
+    // The requested workflow_run remains valid. The gate points to a different
+    // otherwise valid run; only the exact trigger-to-gate binding should reject it.
     const result = await inspectWorkflowWithRead(async url => {
       const parsed = new URL(url)
-      if (parsed.pathname === `/repos/HamedGithubforwork/QuizForge-AI/actions/runs/${gateRunId}`) {
-        return {...data.getRun(),id:gateRunId + 1}
+      if (parsed.pathname === `/repos/HamedGithubforwork/QuizForge-AI/actions/runs/${differentRunId}`) {
+        return {...data.getRun(),id:differentRunId}
       }
       return data.read(url)
     },gateRunId)
