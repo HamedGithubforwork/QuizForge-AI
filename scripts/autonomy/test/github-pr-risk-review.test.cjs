@@ -35,6 +35,17 @@ function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.r
     rules:[{type:'pull_request',parameters:{required_approving_review_count:1,required_reviewers:[]}},
       {type:'required_status_checks',parameters:{strict_required_status_checks_policy:true,
         required_status_checks:[{context:'Required PR gate',integration_id:15368}]}}]}
+  const activeRulesetSummary = [{id:21886458,name:'Protect main',target:'branch',source_type:'Repository',
+    source:'HamedGithubforwork/QuizForge-AI',enforcement:'active'}]
+  const effectiveRules = [
+    {type:'deletion',ruleset_id:21886458,ruleset_source_type:'Repository',ruleset_source:'HamedGithubforwork/QuizForge-AI'},
+    {type:'non_fast_forward',ruleset_id:21886458,ruleset_source_type:'Repository',ruleset_source:'HamedGithubforwork/QuizForge-AI'},
+    {type:'pull_request',ruleset_id:21886458,ruleset_source_type:'Repository',ruleset_source:'HamedGithubforwork/QuizForge-AI',
+      parameters:{required_approving_review_count:1,required_reviewers:[]}},
+    {type:'required_status_checks',ruleset_id:21886458,ruleset_source_type:'Repository',ruleset_source:'HamedGithubforwork/QuizForge-AI',
+      parameters:{strict_required_status_checks_policy:true,
+        required_status_checks:[{context:'Required PR gate',integration_id:15368}]}},
+  ]
   const workflowInventory = Object.entries(TRUSTED_WORKFLOW_BLOBS).map(([path,sha]) => ({type:'file',path,sha}))
   const codeSha = 'd'.repeat(40)
   const calls = new Map()
@@ -50,7 +61,10 @@ function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.r
       changed_files:currentFiles.length,user:{id:7},head:{sha:currentHead,repo:{id:repositoryId}},
       base:{ref:'main',sha:currentBase,repo:{id:repositoryId}}}
     if (path === '/branches/main') return {protected:true,commit:{sha:currentBase}}
+    if (path === '/branches/main/protection') return {__httpStatus:404}
     if (path === '/rulesets/21886458') return ruleset
+    if (path === '/rulesets') return activeRulesetSummary
+    if (path === '/rules/branches/main') return effectiveRules
     if (path === `/pulls/${prNumber}/files`) return currentFiles.slice((page - 1) * 100,page * 100)
     if (path === `/pulls/${prNumber}/reviews`) return page === 1 ? reviews : []
     if (path === `/pulls/${prNumber}/comments`) return page === 1 ? comments : []
@@ -86,6 +100,7 @@ async function inspectWithRead(read) {
   const previousFetch = global.fetch
   global.fetch = async url => {
     const value = await read(String(url))
+    if (value?.__httpStatus) return {ok:false,status:value.__httpStatus,json:async () => value}
     return {ok:true,status:200,json:async () => value}
   }
   try { return await inspectGithubPrRiskReview({prNumber}) }
@@ -194,6 +209,10 @@ test('risky, unknown, renamed, and side-effect files cannot be low risk', () => 
     assert.equal(risk.risk,'high_risk',path)
     assert.ok(risk.workflowEffects.some(item => item.effect === effect),path)
   }
+  for (const credential of ['AWS_SECRET_ACCESS_KEY=abc123','AWS_ACCESS_KEY_ID=AKIA1234567890123456',
+    'api_key=abc123','bearer_token=abc123','github_pat_abcd123456789012345678901234567890']) {
+    assert.equal(classifyRisk([file('docs/setup.md','added',null,'+' + credential)]).risk,'high_risk',credential)
+  }
 })
 
 test('inline comments and verification workflow/code changes fail closed', async t => {
@@ -227,6 +246,36 @@ test('inline comments and verification workflow/code changes fail closed', async
       if (parsed.pathname.endsWith('/github-native-preflight.cjs') && parsed.searchParams.get('ref') === head) {
         return {type:'file',sha:'f'.repeat(40)}
       }
+      return data.read(url)
+    })
+    assert.equal(result.status,'UNVERIFIED'); assert.equal(result.mergeAuthorized,false)
+  })
+})
+
+test('incomplete effective protection evidence fails closed', async t => {
+  await t.test('unexpected active ruleset',async () => {
+    const data = fixture()
+    const result = await inspectWithRead(async url => {
+      if (new URL(url).pathname.endsWith('/rulesets')) return [
+        {id:21886458,target:'branch',source_type:'Repository',source:'HamedGithubforwork/QuizForge-AI',enforcement:'active'},
+        {id:88,target:'branch',source_type:'Organization',source:'HamedGithubforwork',enforcement:'active'},
+      ]
+      return data.read(url)
+    })
+    assert.equal(result.status,'UNVERIFIED'); assert.equal(result.mergeAuthorized,false)
+  })
+  await t.test('effective rules disagree with ruleset configuration',async () => {
+    const data = fixture()
+    const result = await inspectWithRead(async url => {
+      if (new URL(url).pathname.endsWith('/rules/branches/main')) return []
+      return data.read(url)
+    })
+    assert.equal(result.status,'UNVERIFIED'); assert.equal(result.mergeAuthorized,false)
+  })
+  await t.test('classic protection exists and requires separate interpretation',async () => {
+    const data = fixture()
+    const result = await inspectWithRead(async url => {
+      if (new URL(url).pathname.endsWith('/branches/main/protection')) return {required_status_checks:{strict:true,contexts:[]}}
       return data.read(url)
     })
     assert.equal(result.status,'UNVERIFIED'); assert.equal(result.mergeAuthorized,false)

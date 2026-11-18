@@ -112,6 +112,7 @@ async function readGithub(url) {
     redirect:'error',
     signal:AbortSignal.timeout(8000),
   })
+  if (response.status === 404) return {__httpStatus:404}
   if (!response.ok) throw new Error('GitHub read failed: HTTP ' + response.status)
   return response.json()
 }
@@ -131,7 +132,7 @@ function validRepoPath(path) {
 }
 
 function paginateUrl(path, page) {
-  return API + path + '?per_page=' + PAGE_SIZE + '&page=' + page
+  return API + path + (path.includes('?') ? '&' : '?') + 'per_page=' + PAGE_SIZE + '&page=' + page
 }
 
 async function readAllArray(path, read, {countFromResponse = false, expectedCount, itemKey} = {}) {
@@ -223,7 +224,7 @@ function validatedFileList(files, expectedCount) {
 }
 
 const HIGH_RISK_PATH_RE = /(?:^|\/)(?:auth|authentication|authorization|permissions?|secrets?|credentials?|identity|oauth|cognito|billing|payments?|database|migrations?|schema|terraform|infrastructure|infra|deployment|deploy|production|release|security|grading|grounding|validator|merge-queue|merge-policy)(?:\/|\.|-|$)/i
-const SENSITIVE_DIFF_RE = /(?:AKIA[0-9A-Z]{16}|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|gh[pousr]_[A-Za-z0-9]{20,}|(?:password|secret|client_secret|access_token|refresh_token|authorization)\s*[:=])/i
+const SENSITIVE_DIFF_RE = /(?:\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b|\b(?:aws_secret_access_key|aws_access_key_id|aws_session_token|api[_-]?key|bearer[_ -]?token|client[_ -]?secret|private[_ -]?key|secret[_ -]?access[_ -]?key|password|secret|access_token|refresh_token|authorization)\b\s*[:=])/i
 
 function safeCategory(file) {
   const path = file.filename
@@ -285,6 +286,32 @@ function checkProtectedRules(ruleset) {
   }
 }
 
+function checkRulesetInventory(rulesets) {
+  if (!Array.isArray(rulesets) || rulesets.some(item => !Number.isSafeInteger(item?.id) ||
+      typeof item.enforcement !== 'string')) return null
+  const active = rulesets.filter(item => item.enforcement === 'active')
+  if (active.length !== 1 || active[0].id !== RULESET_ID || active[0].target !== 'branch' ||
+      active[0].source_type !== 'Repository' || active[0].source !== REPOSITORY) return null
+  return true
+}
+
+function checkEffectiveRules(effective, ruleset) {
+  if (!Array.isArray(effective) || effective.length === 0) return null
+  const allowed = new Set(['deletion','non_fast_forward','pull_request','required_status_checks'])
+  if (effective.some(rule => !allowed.has(rule?.type) || rule.ruleset_id !== RULESET_ID ||
+      rule.ruleset_source_type !== 'Repository' || rule.ruleset_source !== REPOSITORY)) return null
+  const pull = effective.find(rule => rule.type === 'pull_request')?.parameters
+  const status = effective.find(rule => rule.type === 'required_status_checks')?.parameters
+  const configuredPull = ruleset.rules.find(rule => rule.type === 'pull_request')?.parameters
+  const configuredStatus = ruleset.rules.find(rule => rule.type === 'required_status_checks')?.parameters
+  if (!pull || !status || !configuredPull || !configuredStatus ||
+      pull.required_approving_review_count !== configuredPull.required_approving_review_count ||
+      JSON.stringify(pull.required_reviewers) !== JSON.stringify(configuredPull.required_reviewers) ||
+      status.strict_required_status_checks_policy !== configuredStatus.strict_required_status_checks_policy ||
+      JSON.stringify(status.required_status_checks) !== JSON.stringify(configuredStatus.required_status_checks)) return null
+  return sha256(JSON.stringify(effective))
+}
+
 function verifyReviews(reviews, pr, headSha, requiredApprovals) {
   if (!Array.isArray(reviews)) return null
   const latest = new Map()
@@ -317,8 +344,12 @@ function verifyReviews(reviews, pr, headSha, requiredApprovals) {
 }
 
 async function snapshot(prNumber, read) {
-  const [repo,pr,main,ruleset] = await Promise.all([
-    read(API),read(API + '/pulls/' + prNumber),read(API + '/branches/' + TARGET),read(API + '/rulesets/' + RULESET_ID),
+  const [repo,pr,main,ruleset,rulesets,effectiveRules,classicProtection] = await Promise.all([
+    read(API),read(API + '/pulls/' + prNumber),read(API + '/branches/' + TARGET),
+    read(API + '/rulesets/' + RULESET_ID),
+    readAllArray('/rulesets?includes_parents=true',read),
+    read(API + '/rules/branches/' + TARGET),
+    read(API + '/branches/' + TARGET + '/protection'),
   ])
   if (repo?.id !== REPOSITORY_ID || repo.owner?.id !== OWNER_ID || repo.full_name !== REPOSITORY ||
       repo.default_branch !== TARGET || repo.allow_auto_merge !== false) return null
@@ -331,7 +362,9 @@ async function snapshot(prNumber, read) {
       pr.head?.repo?.id !== REPOSITORY_ID || !Number.isSafeInteger(pr.changed_files) ||
       pr.changed_files < 1 || pr.changed_files > MAX_FILES || !Number.isSafeInteger(pr.user?.id)) return null
   const rules = checkProtectedRules(ruleset)
-  if (!rules) return null
+  const effectiveRulesSha256 = checkEffectiveRules(effectiveRules,ruleset)
+  if (!rules || !checkRulesetInventory(rulesets) || !effectiveRulesSha256 ||
+      classicProtection?.__httpStatus !== 404) return null
   const [filesRaw,reviews,comments,discussion,checkRuns,workflowBase,workflowHead,codeTrusted] = await Promise.all([
     readAllArray('/pulls/' + prNumber + '/files',read,{expectedCount:pr.changed_files}),
     readAllArray('/pulls/' + prNumber + '/reviews',read),
@@ -379,7 +412,7 @@ async function snapshot(prNumber, read) {
     repositoryId:REPOSITORY_ID,ownerId:OWNER_ID,prNumber,headSha,baseSha,
     diffSha256:fileSet.diffSha256,changedFiles:fileSet.files.length,diffBytes:fileSet.diffBytes,
     risk,reviewEvidence,reviewEvidenceSha256:sha256(JSON.stringify(reviews)),
-    rulesetSha256:rules.rulesetSha256,checks,workflowRunId:gateRunId,
+    rulesetSha256:rules.rulesetSha256,effectiveRulesSha256,checks,workflowRunId:gateRunId,
     reviewThreads:'none_reported_by_rest',
   }
 }
