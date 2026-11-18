@@ -65,7 +65,7 @@ const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/quizforge-autonomy-bridge.yml':'2e99858a2147c06dd075a14fa1c3241d3372bc27',
   '.github/workflows/security.yml':'826c236ab211865c0b20fb4f1f64a0df3b2592ec',
   '.github/workflows/terraform-aws.yml':'c55cc313a606310ec29c7d7911950c3b0cbf39ba',
-  '.github/workflows/trusted-github-pr-verification.yml':'25399ed3fc55e393c36c7537ed0b4781f4c8ff48',
+  '.github/workflows/trusted-github-pr-verification.yml':'45a651f07672c40ba284c99c5df8487a0846d54d',
 })
 
 const TRUSTED_CODE_PATHS = Object.freeze([
