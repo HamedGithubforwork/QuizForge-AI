@@ -247,6 +247,27 @@ test('associated PR pagination finds the candidate on a later page', async()=>{
   assert.equal(r.mergeAuthorized,false)
 })
 
+test('incomplete or target-missing associated PR pagination fails closed', async t=>{
+  for (const [name, secondPage] of [
+    ['missing later page', undefined],
+    ['later page omits candidate', [{number:1001,head:{sha:'d'.repeat(40)},
+      base:{ref:'other',repo:{id:1307099196}}}]],
+  ]) {
+    await t.test(name, async()=>{
+      const f=fixture()
+      f.values[pageUrl('/commits/'+head+'/pulls',1)]=Array.from({length:100},(_,i)=>({
+        number:i+1,head:{sha:'d'.repeat(40)},base:{ref:'other',repo:{id:1307099196}},
+      }))
+      if (secondPage !== undefined) f.values[pageUrl('/commits/'+head+'/pulls',2)]=secondPage
+      else delete f.values[pageUrl('/commits/'+head+'/pulls',2)]
+      const r=await inspect(f)
+      assert.equal(r.status,'UNVERIFIED')
+      assert.equal(r.reason,'github_check_or_pr_association_unverified')
+      assert.equal(r.mergeAuthorized,false)
+    })
+  }
+})
+
 test('incomplete check-run pagination fails closed', async()=>{
   const f=fixture()
   f.values[pageUrl('/commits/'+head+'/check-runs',1)]={total_count:101,check_runs:[f.gate]}
