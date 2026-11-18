@@ -33,27 +33,13 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Record whether the separately approved App credential is configured
-        id: app-config
-        shell: bash
-        env:
-          APP_ID: ${{ vars.QUIZFORGE_VERIFIER_APP_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          if [[ -n "${APP_ID}" && -n "${APP_PRIVATE_KEY}" ]]; then
-            echo 'configured=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'configured=false' >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Mint repository-scoped read-only installation token
         id: app-token
-        if: steps.app-config.outputs.configured == 'true'
+        if: ${{ vars.QUIZFORGE_VERIFIER_APP_CLIENT_ID != '' }}
         continue-on-error: true
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
         with:
-          client-id: ${{ vars.QUIZFORGE_VERIFIER_APP_ID }}
+          client-id: ${{ vars.QUIZFORGE_VERIFIER_APP_CLIENT_ID }}
           private-key: ${{ secrets.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY }}
           owner: HamedGithubforwork
           repositories: QuizForge-AI
