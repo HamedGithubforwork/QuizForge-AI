@@ -2,9 +2,14 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const os = require('node:os')
+const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 const {
-  inspectGithubPrRiskReview, classifyRisk, TRUSTED_WORKFLOW_BLOBS,
+  inspectGithubPrRiskReview, inspectGithubWorkflowRunRiskReview, classifyRisk, TRUSTED_WORKFLOW_BLOBS,
 } = require('../github-pr-risk-review.cjs')
+const { runTrustedGithubVerifier } = require('../run-trusted-github-verifier.cjs')
 
 const repoRoot = 'https://api.github.com/repos/HamedGithubforwork/QuizForge-AI'
 const repositoryId = 1307099196
@@ -26,10 +31,9 @@ function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.r
   let comments = []
   let checkRuns = [{id:gateCheckId,name:'Required PR gate',head_sha:head,status:'completed',
     conclusion:'success',app:{id:15368},details_url:`https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/${gateRunId}/job/22`}]
+  // GitHub REST can omit pull_requests on an otherwise valid workflow run.
   let run = {id:gateRunId,workflow_id:330113334,path:'.github/workflows/ci.yml',event:'pull_request',
-    head_sha:head,status:'completed',conclusion:'success',repository:{id:repositoryId},
-    pull_requests:[{number:prNumber,head:{repo:{id:repositoryId},sha:head},
-      base:{repo:{id:repositoryId},ref:'main',sha:base}}]}
+    head_sha:head,status:'completed',conclusion:'success',repository:{id:repositoryId},pull_requests:[]}
   let ruleset = {id:21886458,source_type:'Repository',source:'HamedGithubforwork/QuizForge-AI',
     target:'branch',enforcement:'active',bypass_actors:[],
     conditions:{ref_name:{include:['~DEFAULT_BRANCH'],exclude:[]}},
@@ -72,6 +76,9 @@ function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.r
     if (path === `/issues/${prNumber}/comments`) return []
     if (path === `/commits/${currentHead}/check-runs`) return {total_count:checkRuns.length,
       check_runs:checkRuns.slice((page - 1) * 100,page * 100)}
+    if (path === `/commits/${currentHead}/pulls`) return [{number:prNumber,state:'open',
+      head:{sha:currentHead,repo:{id:repositoryId}},
+      base:{ref:'main',sha:currentBase,repo:{id:repositoryId}}}]
     if (path === `/actions/runs/${gateRunId}`) return run
     if (path === '/contents/.github/workflows') return workflowInventory
     if (path.startsWith('/contents/')) return {type:'file',sha:codeSha}
@@ -125,6 +132,46 @@ async function inspectWithRead(read, token = testToken, onRequest) {
   },token)
 }
 
+async function inspectWorkflowWithRead(read, workflowRunId = gateRunId, token = testToken) {
+  const previousFetch = global.fetch
+  const hadToken = Object.hasOwn(process.env,'QUIZFORGE_GITHUB_READ_TOKEN')
+  const previousToken = process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  if (token === undefined) delete process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  else process.env.QUIZFORGE_GITHUB_READ_TOKEN = token
+  global.fetch = async url => {
+    const value = await read(String(url))
+    if (value?.__httpStatus) return {ok:false,status:value.__httpStatus,headers:new Headers(value.headers ?? {}),
+      json:async () => ({message:value.message}),clone() { return this }}
+    return {ok:true,status:200,headers:new Headers(),json:async () => value}
+  }
+  try { return await inspectGithubWorkflowRunRiskReview({workflowRunId}) }
+  finally {
+    global.fetch = previousFetch
+    if (hadToken) process.env.QUIZFORGE_GITHUB_READ_TOKEN = previousToken
+    else delete process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  }
+}
+
+async function runVerifierWithEnvironment(env,token) {
+  const names = ['GITHUB_EVENT_NAME','GITHUB_REPOSITORY','GITHUB_REF','GITHUB_SHA','GITHUB_EVENT_PATH',
+    'QUIZFORGE_GITHUB_READ_TOKEN']
+  const previous = new Map(names.map(name => [name,{present:Object.hasOwn(process.env,name),value:process.env[name]}]))
+  for (const name of names) {
+    if (name === 'QUIZFORGE_GITHUB_READ_TOKEN') {
+      if (token === undefined) delete process.env[name]
+      else process.env[name] = token
+    } else if (env[name] === undefined) delete process.env[name]
+    else process.env[name] = env[name]
+  }
+  try { return await runTrustedGithubVerifier() }
+  finally {
+    for (const [name,value] of previous) {
+      if (value.present) process.env[name] = value.value
+      else delete process.env[name]
+    }
+  }
+}
+
 test('clean evidence is observation-only and cannot authorize a merge', async () => {
   const data = fixture()
   const requests = []
@@ -140,6 +187,165 @@ test('clean evidence is observation-only and cannot authorize a merge', async ()
   assert.ok(requests.every(({url,init}) => url.startsWith(repoRoot) && init.method === 'GET' &&
     init.redirect === 'error' && init.headers.Authorization === 'Bearer ' + testToken))
   assert.equal(JSON.stringify(result).includes(testToken),false)
+})
+
+test('empty Actions run pull_requests is reconciled using the authenticated commit-to-PR endpoint', async () => {
+  const data = fixture()
+  const result = await inspectWithRead(data.read)
+  assert.equal(data.getRun().pull_requests.length,0)
+  assert.equal(result.status,'OBSERVATION_ONLY')
+  assert.equal(result.mergeAuthorized,false)
+  assert.equal(data.calls.get(`/repos/HamedGithubforwork/QuizForge-AI/commits/${head}/pulls?per_page=100&page=1`),2)
+})
+
+test('contradictory commit-to-PR association or run association fails closed', async t => {
+  await t.test('no matching PR association', async () => {
+    const data = fixture()
+    const result = await inspectWithRead(async url => {
+      if (new URL(url).pathname === `/repos/HamedGithubforwork/QuizForge-AI/commits/${head}/pulls`) return []
+      return data.read(url)
+    })
+    assert.equal(result.status,'UNVERIFIED')
+    assert.equal(result.mergeAuthorized,false)
+  })
+  await t.test('populated run association disagrees', async () => {
+    const data = fixture()
+    data.setRun({...data.getRun(),pull_requests:[{number:prNumber,head:{repo:{id:repositoryId},sha:'f'.repeat(40)},
+      base:{repo:{id:repositoryId},ref:'main',sha:base}}]})
+    const result = await inspectWithRead(data.read)
+    assert.equal(result.status,'UNVERIFIED')
+    assert.equal(result.mergeAuthorized,false)
+  })
+})
+
+test('trusted workflow_run entry point binds the event to a default-branch checkout and live run', async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(),'qfn-trusted-runner-'))
+  const eventPath = path.join(temp,'event.json')
+  const checkedOutSha = execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+  const event = {workflow_run:{id:gateRunId,workflow_id:330113334,event:'pull_request',head_sha:head,
+    repository:{id:repositoryId},head_repository:{id:repositoryId}}}
+  fs.writeFileSync(eventPath,JSON.stringify(event))
+  const env = {GITHUB_EVENT_NAME:'workflow_run',GITHUB_REPOSITORY:'HamedGithubforwork/QuizForge-AI',
+    GITHUB_REF:'refs/heads/main',GITHUB_SHA:checkedOutSha,GITHUB_EVENT_PATH:eventPath}
+  const previousFetch = global.fetch
+  const data = fixture()
+  data.setBase(checkedOutSha)
+  global.fetch = async url => {
+    const value = await data.read(String(url))
+    if (value?.__httpStatus) return {ok:false,status:value.__httpStatus,headers:new Headers(value.headers ?? {}),
+      json:async () => ({message:value.message}),clone() { return this }}
+    return {ok:true,status:200,headers:new Headers(),json:async () => value}
+  }
+  try {
+    const result = await runVerifierWithEnvironment(env,testToken)
+    assert.equal(result.status,'OBSERVATION_ONLY')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(result.prNumber,prNumber)
+    assert.equal(result.triggerWorkflowRunId,gateRunId)
+    assert.equal(JSON.stringify(result).includes(testToken),false)
+    data.setBase('b'.repeat(40))
+    const staleMain = await runVerifierWithEnvironment(env,testToken)
+    assert.equal(staleMain.status,'UNVERIFIED')
+    assert.equal(staleMain.reason,'trusted_default_branch_revision_changed')
+    await t.test('missing app credential remains unverified', async () => {
+      const missing = await runVerifierWithEnvironment(env,undefined)
+      assert.equal(missing.status,'UNVERIFIED')
+      assert.equal(missing.mergeAuthorized,false)
+      assert.equal(missing.reason,'authentication_context_missing')
+    })
+    await t.test('non-default ref and changed checkout SHA are rejected before API access', async () => {
+      const oldFetch = global.fetch
+      let calls = 0
+      global.fetch = async () => { calls += 1; throw new Error('must not make API request') }
+      try {
+        assert.equal((await runVerifierWithEnvironment({...env,GITHUB_REF:'refs/heads/topic'},testToken)).reason,
+          'trusted_default_branch_context_invalid')
+        assert.equal((await runVerifierWithEnvironment({...env,GITHUB_SHA:'f'.repeat(40)},testToken)).reason,
+          'trusted_checkout_sha_mismatch')
+        assert.equal(calls,0)
+      } finally { global.fetch = oldFetch }
+    })
+    await t.test('malformed trigger identity and malformed event fail closed', async () => {
+      fs.writeFileSync(eventPath,JSON.stringify({...event,workflow_run:{...event.workflow_run,repository:{id:1}}}))
+      assert.equal((await runVerifierWithEnvironment(env,testToken)).reason,'trigger_event_untrusted_or_incomplete')
+      fs.writeFileSync(eventPath,'{')
+      assert.equal((await runVerifierWithEnvironment(env,testToken)).reason,'event_payload_invalid')
+    })
+  } finally {
+    global.fetch = previousFetch
+    fs.rmSync(temp,{recursive:true,force:true})
+  }
+})
+
+test('privileged workflow is main-revision-only, read-only, and never executes PR artifacts or code', () => {
+  const workflowFile = path.join(__dirname,'../../../.github/workflows/trusted-github-pr-verification.yml')
+  const workflow = fs.readFileSync(workflowFile,'utf8')
+  assert.match(workflow,/workflow_run:[\s\S]*workflows:\s*\[CI\][\s\S]*types:\s*\[completed\]/)
+  assert.match(workflow,/workflow_id == 330113334/)
+  assert.match(workflow,/workflow_run\.event == 'pull_request'/)
+  assert.match(workflow,/workflow_run\.conclusion == 'success'/)
+  assert.match(workflow,/repository\.id == 1307099196/)
+  assert.match(workflow,/uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/)
+  assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/)
+  assert.match(workflow,/persist-credentials: false/)
+  assert.match(workflow,/uses: actions\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510/)
+  for (const permission of ['actions','administration','checks','contents','pull-requests']) {
+    assert.match(workflow,new RegExp(`permission-${permission}: read`))
+  }
+  assert.doesNotMatch(workflow,/permission-[a-z-]+:\s*write/)
+  assert.doesNotMatch(workflow,/pull_request_target:|workflow_dispatch:|repository_dispatch:/)
+  assert.doesNotMatch(workflow,/actions\/(?:upload|download)-artifact|actions\/cache/)
+  assert.doesNotMatch(workflow,/aws|terraform|deploy|docker\/build-push/i)
+  assert.doesNotMatch(workflow,/QUIZFORGE_GITHUB_READ_TOKEN:\s*\$\{\{\s*github\.token/)
+  assert.match(workflow,/QUIZFORGE_GITHUB_READ_TOKEN:\s*\$\{\{\s*steps\.app-token\.outputs\.token\s*\}\}/)
+  assert.match(workflow,/permissions:\s*\{\}/)
+  assert.match(workflow,/contents: read/)
+  for (const trustedWorkflow of [
+    '.github/workflows/ci.yml',
+    '.github/workflows/trusted-github-pr-verification.yml',
+  ]) {
+    const sourcePath = path.join(__dirname,'../../../',trustedWorkflow)
+    const actualBlob = execFileSync('git',['hash-object',sourcePath],{encoding:'utf8'}).trim()
+    assert.equal(TRUSTED_WORKFLOW_BLOBS[trustedWorkflow],actualBlob,
+      `${trustedWorkflow} must match its independently reviewed source pin`)
+  }
+})
+
+test('workflow_run live verifier is scoped to the successful PR Required PR gate run', async t => {
+  await t.test('valid live-run correlation is observation-only',async () => {
+    const data = fixture()
+    const result = await inspectWorkflowWithRead(data.read)
+    assert.equal(result.status,'OBSERVATION_ONLY')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(result.workflowRunId,gateRunId)
+    assert.equal(result.triggerWorkflowRunId,gateRunId)
+  })
+  await t.test('wrong workflow, event, repository, or conclusion is rejected',async () => {
+    const data = fixture()
+    const original = data.getRun()
+    for (const change of [
+      {workflow_id:7},{event:'push'},{repository:{id:1}},{conclusion:'failure'},
+    ]) {
+      data.setRun({...original,...change})
+      const result = await inspectWorkflowWithRead(data.read)
+      assert.equal(result.status,'UNVERIFIED')
+      assert.equal(result.mergeAuthorized,false)
+    }
+  })
+  await t.test('runtime run id must be the exact Required PR gate run',async () => {
+    const data = fixture()
+    const result = await inspectWorkflowWithRead(async url => {
+      const parsed = new URL(url)
+      if (parsed.pathname === `/repos/HamedGithubforwork/QuizForge-AI/actions/runs/${gateRunId}`) {
+        return {...data.getRun(),id:gateRunId + 1}
+      }
+      return data.read(url)
+    },gateRunId)
+    assert.equal(result.status,'UNVERIFIED')
+    assert.equal(result.mergeAuthorized,false)
+  })
+  assert.equal((await inspectGithubWorkflowRunRiskReview()).reason,'invalid_input')
+  assert.equal((await inspectGithubWorkflowRunRiskReview({workflowRunId:gateRunId,prNumber})).reason,'invalid_input')
 })
 
 test('missing and malformed authentication contexts fail before network access', async t => {
