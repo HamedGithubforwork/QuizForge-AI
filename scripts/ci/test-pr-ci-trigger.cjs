@@ -168,6 +168,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/integration-coordinator.test.cjs',
     'scripts/autonomy/trusted-integration-verifier.cjs',
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
+    'scripts/autonomy/github-pr-risk-review.cjs',
+    'scripts/autonomy/test/github-pr-risk-review.test.cjs',
     'docs/autonomy/integration-task-graph.json',
   ]
   const policyPaths = [
@@ -192,7 +194,7 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJobStart = workflow.indexOf('  autonomy-tests:')
   const requiredGateStart = workflow.indexOf('  required-pr-gate:', autonomyJobStart)
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
-  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs/,
+  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs scripts\/autonomy\/test\/github-native-preflight\.test\.cjs scripts\/autonomy\/test\/github-pr-risk-review\.test\.cjs/,
     'autonomy CI must execute policy, coordinator, and verifier regression suites when classified relevant')
 })
 
