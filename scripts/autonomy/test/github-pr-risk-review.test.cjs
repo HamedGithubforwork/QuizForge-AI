@@ -181,6 +181,17 @@ test('expired, insufficient, and rate-limited auth responses fail closed without
   })
 })
 
+test('HTTP 404 is accepted only as classic protection absence, never as general access evidence',async () => {
+  const result = await inspectWithRead(async url => {
+    if (new URL(url).pathname === repoRoot.replace('https://api.github.com','')) {
+      return {__httpStatus:404,message:'repository not found'}
+    }
+    return fixture().read(url)
+  })
+  assert.equal(result.status,'UNVERIFIED')
+  assert.equal(result.mergeAuthorized,false)
+})
+
 test('credential is pinned for the full two-snapshot operation despite environment replacement',async () => {
   const data = fixture()
   const seen = []
