@@ -65,7 +65,7 @@ const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/quizforge-autonomy-bridge.yml':'2e99858a2147c06dd075a14fa1c3241d3372bc27',
   '.github/workflows/security.yml':'826c236ab211865c0b20fb4f1f64a0df3b2592ec',
   '.github/workflows/terraform-aws.yml':'c55cc313a606310ec29c7d7911950c3b0cbf39ba',
-  '.github/workflows/trusted-github-pr-verification.yml':'5d7c87521aba11810bd6d9bfad31316174dd9dcf',
+  '.github/workflows/trusted-github-pr-verification.yml':'25399ed3fc55e393c36c7537ed0b4781f4c8ff48',
 })
 
 const TRUSTED_CODE_PATHS = Object.freeze([
@@ -458,10 +458,11 @@ async function snapshot(prNumber, read, expectedRequiredRunId) {
     item?.number === prNumber && item.state === 'open' &&
     item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
     item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)
-  const runAssociations = Array.isArray(run?.pull_requests) ? run.pull_requests : null
-  const runAssociationAgrees = runAssociations === null || runAssociations.length === 0 || runAssociations.some(item =>
-    item?.number === prNumber && item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
-    item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)
+  const runAssociations = run?.pull_requests
+  const runAssociationAgrees = runAssociations === undefined ||
+    (Array.isArray(runAssociations) && (runAssociations.length === 0 || runAssociations.some(item =>
+      item?.number === prNumber && item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
+      item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)))
   if (run?.id !== gateRunId || run.workflow_id !== CI_WORKFLOW_ID ||
       run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
       run.head_sha !== headSha || run.status !== 'completed' || run.conclusion !== 'success' ||

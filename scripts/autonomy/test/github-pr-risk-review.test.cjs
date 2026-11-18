@@ -216,6 +216,16 @@ test('contradictory commit-to-PR association or run association fails closed', a
     assert.equal(result.status,'UNVERIFIED')
     assert.equal(result.mergeAuthorized,false)
   })
+  await t.test('malformed present run associations are rejected', async () => {
+    const data = fixture()
+    const original = data.getRun()
+    for (const malformed of [null,'not-an-array',{}]) {
+      data.setRun({...original,pull_requests:malformed})
+      const result = await inspectWithRead(data.read)
+      assert.equal(result.status,'UNVERIFIED')
+      assert.equal(result.mergeAuthorized,false)
+    }
+  })
 })
 
 test('trusted workflow_run entry point binds the event to a default-branch checkout and live run', async t => {
@@ -268,6 +278,8 @@ test('trusted workflow_run entry point binds the event to a default-branch check
     await t.test('malformed trigger identity and malformed event fail closed', async () => {
       fs.writeFileSync(eventPath,JSON.stringify({...event,workflow_run:{...event.workflow_run,repository:{id:1}}}))
       assert.equal((await runVerifierWithEnvironment(env,testToken)).reason,'trigger_event_untrusted_or_incomplete')
+      fs.writeFileSync(eventPath,JSON.stringify({...event,workflow_run:{...event.workflow_run,head_repository:{id:1}}}))
+      assert.equal((await runVerifierWithEnvironment(env,testToken)).reason,'trigger_event_untrusted_or_incomplete')
       fs.writeFileSync(eventPath,'{')
       assert.equal((await runVerifierWithEnvironment(env,testToken)).reason,'event_payload_invalid')
     })
@@ -284,6 +296,7 @@ test('privileged workflow is main-revision-only, read-only, and never executes P
   assert.match(workflow,/workflow_id == 330113334/)
   assert.match(workflow,/workflow_run\.event == 'pull_request'/)
   assert.match(workflow,/workflow_run\.conclusion == 'success'/)
+  assert.match(workflow,/workflow_run\.head_repository\.id == 1307099196/)
   assert.match(workflow,/repository\.id == 1307099196/)
   assert.match(workflow,/uses: actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1/)
   assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/)
