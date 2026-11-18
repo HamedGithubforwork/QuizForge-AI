@@ -83,7 +83,7 @@ while IFS= read -r file; do
     desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
       desktop_diagnostic=true
       ;;
-    scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/automatic-merge-policy.cjs|scripts/autonomy/test/automatic-merge-policy.test.cjs|scripts/autonomy/github-native-preflight.cjs|scripts/autonomy/test/github-native-preflight.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
+    scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/automatic-merge-policy.cjs|scripts/autonomy/test/automatic-merge-policy.test.cjs|scripts/autonomy/github-native-preflight.cjs|scripts/autonomy/test/github-native-preflight.test.cjs|scripts/autonomy/github-pr-risk-review.cjs|scripts/autonomy/test/github-pr-risk-review.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
       autonomy_tests=true
       ;;
   esac
