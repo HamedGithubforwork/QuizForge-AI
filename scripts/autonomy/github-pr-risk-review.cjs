@@ -391,6 +391,8 @@ async function snapshot(prNumber, read) {
     const named = checkRuns.filter(check => check.name === required.context)
     const matching = named.filter(check => check.app?.id === required.integration_id)
     if (named.length !== 1 || matching.length !== 1 || matching[0].head_sha !== headSha ||
+        !Number.isSafeInteger(matching[0].id) || matching[0].id < 1 ||
+        !Number.isSafeInteger(matching[0].app?.id) || !SHA.test(matching[0].head_sha ?? '') ||
         matching[0].status !== 'completed' || matching[0].conclusion !== 'success') return null
     checks.push({name:required.context,appId:required.integration_id,checkRunId:matching[0].id})
   }

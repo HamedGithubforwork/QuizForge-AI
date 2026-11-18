@@ -152,6 +152,7 @@ test('spoofed, stale, or requested-changes reviews fail closed', async t => {
 test('forged check issuer, failed check, and mismatched workflow run are rejected', async t => {
   const cases = [
     ['wrong app', data => { data.setChecks([{...data.getCheck(),app:{id:1}}]) }],
+    ['missing check identity', data => { const item = data.getCheck(); delete item.id; data.setChecks([item]) }],
     ['failed check', data => { data.setChecks([{...data.getCheck(),conclusion:'failure'}]) }],
     ['wrong event', data => { data.setRun({...data.getRun(),event:'workflow_dispatch'}) }],
     ['wrong associated base', data => {
