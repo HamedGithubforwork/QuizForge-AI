@@ -19,6 +19,7 @@ const PAGE_SIZE = 100
 const MAX_PAGES = 10
 const MAX_FILES = PAGE_SIZE * MAX_PAGES
 const MAX_DIFF_BYTES = 2_000_000
+const AUTH_TOKEN_ENV = 'QUIZFORGE_GITHUB_READ_TOKEN'
 
 // Snapshot of the protected-main workflow inventory at c2531f0. This makes
 // workflow-trigger assumptions explicit and stale-by-default: any addition,
@@ -101,20 +102,61 @@ const WORKFLOW_EFFECT_RULES = Object.freeze([
     path.startsWith('scripts/production/lightsail/package_recovery') },
 ])
 
-async function readGithub(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept:'application/vnd.github+json',
-      'X-GitHub-Api-Version':'2022-11-28',
-      'User-Agent':'QuizForge-read-only-pr-risk-review',
-      'Cache-Control':'no-cache',
-    },
-    redirect:'error',
-    signal:AbortSignal.timeout(8000),
-  })
-  if (response.status === 404) return {__httpStatus:404}
-  if (!response.ok) throw new Error('GitHub read failed: HTTP ' + response.status)
-  return response.json()
+class GitHubReadError extends Error {
+  constructor(reason) { super(reason); this.reason = reason }
+}
+
+function isRateLimitResponse(response, payload) {
+  const remaining = response.headers?.get?.('x-ratelimit-remaining')
+  const retryAfter = response.headers?.get?.('retry-after')
+  const message = typeof payload?.message === 'string' ? payload.message.toLowerCase() : ''
+  return remaining === '0' || Boolean(retryAfter) || /rate limit|secondary rate limit/.test(message)
+}
+
+function createAuthenticatedReadClient(token = process.env[AUTH_TOKEN_ENV]) {
+  if (typeof token !== 'string' || token.length < 20 || token.length > 512 ||
+      !/^[A-Za-z0-9_]+$/.test(token)) {
+    throw new GitHubReadError(token ? 'authentication_context_invalid' : 'authentication_context_missing')
+  }
+  // Capture the credential once. An environment/account switch between API
+  // requests cannot mix observations from two authentication contexts.
+  const pinnedToken = token
+  return async function readAuthenticatedGithub(url) {
+    let parsed
+    try { parsed = new URL(url) } catch { throw new GitHubReadError('github_request_invalid') }
+    if (parsed.origin !== 'https://api.github.com' ||
+        !parsed.pathname.startsWith('/repos/' + REPOSITORY + '/') &&
+        parsed.pathname !== '/repos/' + REPOSITORY) {
+      throw new GitHubReadError('github_request_out_of_scope')
+    }
+    let response
+    try {
+      response = await fetch(parsed.toString(), {
+        method:'GET',
+        headers: {
+          Accept:'application/vnd.github+json',
+          Authorization:'Bearer ' + pinnedToken,
+          'X-GitHub-Api-Version':'2022-11-28',
+          'User-Agent':'QuizForge-read-only-pr-risk-review',
+          'Cache-Control':'no-cache',
+        },
+        redirect:'error',
+        signal:AbortSignal.timeout(8000),
+      })
+    } catch { throw new GitHubReadError('github_unavailable_or_redirect_rejected') }
+    if (response.status === 404) return {__httpStatus:404}
+    if (response.status === 401) throw new GitHubReadError('authentication_invalid_or_expired')
+    if (response.status === 429) throw new GitHubReadError('github_rate_limited')
+    if (response.status === 403) {
+      let payload = null
+      try { payload = await response.clone().json() } catch {}
+      throw new GitHubReadError(isRateLimitResponse(response, payload)
+        ? 'github_rate_limited' : 'github_permission_denied')
+    }
+    if (!response.ok) throw new GitHubReadError('github_read_failed')
+    try { return await response.json() }
+    catch { throw new GitHubReadError('github_response_invalid') }
+  }
 }
 
 function sha256(value) {
@@ -426,9 +468,10 @@ async function inspectGithubPrRiskReview(options) {
     return blocked('invalid_input')
   }
   try {
-    const first = await snapshot(options.prNumber,readGithub)
+    const read = createAuthenticatedReadClient()
+    const first = await snapshot(options.prNumber,read)
     if (!first) return blocked('evidence_missing_stale_or_untrusted')
-    const second = await snapshot(options.prNumber,readGithub)
+    const second = await snapshot(options.prNumber,read)
     if (!second || JSON.stringify(first) !== JSON.stringify(second)) {
       return blocked('state_changed_during_inspection')
     }
@@ -440,7 +483,8 @@ async function inspectGithubPrRiskReview(options) {
         headSha:first.headSha,baseSha:first.baseSha,diffSha256:first.diffSha256,risk:first.risk})
     }
     return Object.freeze({status:'OBSERVATION_ONLY',mergeAuthorized:false,reason:'read_only_evidence_only',...first})
-  } catch {
+  } catch (error) {
+    if (error instanceof GitHubReadError) return blocked(error.reason)
     return blocked('github_unavailable_or_invalid')
   }
 }

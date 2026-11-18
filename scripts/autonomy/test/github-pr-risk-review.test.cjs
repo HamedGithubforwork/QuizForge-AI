@@ -14,6 +14,7 @@ const head = 'a'.repeat(40)
 const base = 'b'.repeat(40)
 const gateRunId = 9812
 const gateCheckId = 9912
+const testToken = 'github_pat_test_read_only_1234567890'
 
 function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.repeat(40),
   additions:1,deletions:0,changes:1,patch:'+note'}]) {
@@ -96,20 +97,38 @@ function fixture(changes = [{filename:'docs/feature.md',status:'added',sha:'c'.r
   }
 }
 
-async function inspectWithRead(read) {
+async function inspectWithFetch(fetchImplementation, token = testToken) {
   const previousFetch = global.fetch
-  global.fetch = async url => {
-    const value = await read(String(url))
-    if (value?.__httpStatus) return {ok:false,status:value.__httpStatus,json:async () => value}
-    return {ok:true,status:200,json:async () => value}
-  }
+  const hadToken = Object.hasOwn(process.env,'QUIZFORGE_GITHUB_READ_TOKEN')
+  const previousToken = process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  if (token === undefined) delete process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  else process.env.QUIZFORGE_GITHUB_READ_TOKEN = token
+  global.fetch = fetchImplementation
   try { return await inspectGithubPrRiskReview({prNumber}) }
-  finally { global.fetch = previousFetch }
+  finally {
+    global.fetch = previousFetch
+    if (hadToken) process.env.QUIZFORGE_GITHUB_READ_TOKEN = previousToken
+    else delete process.env.QUIZFORGE_GITHUB_READ_TOKEN
+  }
+}
+
+async function inspectWithRead(read, token = testToken, onRequest) {
+  return inspectWithFetch(async (url,init) => {
+    onRequest?.(String(url),init)
+    const value = await read(String(url))
+    if (value?.__httpStatus) {
+      const payload = {message:value.message}
+      return {ok:false,status:value.__httpStatus,headers:new Headers(value.headers ?? {}),
+        json:async () => payload,clone() { return this }}
+    }
+    return {ok:true,status:200,headers:new Headers(),json:async () => value}
+  },token)
 }
 
 test('clean evidence is observation-only and cannot authorize a merge', async () => {
   const data = fixture()
-  const result = await inspectWithRead(data.read)
+  const requests = []
+  const result = await inspectWithRead(data.read,testToken,(url,init) => requests.push({url,init}))
   assert.equal(result.status,'OBSERVATION_ONLY')
   assert.equal(result.mergeAuthorized,false)
   assert.equal(result.headSha,head)
@@ -117,6 +136,98 @@ test('clean evidence is observation-only and cannot authorize a merge', async ()
   assert.match(result.diffSha256,/^[a-f0-9]{64}$/)
   assert.match(result.reviewEvidenceSha256,/^[a-f0-9]{64}$/)
   assert.match(result.rulesetSha256,/^[a-f0-9]{64}$/)
+  assert.ok(requests.length > 1)
+  assert.ok(requests.every(({url,init}) => url.startsWith(repoRoot) && init.method === 'GET' &&
+    init.redirect === 'error' && init.headers.Authorization === 'Bearer ' + testToken))
+  assert.equal(JSON.stringify(result).includes(testToken),false)
+})
+
+test('missing and malformed authentication contexts fail before network access', async t => {
+  let calls = 0
+  const fetch = async () => { calls += 1; throw new Error('unexpected request') }
+  await t.test('missing credential',async () => {
+    const result = await inspectWithFetch(fetch,'')
+    assert.equal(result.reason,'authentication_context_missing')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(calls,0)
+  })
+  await t.test('malformed credential',async () => {
+    const result = await inspectWithFetch(fetch,'token\r\nAuthorization: Bearer compromised')
+    assert.equal(result.reason,'authentication_context_invalid')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(calls,0)
+  })
+  await t.test('caller cannot supply a token or alternate reader',async () => {
+    assert.equal((await inspectGithubPrRiskReview({prNumber,token:testToken})).reason,'invalid_input')
+    assert.equal(calls,0)
+  })
+})
+
+test('expired, insufficient, and rate-limited auth responses fail closed without leaking response text',async t => {
+  const cases = [
+    ['expired credential',401,{}, {message:'Bad credentials'},'authentication_invalid_or_expired'],
+    ['insufficient permission',403,{}, {message:'Resource not accessible by integration'},'github_permission_denied'],
+    ['HTTP rate limit',429,{'retry-after':'60'}, {message:'too many requests'},'github_rate_limited'],
+    ['primary rate limit',403,{'x-ratelimit-remaining':'0'}, {message:'API rate limit exceeded'},'github_rate_limited'],
+    ['secondary rate limit',403,{'retry-after':'60'}, {message:'You have exceeded a secondary rate limit'},'github_rate_limited'],
+  ]
+  for (const [name,status,headers,payload,reason] of cases) await t.test(name,async () => {
+    const result = await inspectWithFetch(async () => ({ok:false,status,headers:new Headers(headers),
+      json:async () => payload,clone() { return this }}))
+    assert.equal(result.reason,reason)
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(JSON.stringify(result).includes(payload.message),false)
+    assert.equal(JSON.stringify(result).includes(testToken),false)
+  })
+})
+
+test('credential is pinned for the full two-snapshot operation despite environment replacement',async () => {
+  const data = fixture()
+  const seen = []
+  const result = await inspectWithRead(data.read,testToken,(_url,init) => {
+    seen.push(init.headers.Authorization)
+    process.env.QUIZFORGE_GITHUB_READ_TOKEN = 'different_context_token_123456789'
+  })
+  assert.equal(result.status,'OBSERVATION_ONLY')
+  assert.ok(seen.length > 1)
+  assert.deepEqual([...new Set(seen)],['Bearer ' + testToken])
+  assert.equal(result.mergeAuthorized,false)
+})
+
+test('revoked or compromised context during verification blocks the entire observation',async () => {
+  const data = fixture()
+  let rulesetReads = 0
+  const result = await inspectWithRead(async url => {
+    if (new URL(url).pathname.endsWith('/rulesets/21886458')) {
+      rulesetReads += 1
+      if (rulesetReads === 2) return {__httpStatus:403,message:'private token or server details must not escape'}
+    }
+    return data.read(url)
+  })
+  assert.equal(result.status,'UNVERIFIED')
+  assert.equal(result.reason,'github_permission_denied')
+  assert.equal(result.mergeAuthorized,false)
+  assert.equal(JSON.stringify(result).includes('private token'),false)
+})
+
+test('network failures and malformed API responses never produce evidence',async t => {
+  await t.test('redirect or network failure is rejected without exposing error text',async () => {
+    const result = await inspectWithFetch(async (_url,init) => {
+      assert.equal(init.redirect,'error')
+      throw new Error('https://attacker.invalid redirected with token=secret')
+    })
+    assert.equal(result.status,'UNVERIFIED')
+    assert.equal(result.reason,'github_unavailable_or_redirect_rejected')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(JSON.stringify(result).includes('attacker.invalid'),false)
+  })
+  await t.test('malformed JSON response rejected',async () => {
+    const result = await inspectWithFetch(async () => ({ok:true,status:200,headers:new Headers(),
+      json:async () => {throw new Error('sensitive body detail')}}))
+    assert.equal(result.status,'UNVERIFIED')
+    assert.equal(result.mergeAuthorized,false)
+    assert.equal(JSON.stringify(result).includes('sensitive body detail'),false)
+  })
 })
 
 test('incomplete file pagination cannot produce a low-risk observation', async () => {
