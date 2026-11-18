@@ -303,6 +303,11 @@ test('privileged workflow is main-revision-only, read-only, and never executes P
   assert.match(workflow,/ref: \$\{\{ github\.sha \}\}/)
   assert.match(workflow,/persist-credentials: false/)
   assert.match(workflow,/uses: actions\/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510/)
+  assert.match(workflow,/client-id:\s*\$\{\{\s*vars\.QUIZFORGE_VERIFIER_APP_CLIENT_ID\s*\}\}/)
+  assert.match(workflow,/if:\s*\$\{\{\s*vars\.QUIZFORGE_VERIFIER_APP_CLIENT_ID != ''\s*\}\}/)
+  assert.match(workflow,/private-key:\s*\$\{\{\s*secrets\.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY\s*\}\}/)
+  assert.doesNotMatch(workflow,/APP_PRIVATE_KEY:\s*\$\{\{\s*secrets\./)
+  assert.doesNotMatch(workflow,/QUIZFORGE_VERIFIER_APP_ID|app-config/)
   for (const permission of ['actions','administration','checks','contents','pull-requests']) {
     assert.match(workflow,new RegExp(`permission-${permission}: read`))
   }
