@@ -460,9 +460,13 @@ async function snapshot(prNumber, read, expectedRequiredRunId) {
     item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)
   const runAssociations = run?.pull_requests
   const runAssociationAgrees = runAssociations === undefined ||
-    (Array.isArray(runAssociations) && (runAssociations.length === 0 || runAssociations.some(item =>
-      item?.number === prNumber && item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
-      item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)))
+    (Array.isArray(runAssociations) && (runAssociations.length === 0 ||
+      (runAssociations.every(item => Number.isSafeInteger(item?.number) && item.number > 0 &&
+        Number.isSafeInteger(item.head?.repo?.id) && SHA.test(item.head?.sha ?? '') &&
+        Number.isSafeInteger(item.base?.repo?.id) && typeof item.base?.ref === 'string' &&
+        SHA.test(item.base?.sha ?? '')) && runAssociations.some(item =>
+          item.number === prNumber && item.head.repo.id === REPOSITORY_ID && item.head.sha === headSha &&
+          item.base.repo.id === REPOSITORY_ID && item.base.ref === TARGET && item.base.sha === baseSha))))
   if (run?.id !== gateRunId || run.workflow_id !== CI_WORKFLOW_ID ||
       run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
       run.head_sha !== headSha || run.status !== 'completed' || run.conclusion !== 'success' ||

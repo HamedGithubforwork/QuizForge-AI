@@ -219,7 +219,8 @@ test('contradictory commit-to-PR association or run association fails closed', a
   await t.test('malformed present run associations are rejected', async () => {
     const data = fixture()
     const original = data.getRun()
-    for (const malformed of [null,'not-an-array',{}]) {
+    for (const malformed of [null,'not-an-array',{},[null,{number:prNumber,
+      head:{repo:{id:repositoryId},sha:head},base:{repo:{id:repositoryId},ref:'main',sha:base}}]]) {
       data.setRun({...original,pull_requests:malformed})
       const result = await inspectWithRead(data.read)
       assert.equal(result.status,'UNVERIFIED')
