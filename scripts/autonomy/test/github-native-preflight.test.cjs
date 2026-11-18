@@ -7,6 +7,11 @@ const head = 'a'.repeat(40)
 const base = 'b'.repeat(40)
 const prNumber = 999
 const runId = 123456
+const ciWorkflowPath = '.github/workflows/ci.yml'
+
+function pageUrl(suffix, page) {
+  return root + suffix + '?per_page=100&page=' + page
+}
 
 function fixture() {
   const repo = { id:1307099196, owner:{id:148009407}, full_name:'HamedGithubforwork/QuizForge-AI',
@@ -28,7 +33,7 @@ function fixture() {
     details_url:'https://github.com/HamedGithubforwork/QuizForge-AI/actions/runs/'+runId+'/job/3' }
   const checks = { total_count:1,check_runs:[gate] }
   const association = [{number:prNumber,head:{sha:head},base:{ref:'main',repo:{id:repo.id}}}]
-  const run = {id:runId,workflow_id:330113334,path:'.github/workflows/ci.yml',
+  const run = {id:runId,workflow_id:330113334,path:ciWorkflowPath,
     event:'pull_request',head_sha:head,check_suite_id:111,
     status:'completed',conclusion:'success',repository:{id:repo.id},
     pull_requests:[{number:prNumber,head:{sha:head,repo:{id:repo.id}},
@@ -38,8 +43,10 @@ function fixture() {
     [root+'/pulls/'+prNumber]:pr,
     [root+'/branches/main']:main,
     [root+'/rulesets/21886458']:rules,
-    [root+'/commits/'+head+'/check-runs?per_page=100']:checks,
-    [root+'/commits/'+head+'/pulls?per_page=100']:association,
+    [pageUrl('/commits/'+head+'/check-runs',1)]:checks,
+    [pageUrl('/commits/'+head+'/pulls',1)]:association,
+    [root+'/contents/'+ciWorkflowPath+'?ref='+base]:{type:'file',sha:'c'.repeat(40)},
+    [root+'/contents/'+ciWorkflowPath+'?ref='+head]:{type:'file',sha:'c'.repeat(40)},
     [root+'/actions/runs/'+runId]:run,
   }
   return {values,repo,pr,main,rules,gate,checks,association,run}
@@ -125,7 +132,7 @@ test('repo settings changing during inspection fails closed',async()=>{
 })
 test('required gate changing during final revalidation fails closed',async()=>{
   const f=fixture();let count=0
-  const checksUrl=root+'/commits/'+head+'/check-runs?per_page=100'
+  const checksUrl=pageUrl('/commits/'+head+'/check-runs',1)
   const r=await inspect(f,async url=>{
     if(url===checksUrl&&++count===2) {
       const checks=structuredClone(f.values[url])
@@ -160,4 +167,124 @@ test('API outage fails closed without merge authority',async()=>{
 test('invalid PR number never invokes GitHub',async()=>{
   const r=await inspectGithubNativePreflight({prNumber:0,read:async()=>{throw Error('called')}})
   assert.equal(r.reason,'invalid_input')
+})
+test('undefined options fail closed without throwing', async()=>{
+  const r = await inspectGithubNativePreflight()
+  assert.deepEqual(r,{status:'UNVERIFIED',mergeAuthorized:false,reason:'invalid_input'})
+})
+
+test('null options fail closed without throwing', async()=>{
+  const r = await inspectGithubNativePreflight(null)
+  assert.deepEqual(r,{status:'UNVERIFIED',mergeAuthorized:false,reason:'invalid_input'})
+})
+
+test('changed CI workflow blob is not trusted', async()=>{
+  const f=fixture()
+  f.values[root+'/contents/'+ciWorkflowPath+'?ref='+head].sha='d'.repeat(40)
+  const r=await inspect(f)
+  assert.equal(r.reason,'ci_workflow_definition_changed_or_unverified')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('CI workflow change during final revalidation invalidates evidence', async()=>{
+  const f=fixture();let headWorkflowReads=0
+  const url=root+'/contents/'+ciWorkflowPath+'?ref='+head
+  const r=await inspect(f,async requestUrl=>{
+    if(requestUrl===url&&++headWorkflowReads===2) return {type:'file',sha:'d'.repeat(40)}
+    return structuredClone(f.values[requestUrl])
+  })
+  assert.equal(r.status,'UNVERIFIED')
+  assert.equal(r.reason,'state_changed_during_preflight')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('missing or malformed CI workflow identity fails closed', async t=>{
+  for (const [name, value] of [
+    ['missing', undefined], ['wrong type', {type:'dir',sha:'c'.repeat(40)}],
+    ['invalid blob SHA', {type:'file',sha:'not-a-sha'}],
+  ]) {
+    await t.test(name, async()=>{
+      const f=fixture()
+      f.values[root+'/contents/'+ciWorkflowPath+'?ref='+base]=value
+      const r=await inspect(f)
+      assert.equal(r.reason,'ci_workflow_definition_changed_or_unverified')
+      assert.equal(r.mergeAuthorized,false)
+    })
+  }
+})
+
+test('workflow path is checked against the observed GitHub API format', async()=>{
+  const f=fixture()
+  // Live GET /actions/runs evidence for run 44029170185 reports this exact,
+  // unsuffixed path. A guessed @refs/... suffix is not accepted as evidence.
+  const accepted=await inspect(f)
+  assert.equal(accepted.status,'OBSERVATION_ONLY')
+  f.run.path=ciWorkflowPath+'@refs/pull/711/merge'
+  const rejected=await inspect(f)
+  assert.equal(rejected.reason,'ci_run_unverified')
+  assert.equal(rejected.mergeAuthorized,false)
+})
+
+test('check-run pagination finds the unique required gate on a later page', async()=>{
+  const f=fixture()
+  const dummies=Array.from({length:100},(_,i)=>({id:1000+i,name:'other check '+i,
+    head_sha:head,status:'completed',conclusion:'success'}))
+  f.values[pageUrl('/commits/'+head+'/check-runs',1)]={total_count:101,check_runs:dummies}
+  f.values[pageUrl('/commits/'+head+'/check-runs',2)]={total_count:101,check_runs:[f.gate]}
+  const r=await inspect(f)
+  assert.equal(r.status,'OBSERVATION_ONLY')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('associated PR pagination finds the candidate on a later page', async()=>{
+  const f=fixture()
+  const unrelated=Array.from({length:100},(_,i)=>({number:i+1,
+    head:{sha:'d'.repeat(40)},base:{ref:'other',repo:{id:1307099196}}}))
+  f.values[pageUrl('/commits/'+head+'/pulls',1)]=unrelated
+  f.values[pageUrl('/commits/'+head+'/pulls',2)]=f.association
+  const r=await inspect(f)
+  assert.equal(r.status,'OBSERVATION_ONLY')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('incomplete check-run pagination fails closed', async()=>{
+  const f=fixture()
+  f.values[pageUrl('/commits/'+head+'/check-runs',1)]={total_count:101,check_runs:[f.gate]}
+  const r=await inspect(f)
+  assert.equal(r.status,'UNVERIFIED')
+  assert.equal(r.reason,'required_gate_unverified')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('inconsistent check-run page totals fail closed', async()=>{
+  const f=fixture()
+  const dummies=Array.from({length:100},(_,i)=>({id:1000+i,name:'other check '+i,
+    head_sha:head,status:'completed',conclusion:'success'}))
+  f.values[pageUrl('/commits/'+head+'/check-runs',1)]={total_count:101,check_runs:dummies}
+  f.values[pageUrl('/commits/'+head+'/check-runs',2)]={total_count:102,check_runs:[f.gate]}
+  const r=await inspect(f)
+  assert.equal(r.status,'UNVERIFIED')
+  assert.equal(r.reason,'required_gate_unverified')
+})
+
+test('final default branch change invalidates ruleset evidence', async()=>{
+  const f=fixture();let count=0
+  const r=await inspect(f,async url=>{
+    if(url===root&&++count===2) return {...f.repo,default_branch:'release'}
+    return structuredClone(f.values[url])
+  })
+  assert.equal(r.reason,'state_changed_during_preflight')
+  assert.equal(r.mergeAuthorized,false)
+})
+
+test('final PR head repository change invalidates evidence', async()=>{
+  const f=fixture();let count=0
+  const r=await inspect(f,async url=>{
+    if(url===root+'/pulls/'+prNumber&&++count===2) {
+      return {...f.pr,head:{...f.pr.head,repo:{id:9}}}
+    }
+    return structuredClone(f.values[url])
+  })
+  assert.equal(r.reason,'state_changed_during_preflight')
+  assert.equal(r.mergeAuthorized,false)
 })

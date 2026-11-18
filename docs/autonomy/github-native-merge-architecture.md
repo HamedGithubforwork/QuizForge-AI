@@ -20,8 +20,14 @@ This changes the assurance: **independently verified GitHub checks and formal re
 - Open, non-draft, mergeable PR targeting protected `main` at the exact current base SHA
 - GitHub-associated PR head and a successful `Required PR gate` check from the expected GitHub Actions app
 - The matching successful CI workflow run, check-suite ID, and the run's own PR association for the exact PR number, head SHA, `main` target, and base SHA
+- An unchanged `.github/workflows/ci.yml` blob at the exact protected-main and candidate-head revisions; a changed or unreadable CI workflow definition blocks use of that run as evidence
+- Complete check-run and commit-to-PR association collections, fetched in bounded 100-item pages (up to 10 pages); truncated, inconsistent, duplicate, or over-limit responses fail closed
 - Active strict protection and lack of ruleset bypass actors
 - Merge-queue rule presence and final re-read of PR/main/repository/ruleset, Required PR gate, and workflow-run state
+
+The workflow-run `path` check matches live GitHub API evidence: run `44029170185` returned `.github/workflows/ci.yml` exactly, without a ref suffix. The preflight requires that observed path; it does not assume a suffix format.
+
+PR #711 itself changes `ci.yml`, so this preflight intentionally rejects its own CI result as verification evidence. Its ordinary Required PR gate is still validated by GitHub branch protection; the preflight is only an observation component and cannot self-approve a change to its CI definition.
 
 The preflight requires no privileged GitHub token and performs **no writes**. A successful result is labeled `OBSERVATION_ONLY`; it is not a durable attestation and never outputs merge authorization. Mocked `read` calls are strictly a test seam, not trusted evidence. A future privileged implementation must execute reviewed policy code from a protected revision and never from an untrusted candidate PR.
 
