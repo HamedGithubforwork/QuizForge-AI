@@ -19,6 +19,8 @@ on:
       - "scripts/autonomy/test/github-native-preflight.test.cjs"
       - "scripts/autonomy/github-pr-risk-review.cjs"
       - "scripts/autonomy/test/github-pr-risk-review.test.cjs"
+      - "scripts/autonomy/run-trusted-github-verifier.cjs"
+      - ".github/workflows/trusted-github-pr-verification.yml"
       - "scripts/autonomy/integration-coordinator.cjs"
       - "scripts/autonomy/test/integration-coordinator.test.cjs"
       - "scripts/autonomy/trusted-integration-verifier.cjs"

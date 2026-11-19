@@ -20,10 +20,11 @@ const MAX_PAGES = 10
 const MAX_FILES = PAGE_SIZE * MAX_PAGES
 const MAX_DIFF_BYTES = 2_000_000
 const AUTH_TOKEN_ENV = 'QUIZFORGE_GITHUB_READ_TOKEN'
+const TRUSTED_RUNTIME_WORKFLOW_ID = 330113334
 
-// Snapshot of the protected-main workflow inventory at c2531f0. This makes
-// workflow-trigger assumptions explicit and stale-by-default: any addition,
-// removal, or edit requires a separately reviewed inventory update.
+// Snapshot of the protected-main workflow inventory at the runtime PR baseline.
+// Any workflow addition, removal, or edit requires a separately reviewed
+// inventory update, so stale or candidate-authored workflow state fails closed.
 const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/ai-live-canary.yml':'c0842f3cd1548461c6220cd832f55d4980d49310',
   '.github/workflows/aws-backup-activation-cloud.yml':'d9f1e744751396e111d8553eaf4980bd12366b3d',
@@ -34,7 +35,7 @@ const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/aws-production-inventory.yml':'e5572c4b94566e4c783c46cadf6e17f12180c488',
   '.github/workflows/aws-staging-ai-budget.yml':'9c78fff515dac04a49a020121465952ff70aefa6',
   '.github/workflows/backend-ecr.yml':'9773184f818d0fd313b9955723b02e1de8c2fb28',
-  '.github/workflows/ci.yml':'d00d608bee5a75847cdf9f8213a63726410ffc76',
+  '.github/workflows/ci.yml':'ec4d5b0153a897597761ca4ea142074803ac5efa',
   '.github/workflows/cognito-sms-activation.yml':'422c0b9fd8bc9f14a8b66af0893dbd46ccc630c1',
   '.github/workflows/desktop-auth-readiness.yml':'36f487901e7c0fe2d6d7da6839c157eae0839746',
   '.github/workflows/desktop-native-client-registration.yml':'04f0c946007c48ce4b384dd15d9b16f62f3ba38b',
@@ -64,12 +65,14 @@ const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/quizforge-autonomy-bridge.yml':'2e99858a2147c06dd075a14fa1c3241d3372bc27',
   '.github/workflows/security.yml':'826c236ab211865c0b20fb4f1f64a0df3b2592ec',
   '.github/workflows/terraform-aws.yml':'c55cc313a606310ec29c7d7911950c3b0cbf39ba',
+  '.github/workflows/trusted-github-pr-verification.yml':'45a651f07672c40ba284c99c5df8487a0846d54d',
 })
 
 const TRUSTED_CODE_PATHS = Object.freeze([
   'scripts/autonomy/github-pr-risk-review.cjs',
   'scripts/autonomy/github-native-preflight.cjs',
   'scripts/autonomy/automatic-merge-policy.cjs',
+  'scripts/autonomy/run-trusted-github-verifier.cjs',
 ])
 
 const PROTECTED_PATHS = Object.freeze([
@@ -385,7 +388,7 @@ function verifyReviews(reviews, pr, headSha, requiredApprovals) {
     approvals,requiredApprovals,latestReviewCount:latest.size}
 }
 
-async function snapshot(prNumber, read) {
+async function snapshot(prNumber, read, expectedRequiredRunId) {
   const [repo,pr,main,ruleset,rulesets,effectiveRules,classicProtection] = await Promise.all([
     read(API),read(API + '/pulls/' + prNumber),read(API + '/branches/' + TARGET),
     read(API + '/rulesets/' + RULESET_ID),
@@ -443,14 +446,32 @@ async function snapshot(prNumber, read) {
   const gateRunId = Number((checkRuns.find(check => check.id === gate.checkRunId)?.details_url ?? '').match(
     /^https:\/\/github\.com\/HamedGithubforwork\/QuizForge-AI\/actions\/runs\/([1-9][0-9]*)\/job\/[1-9][0-9]*$/)?.[1])
   if (!Number.isSafeInteger(gateRunId)) return null
-  const run = await read(API + '/actions/runs/' + gateRunId)
-  const associated = Array.isArray(run?.pull_requests) && run.pull_requests.some(item =>
-    item?.number === prNumber && item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
+  const [run,associatedPrs] = await Promise.all([
+    read(API + '/actions/runs/' + gateRunId),
+    // GitHub's Actions run representation can omit pull_requests even for a
+    // real PR workflow run. The commit-to-PR endpoint is the independent
+    // association source; the run's pull_requests field, when present, must
+    // agree with it but is not required to be populated.
+    readAllArray('/commits/' + headSha + '/pulls',read),
+  ])
+  const associatedByCommit = associatedPrs?.some(item =>
+    item?.number === prNumber && item.state === 'open' &&
+    item.head?.repo?.id === REPOSITORY_ID && item.head?.sha === headSha &&
     item.base?.repo?.id === REPOSITORY_ID && item.base?.ref === TARGET && item.base?.sha === baseSha)
+  const runAssociations = run?.pull_requests
+  const runAssociationAgrees = runAssociations === undefined ||
+    (Array.isArray(runAssociations) && (runAssociations.length === 0 ||
+      (runAssociations.every(item => Number.isSafeInteger(item?.number) && item.number > 0 &&
+        Number.isSafeInteger(item.head?.repo?.id) && SHA.test(item.head?.sha ?? '') &&
+        Number.isSafeInteger(item.base?.repo?.id) && typeof item.base?.ref === 'string' &&
+        SHA.test(item.base?.sha ?? '')) && runAssociations.some(item =>
+          item.number === prNumber && item.head.repo.id === REPOSITORY_ID && item.head.sha === headSha &&
+          item.base.repo.id === REPOSITORY_ID && item.base.ref === TARGET && item.base.sha === baseSha))))
   if (run?.id !== gateRunId || run.workflow_id !== CI_WORKFLOW_ID ||
       run.path !== '.github/workflows/ci.yml' || run.event !== 'pull_request' ||
       run.head_sha !== headSha || run.status !== 'completed' || run.conclusion !== 'success' ||
-      run.repository?.id !== REPOSITORY_ID || !associated) return null
+      run.repository?.id !== REPOSITORY_ID || !associatedByCommit || !runAssociationAgrees ||
+      (expectedRequiredRunId !== undefined && gateRunId !== expectedRequiredRunId)) return null
   const risk = classifyRisk(fileSet.files)
   return {
     repositoryId:REPOSITORY_ID,ownerId:OWNER_ID,prNumber,headSha,baseSha,
@@ -489,7 +510,53 @@ async function inspectGithubPrRiskReview(options) {
   }
 }
 
+async function inspectGithubWorkflowRunRiskReview(options) {
+  if (options === null || typeof options !== 'object' || Array.isArray(options) ||
+      !Number.isSafeInteger(options.workflowRunId) || options.workflowRunId < 1 ||
+      Object.keys(options).some(key => key !== 'workflowRunId')) return blocked('invalid_input')
+  try {
+    const read = createAuthenticatedReadClient()
+    const triggerRun = await read(API + '/actions/runs/' + options.workflowRunId)
+    if (triggerRun?.id !== options.workflowRunId ||
+        triggerRun.workflow_id !== TRUSTED_RUNTIME_WORKFLOW_ID ||
+        triggerRun.path !== '.github/workflows/ci.yml' || triggerRun.event !== 'pull_request' ||
+        triggerRun.status !== 'completed' || triggerRun.conclusion !== 'success' ||
+        triggerRun.repository?.id !== REPOSITORY_ID || !SHA.test(triggerRun.head_sha ?? '')) {
+      return blocked('trigger_run_untrusted_or_incomplete')
+    }
+    const associatedPrs = await readAllArray('/commits/' + triggerRun.head_sha + '/pulls',read)
+    if (!associatedPrs) return blocked('trigger_pr_association_unavailable')
+    const candidates = associatedPrs.filter(pr => pr?.state === 'open' && pr.base?.ref === TARGET &&
+      pr.head?.sha === triggerRun.head_sha && pr.head?.repo?.id === REPOSITORY_ID &&
+      pr.base?.repo?.id === REPOSITORY_ID && Number.isSafeInteger(pr.number) && pr.number > 0)
+    if (candidates.length !== 1) return blocked('trigger_pr_association_ambiguous')
+    const prNumber = candidates[0].number
+    const first = await snapshot(prNumber,read,options.workflowRunId)
+    if (!first) return blocked('evidence_missing_stale_or_untrusted')
+    const second = await snapshot(prNumber,read,options.workflowRunId)
+    const finalTriggerRun = await read(API + '/actions/runs/' + options.workflowRunId)
+    if (!second || JSON.stringify(first) !== JSON.stringify(second) ||
+        JSON.stringify(triggerRun) !== JSON.stringify(finalTriggerRun)) {
+      return blocked('state_changed_during_inspection')
+    }
+    if (first.risk.risk === 'high_risk') {
+      return Object.freeze({status:'BLOCKED',mergeAuthorized:false,reason:'high_risk_change',
+        ...first,triggerWorkflowRunId:options.workflowRunId})
+    }
+    if (first.risk.risk !== 'low_risk') {
+      return blocked('risk_unknown',{repositoryId:REPOSITORY_ID,prNumber,headSha:first.headSha,
+        baseSha:first.baseSha,diffSha256:first.diffSha256,risk:first.risk,
+        triggerWorkflowRunId:options.workflowRunId})
+    }
+    return Object.freeze({status:'OBSERVATION_ONLY',mergeAuthorized:false,reason:'read_only_evidence_only',
+      ...first,triggerWorkflowRunId:options.workflowRunId})
+  } catch (error) {
+    if (error instanceof GitHubReadError) return blocked(error.reason)
+    return blocked('github_unavailable_or_invalid')
+  }
+}
+
 module.exports = {
-  inspectGithubPrRiskReview, classifyRisk, WORKFLOW_EFFECT_RULES,
+  inspectGithubPrRiskReview, inspectGithubWorkflowRunRiskReview, classifyRisk, WORKFLOW_EFFECT_RULES,
   TRUSTED_WORKFLOW_BLOBS, TRUSTED_CODE_PATHS,
 }

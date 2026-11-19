@@ -170,6 +170,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'scripts/autonomy/test/trusted-integration-verifier.test.cjs',
     'scripts/autonomy/github-pr-risk-review.cjs',
     'scripts/autonomy/test/github-pr-risk-review.test.cjs',
+    'scripts/autonomy/run-trusted-github-verifier.cjs',
+    '.github/workflows/trusted-github-pr-verification.yml',
     'docs/autonomy/integration-task-graph.json',
   ]
   const policyPaths = [
@@ -185,6 +187,10 @@ test('integration coordinator source and tests trigger autonomy verification', (
   for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(classifier.includes(changedPath), `${changedPath} must mark autonomy tests relevant`)
   }
+  assert.ok(classifier.includes('scripts/autonomy/run-trusted-github-verifier.cjs'),
+    'trusted runtime changes must run autonomy tests')
+  assert.ok(classifier.includes('.github/workflows/trusted-github-pr-verification.yml'),
+    'trusted workflow changes must run autonomy tests')
   assert.match(classifier, /autonomy_tests=true/)
   const ciWorkflowCase = classifier.match(/\.github\/workflows\/ci\.yml\)\r?\n([\s\S]*?)\r?\n\s+;;/)
   assert.ok(ciWorkflowCase, 'CI workflow changes must be classified')
