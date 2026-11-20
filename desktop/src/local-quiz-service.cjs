@@ -821,6 +821,21 @@ class QuizValidationIssue extends Error {
   }
 }
 
+const TARGETED_FILTER_DIAGNOSTIC_COUNTERS = Object.freeze([
+  'inputCandidates', 'avoidedQuestions', 'duplicateQuestions',
+  'unsupportedSourceFacts', 'unsupportedAnswers', 'unexpectedOutputScripts',
+  'duplicateSourceFacts', 'sourcePageRepairs', 'survivors',
+])
+
+function targetedFilterDiagnosticCounters(details) {
+  if (!plain(details)) return undefined
+  const counters = Object.fromEntries(TARGETED_FILTER_DIAGNOSTIC_COUNTERS
+    .filter(key => Number.isSafeInteger(details[key]) && details[key] >= 0 &&
+      details[key] <= 1_000_000)
+    .map(key => [key, details[key]]))
+  return Object.keys(counters).length ? Object.freeze(counters) : undefined
+}
+
 const invalidQuiz = (reason, details, retryEvidence, rejectedEvidence) => {
   throw new QuizValidationIssue(reason, details, retryEvidence, rejectedEvidence)
 }
@@ -2101,8 +2116,12 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             const reason = error instanceof QuizValidationIssue
               ? error.reason : error instanceof LocalAiError
                 ? error.code : 'quiz_validation_failed'
+            const details = error instanceof QuizValidationIssue &&
+              error.reason === 'candidate_pool_exhausted'
+              ? targetedFilterDiagnosticCounters(error.details) : undefined
             try { onValidationIssue(Object.freeze({
               attempt: 'recovery', reason,
+              ...(details ? { details } : {}),
             })) } catch {}
             if (error instanceof LocalAiError) throw error
             throw failure('quiz_validation_failed')
@@ -2361,17 +2380,21 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             const maxBatches = avoidQuestions.length >= 2 &&
               hasRichTargetedSource(request.pages) ? 2 : 1
             let merged = recoveryText
+            let generatedCandidates = 0
             for (let batch = 0; batch < maxBatches; batch++) {
               const needed = Math.max(1, QUESTION_COUNT - poolIssue.retryEvidence.length)
-              // First ask only for the number of independently validated
-              // replacements actually missing. Generating three candidates
-              // when only one is missing wastes an entire CPU inference.
-              // The existing second bounded batch keeps one backup candidate
-              // when the first smaller response fails validation.
+              // Ask for one bounded backup in each replacement request.
+              // If the only needed candidate is rejected as duplicate or
+              // unsupported, a second CPU inference used to be required just
+              // to obtain its backup. Keep the original five-candidate total
+              // budget across both requests. Every candidate still passes the
+              // same source, answer, citation, and distinctness validators.
               const candidateCount = Math.min(
                 TARGETED_RETRY_BATCH_CANDIDATES,
-                needed + (batch === 0 ? 0 : 1),
+                needed + 1,
+                TARGETED_RETRY_CANDIDATES - generatedCandidates,
               )
+              if (candidateCount < 1) break
               const replacements = await generateAttempt(
                 'candidate_pool_exhausted',
                 poolIssue.retryEvidence,
@@ -2379,6 +2402,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 candidateCount,
                 poolIssue.rejectedEvidence,
               )
+              generatedCandidates += candidateCount
               if (replacements.finishReason !== 'stop') invalidQuiz('truncated_output')
               merged = mergeTargetedCandidatePoolTexts(merged, replacements.text)
               try {
@@ -2724,7 +2748,13 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               : recoveryError instanceof LocalAiError
                 ? recoveryError.code
                 : 'quiz_validation_failed'
-            try { onValidationIssue(Object.freeze({ attempt: 'recovery', reason })) } catch {}
+            const details = recoveryError instanceof QuizValidationIssue &&
+              recoveryError.reason === 'candidate_pool_exhausted'
+              ? targetedFilterDiagnosticCounters(recoveryError.details) : undefined
+            try { onValidationIssue(Object.freeze({
+              attempt: 'recovery', reason,
+              ...(details ? { details } : {}),
+            })) } catch {}
             if (recoveryError instanceof LocalAiError) throw recoveryError
             throw failure('quiz_validation_failed')
           }
