@@ -9,10 +9,15 @@ on:
         options:
           - diagnostic/targeted-practice-stage-timing-20261103
           - perf/local-practice-minimal-replacement-batch-20261103
+          - codex/qwen-targeted-practice-backup-batch-20261120
         default: perf/local-practice-minimal-replacement-batch-20261103
         required: true
       expected_tool_sha:
-        description: 'Exact commit SHA for both the workflow revision and diagnostic-tools checkout'
+        description: 'Exact commit SHA for the diagnostic-tools checkout'
+        type: string
+        required: true
+      expected_workflow_sha:
+        description: 'Exact commit SHA selected for this workflow revision'
         type: string
         required: true
       expected_source_sha:
@@ -51,16 +56,24 @@ jobs:
         shell: pwsh
         env:
           EXPECTED_TOOL_SHA: ${{ inputs.expected_tool_sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
           SOURCE_BRANCH: ${{ inputs.source_branch }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:EXPECTED_TOOL_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'expected_tool_sha must be a lowercase 40-character commit SHA' }
+          if ($env:EXPECTED_WORKFLOW_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'expected_workflow_sha must be a lowercase 40-character commit SHA' }
           if ($env:EXPECTED_SOURCE_SHA -cnotmatch '^[a-f0-9]{40}$') { throw 'expected_source_sha must be a lowercase 40-character commit SHA' }
           $supportedSourceBranches = @('diagnostic/targeted-practice-stage-timing-20261103', 'perf/local-practice-minimal-replacement-batch-20261103')
+          $oneTimeSourceSha = 'b7c0f29803f36b0e2dd128d503dc56055d0c5fc8'
+          if ($env:SOURCE_BRANCH -ceq 'codex/qwen-targeted-practice-backup-batch-20261120') {
+            if ($env:EXPECTED_SOURCE_SHA -cne $oneTimeSourceSha) { throw 'The authorized Qwen candidate branch requires its exact approved source SHA' }
+            $supportedSourceBranches += 'codex/qwen-targeted-practice-backup-batch-20261120'
+          }
           if ($env:SOURCE_BRANCH -cnotin $supportedSourceBranches) { throw 'source_branch must be one of the configured diagnostic sources' }
           $toolSha = git -C diagnostic-tools rev-parse HEAD
-          if ($LASTEXITCODE -ne 0 -or $toolSha -cne $env:EXPECTED_TOOL_SHA -or $env:GITHUB_SHA -cne $env:EXPECTED_TOOL_SHA) { throw 'Workflow and diagnostic-tools revisions do not match expected_tool_sha' }
+          if ($LASTEXITCODE -ne 0 -or $toolSha -cne $env:EXPECTED_TOOL_SHA) { throw 'Diagnostic-tools checkout does not match expected_tool_sha' }
+          if ($env:GITHUB_SHA -cne $env:EXPECTED_WORKFLOW_SHA) { throw 'Workflow revision does not match expected_workflow_sha' }
           $sourceSha = git -C app rev-parse HEAD
           if ($LASTEXITCODE -ne 0 -or $sourceSha -cne $env:EXPECTED_SOURCE_SHA) { throw 'Application checkout does not match expected_source_sha' }
           "QFN_DIAGNOSTIC_TOOL_SHA=$toolSha" >> $env:GITHUB_ENV
