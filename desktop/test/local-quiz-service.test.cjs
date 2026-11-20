@@ -3153,14 +3153,15 @@ test('real-Qwen-style weak-area recovery preserves four grounded questions and r
         text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
       if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
       assert.equal(request.generationProfile, 'quiz-mcq-targeted-retry-v1')
-      assert.equal(request.jsonSchema.properties.questions.minItems, 1,
-        'only one unsupported prior wording needs replacement')
-      assert.equal(request.jsonSchema.properties.questions.maxItems, 1)
+      assert.equal(request.jsonSchema.properties.questions.minItems, 2,
+        'one bounded backup accompanies the one missing replacement')
+      assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
       assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
       assert.match(request.messages.at(-1).content, /REJECTED CANDIDATES AND FILTER REASONS/)
       assert.match(request.messages.at(-1).content, /Previously asked fact\?/)
       return { finishReason: 'stop', text: JSON.stringify({
-        title: 'Only the missing replacement', questions: [candidate],
+        title: 'Replacement with a bounded backup',
+        questions: [recovered.questions[0], candidate],
       }) }
     } },
   })
@@ -3181,19 +3182,21 @@ test('weak-area recovery never admits repeated or fabricated replacements', asyn
   const recovered = withRetrySourceFacts(rawQuiz())
   recovered.questions[0].question = 'Previously asked fact?'
   let calls = 0
+  const issues = []
   const service = createLocalQuizService({
-    provider: { async generate() {
+    onValidationIssue(issue) { issues.push(issue) },
+    provider: { async generate(request) {
       calls++
       if (calls <= 2) return { finishReason: 'stop',
         text: JSON.stringify({ title: 'Insufficient source material', questions: [] }) }
       if (calls === 3) return { finishReason: 'stop', text: JSON.stringify(recovered) }
+      assert.equal(request.jsonSchema.properties.questions.minItems, 2)
+      assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
       return { finishReason: 'stop', text: JSON.stringify({
         title: 'Invalid candidate replacements',
         questions: [
           { ...recovered.questions[0], question: 'Previously asked fact?' },
           { ...recovered.questions[1], question: 'Same source fact in new words?' },
-          { ...recovered.questions[2], question: 'Invented citation?',
-            source_fact: 'This phrase was not present in the uploaded notes.' },
         ],
       }) }
     } },
@@ -3203,7 +3206,19 @@ test('weak-area recovery never admits repeated or fabricated replacements', asyn
     questionType: 'multiple_choice',
     practice: { avoidQuestions: ['Previously asked fact?'] },
   }), { code: 'quiz_validation_failed' })
-  assert.equal(calls, 4, 'never loop endlessly or accept an unsafe fallback')
+  assert.equal(calls, 4, 'replacement remains bounded to one batch and no unsafe fallback')
+  const recoveryIssue = issues.find(issue => issue.attempt === 'recovery' &&
+    issue.reason === 'candidate_pool_exhausted')
+  assert.ok(recoveryIssue)
+  assert.ok(Object.keys(recoveryIssue.details).every(key => [
+    'inputCandidates', 'avoidedQuestions', 'duplicateQuestions',
+    'unsupportedSourceFacts', 'unsupportedAnswers', 'unexpectedOutputScripts',
+    'duplicateSourceFacts', 'sourcePageRepairs', 'survivors',
+  ].includes(key)))
+  assert.ok(Object.values(recoveryIssue.details).every(value =>
+    Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000))
+  assert.equal(JSON.stringify(recoveryIssue).includes('Previously asked fact?'), false)
+  assert.equal(JSON.stringify(recoveryIssue).includes('This phrase was not present'), false)
 })
 
 test('rich targeted practice preserves verified survivors through two bounded replacement batches', async () => {
@@ -3249,14 +3264,12 @@ test('rich targeted practice preserves verified survivors through two bounded re
       }
       assert.match(request.generationProfile, /^quiz-mcq-targeted-retry-v[12]$/)
       assert.equal(request.jsonSchema.properties.questions.minItems,
-        calls === 2 ? 2 : 3,
-        'first batch requests only missing facts, second gets one backup')
+        calls === 2 ? 3 : 2,
+        'a first-batch backup stays within the five-candidate total budget')
       assert.match(request.messages.at(-1).content, /RETAINED CANDIDATES/)
       const replacements = calls === 2
-        ? [makeQuestion(2), makeQuestion(3)]
-        : [makeQuestion(0, 'Which device has a cobalt casing?'),
-           makeQuestion(1, 'Which device has a 17 samples capacity?'),
-           makeQuestion(5)]
+        ? [makeQuestion(2), makeQuestion(3), makeQuestion(4)]
+        : [makeQuestion(0, 'Which device has a cobalt casing?'), makeQuestion(5)]
       return { finishReason: 'stop', text: JSON.stringify({
         title: 'Bounded replacements', questions: replacements,
       }) }

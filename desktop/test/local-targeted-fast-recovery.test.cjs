@@ -124,6 +124,52 @@ test('six-fact weak-area practice goes to strict recovery after one model absten
     !request.practice.avoidQuestions.includes(question.question)))
 })
 
+test('one missing recovery candidate requests one backup in the first replacement batch', async () => {
+  const recovery = { title: 'Recovered facts', questions: candidates.slice(0, 5) }
+  const backup = {
+    question: 'Which material does Aster use for its battery?',
+    choices: ['lithium', 'cobalt', 'glass', 'nickel'],
+    correct_index: 0,
+    explanation: 'Aster battery type is lithium.',
+    source_fact: 'Aster battery type is lithium.',
+    source_pages: [2],
+  }
+  const calls = []
+  const service = createLocalQuizService({
+    provider: { async generate(prompt) {
+      calls.push(prompt)
+      if (calls.length === 1) {
+        return { finishReason: 'stop', text: JSON.stringify(recovery) }
+      }
+      assert.equal(prompt.generationProfile, 'quiz-mcq-targeted-retry-v1')
+      assert.equal(prompt.jsonSchema.properties.questions.minItems, 2)
+      assert.equal(prompt.jsonSchema.properties.questions.maxItems, 2)
+      // The first candidate repeats a prior question and must be discarded;
+      // the second is the supported replacement. The model response remains
+      // untrusted and both candidates are validated by the normal parser.
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Replacement candidates',
+        questions: [candidates[0], backup],
+      }) }
+    } },
+  })
+  const quiz = await service.generate({
+    ...request,
+    pages: amplePages,
+    practice: {
+      ...request.practice,
+      avoidQuestions: [candidates[0].question, 'Which capacity was previously asked about?'],
+    },
+  })
+
+  assert.equal(calls.length, 2, 'one replacement call should avoid a second backup inference')
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(quiz.questions.some(item => item.question === backup.question), true)
+  assert.equal(quiz.questions.some(item => item.question === candidates[0].question), false)
+  assert.equal(new Set(quiz.questions.map(item => item.question)).size, 5)
+  assert.ok(quiz.questions.every(item => !Object.hasOwn(item, 'source_fact')))
+})
+
 test('one-page targeted practice keeps its existing candidate-pool path', async () => {
   const onePage = {
     pageNumber: 2,
