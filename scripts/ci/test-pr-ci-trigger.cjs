@@ -204,6 +204,117 @@ test('integration coordinator source and tests trigger autonomy verification', (
     'autonomy CI must execute policy, coordinator, and verifier regression suites when classified relevant')
 })
 
+test('Local Qwen diagnostic dispatch requires and records exact tool and application revisions before downloads', () => {
+  const diagnosticWorkflow = fs.readFileSync(
+    path.join(repositoryRoot, '.github/workflows/local-ai-targeted-practice-diagnostic.yml'),
+    'utf8',
+  )
+  const ciWorkflow = fs.readFileSync(workflowPath, 'utf8')
+  assert.match(diagnosticWorkflow, /expected_tool_sha:[\s\S]*?type: string\s+required: true/)
+  assert.match(diagnosticWorkflow, /expected_workflow_sha:[\s\S]*?type: string\s+required: false/)
+  assert.match(diagnosticWorkflow, /expected_source_sha:[\s\S]*?type: string\s+required: true/)
+  assert.match(diagnosticWorkflow, /ref: \$\{\{ inputs\.expected_tool_sha \}\}/)
+  assert.match(diagnosticWorkflow, /EXPECTED_TOOL_SHA: \$\{\{ inputs\.expected_tool_sha \}\}/)
+  assert.match(diagnosticWorkflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ inputs\.expected_workflow_sha \}\}/)
+  assert.match(diagnosticWorkflow, /EXPECTED_SOURCE_SHA: \$\{\{ inputs\.expected_source_sha \}\}/)
+  assert.match(diagnosticWorkflow, /\$env:GITHUB_SHA -cne \$env:EXPECTED_WORKFLOW_SHA/)
+  assert.match(diagnosticWorkflow, /\$env:GITHUB_SHA -cne \$env:EXPECTED_TOOL_SHA/)
+  assert.match(diagnosticWorkflow, /\$toolSha -cne \$env:EXPECTED_TOOL_SHA/)
+  assert.match(diagnosticWorkflow, /\$sourceSha -cne \$env:EXPECTED_SOURCE_SHA/)
+  assert.match(diagnosticWorkflow, /QFN_DIAGNOSTIC_TOOL_SHA=\$toolSha/)
+  assert.match(diagnosticWorkflow, /QFN_DIAGNOSTIC_SOURCE_SHA=\$sourceSha/)
+
+  const revisionCheck = diagnosticWorkflow.indexOf('Verify exact checked-out revisions before downloads')
+  const initializeStatus = diagnosticWorkflow.indexOf('Initialize sanitized model-preparation status')
+  const integrationTest = diagnosticWorkflow.indexOf('Verify synthetic diagnostic callback and inspector integration')
+  const cacheRestore = diagnosticWorkflow.indexOf('Restore verified pinned Qwen model cache')
+  const modelDownload = diagnosticWorkflow.indexOf('Verify or download pinned model and record bounded preparation status')
+  const runtimeDownload = diagnosticWorkflow.indexOf('Download, verify, and stage pinned llama.cpp runtime')
+  const inferenceStart = diagnosticWorkflow.indexOf('Run one selected-pages targeted-practice diagnostic')
+  assert.ok(revisionCheck >= 0 && initializeStatus > revisionCheck && integrationTest > initializeStatus,
+    'A sanitized pre-inference preparation record must exist before synthetic tests and model work')
+  assert.ok(cacheRestore > integrationTest && modelDownload > cacheRestore && runtimeDownload > modelDownload,
+    'Exact SHA checks and synthetic integration must precede model/runtime downloads')
+  const runtimeStep = diagnosticWorkflow.slice(runtimeDownload, inferenceStart)
+  const inferenceStep = diagnosticWorkflow.slice(inferenceStart)
+  assert.match(runtimeStep, /prepare-targeted-practice-model\.cjs mark[\s\S]*?runtime_setup/,
+    'preparation evidence must mark runtime setup before it begins')
+  assert.match(inferenceStep, /prepare-targeted-practice-model\.cjs mark[\s\S]*?inference/,
+    'preparation evidence must mark inference before it begins')
+  assert.match(inferenceStep, /name: Upload sanitized model-preparation status\s+if: always\(\)/,
+    'preparation evidence must upload even if runtime setup or inference fails')
+  assert.match(diagnosticWorkflow, /node diagnostic-tools\/desktop\/test\/diagnose-targeted-practice\.integration\.cjs app/)
+  assert.match(diagnosticWorkflow, /node --test diagnostic-tools\/desktop\/test\/prepare-targeted-practice-model\.test\.cjs/)
+  assert.match(diagnosticWorkflow, /node --test app\/desktop\/test\/local-model-store\.test\.cjs/)
+  assert.match(diagnosticWorkflow, /runs-on: windows-2025/)
+  assert.match(diagnosticWorkflow, /timeout-minutes: 55/)
+  assert.match(diagnosticWorkflow, /permissions:\s+contents: read/)
+  assert.match(diagnosticWorkflow, /key: qfn-windows-qwen3-4b-q4km-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5/)
+  assert.match(diagnosticWorkflow, /path: \$\{\{ runner\.temp \}\}\/models\/7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5\.gguf/)
+  assert.match(diagnosticWorkflow, /MODEL_CACHE_HIT: \$\{\{ steps\.qwen-model-cache\.outputs\.cache-hit == 'true' && 'true' \|\| 'false' \}\}/,
+    'an empty cache-action miss output must be normalized to false for the preparation artifact')
+  assert.match(diagnosticWorkflow, /steps\.model-preparation\.outcome == 'success'/,
+    'only a model successfully reverified by the preparation step may enter cache')
+  assert.match(diagnosticWorkflow, /name: Upload sanitized model-preparation status\s+if: always\(\)/)
+  assert.match(diagnosticWorkflow, /name: Save only verified Qwen model cache file[\s\S]*?actions\/cache\/save@v4/)
+
+  const revisionStepEnd = diagnosticWorkflow.indexOf('      - name: Set up Node', revisionCheck)
+  const revisionStep = diagnosticWorkflow.slice(revisionCheck, revisionStepEnd)
+  assert.match(revisionStep, /SOURCE_BRANCH: \$\{\{ inputs\.source_branch \}\}/)
+  assert.match(revisionStep, /\$pinnedSourceSha = 'b7c0f29803f36b0e2dd128d503dc56055d0c5fc8'/)
+  assert.match(revisionStep, /\$pinnedToolSha = '1ee2215f2780970b1cf9a05aa862a2b53f8484bc'/)
+  assert.match(revisionStep, /\$pinnedCandidateSource = \$env:SOURCE_BRANCH -ceq 'codex\/qwen-targeted-practice-backup-batch-20261120'/)
+  assert.match(revisionStep, /if \(\$pinnedCandidateSource\)[\s\S]*?\$env:EXPECTED_WORKFLOW_SHA -cnotmatch/)
+  assert.match(revisionStep, /\} elseif \(\$env:GITHUB_SHA -cne \$env:EXPECTED_TOOL_SHA\)/)
+  assert.match(revisionStep, /\$env:EXPECTED_SOURCE_SHA -cne \$pinnedSourceSha/)
+  assert.match(revisionStep, /\$env:EXPECTED_TOOL_SHA -cne \$pinnedToolSha/)
+  assert.match(revisionStep, /\$supportedSourceBranches \+= 'codex\/qwen-targeted-practice-backup-batch-20261120'/)
+  assert.match(revisionStep, /\$env:SOURCE_BRANCH -cnotin \$supportedSourceBranches/)
+  assert.match(revisionStep, /QFN_DIAGNOSTIC_SOURCE_REF=\$\(\$env:SOURCE_BRANCH\)/)
+  assert.doesNotMatch(revisionStep.slice(revisionStep.indexOf('        run: |')), /\$\{\{\s*inputs\.source_branch\s*\}\}/,
+    'source branch input must not be interpolated directly into PowerShell')
+
+  const collector = fs.readFileSync(path.join(repositoryRoot, 'desktop/scripts/diagnose-targeted-practice.cjs'), 'utf8')
+  assert.match(collector, /sourceSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_SOURCE_SHA\)/)
+  assert.match(collector, /diagnosticToolSha: safeSha\(process\.env\.QFN_DIAGNOSTIC_TOOL_SHA\)/)
+  const integrationTestSource = fs.readFileSync(path.join(repositoryRoot, 'desktop/test/diagnose-targeted-practice.integration.cjs'), 'utf8')
+  assert.match(integrationTestSource, /const appRoot = path\.resolve\(appRootInput\)/,
+    'relative app checkout paths must resolve from the workflow working directory')
+  const preparationTool = fs.readFileSync(path.join(repositoryRoot, 'desktop/scripts/prepare-targeted-practice-model.cjs'), 'utf8')
+  assert.match(preparationTool, /downloadTimeoutMs: DOWNLOAD_TIMEOUT_MS/)
+  assert.match(preparationTool, /const DOWNLOAD_TIMEOUT_MS = 35 \* 60 \* 1000/)
+  assert.match(preparationTool, /const MAX_PREPARATION_ELAPSED_MS = 55 \* 60 \* 1000/)
+  assert.match(preparationTool, /MODEL_SHA256 = '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5'/)
+
+  const pushStart = ciWorkflow.indexOf('  push:')
+  const pullRequestStart = ciWorkflow.indexOf('  pull_request:', pushStart)
+  const ciPushBlock = ciWorkflow.slice(pushStart, pullRequestStart)
+  for (const changedPath of [
+    'desktop/scripts/prepare-targeted-practice-model.cjs',
+    'desktop/test/prepare-targeted-practice-model.test.cjs',
+  ]) {
+    assert.ok(ciPushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`),
+      `${changedPath} must run desktop diagnostic CI on main`)
+  }
+  const classifier = fs.readFileSync(classifierPath, 'utf8')
+  for (const changedPath of [
+    'desktop/scripts/diagnose-targeted-practice.cjs',
+    'desktop/scripts/prepare-targeted-practice-model.cjs',
+    'desktop/test/diagnose-targeted-practice.test.cjs',
+    'desktop/test/diagnose-targeted-practice.integration.cjs',
+    'desktop/test/prepare-targeted-practice-model.test.cjs',
+  ]) {
+    assert.ok(classifier.includes(changedPath), `${changedPath} must mark desktop diagnostic CI relevant`)
+  }
+  assert.match(ciWorkflow, /bash scripts\/ci\/classify-changed-files\.sh/,
+    'CI must execute the checked-in shared classifier')
+  const desktopJobStart = ciWorkflow.indexOf('  desktop-diagnostic-tests:')
+  const desktopJobEnd = ciWorkflow.indexOf('  autonomy-tests:', desktopJobStart)
+  const desktopJob = ciWorkflow.slice(desktopJobStart, desktopJobEnd)
+  assert.match(desktopJob, /node --test desktop\/test\/prepare-targeted-practice-model\.test\.cjs/)
+  assert.match(desktopJob, /node --test qwen-app-source\/desktop\/test\/local-model-store\.test\.cjs/)
+})
+
 function successfulGateInputs(overrides = {}) {
   return {
     CI_EVENT_NAME: 'pull_request',
@@ -426,6 +537,10 @@ test('actual merge-group shell validator handles local Git histories and failure
       ['frontend/src/page.tsx', 'frontend\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: false, autonomy_tests: false }],
       ['e2e/tests/quiz.spec.ts', 'e2e\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: false, autonomy_tests: false }],
       ['desktop/test/diagnose-targeted-practice.test.cjs', 'desktop\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
+      ['desktop/scripts/diagnose-targeted-practice.cjs', 'diagnostic collector\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
+      ['desktop/scripts/prepare-targeted-practice-model.cjs', 'model preparation\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
+      ['desktop/test/diagnose-targeted-practice.integration.cjs', 'diagnostic integration tests\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
+      ['desktop/test/prepare-targeted-practice-model.test.cjs', 'model preparation tests\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: false }],
       ['scripts/autonomy/integration-coordinator.cjs', 'autonomy\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
       ['scripts/autonomy/automatic-merge-policy.cjs', 'merge policy\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
       ['scripts/autonomy/test/automatic-merge-policy.test.cjs', 'merge policy tests\n', { backend: true, frontend: true, playwright: true, desktop_diagnostic: true, autonomy_tests: true }],
