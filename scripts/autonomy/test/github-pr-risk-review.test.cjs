@@ -393,6 +393,43 @@ test('missing and malformed authentication contexts fail before network access',
     assert.equal(result.mergeAuthorized,false)
     assert.equal(calls,0)
   })
+  await t.test('accepts fabricated legacy and stateless installation-token formats without exposing them',async () => {
+    const header = 'A'.repeat(165) + '-_'
+    const payload = 'B'.repeat(165) + '-_'
+    const signature = 'C'.repeat(165) + '-_'
+    const statelessToken = `ghs_123456789012_${header}.${payload}.${signature}`
+    assert.equal(statelessToken.length,520)
+
+    for (const token of ['ghs_' + 'A'.repeat(36), statelessToken]) {
+      let requests = 0
+      const result = await inspectWithFetch(async (_url,init) => {
+        requests += 1
+        assert.equal(init.headers.Authorization,'Bearer ' + token)
+        return {ok:false,status:401,headers:new Headers(),json:async () => ({message:'Bad credentials'}),
+          clone() { return this }}
+      },token)
+      assert.ok(requests > 0)
+      assert.equal(result.reason,'authentication_invalid_or_expired')
+      assert.equal(result.mergeAuthorized,false)
+      assert.equal(JSON.stringify(result).includes(token),false)
+    }
+  })
+  await t.test('rejects out-of-range and whitespace/control-containing tokens before network access',async () => {
+    calls = 0
+    for (const token of [
+      'A'.repeat(19),
+      'A'.repeat(1025),
+      'A'.repeat(20) + '\r\nAuthorization: Bearer forged',
+      'A'.repeat(20) + '\t',
+      'A'.repeat(20) + ' ',
+    ]) {
+      const result = await inspectWithFetch(fetch,token)
+      assert.equal(result.reason,'authentication_context_invalid')
+      assert.equal(result.mergeAuthorized,false)
+      assert.equal(JSON.stringify(result).includes(token),false)
+      assert.equal(calls,0)
+    }
+  })
   await t.test('caller cannot supply a token or alternate reader',async () => {
     assert.equal((await inspectGithubPrRiskReview({prNumber,token:testToken})).reason,'invalid_input')
     assert.equal(calls,0)

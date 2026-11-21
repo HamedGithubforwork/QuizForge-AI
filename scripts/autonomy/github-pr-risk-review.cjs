@@ -117,8 +117,10 @@ function isRateLimitResponse(response, payload) {
 }
 
 function createAuthenticatedReadClient(token = process.env[AUTH_TOKEN_ENV]) {
-  if (typeof token !== 'string' || token.length < 20 || token.length > 512 ||
-      !/^[A-Za-z0-9_]+$/.test(token)) {
+  // GitHub App installation tokens now include ~520-character JWT forms. Keep
+  // validation bounded while allowing their base64url characters and dots.
+  if (typeof token !== 'string' || token.length < 20 || token.length > 1024 ||
+      !/^[A-Za-z0-9._-]+$/.test(token)) {
     throw new GitHubReadError(token ? 'authentication_context_invalid' : 'authentication_context_missing')
   }
   // Capture the credential once. An environment/account switch between API
