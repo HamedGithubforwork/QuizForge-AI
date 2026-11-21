@@ -28,7 +28,7 @@ const POLICY_MANIFEST = Object.freeze({
     'ci_gate', 'branch_protection', 'agent_permissions', 'merge_policy',
     'unexpected_external_side_effect', 'out_of_scope', 'uncertain',
   ],
-  semantics: 'explicit-post-merge-activation;future-prs-only;exact-head-base-diff;fresh-required-ci;verified-commit;reviewer-qa-security-manager;current-protections;strict-status-checks-or-enforced-merge-queue;trusted-live-provider-required;no-deployment-trigger-or-infrastructure-change;no-effects;fail-closed',
+  semantics: 'explicit-post-merge-activation;future-prs-only;exact-head-base-diff;fresh-required-ci;verified-commit;reviewer-qa-security-manager;current-protections;enforced-merge-queue-required;trusted-live-provider-required;no-deployment-trigger-or-infrastructure-change;no-effects;fail-closed',
 })
 const POLICY_DIGEST = crypto.createHash('sha256').update(JSON.stringify(POLICY_MANIFEST)).digest('hex')
 const SHA = /^[a-f0-9]{40}$/
@@ -247,7 +247,11 @@ function evaluateCandidate({ policy, evidence, now = new Date() } = {}) {
         !evidenceRef(evidence.protections.rulesetRef, repository) ||
         typeof evidence.protections.strictRequiredStatusChecks !== 'boolean' ||
         typeof evidence.protections.mergeQueueEnforced !== 'boolean') return blocked('protections_unverified')
-    if (!evidence.protections.strictRequiredStatusChecks && !evidence.protections.mergeQueueEnforced) {
+    // Strict checks can establish that the PR is current when evaluated; they do not
+    // atomically bind its destination/base through the later merge operation.
+    // Until another independently verified atomic guard is modeled, only an
+    // enforced merge queue satisfies this precondition.
+    if (!evidence.protections.mergeQueueEnforced) {
       return blocked('base_race_guard_missing')
     }
     if (!exactKeys(evidence.sideEffects, [

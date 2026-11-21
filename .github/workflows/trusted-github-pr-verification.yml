@@ -1,0 +1,57 @@
+name: Trusted GitHub PR verification
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: trusted-github-pr-verification-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.event.workflow_run.workflow_id == 330113334 &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.id == 1307099196 &&
+      github.event.workflow_run.repository.id == 1307099196
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the trusted default-branch revision only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Mint repository-scoped read-only installation token
+        id: app-token
+        if: ${{ vars.QUIZFORGE_VERIFIER_APP_CLIENT_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510
+        with:
+          client-id: ${{ vars.QUIZFORGE_VERIFIER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.QUIZFORGE_VERIFIER_APP_PRIVATE_KEY }}
+          owner: HamedGithubforwork
+          repositories: QuizForge-AI
+          skip-token-revoke: false
+          permission-actions: read
+          permission-administration: read
+          permission-checks: read
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Verify workflow_run context and perform read-only live inspection
+        shell: bash
+        env:
+          QUIZFORGE_GITHUB_READ_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: node scripts/autonomy/run-trusted-github-verifier.cjs

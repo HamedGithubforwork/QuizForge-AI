@@ -134,8 +134,10 @@ the preflight because the API has no expected-base/target parameter. Thus the
 current host path cannot prove a complete atomic merge boundary even apart
 from its lack of code-authenticated evidence. Do not perform a standing
 automatic merge while either limitation remains. Do not enable a merge queue
-or change rulesets as a workaround without separate authorization and CI
-support for `merge_group`.
+or change rulesets as a workaround without separate authorization. The CI
+workflow is configured for `merge_group` `checks_requested` events, but GitHub's
+merge queue is not enabled or enforced and no real merge-group run has been
+observed; configuration alone is not proof of queue operation.
 
 Before standing automatic merging may be considered, a separately reviewed
 runtime boundary must authenticate live GitHub state and actual specialist
