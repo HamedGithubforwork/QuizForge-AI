@@ -35,7 +35,7 @@ const TRUSTED_WORKFLOW_BLOBS = Object.freeze({
   '.github/workflows/aws-production-inventory.yml':'e5572c4b94566e4c783c46cadf6e17f12180c488',
   '.github/workflows/aws-staging-ai-budget.yml':'9c78fff515dac04a49a020121465952ff70aefa6',
   '.github/workflows/backend-ecr.yml':'9773184f818d0fd313b9955723b02e1de8c2fb28',
-  '.github/workflows/ci.yml':'ec4d5b0153a897597761ca4ea142074803ac5efa',
+  '.github/workflows/ci.yml':'4bdf679ce21a21c2d06c8bc7265183f244df166d',
   '.github/workflows/cognito-sms-activation.yml':'422c0b9fd8bc9f14a8b66af0893dbd46ccc630c1',
   '.github/workflows/desktop-auth-readiness.yml':'36f487901e7c0fe2d6d7da6839c157eae0839746',
   '.github/workflows/desktop-native-client-registration.yml':'04f0c946007c48ce4b384dd15d9b16f62f3ba38b',
