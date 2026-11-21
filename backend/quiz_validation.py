@@ -319,17 +319,10 @@ def _numeric_answer_matches(
     )
 
 
-def _phrase_matches(
-    answer: str,
-    alias: str,
+def _phrase_matches_tokens(
+    answer_tokens: tuple[str, ...],
+    alias_tokens: tuple[str, ...],
 ) -> bool:
-    answer_tokens = normalize_answer_text(
-        answer
-    ).split()
-    alias_tokens = normalize_answer_text(
-        alias
-    ).split()
-
     if (
         not alias_tokens
         or len(answer_tokens) < len(alias_tokens)
@@ -348,15 +341,15 @@ def _phrase_matches(
 
 
 def _matched_concept_groups(
-    answer: str,
-    groups: list[list[str]],
+    answer_tokens: tuple[str, ...],
+    token_groups: list[list[tuple[str, ...]]],
 ) -> int:
     return sum(
         1
-        for group in groups
+        for group in token_groups
         if any(
-            _phrase_matches(answer, alias)
-            for alias in group
+            _phrase_matches_tokens(answer_tokens, alias_tokens)
+            for alias_tokens in group
         )
     )
 
@@ -436,10 +429,12 @@ def _validate_grading(
             )
 
         seen_aliases: dict[str, int] = {}
+        token_groups: list[list[tuple[str, ...]]] = []
 
         for group_index, group in enumerate(
             clean_groups,
         ):
+            token_group: list[tuple[str, ...]] = []
             for alias in group:
                 normalized_alias = (
                     normalize_answer_text(alias)
@@ -449,6 +444,7 @@ def _validate_grading(
                     errors.append(
                         f"{prefix} has an empty concept alias."
                     )
+                    token_group.append(())
                     continue
 
                 previous_group = seen_aliases.get(
@@ -467,6 +463,26 @@ def _validate_grading(
                         normalized_alias
                     ] = group_index
 
+                token_group.append(
+                    tuple(normalized_alias.split())
+                )
+
+            token_groups.append(token_group)
+
+        answer_tokens_by_value: dict[str, tuple[str, ...]] = {}
+
+        def matched_groups(answer: str) -> int:
+            answer_tokens = answer_tokens_by_value.get(answer)
+            if answer_tokens is None:
+                answer_tokens = tuple(
+                    normalize_answer_text(answer).split()
+                )
+                answer_tokens_by_value[answer] = answer_tokens
+            return _matched_concept_groups(
+                answer_tokens,
+                token_groups,
+            )
+
         if (
             grading.numeric_value != 0
             or grading.numeric_tolerance != 0
@@ -480,9 +496,8 @@ def _validate_grading(
 
         if required >= 1:
             if (
-                _matched_concept_groups(
+                matched_groups(
                     question.correct_answer,
-                    clean_groups,
                 )
                 < required
             ):
@@ -494,9 +509,8 @@ def _validate_grading(
                 question.accepted_answers
             ):
                 if (
-                    _matched_concept_groups(
+                    matched_groups(
                         accepted_answer,
-                        clean_groups,
                     )
                     < required
                 ):
