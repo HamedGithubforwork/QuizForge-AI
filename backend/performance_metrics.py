@@ -5,6 +5,7 @@ import time
 from observability import (
     elapsed_ms,
     record_timing_sample,
+    record_timing_samples,
 )
 
 
@@ -27,6 +28,19 @@ async def _record_timing(
         redis_client,
         timing_name,
         duration_ms,
+    )
+
+
+async def _record_timings(
+    timing_name: str,
+    durations_ms: list[float],
+):
+    from redis_integration import redis_client
+
+    await record_timing_samples(
+        redis_client,
+        timing_name,
+        durations_ms,
     )
 
 
@@ -162,11 +176,10 @@ def _install_quiz_service_instrumentation(
                 )
             finally:
                 _validation_timings.reset(token)
-                for duration_ms in samples:
-                    await _record_timing(
-                        "quiz_validation_latency_ms",
-                        duration_ms,
-                    )
+                await _record_timings(
+                    "quiz_validation_latency_ms",
+                    samples,
+                )
 
         quiz_service.get_openai_client = (
             timed_get_openai_client
@@ -234,3 +247,4 @@ def install_performance_instrumentation(
     application_module._performance_metrics_installed = (
         True
     )
+
