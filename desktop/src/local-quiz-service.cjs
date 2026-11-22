@@ -24,6 +24,16 @@ const MAX_COMBINED_TARGETED_CANDIDATES =
   TARGETED_PRIMARY_CANDIDATES +
   TARGETED_RETRY_CANDIDATES +
   TARGETED_SCRIPT_RECOVERY_CANDIDATES
+const CANDIDATE_DIAGNOSTIC_REASONS = Object.freeze([
+  'avoided_question',
+  'duplicate_question',
+  'unexpected_output_script',
+  'unsupported_source_fact',
+  'unsupported_answer',
+  'duplicate_source_fact',
+  'other',
+])
+const MAX_CANDIDATE_DIAGNOSTIC_COUNT = MAX_COMBINED_TARGETED_CANDIDATES
 const OUTPUT_SCRIPT_NAMES = Object.freeze([
   'Arabic', 'Armenian', 'Bengali', 'Cyrillic', 'Devanagari', 'Ethiopic',
   'Georgian', 'Greek', 'Gujarati', 'Gurmukhi', 'Han', 'Hangul', 'Hebrew',
@@ -821,6 +831,33 @@ class QuizValidationIssue extends Error {
   }
 }
 
+const TARGETED_FILTER_DIAGNOSTIC_COUNTERS = Object.freeze([
+  'inputCandidates', 'avoidedQuestions', 'duplicateQuestions',
+  'unsupportedSourceFacts', 'unsupportedAnswers', 'unexpectedOutputScripts',
+  'duplicateSourceFacts', 'sourcePageRepairs', 'survivors',
+])
+
+function targetedFilterDiagnosticCounters(details) {
+  if (!plain(details)) return undefined
+  const counters = Object.fromEntries(TARGETED_FILTER_DIAGNOSTIC_COUNTERS
+    .filter(key => Number.isSafeInteger(details[key]) && details[key] >= 0 &&
+      details[key] <= 1_000_000)
+    .map(key => [key, details[key]]))
+  return Object.keys(counters).length ? Object.freeze(counters) : undefined
+}
+
+function candidateDiagnosticReason(reason) {
+  return CANDIDATE_DIAGNOSTIC_REASONS.includes(reason) && reason !== 'other'
+    ? reason
+    : 'other'
+}
+
+function boundedCandidateCount(value) {
+  return Number.isSafeInteger(value) && value > 0
+    ? Math.min(value, MAX_CANDIDATE_DIAGNOSTIC_COUNT)
+    : 0
+}
+
 const invalidQuiz = (reason, details, retryEvidence, rejectedEvidence) => {
   throw new QuizValidationIssue(reason, details, retryEvidence, rejectedEvidence)
 }
@@ -863,6 +900,17 @@ function candidateQuestionTexts(text) {
       .filter(Boolean)
   } catch {
     return []
+  }
+}
+
+function candidatePoolQuestionCount(text) {
+  try {
+    const parsed = JSON.parse(text)
+    return plain(parsed) && Array.isArray(parsed.questions)
+      ? parsed.questions.length
+      : 0
+  } catch {
+    return 0
   }
 }
 
@@ -997,6 +1045,8 @@ function parseGeneratedQuizDetailed(
     filterAvoided = false,
     sourceTextByPage = null,
     requireSourceFact = false,
+    candidateDiagnostics = null,
+    backupCandidateIndex = null,
   } = {},
 ) {
   let parsed
@@ -1047,15 +1097,41 @@ function parseGeneratedQuizDetailed(
   const questions = []
   const retryEvidence = []
   const rejectedEvidence = []
+  const rejectedByReason = Object.fromEntries(
+    CANDIDATE_DIAGNOSTIC_REASONS.map(reason => [reason, 0]),
+  )
+  const acceptedCandidateIndices = []
   const recordRejectedCandidate = (item, reason) => {
     if (!filterAvoided) return
+    const safeReason = candidateDiagnosticReason(reason)
+    rejectedByReason[safeReason] = boundedCandidateCount(
+      rejectedByReason[safeReason] + 1,
+    )
     rejectedEvidence.push(Object.freeze({
       question: item.question.trim(),
       sourceFact: item.source_fact.trim(),
       reason,
     }))
   }
-  for (const item of parsed.questions) {
+  const captureCandidateDiagnostics = () => {
+    if (!candidateDiagnostics || (!filterAvoided && !requireSourceFact)) return
+    const acceptedCandidateCount = filterAvoided
+      ? acceptedCandidateIndices.length
+      : questions.length
+    const backupCandidatePathExercised =
+      filterAvoided &&
+      Number.isSafeInteger(backupCandidateIndex) &&
+      backupCandidateIndex >= 0 &&
+      acceptedCandidateCount >= QUESTION_COUNT &&
+      acceptedCandidateIndices[QUESTION_COUNT - 1] === backupCandidateIndex
+    Object.assign(candidateDiagnostics, {
+      inputCandidates: boundedCandidateCount(parsed.questions.length),
+      acceptedCandidates: boundedCandidateCount(acceptedCandidateCount),
+      rejectedByReason: Object.freeze({ ...rejectedByReason }),
+      backupCandidatePathExercised,
+    })
+  }
+  for (const [candidateIndex, item] of parsed.questions.entries()) {
     const allowedQuestionKeys =
       filterAvoided || requireSourceFact
         ? [
@@ -1253,6 +1329,7 @@ function parseGeneratedQuizDetailed(
     }))
     if (filterAvoided) {
       filterStats.survivors++
+      acceptedCandidateIndices.push(candidateIndex)
       retryEvidence.push(Object.freeze({
         question: item.question.trim(),
         sourceFact: item.source_fact.trim(),
@@ -1264,6 +1341,7 @@ function parseGeneratedQuizDetailed(
     filterAvoided &&
     questions.length < QUESTION_COUNT
   ) {
+    captureCandidateDiagnostics()
     invalidQuiz(
       'candidate_pool_exhausted',
       filterStats,
@@ -1271,6 +1349,8 @@ function parseGeneratedQuizDetailed(
       rejectedEvidence,
     )
   }
+
+  captureCandidateDiagnostics()
 
   return Object.freeze({
     title: parsed.title.trim(),
@@ -1487,11 +1567,24 @@ function hasAmpleTargetedSource(pages) {
     targetedFactHints(pages).length >= 9
 }
 
-function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, allowSourceBackedPartial = false }) {
+function createLocalQuizService({ provider, onValidationIssue = () => {}, onGeneratedResponse = null, onRejectedQuestion = () => {}, onBatchProgress = () => {}, onCandidateDiagnostics = null, allowSourceBackedPartial = false }) {
   if (!provider || typeof provider.generate !== 'function' || typeof onValidationIssue !== 'function') throw failure('invalid_provider')
 
   return Object.freeze({
     async generate(value, { signal } = {}) {
+      const candidateDiagnostics = {
+        enabled: false,
+        // Count requested candidate slots across the direct five-question
+        // recovery and any bounded replacement asks. Accepted/rejected
+        // classifications are captured from the final combined pool once.
+        requested: 0,
+        acceptedCandidates: 0,
+        rejectedByReason: Object.fromEntries(
+          CANDIDATE_DIAGNOSTIC_REASONS.map(reason => [reason, 0]),
+        ),
+        backupCandidatePathExercised: false,
+      }
+      try {
       const request = normalizeRequest(value)
       // Keep the model loaded only for this one quiz's bounded batches. The
       // session-scoped provider has no withSession method, avoiding recursion.
@@ -1500,7 +1593,8 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           typeof provider.withSession === 'function') {
         return provider.withSession(scopedProvider => createLocalQuizService({
           provider: scopedProvider, onValidationIssue, onGeneratedResponse,
-          onRejectedQuestion, onBatchProgress, allowSourceBackedPartial,
+          onRejectedQuestion, onBatchProgress, onCandidateDiagnostics,
+          allowSourceBackedPartial,
         }).generate(request, { signal }), { signal })
       }
       // All four question modes can exceed the bounded local-model inference
@@ -1622,6 +1716,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
       // Other practice counts and modes use the full source-backed quiz schema.
       const targetedMultipleChoice = Boolean(request.practice && !allowSourceBackedPartial &&
         request.questionCount === QUESTION_COUNT && request.questionType === 'multiple_choice')
+      candidateDiagnostics.enabled = targetedMultipleChoice
       const hasFlexibleFallback = !targetedMultipleChoice && !useLegacyMultipleChoiceContract
       const partialRetryReasons = new Set([
         'insufficient_source', 'question_count', 'insufficient_source_facts',
@@ -1795,6 +1890,14 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           const targetedCandidatePool =
             targetedMultipleChoice &&
             retryReason !== 'insufficient_source'
+          if (targetedCandidatePool) {
+            const requestedCandidates = retryReason
+              ? retryCandidateCount
+              : TARGETED_PRIMARY_CANDIDATES
+            candidateDiagnostics.requested = boundedCandidateCount(
+              candidateDiagnostics.requested + requestedCandidates,
+            )
+          }
           if (
             targetedCandidatePool &&
             retryReason === null
@@ -2030,6 +2133,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             ? {
                 filterAvoided: true,
                 sourceTextByPage,
+                candidateDiagnostics,
               }
             : {
                 sourceTextByPage,
@@ -2101,8 +2205,12 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             const reason = error instanceof QuizValidationIssue
               ? error.reason : error instanceof LocalAiError
                 ? error.code : 'quiz_validation_failed'
+            const details = error instanceof QuizValidationIssue &&
+              error.reason === 'candidate_pool_exhausted'
+              ? targetedFilterDiagnosticCounters(error.details) : undefined
             try { onValidationIssue(Object.freeze({
               attempt: 'recovery', reason,
+              ...(details ? { details } : {}),
             })) } catch {}
             if (error instanceof LocalAiError) throw error
             throw failure('quiz_validation_failed')
@@ -2172,7 +2280,6 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             title: retryTitle,
             questions: retryQuestions,
           })
-
           try {
             return parseGeneratedQuizDetailed(
               mergeTargetedCandidatePoolTexts(
@@ -2181,7 +2288,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               ),
               allowedPages,
               avoidQuestions,
-              { filterAvoided: true, sourceTextByPage },
+              {
+                filterAvoided: true,
+                sourceTextByPage,
+                candidateDiagnostics,
+              },
             )
           } catch (error) {
             if (error instanceof QuizValidationIssue) {
@@ -2266,6 +2377,11 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
         const preferredPages = request.practice?.focusPages ?? []
         const sourceHints = targetedMultipleChoice && avoidQuestions.length >= 2
           ? targetedFactHints(request.pages) : []
+        if (candidateDiagnostics.enabled) {
+          candidateDiagnostics.requested = boundedCandidateCount(
+            candidateDiagnostics.requested + QUESTION_COUNT,
+          )
+        }
         let recovery
         try {
           recovery = await provider.generate({
@@ -2332,7 +2448,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             recoveryText,
             allowedPages,
             avoidQuestions,
-            { sourceTextByPage, requireSourceFact: true },
+            { sourceTextByPage, requireSourceFact: true, candidateDiagnostics },
           )
         } catch (error) {
           // If the recovery returned a prior question verbatim, preserve
@@ -2347,7 +2463,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             try {
               return parseGeneratedQuizDetailed(
                 recoveryText, allowedPages, avoidQuestions,
-                { filterAvoided: true, sourceTextByPage },
+                { filterAvoided: true, sourceTextByPage, candidateDiagnostics },
               )
             } catch (filteredError) {
               if (!(filteredError instanceof QuizValidationIssue) ||
@@ -2361,17 +2477,21 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
             const maxBatches = avoidQuestions.length >= 2 &&
               hasRichTargetedSource(request.pages) ? 2 : 1
             let merged = recoveryText
+            let generatedCandidates = 0
             for (let batch = 0; batch < maxBatches; batch++) {
               const needed = Math.max(1, QUESTION_COUNT - poolIssue.retryEvidence.length)
-              // First ask only for the number of independently validated
-              // replacements actually missing. Generating three candidates
-              // when only one is missing wastes an entire CPU inference.
-              // The existing second bounded batch keeps one backup candidate
-              // when the first smaller response fails validation.
+              // Ask for one bounded backup in each replacement request.
+              // If the only needed candidate is rejected as duplicate or
+              // unsupported, a second CPU inference used to be required just
+              // to obtain its backup. Keep the original five-candidate total
+              // budget across both requests. Every candidate still passes the
+              // same source, answer, citation, and distinctness validators.
               const candidateCount = Math.min(
                 TARGETED_RETRY_BATCH_CANDIDATES,
-                needed + (batch === 0 ? 0 : 1),
+                needed + 1,
+                TARGETED_RETRY_CANDIDATES - generatedCandidates,
               )
+              if (candidateCount < 1) break
               const replacements = await generateAttempt(
                 'candidate_pool_exhausted',
                 poolIssue.retryEvidence,
@@ -2379,12 +2499,27 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
                 candidateCount,
                 poolIssue.rejectedEvidence,
               )
+              generatedCandidates += candidateCount
               if (replacements.finishReason !== 'stop') invalidQuiz('truncated_output')
-              merged = mergeTargetedCandidatePoolTexts(merged, replacements.text)
+              const existingCandidateCount = candidatePoolQuestionCount(merged)
+              const replacementCandidateCount = candidatePoolQuestionCount(replacements.text)
+              const combined = mergeTargetedCandidatePoolTexts(merged, replacements.text)
+              const backupCandidateIndex = candidateCount > needed && existingCandidateCount > 0 &&
+                replacementCandidateCount > 0 &&
+                candidatePoolQuestionCount(combined) ===
+                  existingCandidateCount + replacementCandidateCount
+                ? existingCandidateCount + needed
+                : null
+              merged = combined
               try {
                 return parseGeneratedQuizDetailed(
                   merged, allowedPages, avoidQuestions,
-                  { filterAvoided: true, sourceTextByPage },
+                  {
+                    filterAvoided: true,
+                    sourceTextByPage,
+                    candidateDiagnostics,
+                    backupCandidateIndex,
+                  },
                 )
               } catch (candidateError) {
                 if (!(candidateError instanceof QuizValidationIssue) ||
@@ -2666,7 +2801,7 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
           allowedPages,
           avoidQuestions,
           targetedMultipleChoice
-            ? { filterAvoided: true, sourceTextByPage }
+            ? { filterAvoided: true, sourceTextByPage, candidateDiagnostics }
             : retryValidationReason === 'insufficient_source'
               ? { sourceTextByPage, requireSourceFact: true }
               : { sourceTextByPage },
@@ -2724,7 +2859,13 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
               : recoveryError instanceof LocalAiError
                 ? recoveryError.code
                 : 'quiz_validation_failed'
-            try { onValidationIssue(Object.freeze({ attempt: 'recovery', reason })) } catch {}
+            const details = recoveryError instanceof QuizValidationIssue &&
+              recoveryError.reason === 'candidate_pool_exhausted'
+              ? targetedFilterDiagnosticCounters(recoveryError.details) : undefined
+            try { onValidationIssue(Object.freeze({
+              attempt: 'recovery', reason,
+              ...(details ? { details } : {}),
+            })) } catch {}
             if (recoveryError instanceof LocalAiError) throw recoveryError
             throw failure('quiz_validation_failed')
           }
@@ -2743,6 +2884,20 @@ function createLocalQuizService({ provider, onValidationIssue = () => {}, onGene
         }
         if (error instanceof LocalAiError) throw error
         throw failure('quiz_validation_failed')
+      }
+      } finally {
+        if (candidateDiagnostics.enabled && typeof onCandidateDiagnostics === 'function') {
+          const summary = Object.freeze({
+            requested: boundedCandidateCount(candidateDiagnostics.requested),
+            accepted: boundedCandidateCount(candidateDiagnostics.acceptedCandidates),
+            rejectedByReason: Object.freeze({
+              ...candidateDiagnostics.rejectedByReason,
+            }),
+            backupCandidatePathExercised:
+              candidateDiagnostics.backupCandidatePathExercised === true,
+          })
+          try { onCandidateDiagnostics(summary) } catch {}
+        }
       }
     },
   })
@@ -2770,4 +2925,5 @@ module.exports = {
   createLocalQuizService,
   normalizeRequest,
   parseGeneratedQuiz,
+  candidateDiagnosticReason,
 }

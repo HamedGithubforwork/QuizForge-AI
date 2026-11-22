@@ -47,6 +47,7 @@ function createWindowsLocalAiStack({
   onDiagnostic = () => {},
   onQuizValidationIssue = () => {},
   onQuizGeneratedResponse = null,
+  onCandidateDiagnostics = null,
 } = {}) {
   const resources = createWindowsLocalAiResources({
     userDataDirectory,
@@ -157,6 +158,7 @@ function createWindowsLocalAiStack({
     const createGenerator = activeProvider => createLocalQuizService({
       provider: activeProvider, onValidationIssue: captureQuizValidationIssue,
       onGeneratedResponse: onQuizGeneratedResponse,
+      onCandidateDiagnostics,
       onBatchProgress: value => {
         if (!quizProgressState || quizProgressState.phase !== 'generating') return
         if (!Number.isSafeInteger(value?.completedBatches) ||
