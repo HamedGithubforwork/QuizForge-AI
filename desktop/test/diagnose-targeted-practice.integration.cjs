@@ -3,10 +3,15 @@
 // Credentialless callback/inspector integration test. This is run only after
 // the workflow verifies both checked-out commits and before any model download.
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
 const path = require('node:path')
 const {
   createDiagnosticCallbacks,
   inspectDiagnosticResponse,
+  safeCandidateDiagnostics,
+  safeExecutionConditions,
+  safeMemoryBytes,
+  safeSourceBranch,
   summarize,
 } = require('../scripts/diagnose-targeted-practice.cjs')
 
@@ -14,18 +19,71 @@ const appRootInput = process.argv[2]
 assert.ok(appRootInput, 'Usage: node diagnose-targeted-practice.integration.cjs <verified-app-root>')
 const appRoot = path.resolve(appRootInput)
 const { inspectModelResponse } = require(path.join(appRoot, 'desktop/scripts/inspect-synthetic-quiz.cjs'))
+const { createLocalQuizService } = require(path.join(appRoot, 'desktop/src/local-quiz-service.cjs'))
 const { MODEL_DOWNLOAD_TIMEOUT_MS } = require(path.join(appRoot, 'desktop/src/local-model-store.cjs'))
 const { FIXTURES } = require(path.join(appRoot, 'desktop/scripts/verify-local-product-acceptance.cjs'))
 const fixture = FIXTURES.find(item => item.id === 'selected_pages')
 assert.ok(fixture, 'The verified app source must include the pinned selected_pages fixture')
+const stackSource = fs.readFileSync(
+  path.join(appRoot, 'desktop/src/windows-local-ai-stack.cjs'), 'utf8',
+)
+const supportsCandidateDiagnostics =
+  /onCandidateDiagnostics\s*=\s*null/.test(stackSource) &&
+  /createLocalQuizService\(\{[\s\S]*?onCandidateDiagnostics/.test(stackSource)
+if (supportsCandidateDiagnostics) {
+  assert.match(stackSource, /onCandidateDiagnostics\s*=\s*null/,
+    'The Windows stack exposes an opt-in candidate diagnostics callback')
+  assert.match(stackSource, /createLocalQuizService\(\{[\s\S]*?onCandidateDiagnostics/,
+    'The Windows stack forwards candidate diagnostics to the local quiz service')
+}
 assert.equal(MODEL_DOWNLOAD_TIMEOUT_MS, 20 * 60 * 1000,
   'Diagnostic-specific preparation must not change the desktop default timeout')
+assert.equal(safeSourceBranch('codex/qwen-targeted-practice-backup-batch-20261120'),
+  'codex/qwen-targeted-practice-backup-batch-20261120')
+assert.equal(safeSourceBranch('untrusted/arbitrary-branch'), 'unknown')
+const executionConditions = safeExecutionConditions({
+  QFN_MODEL_SHA256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+  QFN_MODEL_BYTES: '2497280256',
+  QFN_MODEL_CACHE_STATE: 'hit',
+  QFN_RUNTIME_ID: 'llama.cpp-b11317-windows-x64-vulkan',
+  QFN_RUNTIME_SHA256: 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338',
+  QFN_RUNTIME_CACHE_STATE: 'miss',
+  QFN_DIAGNOSTIC_RUNNER_IMAGE: 'windows-2025',
+}, 'pass')
+assert.deepEqual(executionConditions, {
+  modelSha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+  modelBytes: 2497280256,
+  runtimeId: 'llama.cpp-b11317-windows-x64-vulkan',
+  runtimeSha256: 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338',
+  runnerImage: 'windows-2025',
+  modelCacheState: 'hit',
+  runtimeCacheState: 'miss',
+  preparationClass: 'warm',
+})
+const untrustedConditions = safeExecutionConditions({
+  QFN_MODEL_SHA256: 'f'.repeat(64),
+  QFN_MODEL_BYTES: '2497280256',
+  QFN_MODEL_CACHE_STATE: 'hit',
+  QFN_RUNTIME_ID: 'llama.cpp-b11317-windows-x64-vulkan',
+  QFN_RUNTIME_SHA256: 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338',
+  QFN_RUNTIME_CACHE_STATE: 'miss',
+  QFN_DIAGNOSTIC_RUNNER_IMAGE: 'untrusted-runner',
+}, 'fail')
+assert.equal(untrustedConditions.modelSha256, null,
+  'unexpected model metadata is omitted rather than forwarded')
+assert.equal(untrustedConditions.runnerImage, null,
+  'unknown runner labels are omitted rather than forwarded')
+assert.equal(untrustedConditions.preparationClass, null,
+  'failed warmup is not reported as a prepared targeted run')
+assert.equal(safeMemoryBytes(17_174_360_064), 17_174_360_064)
+assert.equal(safeMemoryBytes(0), null)
+assert.equal(safeMemoryBytes(1_099_511_627_777), null)
 
 const report = {
   setupFailures: [],
   stages: [
-    { id: 'warmup', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
-    { id: 'targeted', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
+    { id: 'warmup', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
+    { id: 'targeted', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
   ],
 }
 const state = { stage: 'targeted', stageStarted: performance.now() - 100 }
@@ -148,6 +206,221 @@ state.stageStarted = null
 callbacks.onDiagnostic('runtime_failed', {
   reason: 'runtime_unavailable', stage: 'startup', message: 'PRIVATE_SETUP_ERROR C:\\private\\model',
 })
+async function runCandidateDiagnosticsIntegration() {
+if (!supportsCandidateDiagnostics) {
+  // The normal PR CI regression checks use the older pinned application SHA.
+  // Exercise the tools sanitizer there; the manually dispatched workflow runs
+  // this same test against the exact candidate app SHA before any model work.
+  state.stage = 'targeted'
+  state.stageStarted = performance.now() - 10
+  callbacks.onCandidateDiagnostics({
+    requested: 6,
+    accepted: 5,
+    rejectedByReason: {
+      avoided_question: 1,
+      duplicate_question: 0,
+      unexpected_output_script: 0,
+      unsupported_source_fact: 0,
+      unsupported_answer: 0,
+      duplicate_source_fact: 0,
+      other: 0,
+    },
+    backupCandidatePathExercised: true,
+    prompt: 'PRIVATE_PROMPT',
+  })
+  assert.deepEqual(summarize(report).candidateDiagnostics, {
+    requested: 6,
+    accepted: 5,
+    rejectedByReason: {
+      avoided_question: 1,
+      duplicate_question: 0,
+      unexpected_output_script: 0,
+      unsupported_source_fact: 0,
+      unsupported_answer: 0,
+      duplicate_source_fact: 0,
+      other: 0,
+    },
+    backupCandidatePathExercised: true,
+  })
+  assert.equal(JSON.stringify(report).includes('PRIVATE_PROMPT'), false,
+    'candidate callback data is projected before entering the report')
+  console.log('Synthetic diagnostic sanitizer integration passed; app revision predates candidate callback')
+  return
+}
+
+state.stage = 'targeted'
+state.stageStarted = performance.now() - 50
+
+// Exercise the real application service with a synthetic provider, and pass
+// its opt-in candidate callback through the diagnostic sanitizer and summary.
+const candidateQuestions = [
+  { question: 'What is Aster casing material?', answer: 'cobalt', fact: 'Aster casing material is cobalt.', page: 2 },
+  { question: 'What is Aster capacity?', answer: '17 samples', fact: 'Aster capacity is 17 samples.', page: 2 },
+  { question: 'When does Aster sample?', answer: 'five hours', fact: 'Aster sampling interval is five hours.', page: 2 },
+  { question: 'What is Boreal casing material?', answer: 'glass', fact: 'Boreal casing material is glass.', page: 4 },
+  { question: 'What is Boreal capacity?', answer: '23 samples', fact: 'Boreal capacity is 23 samples.', page: 4 },
+  { question: 'When does Boreal sample?', answer: 'seven hours', fact: 'Boreal sampling interval is seven hours.', page: 4 },
+].map((candidate, index) => ({
+  question: candidate.question,
+  choices: [candidate.answer, 'synthetic distractor alpha', 'synthetic distractor beta', 'synthetic distractor gamma'],
+  correct_index: 0,
+  explanation: candidate.fact,
+  source_pages: [candidate.page],
+  source_fact: candidate.fact,
+}))
+candidateQuestions[0].question = 'Previously asked?'
+const candidateService = createLocalQuizService({
+  provider: {
+    async generate(request) {
+      if (request.generationProfile === 'answer-review-v1') {
+        return { finishReason: 'stop', text: '{"duplicates":[]}', usage: null }
+      }
+      return {
+        finishReason: 'stop',
+        text: JSON.stringify({ title: 'Synthetic candidates', questions: candidateQuestions }),
+        usage: null,
+      }
+    },
+  },
+  onCandidateDiagnostics: callbacks.onCandidateDiagnostics,
+})
+const candidateQuiz = await candidateService.generate({
+  pages: fixture.selectedPages,
+  practice: { avoidQuestions: ['Previously asked?'] },
+  questionCount: 5,
+  difficulty: 'medium',
+  questionType: 'multiple_choice',
+})
+assert.equal(candidateQuiz.questions.length, 5)
+assert.deepEqual(summarize(report).candidateDiagnostics, {
+  requested: 6,
+  accepted: 5,
+  rejectedByReason: {
+    avoided_question: 1,
+    duplicate_question: 0,
+    unexpected_output_script: 0,
+    unsupported_source_fact: 0,
+    unsupported_answer: 0,
+    duplicate_source_fact: 0,
+    other: 0,
+  },
+  backupCandidatePathExercised: false,
+})
+
+// Exercise the optimized strict-recovery replacement loop, then carry its true
+// backup-path flag through the same sanitized callback and artifact-summary path.
+const replacementReport = {
+  setupFailures: [],
+  stages: [
+    { id: 'warmup', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
+    { id: 'targeted', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
+  ],
+}
+const replacementCallbacks = createDiagnosticCallbacks({
+  report: replacementReport,
+  getActiveStage: () => 'targeted',
+  getStageStarted: () => performance.now() - 50,
+  getCurrent: () => replacementReport.stages[1],
+  started: performance.now() - 100,
+  inspectResponse: text => inspectDiagnosticResponse(text, fixture, inspectModelResponse),
+})
+const recoveryFacts = [
+  { page: 2, source: 'Aster casing material is cobalt.', answer: 'cobalt', question: 'What is the Aster casing material?' },
+  { page: 2, source: 'Aster capacity is 17 samples.', answer: '17 samples', question: 'What is the Aster capacity?' },
+  { page: 2, source: 'Aster sampling interval is five hours.', answer: 'five hours', question: 'What is the Aster sampling interval?' },
+  { page: 2, source: 'Aster battery type is lithium.', answer: 'lithium', question: 'What is the Aster battery type?' },
+  { page: 2, source: 'Aster lens shape is circular.', answer: 'circular', question: 'What is the Aster lens shape?' },
+  { page: 4, source: 'Boreal casing material is glass.', answer: 'glass', question: 'What is the Boreal casing material?' },
+  { page: 4, source: 'Boreal capacity is 23 samples.', answer: '23 samples', question: 'What is the Boreal capacity?' },
+  { page: 4, source: 'Boreal sampling interval is seven hours.', answer: 'seven hours', question: 'What is the Boreal sampling interval?' },
+  { page: 4, source: 'Boreal battery type is nickel.', answer: 'nickel', question: 'What is the Boreal battery type?' },
+  { page: 4, source: 'Boreal lens shape is square.', answer: 'square', question: 'What is the Boreal lens shape?' },
+]
+const recoveryPages = [2, 4].map(pageNumber => ({
+  pageNumber,
+  text: recoveryFacts.filter(fact => fact.page === pageNumber)
+    .map(fact => fact.source).join(' '),
+}))
+const recoveryCandidates = recoveryFacts.map(fact => ({
+  question: fact.question,
+  choices: [fact.answer, 'synthetic distractor alpha', 'synthetic distractor beta', 'synthetic distractor gamma'],
+  correct_index: 0,
+  explanation: fact.source,
+  source_pages: [fact.page],
+  source_fact: fact.source,
+}))
+recoveryCandidates[0].question = 'Previously asked?'
+recoveryCandidates[1].question = 'Previously asked capacity?'
+const recoveryPool = recoveryCandidates.slice(0, 5)
+const replacementPool = [recoveryCandidates[0], recoveryCandidates[5], recoveryCandidates[6]]
+let replacementCalls = 0
+const replacementService = createLocalQuizService({
+  provider: {
+    async generate(request) {
+      replacementCalls++
+      if (replacementCalls === 1) {
+        assert.equal(request.generationProfile, 'quiz-mcq-v1')
+        return {
+          finishReason: 'stop',
+          text: JSON.stringify({ title: 'Synthetic recovery candidates', questions: recoveryPool }),
+          usage: null,
+        }
+      }
+      assert.equal(request.generationProfile, 'quiz-mcq-targeted-retry-v1')
+      assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
+      return {
+        finishReason: 'stop',
+        text: JSON.stringify({ title: 'Synthetic replacement candidates', questions: replacementPool }),
+        usage: null,
+      }
+    },
+  },
+  onCandidateDiagnostics: replacementCallbacks.onCandidateDiagnostics,
+})
+const replacementQuiz = await replacementService.generate({
+  pages: recoveryPages,
+  practice: { avoidQuestions: ['Previously asked?', 'Previously asked capacity?'] },
+  questionCount: 5,
+  difficulty: 'medium',
+  questionType: 'multiple_choice',
+})
+assert.equal(replacementCalls, 2, 'the synthetic case enters one replacement batch')
+assert.equal(replacementQuiz.questions.length, 5)
+assert.deepEqual(summarize(replacementReport).candidateDiagnostics, {
+  requested: 8,
+  accepted: 5,
+  rejectedByReason: {
+    avoided_question: 2,
+    duplicate_question: 1,
+    unexpected_output_script: 0,
+    unsupported_source_fact: 0,
+    unsupported_answer: 0,
+    duplicate_source_fact: 0,
+    other: 0,
+  },
+  backupCandidatePathExercised: true,
+})
+assert.equal(summarize(replacementReport).candidateDiagnostics.backupCandidatePathExercised, true,
+  'the replacement candidate fills the fifth accepted slot in the sanitized summary')
+assert.doesNotMatch(JSON.stringify(replacementReport), /Aster|Boreal|cobalt|PRIVATE/)
+
+const sanitizedCandidate = safeCandidateDiagnostics({
+  requested: 6,
+  accepted: 5,
+  rejectedByReason: {
+    avoided_question: 1,
+    duplicate_question: 0,
+    unexpected_output_script: 0,
+    unsupported_source_fact: 0,
+    unsupported_answer: 0,
+    duplicate_source_fact: 0,
+    other: 0,
+    private_reason: 1,
+  },
+  backupCandidatePathExercised: true,
+  prompt: 'PRIVATE_PROMPT',
+})
+assert.equal(sanitizedCandidate, null, 'Unknown rejection categories are not silently discarded')
 
 // The app exposes no request ID on inference-completed events. Keep ambiguous
 // auxiliary calls in a neutral category, consume associations only once, and
@@ -210,5 +483,16 @@ for (const sensitive of [
   'PRIVATE_QUESTION', 'PRIVATE_NOTES', 'PRIVATE_PROMPT', 'PRIVATE_ERROR',
   'PRIVATE_CREDENTIAL', 'PRIVATE_SETUP_ERROR', 'C:\\private',
 ]) assert.equal(serialized.includes(sensitive), false, `report leaked ${sensitive}`)
+for (const sensitive of [
+  'Previously asked?', 'Aster casing material is cobalt.',
+  'What is Aster casing material?', 'PRIVATE_PROMPT',
+]) assert.equal(serialized.includes(sensitive), false, `candidate diagnostics leaked ${sensitive}`)
 
 console.log('Synthetic diagnostic callback/inspector integration passed')
+}
+
+runCandidateDiagnosticsIntegration().catch(error => {
+  console.error('Synthetic diagnostic callback/inspector integration failed')
+  console.error(error)
+  process.exitCode = 1
+})
