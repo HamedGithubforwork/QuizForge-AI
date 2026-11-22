@@ -9,6 +9,7 @@ const {
   QUIZ_EXACT_SCHEMA,
   QUIZ_SCHEMA,
   createLocalQuizService,
+  candidateDiagnosticReason,
   normalizeRequest,
   parseGeneratedQuiz,
 } = require('../src/local-quiz-service.cjs')
@@ -88,6 +89,25 @@ const withRetrySourceFacts = quiz => ({
     },
   ),
 })
+
+function targetedDiagnosticPool(prefix = 'Diagnostic candidate') {
+  const template = withRetrySourceFacts(rawQuiz())
+  return {
+    title: 'Synthetic source-backed candidates',
+    questions: Array.from({ length: 6 }, (_, index) => {
+      const fact = RETRY_FACTS[index]
+      return {
+        ...template.questions[index % template.questions.length],
+        question: `${prefix} ${index + 1}?`,
+        choices: ['wrong one', 'wrong two', 'wrong three', fact.answer],
+        correct_index: 3,
+        explanation: fact.text,
+        source_pages: [fact.page],
+        source_fact: fact.text,
+      }
+    }),
+  }
+}
 
 const rawQuiz = () => ({
   title: 'Cell Biology',
@@ -1249,6 +1269,222 @@ test('targeted practice accumulates valid candidates across the bounded retry', 
     ),
     true,
   )
+})
+
+test('targeted candidate diagnostics expose bounded counts without candidate content', async () => {
+  const candidatePool = targetedDiagnosticPool()
+  const snapshots = []
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: snapshot => snapshots.push(snapshot),
+    provider: {
+      async generate() {
+        return { finishReason: 'stop', text: JSON.stringify(candidatePool), usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: ['Previously asked?'] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(result.questions.length, 5)
+  assert.equal(snapshots.length, 1)
+  assert.deepEqual(snapshots[0], {
+    requested: 6,
+    accepted: 6,
+    rejectedByReason: {
+      avoided_question: 0,
+      duplicate_question: 0,
+      unexpected_output_script: 0,
+      unsupported_source_fact: 0,
+      unsupported_answer: 0,
+      duplicate_source_fact: 0,
+      other: 0,
+    },
+    backupCandidatePathExercised: false,
+  })
+  assert.ok(Object.isFrozen(snapshots[0]))
+  assert.ok(Object.isFrozen(snapshots[0].rejectedByReason))
+  assert.ok(Object.values(snapshots[0].rejectedByReason).every(value =>
+    Number.isSafeInteger(value) && value >= 0 && value <= 12))
+  const serialized = JSON.stringify(snapshots[0])
+  assert.equal(serialized.includes(candidatePool.questions[0].question), false)
+  assert.equal(serialized.includes(RETRY_FACTS[0].text), false)
+  assert.deepEqual(Object.keys(snapshots[0]).sort(), [
+    'accepted', 'backupCandidatePathExercised', 'rejectedByReason', 'requested',
+  ])
+})
+
+test('targeted candidate diagnostics do not mistake a primary backup for a replacement candidate', async () => {
+  const candidatePool = targetedDiagnosticPool()
+  const avoidedQuestion = candidatePool.questions[0].question
+  const snapshots = []
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: snapshot => snapshots.push(snapshot),
+    provider: {
+      async generate() {
+        return { finishReason: 'stop', text: JSON.stringify(candidatePool), usage: null }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: [avoidedQuestion] },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(result.questions.length, 5)
+  assert.equal(snapshots.length, 1)
+  assert.equal(snapshots[0].requested, 6)
+  assert.equal(snapshots[0].accepted, 5)
+  assert.equal(snapshots[0].rejectedByReason.avoided_question, 1)
+  assert.equal(snapshots[0].backupCandidatePathExercised, false,
+    'the sixth candidate in the primary request is not a replacement-batch candidate')
+  assert.ok(Object.values(snapshots[0].rejectedByReason).every(value =>
+    Number.isSafeInteger(value) && value >= 0 && value <= 12))
+})
+
+test('generic retry candidate does not claim the optimized recovery backup path', async () => {
+  const primaryPool = targetedDiagnosticPool()
+  const replacement = {
+    ...primaryPool.questions[0],
+    question: 'What are proteins made of?',
+    choices: ['amino acids', 'ATP', 'proteins', 'glucose'],
+    correct_index: 0,
+    explanation: RETRY_FACTS[6].text,
+    source_pages: [RETRY_FACTS[6].page],
+    source_fact: RETRY_FACTS[6].text,
+  }
+  const snapshots = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: snapshot => snapshots.push(snapshot),
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 1) {
+          assert.equal(request.jsonSchema.oneOf[1].properties.questions.maxItems, 6)
+          return { finishReason: 'stop', text: JSON.stringify(primaryPool), usage: null }
+        }
+        assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
+        return {
+          finishReason: 'stop',
+          text: JSON.stringify({
+            title: 'Synthetic replacement candidates',
+            questions: [replacement, primaryPool.questions[0], primaryPool.questions[1]],
+          }),
+          usage: null,
+        }
+      },
+    },
+  })
+
+  const result = await service.generate({
+    pages: pages(),
+    practice: {
+      avoidQuestions: [
+        primaryPool.questions[0].question,
+        primaryPool.questions[1].question,
+      ],
+    },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(result.questions.length, 5)
+  assert.equal(snapshots.length, 1)
+  assert.equal(snapshots[0].requested, 9)
+  assert.equal(snapshots[0].accepted, 5)
+  assert.equal(snapshots[0].rejectedByReason.avoided_question, 2)
+  assert.equal(snapshots[0].rejectedByReason.duplicate_question, 2)
+  assert.equal(snapshots[0].backupCandidatePathExercised, false,
+    'generic candidate-pool retries are distinct from the optimized recovery replacement path')
+})
+
+test('targeted candidate diagnostics cover bounded exhaustion without double-counting re-parsed pools', async () => {
+  const firstPool = targetedDiagnosticPool('Rejected primary')
+  const retryPool = count => ({
+    title: 'Synthetic retry candidates',
+    questions: Array.from({ length: count }, (_, index) => ({
+      ...firstPool.questions[index],
+      question: `Rejected retry ${index + 1}?`,
+    })),
+  })
+  const avoidedQuestions = [
+    ...firstPool.questions.map(question => question.question),
+    'Rejected retry 1?', 'Rejected retry 2?', 'Rejected retry 3?',
+    'Rejected retry 4?', 'Rejected retry 5?',
+  ]
+  const snapshots = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: snapshot => snapshots.push(snapshot),
+    provider: {
+      async generate(request) {
+        calls++
+        if (calls === 2) assert.equal(request.jsonSchema.properties.questions.maxItems, 3)
+        if (calls === 3) assert.equal(request.jsonSchema.properties.questions.maxItems, 2)
+        return {
+          finishReason: 'stop',
+          text: JSON.stringify(calls === 1 ? firstPool : retryPool(calls === 2 ? 3 : 2)),
+          usage: null,
+        }
+      },
+    },
+  })
+
+  await assert.rejects(service.generate({
+    pages: pages(),
+    practice: { avoidQuestions: avoidedQuestions },
+    questionCount: 5,
+    difficulty: 'medium',
+    questionType: 'multiple_choice',
+  }), { code: 'quiz_validation_failed' })
+
+  assert.equal(calls, 3)
+  assert.equal(snapshots.length, 1)
+  assert.equal(snapshots[0].requested, 11, JSON.stringify(snapshots[0]))
+  assert.equal(snapshots[0].accepted, 0)
+  assert.equal(snapshots[0].rejectedByReason.avoided_question, 9)
+  assert.equal(snapshots[0].rejectedByReason.duplicate_question, 2,
+    'the final combined pool is counted once, not once per re-parse')
+  assert.equal(Object.values(snapshots[0].rejectedByReason).reduce((sum, value) =>
+    sum + value, 0), 11)
+  assert.equal(snapshots[0].backupCandidatePathExercised, false)
+  assert.ok(Object.values(snapshots[0].rejectedByReason).every(value =>
+    Number.isSafeInteger(value) && value >= 0 && value <= 12))
+})
+
+test('candidate diagnostic reason mapping is closed and optional outside targeted practice', async () => {
+  assert.equal(candidateDiagnosticReason('avoided_question'), 'avoided_question')
+  assert.equal(candidateDiagnosticReason('duplicate_source_fact'), 'duplicate_source_fact')
+  assert.equal(candidateDiagnosticReason('unexpected sensitive error'), 'other')
+  assert.equal(candidateDiagnosticReason({ message: 'private details' }), 'other')
+
+  const snapshots = []
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: snapshot => snapshots.push(snapshot),
+    provider: {
+      async generate() {
+        return { finishReason: 'stop', text: JSON.stringify(rawQuiz()), usage: null }
+      },
+    },
+  })
+  const result = await service.generate({
+    pages: pages(), questionCount: 5,
+    difficulty: 'medium', questionType: 'multiple_choice',
+  })
+  assert.equal(result.questions.length, 5)
+  assert.deepEqual(snapshots, [], 'ordinary quiz generation emits no candidate-pool diagnostics')
 })
 
 test('targeted practice filters foreign-script output and recovers the missing candidate', async () => {

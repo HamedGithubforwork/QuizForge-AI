@@ -47,7 +47,9 @@ const request = {
 
 test('rich targeted practice tries the already-strict recovery without two wasted abstentions', async () => {
   let calls = 0
+  const candidateDiagnostics = []
   const service = createLocalQuizService({
+    onCandidateDiagnostics: summary => candidateDiagnostics.push(summary),
     provider: { async generate(prompt) {
       calls++
       assert.equal(prompt.generationProfile, 'quiz-mcq-v1')
@@ -63,6 +65,10 @@ test('rich targeted practice tries the already-strict recovery without two waste
   assert.equal(quiz.questions.length, 5)
   assert.equal(new Set(quiz.questions.map(q => q.question)).size, 5)
   assert.ok(quiz.questions.every(q => !Object.hasOwn(q, 'source_fact')))
+  assert.equal(candidateDiagnostics.length, 1)
+  assert.equal(candidateDiagnostics[0].requested, 5)
+  assert.equal(candidateDiagnostics[0].accepted, 5)
+  assert.equal(candidateDiagnostics[0].backupCandidatePathExercised, false)
 })
 
 test('invalid early recovery preserves established targeted generation fallback', async () => {
@@ -124,9 +130,10 @@ test('six-fact weak-area practice goes to strict recovery after one model absten
     !request.practice.avoidQuestions.includes(question.question)))
 })
 
-test('one missing recovery candidate requests one backup in the first replacement batch', async () => {
+test('only the extra candidate can exercise the optimized recovery backup slot', async () => {
   const recovery = { title: 'Recovered facts', questions: candidates.slice(0, 5) }
-  const backup = {
+  const candidateDiagnostics = []
+  const backupOne = {
     question: 'Which material does Aster use for its battery?',
     choices: ['lithium', 'cobalt', 'glass', 'nickel'],
     correct_index: 0,
@@ -134,22 +141,30 @@ test('one missing recovery candidate requests one backup in the first replacemen
     source_fact: 'Aster battery type is lithium.',
     source_pages: [2],
   }
+  const backupTwo = {
+    question: 'What shape is Aster\'s lens?',
+    choices: ['circular', 'square', 'triangular', 'oval'],
+    correct_index: 0,
+    explanation: 'Aster lens shape is circular.',
+    source_fact: 'Aster lens shape is circular.',
+    source_pages: [2],
+  }
   const calls = []
   const service = createLocalQuizService({
+    onCandidateDiagnostics: summary => candidateDiagnostics.push(summary),
     provider: { async generate(prompt) {
       calls.push(prompt)
       if (calls.length === 1) {
         return { finishReason: 'stop', text: JSON.stringify(recovery) }
       }
       assert.equal(prompt.generationProfile, 'quiz-mcq-targeted-retry-v1')
-      assert.equal(prompt.jsonSchema.properties.questions.minItems, 2)
-      assert.equal(prompt.jsonSchema.properties.questions.maxItems, 2)
-      // The first candidate repeats a prior question and must be discarded;
-      // the second is the supported replacement. The model response remains
-      // untrusted and both candidates are validated by the normal parser.
+      assert.equal(prompt.jsonSchema.properties.questions.minItems, 3)
+      assert.equal(prompt.jsonSchema.properties.questions.maxItems, 3)
+      // The first candidate repeats a prior question, the second fills a
+      // required slot, and only the third is the extra backup candidate.
       return { finishReason: 'stop', text: JSON.stringify({
         title: 'Replacement candidates',
-        questions: [candidates[0], backup],
+        questions: [candidates[0], backupOne, backupTwo],
       }) }
     } },
   })
@@ -158,16 +173,82 @@ test('one missing recovery candidate requests one backup in the first replacemen
     pages: amplePages,
     practice: {
       ...request.practice,
-      avoidQuestions: [candidates[0].question, 'Which capacity was previously asked about?'],
+      avoidQuestions: [candidates[0].question, candidates[1].question],
     },
   })
 
   assert.equal(calls.length, 2, 'one replacement call should avoid a second backup inference')
   assert.equal(quiz.questions.length, 5)
-  assert.equal(quiz.questions.some(item => item.question === backup.question), true)
+  assert.equal(quiz.questions.some(item => item.question === backupOne.question), true)
+  assert.equal(quiz.questions.some(item => item.question === backupTwo.question), true)
   assert.equal(quiz.questions.some(item => item.question === candidates[0].question), false)
   assert.equal(new Set(quiz.questions.map(item => item.question)).size, 5)
   assert.ok(quiz.questions.every(item => !Object.hasOwn(item, 'source_fact')))
+  assert.equal(candidateDiagnostics.length, 1)
+  assert.equal(candidateDiagnostics[0].requested, 8,
+    'requested counts five direct recovery candidates plus three replacement slots')
+  assert.equal(candidateDiagnostics[0].accepted, 5)
+  assert.equal(candidateDiagnostics[0].backupCandidatePathExercised, true,
+    'the extra third replacement candidate fills the fifth accepted slot')
+})
+
+test('a capped replacement batch with no extra candidate does not claim backup use', async () => {
+  const recovery = { title: 'Recovered facts', questions: candidates.slice(0, 5) }
+  const backupOne = {
+    question: 'Which material does Aster use for its battery?',
+    choices: ['lithium', 'cobalt', 'glass', 'nickel'],
+    correct_index: 0,
+    explanation: 'Aster battery type is lithium.',
+    source_fact: 'Aster battery type is lithium.',
+    source_pages: [2],
+  }
+  const backupTwo = {
+    question: 'What shape is Aster\'s lens?',
+    choices: ['circular', 'square', 'triangular', 'oval'],
+    correct_index: 0,
+    explanation: 'Aster lens shape is circular.',
+    source_fact: 'Aster lens shape is circular.',
+    source_pages: [2],
+  }
+  const backupThree = {
+    question: 'What is Boreal battery material?',
+    choices: ['nickel', 'lithium', 'glass', 'cobalt'],
+    correct_index: 0,
+    explanation: 'Boreal battery type is nickel.',
+    source_fact: 'Boreal battery type is nickel.',
+    source_pages: [4],
+  }
+  const candidateDiagnostics = []
+  let calls = 0
+  const service = createLocalQuizService({
+    onCandidateDiagnostics: summary => candidateDiagnostics.push(summary),
+    provider: { async generate(prompt) {
+      calls++
+      if (calls === 1) return { finishReason: 'stop', text: JSON.stringify(recovery) }
+      assert.equal(prompt.jsonSchema.properties.questions.maxItems, 3)
+      return { finishReason: 'stop', text: JSON.stringify({
+        title: 'Required replacements',
+        questions: [backupOne, backupTwo, backupThree],
+      }) }
+    } },
+  })
+
+  const quiz = await service.generate({
+    ...request,
+    pages: amplePages,
+    practice: {
+      ...request.practice,
+      avoidQuestions: candidates.slice(0, 3).map(candidate => candidate.question),
+    },
+  })
+
+  assert.equal(calls, 2)
+  assert.equal(quiz.questions.length, 5)
+  assert.equal(candidateDiagnostics.length, 1)
+  assert.equal(candidateDiagnostics[0].requested, 8)
+  assert.equal(candidateDiagnostics[0].accepted, 5)
+  assert.equal(candidateDiagnostics[0].backupCandidatePathExercised, false,
+    'all three replacement candidates were needed; the batch had no extra backup slot')
 })
 
 test('one-page targeted practice keeps its existing candidate-pool path', async () => {
