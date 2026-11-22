@@ -177,6 +177,8 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const policyPaths = [
     'scripts/autonomy/automatic-merge-policy.cjs',
     'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+    'scripts/autonomy/batch-task-queue.cjs',
+    'scripts/autonomy/test/batch-task-queue.test.cjs',
   ]
   for (const changedPath of [...coordinatorPaths, ...policyPaths]) {
     assert.ok(pushBlock.split(/\r?\n/).includes(`      - "${changedPath}"`), `${changedPath} must trigger push CI`)
@@ -200,7 +202,7 @@ test('integration coordinator source and tests trigger autonomy verification', (
   const autonomyJobStart = workflow.indexOf('  autonomy-tests:')
   const requiredGateStart = workflow.indexOf('  required-pr-gate:', autonomyJobStart)
   const autonomyJob = workflow.slice(autonomyJobStart, requiredGateStart)
-  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs scripts\/autonomy\/test\/github-native-preflight\.test\.cjs scripts\/autonomy\/test\/github-pr-risk-review\.test\.cjs/,
+  assert.match(autonomyJob, /node --test scripts\/autonomy\/test\/optimization-orchestrator\.test\.cjs scripts\/autonomy\/test\/automatic-merge-policy\.test\.cjs scripts\/autonomy\/test\/integration-coordinator\.test\.cjs scripts\/autonomy\/test\/trusted-integration-verifier\.test\.cjs scripts\/autonomy\/test\/github-native-preflight\.test\.cjs scripts\/autonomy\/test\/github-pr-risk-review\.test\.cjs scripts\/autonomy\/test\/batch-task-queue\.test\.cjs/,
     'autonomy CI must execute policy, coordinator, and verifier regression suites when classified relevant')
 })
 
@@ -564,15 +566,17 @@ test('actual merge-group shell validator handles local Git histories and failure
     }
   })
 
-  await t.test('each automatic-merge policy path independently triggers autonomy tests', async t => {
+  await t.test('each automatic-merge policy and batch queue path independently triggers autonomy tests', async t => {
     const policyPaths = [
       'scripts/autonomy/automatic-merge-policy.cjs',
       'scripts/autonomy/test/automatic-merge-policy.test.cjs',
+      'scripts/autonomy/batch-task-queue.cjs',
+      'scripts/autonomy/test/batch-task-queue.test.cjs',
     ]
     const originalClassifier = fs.readFileSync(classifierPath, 'utf8')
     const policyRuleLine = originalClassifier.split(/\r?\n/).find(line =>
       policyPaths.every(policyPath => line.includes(policyPath)))
-    assert.ok(policyRuleLine, 'classifier must contain both policy paths in its autonomy rule')
+    assert.ok(policyRuleLine, 'classifier must contain all policy and batch queue paths in its autonomy rule')
 
     function removePolicyRule(classifierText, policyPath) {
       let replacements = 0

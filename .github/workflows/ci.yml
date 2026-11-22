@@ -16,6 +16,8 @@ on:
       - "desktop/test/prepare-targeted-practice-model.test.cjs"
       - "scripts/autonomy/optimization-orchestrator.cjs"
       - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      - "scripts/autonomy/batch-task-queue.cjs"
+      - "scripts/autonomy/test/batch-task-queue.test.cjs"
       - "scripts/autonomy/automatic-merge-policy.cjs"
       - "scripts/autonomy/test/automatic-merge-policy.test.cjs"
       - "scripts/autonomy/github-native-preflight.cjs"
@@ -273,7 +275,7 @@ jobs:
           node-version: "22"
 
       - name: Run orchestrator regression tests
-        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/automatic-merge-policy.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs scripts/autonomy/test/github-native-preflight.test.cjs scripts/autonomy/test/github-pr-risk-review.test.cjs
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/automatic-merge-policy.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs scripts/autonomy/test/github-native-preflight.test.cjs scripts/autonomy/test/github-pr-risk-review.test.cjs scripts/autonomy/test/batch-task-queue.test.cjs
 
   workflow-policy-tests:
     name: CI trigger policy tests
