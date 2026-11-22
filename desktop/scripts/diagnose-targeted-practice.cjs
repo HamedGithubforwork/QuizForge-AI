@@ -46,18 +46,67 @@ const SAFE_RESPONSE_REASONS = new Set([
   'citation_or_answer_context_mismatch', 'answer_not_in_fixture_aliases', 'question_shape',
 ])
 const SAFE_FINISH_REASONS = new Set(['stop', 'length'])
+const SAFE_CANDIDATE_REASONS = Object.freeze([
+  'avoided_question',
+  'duplicate_question',
+  'unexpected_output_script',
+  'unsupported_source_fact',
+  'unsupported_answer',
+  'duplicate_source_fact',
+  'other',
+])
+const MAX_CANDIDATE_COUNT = 12
 const SAFE_FAILURE_EVENTS = new Set(['operation_failed', 'runtime_failed'])
 const SAFE_RUNTIME_STAGES = new Set(['verification', 'startup', 'inference', 'cleanup'])
 const SAFE_SOURCE_BRANCHES = new Set([
   'diagnostic/targeted-practice-stage-timing-20261103',
   'perf/local-practice-minimal-replacement-batch-20261103',
+  'codex/qwen-targeted-practice-backup-batch-20261120',
 ])
 const round = value => Math.round(value * 1000) / 1000
 const MAX_DIAGNOSTIC_SECONDS = 1500
 const MAX_DIAGNOSTIC_TOKENS = 1_000_000
 const MAX_RESPONSE_TEXT_CHARS = 80_000
+const MAX_REPORT_MEMORY_BYTES = 1_099_511_627_776
+const MODEL_METADATA = Object.freeze({
+  sha256: '7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+  bytes: 2_497_280_256,
+})
+const RUNTIME_METADATA = Object.freeze({
+  id: 'llama.cpp-b11317-windows-x64-vulkan',
+  archiveSha256: 'b0cb46635aa4a028c272b74dc1966178b57157b4be199985e4d5e62cc6664338',
+})
+const SAFE_RUNNER_IMAGES = new Set(['windows-2025'])
 const elapsed = (start, now = performance.now()) =>
   Math.min(MAX_DIAGNOSTIC_SECONDS, round(Math.max(0, now - start) / 1000))
+
+function safeMemoryBytes(value) {
+  return Number.isSafeInteger(value) && value > 0 && value <= MAX_REPORT_MEMORY_BYTES
+    ? value : null
+}
+
+function safeExecutionConditions(env, warmupOutcome) {
+  const modelCacheState = ['hit', 'miss'].includes(env?.QFN_MODEL_CACHE_STATE)
+    ? env.QFN_MODEL_CACHE_STATE : null
+  const runnerImage = SAFE_RUNNER_IMAGES.has(env?.QFN_DIAGNOSTIC_RUNNER_IMAGE)
+    ? env.QFN_DIAGNOSTIC_RUNNER_IMAGE : null
+  const runtimeCacheState = env?.QFN_RUNTIME_CACHE_STATE === 'miss' ? 'miss' : null
+  const validModel = env?.QFN_MODEL_SHA256 === MODEL_METADATA.sha256 &&
+    String(env?.QFN_MODEL_BYTES) === String(MODEL_METADATA.bytes)
+  const validRuntime = env?.QFN_RUNTIME_ID === RUNTIME_METADATA.id &&
+    env?.QFN_RUNTIME_SHA256 === RUNTIME_METADATA.archiveSha256
+
+  return Object.freeze({
+    modelSha256: validModel ? MODEL_METADATA.sha256 : null,
+    modelBytes: validModel ? MODEL_METADATA.bytes : null,
+    runtimeId: validRuntime ? RUNTIME_METADATA.id : null,
+    runtimeSha256: validRuntime ? RUNTIME_METADATA.archiveSha256 : null,
+    runnerImage,
+    modelCacheState,
+    runtimeCacheState,
+    preparationClass: warmupOutcome === 'pass' ? 'warm' : null,
+  })
+}
 
 function numericCounters(details) {
   if (!details || typeof details !== 'object') return null
@@ -66,6 +115,35 @@ function numericCounters(details) {
       details[key] <= MAX_DIAGNOSTIC_TOKENS)
     .map(key => [key, details[key]]))
   return Object.keys(counters).length ? counters : null
+}
+
+function safeCandidateDiagnostics(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const boundedCount = item => Number.isSafeInteger(item) && item >= 0 &&
+    item <= MAX_CANDIDATE_COUNT ? item : null
+  const requested = boundedCount(value.requested)
+  const accepted = boundedCount(value.accepted)
+  if (requested === null || accepted === null ||
+      typeof value.backupCandidatePathExercised !== 'boolean' ||
+      !value.rejectedByReason || typeof value.rejectedByReason !== 'object' ||
+      Array.isArray(value.rejectedByReason)) return null
+
+  const rejectedKeys = Object.keys(value.rejectedByReason)
+  if (rejectedKeys.length !== SAFE_CANDIDATE_REASONS.length ||
+      rejectedKeys.some(key => !SAFE_CANDIDATE_REASONS.includes(key))) return null
+  const rejectedByReason = {}
+  for (const reason of SAFE_CANDIDATE_REASONS) {
+    const count = boundedCount(value.rejectedByReason[reason])
+    if (count === null) return null
+    rejectedByReason[reason] = count
+  }
+
+  return Object.freeze({
+    requested,
+    accepted,
+    rejectedByReason: Object.freeze(rejectedByReason),
+    backupCandidatePathExercised: value.backupCandidatePathExercised,
+  })
 }
 
 function safeIssue(issue, stage) {
@@ -89,6 +167,10 @@ function safeFinishReason(response) {
 
 function safeSha(value) {
   return /^[a-f0-9]{40}$/.test(value ?? '') ? value : 'unknown'
+}
+
+function safeSourceBranch(value) {
+  return SAFE_SOURCE_BRANCHES.has(value) ? value : 'unknown'
 }
 
 function safeFailure(event, fields, stage, since) {
@@ -242,6 +324,11 @@ function createDiagnosticCallbacks({ report, getActiveStage, getStageStarted, ge
         atSeconds: stageStarted === null ? null : elapsed(stageStarted),
       })
     },
+    onCandidateDiagnostics(summary) {
+      const current = getCurrent()
+      if (!current || getActiveStage() !== 'targeted') return
+      current.candidateDiagnostics = safeCandidateDiagnostics(summary)
+    },
   }
 }
 
@@ -280,6 +367,7 @@ function summarize(report) {
     targetOutcome: target?.outcome ?? 'not_run',
     questionCount: target?.questionCount ?? 0,
     distinctQuestionCount: target?.distinctQuestionCount ?? 0,
+    candidateDiagnostics: target?.candidateDiagnostics ?? null,
     semanticOracle: target?.semanticOracle ?? 'not_run',
     avoidsPriorQuestions: target?.avoidsPriorQuestions ?? 'not_run',
     callIntervals,
@@ -322,23 +410,23 @@ async function main() {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'qfn-target-diagnostic-'))
   const started = performance.now()
   const report = {
-    schema: 2,
+    schema: 3,
     syntheticOnly: true,
     diagnostic: 'targeted-practice-recovery',
     platform: process.platform,
     architecture: process.arch,
-    sourceBranch: SAFE_SOURCE_BRANCHES.has(process.env.QFN_DIAGNOSTIC_SOURCE_REF)
-      ? process.env.QFN_DIAGNOSTIC_SOURCE_REF : 'unknown',
+    sourceBranch: safeSourceBranch(process.env.QFN_DIAGNOSTIC_SOURCE_REF),
     sourceSha: safeSha(process.env.QFN_DIAGNOSTIC_SOURCE_SHA),
     diagnosticToolSha: safeSha(process.env.QFN_DIAGNOSTIC_TOOL_SHA),
     modelId: null,
     acceleration: null,
     logicalCpuCount: null,
     totalMemoryBytes: null,
+    conditions: safeExecutionConditions(process.env, null),
     setupFailures: [],
     stages: [
-      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
-      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [] },
+      { id: 'warmup', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
+      { id: 'targeted', elapsedSeconds: null, outcome: 'not_run', inferenceCalls: [], responses: [], validationIssues: [], failures: [], rejections: [], candidateDiagnostics: null },
     ],
     summary: null,
   }
@@ -374,13 +462,12 @@ async function main() {
     assert.equal(manager.capability.acceleration, 'cpu', 'Diagnostic expects CPU inference')
     report.modelId = status.modelId === 'qwen3-4b-q4-k-m' ? status.modelId : 'other'
     report.acceleration = manager.capability.acceleration
-  report.logicalCpuCount = Number.isSafeInteger(manager.capability.hardware?.logicalCpuCount) &&
-    manager.capability.hardware.logicalCpuCount > 0 && manager.capability.hardware.logicalCpuCount <= 256
-    ? manager.capability.hardware.logicalCpuCount : null
-  report.totalMemoryBytes = Number.isSafeInteger(manager.capability.hardware?.totalMemoryBytes) &&
-    manager.capability.hardware.totalMemoryBytes > 0 &&
-    manager.capability.hardware.totalMemoryBytes <= 1_099_511_627_776
-    ? manager.capability.hardware.totalMemoryBytes : null
+    report.logicalCpuCount = Number.isSafeInteger(manager.capability.hardware?.logicalCpuCount) &&
+      manager.capability.hardware.logicalCpuCount > 0 && manager.capability.hardware.logicalCpuCount <= 256
+      ? manager.capability.hardware.logicalCpuCount : null
+    // publicCapability intentionally omits totalMemoryBytes; collect only the
+    // bounded OS memory total needed for synthetic-run comparability.
+    report.totalMemoryBytes = safeMemoryBytes(os.totalmem())
 
     activeStage = 'warmup'
     stageStarted = performance.now()
@@ -408,6 +495,7 @@ async function main() {
       return
     }
     report.stages[0].elapsedSeconds = elapsed(stageStarted)
+    report.conditions = safeExecutionConditions(process.env, report.stages[0].outcome)
 
     const avoidQuestions = warmup.questions.slice(0, 2).map(item => item.question)
     const avoided = new Set(avoidQuestions.map(value => String(value).trim().replace(/\s+/g, ' ').toLocaleLowerCase()))
@@ -469,7 +557,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-  numericCounters, safeIssue, safeMetric, safeResponseDiagnostics, safeFinishReason,
-  safeSha, safeFailure, normalizeResponseForInspector, inspectDiagnosticResponse,
+  numericCounters, safeCandidateDiagnostics, safeExecutionConditions, safeMemoryBytes,
+  safeIssue, safeMetric, safeResponseDiagnostics, safeFinishReason,
+  safeSha, safeSourceBranch, safeFailure, normalizeResponseForInspector, inspectDiagnosticResponse,
   createDiagnosticCallbacks, summarize,
 }
