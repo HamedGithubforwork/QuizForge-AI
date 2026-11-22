@@ -66,7 +66,9 @@ function scrollToQuestion(
           'input:not(:disabled)',
         )
 
-    input?.focus({
+    const focusTarget = input ?? questionElement
+
+    focusTarget?.focus({
       preventScroll: true,
     })
   }, 350)
@@ -507,3 +509,4 @@ export function useQuizAttempt({
     handleSaveResult,
   }
 }
+
