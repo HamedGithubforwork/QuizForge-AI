@@ -2,6 +2,9 @@ import {
   getQuestionTypeLabel,
   isQuestionAnswered,
 } from '../../lib/quizPresentation'
+import {
+  formatQuestionNavigationAccessibleName,
+} from '../../lib/quizNavigatorAccessibility'
 import type {
   AnswerValue,
   GeneratedSettings,
@@ -228,7 +231,10 @@ function QuizSession({
         />
       </div>
 
-      <nav className="question-navigator">
+      <nav
+        aria-label="Quiz question navigation"
+        className="question-navigator"
+      >
         <span className="navigator-label">
           Jump to question
         </span>
@@ -284,6 +290,16 @@ function QuizSession({
               return (
                 <button
                   key={questionIndex}
+                  aria-label={
+                    formatQuestionNavigationAccessibleName(
+                      questionIndex + 1,
+                      {
+                        isAnswered: answered,
+                        showResults,
+                        isCorrect: correct,
+                      },
+                    )
+                  }
                   className={navClass}
                   type="button"
                   onClick={() => {
