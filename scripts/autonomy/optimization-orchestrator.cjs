@@ -18,7 +18,7 @@ const {
   validateRunAuthorization,
 } = require('./supervised-merge-policy.cjs')
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 const MAX_CYCLES = 10
 const MAX_EVENTS = 500
 const EVENT_ARCHIVE_CHUNK = 250
@@ -75,6 +75,7 @@ const AUDIT_ROLES = Object.freeze([
   'data_integrity_engineer',
 ])
 const IDENTITY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9@._+-]{1,79}$/
+const INVOCATION_REFERENCE_PATTERN = /^\/?[A-Za-z0-9][A-Za-z0-9._:/-]{2,159}$/
 
 const DEFAULT_STATE_PATH = path.resolve(__dirname, '../../docs/autonomy/optimization-state.json')
 const REPOSITORY_ROOT = path.resolve(__dirname, '../..')
@@ -127,6 +128,35 @@ function assertReference(reference) {
     throw new Error('Invalid evidence reference; use an allowlisted GitHub URL or repository path')
   }
   return reference
+}
+
+function assertInvocationReference(reference) {
+  if (typeof reference !== 'string' || !INVOCATION_REFERENCE_PATTERN.test(reference) ||
+      reference.includes('..') || reference.includes('//') || /[\r\n]/.test(reference)) {
+    throw new Error('Invalid actual agent invocation reference')
+  }
+}
+
+function isValidAssessmentRecord(assessments) {
+  if (!assessments || typeof assessments !== 'object' || Array.isArray(assessments) ||
+      Object.keys(assessments).some(role => !ASSESSMENT_ROLES.includes(role))) return false
+  try {
+    for (const assessment of Object.values(assessments)) {
+      if (assessment === null) continue
+      const legacyKeys = ['passed', 'evidenceRef']
+      const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
+      if ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+          typeof assessment.passed !== 'boolean') return false
+      assertReference(assessment.evidenceRef)
+      if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+        assertInvocationReference(assessment.invocationRef)
+        if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) return false
+      }
+    }
+  } catch {
+    return false
+  }
+  return true
 }
 
 function validateTask(task) {
@@ -196,12 +226,25 @@ function validateTask(task) {
     for (const role of ASSESSMENT_ROLES) {
       const assessment = task.assessments[role]
       if (assessment !== undefined && assessment !== null) {
-        if (!onlyKeys(assessment, ['passed', 'evidenceRef']) || typeof assessment.passed !== 'boolean') {
+        const legacyKeys = ['passed', 'evidenceRef']
+        const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
+        if ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+            typeof assessment.passed !== 'boolean') {
           throw new Error('Invalid role assessment result')
         }
         assertReference(assessment.evidenceRef)
+        if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+          assertInvocationReference(assessment.invocationRef)
+          if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) {
+            throw new Error('Assessment invocation requires the exact target commit SHA')
+          }
+        }
       }
     }
+  }
+  if (task.assessmentProvenanceLegacy !== undefined &&
+      (task.assessmentProvenanceLegacy !== true || task.status !== 'validated')) {
+    throw new Error('Legacy assessment provenance is allowed only for previously validated records')
   }
   if (task.blocker !== undefined && task.blocker !== null) {
     if (!onlyKeys(task.blocker, ['code', 'evidenceRef', 'evidenceRevision', 'recordedAt']) ||
@@ -312,6 +355,7 @@ function validateTask(task) {
     implementation: task.implementation ?? null,
     testResult: task.testResult ?? null,
     assessments: task.assessments ?? Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null])),
+    ...(task.assessmentProvenanceLegacy === true ? { assessmentProvenanceLegacy: true } : {}),
     validation: task.validation ?? null,
     blocker: task.blocker ?? null,
     workPreserved: task.workPreserved ?? null,
@@ -352,11 +396,22 @@ function validatePreservedSnapshot(snapshot) {
     throw new Error('Invalid preserved assessment or validation record')
   }
   for (const assessment of Object.values(snapshot.assessments)) {
+    const legacyKeys = ['passed', 'evidenceRef']
+    const tracedKeys = [...legacyKeys, 'invocationRef', 'targetCommitSha']
     if (assessment !== null &&
-        (!onlyKeys(assessment, ['passed', 'evidenceRef']) || typeof assessment.passed !== 'boolean')) {
+        ((!onlyKeys(assessment, legacyKeys) && !onlyKeys(assessment, tracedKeys)) ||
+          typeof assessment.passed !== 'boolean')) {
       throw new Error('Invalid preserved assessment or validation record')
     }
-    if (assessment !== null) assertReference(assessment.evidenceRef)
+    if (assessment !== null) {
+      assertReference(assessment.evidenceRef)
+      if (assessment.invocationRef !== undefined || assessment.targetCommitSha !== undefined) {
+        assertInvocationReference(assessment.invocationRef)
+        if (!/^[a-f0-9]{40}$/.test(assessment.targetCommitSha ?? '')) {
+          throw new Error('Preserved assessment invocation requires the exact target commit SHA')
+        }
+      }
+    }
   }
   if (snapshot.validation !== null && snapshot.validation !== undefined) {
     const rejectedKeys = ['accepted', 'reasonCode', 'evidenceRef']
@@ -746,6 +801,28 @@ function validatePilotSummary(summary) {
 }
 
 function validateState(state) {
+  if (state?.schemaVersion === 1 && Array.isArray(state.tasks)) {
+    // Preserve completed historical results without inventing invocation IDs.
+    // In-progress, untraceable reviews remain in the event history, but the
+    // task returns to tests_passed so reviewers must assess the current commit.
+    for (const task of state.tasks) {
+      if (!task || typeof task !== 'object' || Array.isArray(task)) continue
+      if (task.assessments !== undefined && !isValidAssessmentRecord(task.assessments)) continue
+      const hasUntraceableAssessment = Object.values(task.assessments ?? {})
+        .some(assessment => assessment && !assessment.invocationRef)
+      if (task.status === 'validated') {
+        task.assessmentProvenanceLegacy = true
+      } else if (hasUntraceableAssessment &&
+          ['reviewed', 'qa_passed', 'quality_security_passed'].includes(task.status)) {
+        task.status = 'tests_passed'
+        task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+        task.validation = null
+      } else if (hasUntraceableAssessment && !['blocked', 'rejected'].includes(task.status)) {
+        task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+      }
+    }
+    state.schemaVersion = SCHEMA_VERSION
+  }
   if (!state || state.schemaVersion !== SCHEMA_VERSION ||
       !Array.isArray(state.domains) || state.domains.length !== DOMAINS.length ||
       DOMAINS.some(domain => !state.domains.includes(domain)) ||
@@ -884,7 +961,7 @@ function validateState(state) {
   ])
   const eventKeys = [
     'at', 'type', 'pilotId', 'maxCycles', 'taskId', 'cycle', 'domain', 'metric',
-    'evidenceRef', 'branch', 'commitSha', 'reasonCode', 'blockerCode',
+    'evidenceRef', 'branch', 'commitSha', 'invocationRef', 'assessmentCommitSha', 'reasonCode', 'blockerCode',
     'evidenceRevision', 'resultMetric', 'recoveryCaseIndex', 'recoveryStrategy', 'recoveryResult',
     'initialStatus',
     'auditStatus', 'consecutiveCleanAudits', 'actionableCount', 'blockedCount', 'auditedDimensions', 'specialistRoles',
@@ -1000,6 +1077,14 @@ function validateState(state) {
     if (event.domain && !DOMAINS.includes(event.domain)) throw new Error('Invalid domain in checkpoint event')
     if (event.blockerCode && !BLOCKERS.includes(event.blockerCode)) throw new Error('Invalid blocker in checkpoint event')
     if (event.evidenceRef) assertReference(event.evidenceRef)
+    if (event.invocationRef !== undefined || event.assessmentCommitSha !== undefined) {
+      assertInvocationReference(event.invocationRef)
+      if (!/^[a-f0-9]{40}$/.test(event.assessmentCommitSha ?? '') ||
+          !['reviewer_passed', 'qa_passed', 'quality_passed', 'security_passed',
+            'reviewer_rejected', 'qa_rejected', 'quality_rejected', 'security_rejected'].includes(event.type)) {
+        throw new Error('Assessment event invocation provenance is invalid')
+      }
+    }
     if (event.reviewerEvidenceRef) assertReference(event.reviewerEvidenceRef)
     if (event.qaEvidenceRef) assertReference(event.qaEvidenceRef)
     if (event.securityEvidenceRef) assertReference(event.securityEvidenceRef)
@@ -1222,9 +1307,21 @@ function validateLifecycle(task) {
       (task.assessments.reviewer?.passed !== true || task.assessments.qa?.passed !== true)) {
     throw new Error(`Task ${task.id} lifecycle lacks Reviewer and QA passes`)
   }
+  if (['reviewed', 'qa_passed', 'quality_security_passed', 'validated'].includes(task.status) &&
+      task.assessmentProvenanceLegacy !== true &&
+      ['reviewer', 'qa'].some(role => !task.assessments[role]?.invocationRef ||
+        task.assessments[role]?.targetCommitSha !== task.implementation.commitSha)) {
+    throw new Error(`Task ${task.id} lifecycle lacks traceable Reviewer and QA invocations for its implementation commit`)
+  }
   if (['quality_security_passed', 'validated'].includes(task.status) &&
       (task.assessments.quality?.passed !== true || task.assessments.security?.passed !== true)) {
     throw new Error(`Task ${task.id} lifecycle lacks quality and security passes`)
+  }
+  if (['quality_security_passed', 'validated'].includes(task.status) &&
+      task.assessmentProvenanceLegacy !== true &&
+      ['quality', 'security'].some(role => !task.assessments[role]?.invocationRef ||
+        task.assessments[role]?.targetCommitSha !== task.implementation.commitSha)) {
+    throw new Error(`Task ${task.id} lifecycle lacks traceable quality/security invocations for its implementation commit`)
   }
   if (task.status === 'validated') {
     const v = task.validation
@@ -1712,6 +1809,7 @@ function preserveAndResetStaleLifecycle(task) {
   task.implementation = null
   task.testResult = null
   task.assessments = Object.fromEntries(ASSESSMENT_ROLES.map(role => [role, null]))
+  delete task.assessmentProvenanceLegacy
   task.validation = null
 }
 
@@ -1864,7 +1962,7 @@ function recordTests(state, taskId, { passed, artifactRef }) {
   return task
 }
 
-function recordAssessment(state, taskId, { role, passed, artifactRef }) {
+function recordAssessment(state, taskId, { role, passed, artifactRef, invocationRef, targetCommitSha }) {
   const task = requireSelected(state, taskId)
   if (task.status !== 'tests_passed' && task.status !== 'reviewed' && task.status !== 'qa_passed') {
     throw new Error('Independent assessments require passing focused tests')
@@ -1873,7 +1971,14 @@ function recordAssessment(state, taskId, { role, passed, artifactRef }) {
     throw new Error('Assessment role/result is invalid')
   }
   assertReference(artifactRef)
-  task.assessments[role] = { passed, evidenceRef: artifactRef }
+  assertInvocationReference(invocationRef)
+  if (targetCommitSha !== task.implementation?.commitSha) {
+    throw new Error('Assessment invocation must identify the exact implemented commit')
+  }
+  delete task.assessmentProvenanceLegacy
+  task.assessments[role] = {
+    passed, evidenceRef: artifactRef, invocationRef, targetCommitSha,
+  }
   if (!passed) return rejectTask(state, taskId, `${role}_rejected`, artifactRef)
   if (task.assessments.reviewer?.passed && task.assessments.qa?.passed) task.status = 'reviewed'
   if (task.assessments.quality?.passed && task.assessments.security?.passed) {
@@ -1882,7 +1987,13 @@ function recordAssessment(state, taskId, { role, passed, artifactRef }) {
   } else if (task.assessments.reviewer?.passed && task.assessments.qa?.passed) {
     task.status = 'qa_passed'
   }
-  appendEvent(state, { type: `${role}_${passed ? 'passed' : 'rejected'}`, taskId, evidenceRef: artifactRef })
+  appendEvent(state, {
+    type: `${role}_${passed ? 'passed' : 'rejected'}`,
+    taskId,
+    evidenceRef: artifactRef,
+    invocationRef,
+    assessmentCommitSha: targetCommitSha,
+  })
   return task
 }
 

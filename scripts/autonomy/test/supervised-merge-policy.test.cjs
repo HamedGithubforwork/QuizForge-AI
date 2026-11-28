@@ -172,7 +172,13 @@ test('merge result requires a matching eligible decision and structured merged G
   orchestrator.recordImplementation(state, task.id, { branch: 'codex/supervised-task', commitSha: head })
   orchestrator.recordTests(state, task.id, { passed: true, artifactRef: 'scripts/autonomy/test/supervised-merge-policy.test.cjs' })
   for (const role of ['reviewer', 'qa', 'quality', 'security']) {
-    orchestrator.recordAssessment(state, task.id, { role, passed: true, artifactRef: 'docs/autonomy/supervised-merge.md' })
+    orchestrator.recordAssessment(state, task.id, {
+      role,
+      passed: true,
+      artifactRef: 'docs/autonomy/supervised-merge.md',
+      invocationRef: `${role}.unit-test-session-001`,
+      targetCommitSha: head,
+    })
   }
   const validatedTask = orchestrator.recordBenchmark(state, task.id, { resultMetric: 2, artifactRef: 'docs/autonomy/supervised-merge.md' })
   assert.equal(validatedTask.status, 'validated')
