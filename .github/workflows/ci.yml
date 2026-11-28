@@ -6,12 +6,26 @@ on:
       - main
     paths:
       - "backend/**"
+      - ".github/workflows/backend-ecr.yml"
       - "frontend/**"
       - "e2e/**"
       - "desktop/scripts/diagnose-targeted-practice.cjs"
+      - "desktop/scripts/prepare-targeted-practice-model.cjs"
       - "desktop/test/diagnose-targeted-practice.test.cjs"
+      - "desktop/test/diagnose-targeted-practice.integration.cjs"
+      - "desktop/test/prepare-targeted-practice-model.test.cjs"
       - "scripts/autonomy/optimization-orchestrator.cjs"
       - "scripts/autonomy/test/optimization-orchestrator.test.cjs"
+      - "scripts/autonomy/batch-task-queue.cjs"
+      - "scripts/autonomy/test/batch-task-queue.test.cjs"
+      - "scripts/autonomy/automatic-merge-policy.cjs"
+      - "scripts/autonomy/test/automatic-merge-policy.test.cjs"
+      - "scripts/autonomy/github-native-preflight.cjs"
+      - "scripts/autonomy/test/github-native-preflight.test.cjs"
+      - "scripts/autonomy/github-pr-risk-review.cjs"
+      - "scripts/autonomy/test/github-pr-risk-review.test.cjs"
+      - "scripts/autonomy/run-trusted-github-verifier.cjs"
+      - ".github/workflows/trusted-github-pr-verification.yml"
       - "scripts/autonomy/integration-coordinator.cjs"
       - "scripts/autonomy/test/integration-coordinator.test.cjs"
       - "scripts/autonomy/trusted-integration-verifier.cjs"
@@ -20,10 +34,17 @@ on:
       - ".github/workflows/quizforge-autonomy-bridge.yml"
       - ".python-version"
       - ".github/workflows/ci.yml"
+      - "scripts/ci/test-pr-ci-trigger.cjs"
+      - "scripts/ci/classify-changed-files.sh"
+      - "scripts/ci/validate-merge-group-commits.sh"
+      - "scripts/ci/verify-required-pr-gate.cjs"
       - ".github/workflows/deployment-smoke.yml"
       - ".github/workflows/authenticated-canary.yml"
   pull_request:
     types: [opened, synchronize, reopened]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
 
 permissions:
   contents: read
@@ -58,58 +79,12 @@ jobs:
           CURRENT_SHA: ${{ github.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          CHANGED_FILES_PATH: ${{ runner.temp }}/changed-files.txt
         run: |
           set -euo pipefail
-
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" > changed-files.txt
-          elif [[ -n "${BEFORE_SHA}" && "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]]; then
-            git diff --name-only "${BEFORE_SHA}" "${CURRENT_SHA}" > changed-files.txt
-          else
-            git show --pretty="" --name-only "${CURRENT_SHA}" > changed-files.txt
-          fi
-
-          echo "Changed files:"
-          cat changed-files.txt
-
-          backend=false
-          frontend=false
-          playwright=false
-          desktop_diagnostic=false
-          autonomy_tests=false
-
-          while IFS= read -r file; do
-            case "${file}" in
-              backend/*|.python-version)
-                backend=true
-                ;;
-              frontend/*)
-                frontend=true
-                playwright=true
-                ;;
-              e2e/tests/*|e2e/integration-tests/*|e2e/canary-tests/*|e2e/support/*|e2e/playwright.config.ts|e2e/playwright.canary.config.ts|e2e/package.json|e2e/package-lock.json|.github/workflows/authenticated-canary.yml|.github/workflows/deployment-smoke.yml)
-                playwright=true
-                ;;
-              .github/workflows/ci.yml)
-                backend=true
-                frontend=true
-                playwright=true
-                autonomy_tests=true
-                ;;
-              desktop/scripts/diagnose-targeted-practice.cjs|desktop/test/diagnose-targeted-practice.test.cjs)
-                desktop_diagnostic=true
-                ;;
-              scripts/autonomy/optimization-orchestrator.cjs|scripts/autonomy/test/optimization-orchestrator.test.cjs|scripts/autonomy/integration-coordinator.cjs|scripts/autonomy/test/integration-coordinator.test.cjs|scripts/autonomy/trusted-integration-verifier.cjs|scripts/autonomy/test/trusted-integration-verifier.test.cjs|docs/autonomy/integration-task-graph.json|.github/workflows/quizforge-autonomy-bridge.yml)
-                autonomy_tests=true
-                ;;
-            esac
-          done < changed-files.txt
-
-          echo "backend=${backend}" >> "${GITHUB_OUTPUT}"
-          echo "frontend=${frontend}" >> "${GITHUB_OUTPUT}"
-          echo "playwright=${playwright}" >> "${GITHUB_OUTPUT}"
-          echo "desktop_diagnostic=${desktop_diagnostic}" >> "${GITHUB_OUTPUT}"
-          echo "autonomy_tests=${autonomy_tests}" >> "${GITHUB_OUTPUT}"
+          bash scripts/ci/classify-changed-files.sh
 
   backend-tests:
     name: Backend tests
@@ -264,8 +239,25 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Check out pinned Local Qwen application diagnostic source
+        uses: actions/checkout@v7
+        with:
+          repository: HamedGithubforwork/QuizForge-AI
+          ref: 85518cf6240836448ef331260d16ba2401d7bfa7
+          path: qwen-app-source
+          persist-credentials: false
+
+      - name: Run diagnostic callback and inspector integration test
+        run: node desktop/test/diagnose-targeted-practice.integration.cjs qwen-app-source
+
       - name: Run diagnostic privacy tests
         run: node --test desktop/test/diagnose-targeted-practice.test.cjs
+
+      - name: Run diagnostic preparation tests
+        run: node --test desktop/test/prepare-targeted-practice-model.test.cjs
+
+      - name: Run pinned model-store regression tests
+        run: node --test qwen-app-source/desktop/test/local-model-store.test.cjs
 
   autonomy-tests:
     name: Optimization orchestrator tests
@@ -283,7 +275,7 @@ jobs:
           node-version: "22"
 
       - name: Run orchestrator regression tests
-        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs
+        run: node --test scripts/autonomy/test/optimization-orchestrator.test.cjs scripts/autonomy/test/automatic-merge-policy.test.cjs scripts/autonomy/test/integration-coordinator.test.cjs scripts/autonomy/test/trusted-integration-verifier.test.cjs scripts/autonomy/test/github-native-preflight.test.cjs scripts/autonomy/test/github-pr-risk-review.test.cjs scripts/autonomy/test/batch-task-queue.test.cjs
 
   workflow-policy-tests:
     name: CI trigger policy tests
@@ -336,4 +328,19 @@ jobs:
           AUTONOMY_RESULT: ${{ needs.autonomy-tests.result }}
           AUTONOMY_REQUIRED: ${{ needs.changes.outputs.autonomy_tests }}
           WORKFLOW_POLICY_RESULT: ${{ needs.workflow-policy-tests.result }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_REPOSITORY: ${{ github.repository }}
+          CI_REPOSITORY_ID: ${{ github.repository_id }}
+          CI_OWNER_ID: ${{ github.repository_owner_id }}
+          CI_REF: ${{ github.ref }}
+          CI_SHA: ${{ github.sha }}
+          CI_AFTER_SHA: ${{ github.event.after }}
+          CI_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CI_PR_BASE_REPOSITORY_ID: ${{ github.event.pull_request.base.repo.id }}
+          CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CI_TARGET_REF: ${{ github.event.pull_request.base.ref || github.event.merge_group.base_ref || '' }}
+          CI_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref || '' }}
+          CI_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha || '' }}
+          CI_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha || '' }}
         run: node scripts/ci/verify-required-pr-gate.cjs

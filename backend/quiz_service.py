@@ -21,6 +21,7 @@ from quiz_validation import get_quiz_validation_errors
 
 
 MAX_FILE_SIZE = 15 * 1024 * 1024
+MAX_PDF_PAGE_COUNT = 100
 MAX_AI_CHARACTERS = 100_000
 MIN_EXTRACTABLE_CHARACTERS = 100
 SCAN_CHARACTERS_PER_PAGE = 50
@@ -116,6 +117,17 @@ def validate_pdf_size(contents: bytes):
         )
 
 
+async def read_pdf_upload(
+    file,
+    *,
+    validate_size=validate_pdf_size,
+):
+    """Read only enough upload data to enforce the PDF size limit."""
+    contents = await file.read(MAX_FILE_SIZE + 1)
+    validate_size(contents)
+    return contents
+
+
 def normalize_quiz_settings(
     question_count: int,
     difficulty: str,
@@ -160,6 +172,21 @@ def normalize_quiz_settings(
     )
 
 
+def validate_pdf_page_count(page_count: int):
+    if page_count > MAX_PDF_PAGE_COUNT:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "PDF contains too many pages. "
+                f"Maximum is {MAX_PDF_PAGE_COUNT} pages."
+            ),
+        )
+
+
+def validate_extracted_pdf_pages(pages):
+    validate_pdf_page_count(len(pages))
+
+
 def extract_pdf_pages(contents: bytes):
     try:
         document = pymupdf.open(
@@ -172,19 +199,19 @@ def extract_pdf_pages(contents: bytes):
             detail="Could not read this PDF.",
         ) from error
 
-    if document.needs_pass:
-        document.close()
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Password-protected PDFs are "
-                "not supported yet."
-            ),
-        )
-
-    pages = []
-
     try:
+        if document.needs_pass:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Password-protected PDFs are "
+                    "not supported yet."
+                ),
+            )
+
+        validate_pdf_page_count(document.page_count)
+
+        pages = []
         for page_number, page in enumerate(
             document,
             start=1,
